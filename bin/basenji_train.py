@@ -7,10 +7,10 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
-import dna_rnn, rnn_batcher
+import basenji
 
 ################################################################################
-# rottweiler_train.py
+# basenji_train.py
 #
 #
 ################################################################################
@@ -55,15 +55,15 @@ def main():
     job['hidden_units'] = [30,30]
     job['cell'] = 'lstm'
 
-    dr = dna_rnn.RNN()
+    dr = basenji.rnn.RNN()
     dr.build(job)
 
     #######################################################
     # train
     #######################################################
     # initialize batcher
-    batcher_train = rnn_batcher.Batcher(train_seqs, train_targets, dr.batch_size, dr.batch_length)
-    batcher_valid = rnn_batcher.Batcher(valid_seqs, valid_targets, dr.batch_size, dr.batch_length)
+    batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, dr.batch_length)
+    batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size, dr.batch_length)
 
     # checkpoints
     saver = tf.train.Saver()
@@ -100,11 +100,6 @@ def main():
             # Save the variables to disk.
             # saver.save(sess, '%s.ckpt' % options.save_prefix)
 
-def xavier_init(shape, dtype):
-    print('in it')
-    n_inputs, n_outputs = shape
-    init_range = np.sqrt(1.0 / (n_inputs + n_outputs))
-    return tf.random_uniform_initializer(-init_range, init_range, dtype)
 
 ################################################################################
 # __main__

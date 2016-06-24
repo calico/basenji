@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import sys
 import time
 
 import h5py
@@ -22,7 +23,8 @@ import basenji
 def main():
     usage = 'usage: %prog [options] <data_file>'
     parser = OptionParser(usage)
-    parser.add_option('-s', '--save', dest='save_prefix', default='rott')
+    parser.add_option('-j', '--job', dest='job')
+    parser.add_option('-s', '--save', dest='save_prefix', default='houndrnn')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
@@ -39,31 +41,28 @@ def main():
     valid_seqs = data_open['valid_in']
     valid_targets = data_open['valid_out']
 
-    seq_len = train_seqs.shape[0]
-    seq_depth = train_seqs.shape[1]
-    num_targets = train_targets.shape[1]
-
 
     #######################################################
     # model parameters and placeholders
     #######################################################
-    job = {}
-    job['batch_size'] = 32
-    job['batch_length'] = 128
-    job['seq_depth'] = 4
-    job['num_targets'] = 1
-    job['hidden_units'] = [30,30]
-    job['cell'] = 'lstm'
+    job = read_job_params(options.job)
 
+    job['batch_length'] = train_seqs.shape[1]
+    job['seq_depth'] = train_seqs.shape[2]
+    job['num_targets'] = train_targets.shape[2]
+
+    t0 = time.time()
     dr = basenji.rnn.RNN()
     dr.build(job)
+    print('Model building time %f' % (time.time()-t0))
+    sys.stdout.flush()
 
     #######################################################
     # train
     #######################################################
     # initialize batcher
-    batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, dr.batch_length)
-    batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size, dr.batch_length)
+    batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size)
+    batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
 
     # checkpoints
     saver = tf.train.Saver()
@@ -74,31 +73,74 @@ def main():
         # initialize variables
         sess.run(tf.initialize_all_variables())
         print("Initialization time %f" % (time.time()-t0))
+        sys.stdout.flush()
 
         best_r2 = -1000
+        early_stop_i = 0
 
-        for epoch in range(1, 101):
-            t0 = time.time()
+        for epoch in range(200):
+            if early_stop_i <= job.get('early_stop',12):
+                t0 = time.time()
 
-            # train
-            train_loss = dr.train_epoch(sess, batcher_train)
+                # train
+                train_loss = dr.train_epoch(sess, batcher_train)
 
-            # validate
-            valid_loss, valid_r2 = dr.test(sess, batcher_valid)
+                # validate
+                valid_loss, valid_r2 = dr.test(sess, batcher_valid)
 
-            best_str = ''
-            if valid_r2 > best_r2:
-                best_r2 = valid_r2
-                best_str = 'best!'
+                best_str = ''
+                if valid_r2 > best_r2:
+                    best_r2 = valid_r2
+                    best_str = 'best!'
+                    early_stop_i = 0
+                else:
+                    early_stop_i += 1
 
-            # measure time
-            et = time.time() - t0
+                # measure time
+                et = time.time() - t0
+                if et < 600:
+                    time_str = '%3ds' % et
+                elif et < 6000:
+                    time_str = '%3dm' % et/60
+                else:
+                    time_str = '%3.1fh' % et/3600
 
-            # print update
-            print('Epoch %3d: Train loss: %11.4f, Valid loss: %11.4f, Valid R2: %7.5f, Time: %5d %s' % (epoch, train_loss, valid_loss, valid_r2, et, best_str))
+                # print update
+                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, trime_str, best_str))
+                sys.stdout.flush()
 
-            # Save the variables to disk.
-            # saver.save(sess, '%s.ckpt' % options.save_prefix)
+                # Save the variables to disk.
+                # saver.save(sess, '%s.ckpt' % options.save_prefix)
+
+
+def read_job_params(job_file):
+    ''' Read job parameters from table. '''
+
+    job = {}
+
+    if job_file is not None:
+        for line in open(job_file):
+            param, val = line.split()
+
+            # require a decimal for floats
+            if val.find('.') == -1:
+                val = int(val)
+            else:
+                val = float(val)
+
+            if param in job:
+                # change to a list
+                if type(job[param]) != list:
+                    job[param] = [job[param]]
+
+                # append new value
+                job[param].append(val)
+            else:
+                job[param] = val
+
+        print(job)
+
+    return job
 
 
 ################################################################################

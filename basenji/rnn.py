@@ -1,11 +1,12 @@
 #!/usr/bin/env python
+
 import time
 
 import numpy as np
+
 from sklearn.metrics import r2_score
 import tensorflow as tf
 
-import rnn_batcher
 
 class RNN:
     def __init__(self):
@@ -44,50 +45,19 @@ class RNN:
                     print('Cannot recognize RNN cell type %s' % self.cell)
                     exit(1)
 
+                # dropout
+                if li < len(self.dropout) and self.dropout[li] > 0:
+                    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1.0-self.dropout[li]))
+
                 # run bidirectional
                 outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
 
                 # outputs become input to next layer
                 rinput = outputs
 
-        '''
-        # individual layers
-        layer_cells = []
-        for li in range(self.layers):
-            with tf.variable_scope('layer%d' % li):
-                # single cell
-                if self.cell == 'rnn':
-                    cell = tf.nn.rnn_cell.BasicRNNCell(self.hidden_units[li])
-                elif self.cell == 'gru':
-                    cell = tf.nn.rnn_cell.GRUCell(self.hidden_units[li])
-                elif self.cell == 'lstm':
-                    cell = tf.nn.rnn_cell.LSTMCell(self.hidden_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
-                else:
-                    print('Cannot recognize RNN cell type %s' % self.cell)
-                    exit(1)
-
-                # add dropout
-                if self.dropouts[li] > 0:
-                    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1.0-self.dropouts[li]))
-
-                layer_cells.append(cell)
-
-        # stack
-        if self.cell == 'lstm':
-            rnn_stack = tf.nn.rnn_cell.MultiRNNCell(layer_cells, state_is_tuple=True)
-        else:
-            rnn_stack = tf.nn.rnn_cell.MultiRNNCell(layer_cells)
-
-        # run the RNN
-        outputs, states_fwd, states_rev = tf.nn.bidirectional_rnn(rnn_stack, rnn_stack, rinput, dtype=tf.float32)
-        '''
-
-        # throw away a buffer region on the side
-        outputs = outputs[self.batch_buffer:-self.batch_buffer]
-
         # make final predictions
         preds_length = []
-        for li in range(self.batch_length - 2*self.batch_buffer):
+        for li in range(self.batch_buffer, self.batch_length-self.batch_buffer):
             preds_length.append(tf.matmul(outputs[li], out_weights) + out_biases)
 
         # convert list to tensor
@@ -103,8 +73,16 @@ class RNN:
         ###################################################
         # loss and optimization
         ###################################################
-        # define loss function
-        self.loss_op = tf.reduce_mean(tf.squared_difference(self.preds, self.targets[:,self.batch_buffer:self.batch_length-self.batch_buffer,:]))
+        # take square difference
+        sq_diff = tf.squared_difference(self.preds, self.targets[:,self.batch_buffer:self.batch_length-self.batch_buffer,:])
+
+        # set any NaN's to zero
+        nan_indexes = tf.is_nan(sq_diff)
+        tens0 = tf.zeros_like(sq_diff)
+        sq_diff = tf.select(nan_indexes, tens0, sq_diff)
+
+        # take the mean
+        self.loss_op = tf.reduce_mean(sq_diff)
 
         # define optimization
         if self.optimization == 'adam':
@@ -132,7 +110,7 @@ class RNN:
         ###################################################
         # data attributes
         ###################################################
-        self.seq_depth = job['seq_depth']
+        self.seq_depth = job.get('seq_depth', 4)
         self.num_targets = job['num_targets']
 
         ###################################################
@@ -145,11 +123,11 @@ class RNN:
         ###################################################
         # training
         ###################################################
-        self.learning_rate = job.get('learning_rate', 0.015)
+        self.learning_rate = job.get('learning_rate', 0.005)
         self.adam_beta1 = job.get('adam_beta1', 0.9)
-        self.adam_beta2 = job.get('adam_beta2', 0.95)
+        self.adam_beta2 = job.get('adam_beta2', 0.99)
         self.optimization = job.get('optimization', 'adam').lower()
-        self.grad_clip = job.get('grad_clip', 2)
+        self.grad_clip = job.get('grad_clip', 4)
 
         ###################################################
         # RNN params
@@ -161,7 +139,7 @@ class RNN:
         ###################################################
         # regularization
         ###################################################
-        self.dropouts = layer_extend(job.get('dropout',[]), 0, self.layers)
+        self.dropout = layer_extend(job.get('dropout',[]), 0, self.layers)
 
         # batch normalization?
 
@@ -193,12 +171,30 @@ class RNN:
         # reset batcher
         batcher.reset()
 
-        # compute R2
+        # accumulate predictions and targets
         preds = np.vstack(preds)
         targets = np.vstack(targets)
-        r2 = r2_score(targets.flatten(), preds.flatten())
 
-        return np.mean(batch_losses), r2
+        # compute R2 per target
+        r2 = np.zeros(self.num_targets)
+        for ti in range(self.num_targets):
+            # flatten
+            preds_ti = preds[:,:,ti].flatten()
+            targets_ti = targets[:,:,ti].flatten()
+
+            # remove NaN's
+            valid_indexes = np.logical_not(np.isnan(targets_ti))
+            preds_ti = preds_ti[valid_indexes]
+            targets_ti = targets_ti[valid_indexes]
+
+            # compute R2
+            tmean = targets_ti.mean(dtype='float64')
+            tvar = (targets_ti-tmean).var(dtype='float64')
+            pvar = (targets_ti-preds_ti).var(dtype='float64')
+            r2[ti] = 1.0 - pvar/tvar
+            # print('%d %f %f %f %f' % (ti, tmean, tvar, pvar, r2[ti]))
+
+        return np.mean(batch_losses), np.mean(r2)
 
 
     def train_epoch(self, sess, batcher):

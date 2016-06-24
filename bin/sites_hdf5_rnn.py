@@ -39,6 +39,9 @@ def main():
         sample_wigs_file = args[2]
         out_hdf5_file = args[3]
 
+    # seed rng before shuffle
+    np.random.seed(options.random_seed)
+
     #################################################################
     # setup
     #################################################################
@@ -53,7 +56,9 @@ def main():
     num_sites = len(sites)
 
     # shuffle sites
-    random.shuffle(sites)
+    # random.shuffle(sites)
+    order = np.random.permutation(len(sites))
+    sites = np.array(sites)[order]
 
     # get wig files and labels
     target_wigs = OrderedDict()
@@ -72,16 +77,16 @@ def main():
 
     # input
     train_in = out_hdf5_open.create_dataset('train_in', (train_num,site_len,4), dtype='float16')
-    if options.valid_num:
+    if options.valid_num > 0:
         valid_in = out_hdf5_open.create_dataset('valid_in', (options.valid_num,site_len,4), dtype='float16')
     if options.test_num > 0:
         test_in = out_hdf5_open.create_dataset('test_in', (options.test_num,site_len,4), dtype='float16')
 
     # output
     train_out = out_hdf5_open.create_dataset('train_out', (train_num,site_len,num_targets), dtype='float16')
-    if options.valid_num:
+    if options.valid_num > 0:
         valid_out = out_hdf5_open.create_dataset('valid_out', (options.valid_num,site_len,num_targets), dtype='float16')
-    if options.test_num:
+    if options.test_num > 0:
         test_out = out_hdf5_open.create_dataset('test_out', (options.test_num,site_len,num_targets), dtype='float16')
 
 
@@ -103,7 +108,7 @@ def main():
             ds_i = si - train_num - options.valid_num
 
         # one hot code sequence
-        ds_in[ds_i,:,:] = basenji.io.dna_1hot(sites[ds_i].seq(fasta_in, site_len))
+        ds_in[ds_i,:,:] = basenji.io.dna_1hot(sites[si].seq(fasta_in, site_len))
 
     fasta_in.close()
 
@@ -153,7 +158,8 @@ def main():
     #################################################################
     # finalize
     #################################################################
-    out_hdf5_open.create_dataset('target_labels', data=target_wigs.keys())
+    target_labels = np.array(list(target_wigs.keys()), dtype='S')
+    out_hdf5_open.create_dataset('target_labels', data=target_labels)
 
     if options.valid_test:
         out_hdf5_open.create_dataset('test_in', data=valid_in)

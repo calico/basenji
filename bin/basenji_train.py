@@ -101,12 +101,12 @@ def main():
                 if et < 600:
                     time_str = '%3ds' % et
                 elif et < 6000:
-                    time_str = '%3dm' % et/60
+                    time_str = '%3dm' % (et/60)
                 else:
-                    time_str = '%3.1fh' % et/3600
+                    time_str = '%3.1fh' % et/(3600)
 
                 # print update
-                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, trime_str, best_str))
+                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
                 sys.stdout.flush()
 
                 # Save the variables to disk.

@@ -22,38 +22,79 @@ class RNN:
         self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth))
         self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.num_targets))
 
-        with tf.variable_scope('out'):
-            out_weights = tf.get_variable(name='weights', shape=[2*self.hidden_units[-1], self.num_targets], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
-            out_biases = tf.Variable(tf.zeros(self.num_targets), name='bias')
+        ###################################################
+        # convolution layers
+        ###################################################
+        if self.cnn_layers > 0:
+            seq_length = self.batch_length
+            seq_depth = self.seq_depth
+
+            # reshape
+            cinput = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
+
+            for li in range(self.cnn_layers):
+                with tf.variable_scope('cnn%d' % li) as vs:
+                    # convolution params
+                    stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
+                    kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
+                    biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
+
+                    # convolution
+                    conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
+                    convf = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
+
+                    if self.cnn_pool[li] == 1:
+                        cinput = convf
+                    else:
+                        # pool
+                        pool = tf.nn.max_pool(convf, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME', name='pool%d'%li)
+                        cinput = pool
+
+                    # updates size variables
+                    seq_length = seq_length // self.cnn_pool[li]
+                    seq_depth = self.cnn_filters[li]
+
+            # reshape for RNN
+            rinput = tf.reshape(cinput, [self.batch_size, seq_length, seq_depth])
+
+        else:
+            rinput = self.inputs
 
         ###################################################
-        # construct model
+        # recurrent layers
         ###################################################
         # tf needs batch_length in the front as a list
-        rinput = tf.unpack(tf.transpose(self.inputs, [1, 0, 2]))
+        rinput = tf.unpack(tf.transpose(rinput, [1, 0, 2]))
 
-        for li in range(self.layers):
-            with tf.variable_scope('layer%d' % li) as vs:
+        for li in range(self.rnn_layers):
+            with tf.variable_scope('rnn%d' % li) as vs:
                 # determine cell
                 if self.cell == 'rnn':
-                    cell = tf.nn.rnn_cell.BasicRNNCell(self.hidden_units[li])
+                    cell = tf.nn.rnn_cell.BasicRNNCell(self.rnn_units[li])
                 elif self.cell == 'gru':
-                    cell = tf.nn.rnn_cell.GRUCell(self.hidden_units[li])
+                    cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li])
                 elif self.cell == 'lstm':
-                    cell = tf.nn.rnn_cell.LSTMCell(self.hidden_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+                    cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
                 else:
                     print('Cannot recognize RNN cell type %s' % self.cell)
                     exit(1)
 
                 # dropout
-                if li < len(self.dropout) and self.dropout[li] > 0:
-                    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1.0-self.dropout[li]))
+                if li < len(self.rnn_dropout) and self.rnn_dropout[li] > 0:
+                    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1.0-self.rnn_dropout[li]))
 
                 # run bidirectional
                 outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
 
                 # outputs become input to next layer
                 rinput = outputs
+
+        ###################################################
+        # output layers
+        ###################################################
+        with tf.variable_scope('out'):
+            out_weights = tf.get_variable(name='weights', shape=[2*self.rnn_units[-1], self.num_targets], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+            out_biases = tf.Variable(tf.zeros(self.num_targets), name='bias')
 
         # make final predictions
         preds_length = []
@@ -123,23 +164,32 @@ class RNN:
         ###################################################
         # training
         ###################################################
-        self.learning_rate = job.get('learning_rate', 0.005)
+        self.learning_rate = job.get('learning_rate', 0.004)
         self.adam_beta1 = job.get('adam_beta1', 0.9)
         self.adam_beta2 = job.get('adam_beta2', 0.99)
         self.optimization = job.get('optimization', 'adam').lower()
         self.grad_clip = job.get('grad_clip', 4)
 
         ###################################################
+        # CNN params
+        ###################################################
+        self.cnn_filters = np.atleast_1d(job.get('cnn_filters', []))
+        self.cnn_filter_sizes = np.atleast_1d(job.get('cnn_filter_sizes', []))
+        self.cnn_layers = len(self.cnn_filters)
+        self.cnn_pool = layer_extend(job.get('cnn_pool', []), 1, self.cnn_layers)
+
+        ###################################################
         # RNN params
         ###################################################
-        self.hidden_units = job.get('hidden_units', [100])
-        self.layers = len(self.hidden_units)
+        self.rnn_units = np.atleast_1d(job.get('rnn_units', [100]))
+        self.rnn_layers = len(self.rnn_units)
         self.cell = job.get('cell', 'lstm').lower()
 
         ###################################################
         # regularization
         ###################################################
-        self.dropout = layer_extend(job.get('dropout',[]), 0, self.layers)
+        self.cnn_dropout = layer_extend(job.get('cnn_dropout', []), 0, self.cnn_layers)
+        self.rnn_dropout = layer_extend(job.get('rnn_dropout', []), 0, self.rnn_layers)
 
         # batch normalization?
 

@@ -96,9 +96,8 @@ class RNN:
                 # accumulate norm stablizer
                 if self.norm_stabilizer[li] > 0:
                     output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), reduction_indices=1))
-                    print(output_norms.get_shape())
-                    tmp = tf.squared_difference(output_norms[1:,:], output_norms[:seq_length-1,:])
-                    norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(tmp)
+                    output_norms_diff = tf.squared_difference(output_norms[1:,:], output_norms[:seq_length-1,:])
+                    norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(output_norms_diff)
 
                 # outputs become input to next layer
                 rinput = outputs

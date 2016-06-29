@@ -25,10 +25,10 @@ class RNN:
         ###################################################
         # convolution layers
         ###################################################
-        if self.cnn_layers > 0:
-            seq_length = self.batch_length
-            seq_depth = self.seq_depth
+        seq_length = self.batch_length
+        seq_depth = self.seq_depth
 
+        if self.cnn_layers > 0:
             # reshape
             cinput = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
 
@@ -63,18 +63,22 @@ class RNN:
         ###################################################
         # recurrent layers
         ###################################################
-        # tf needs batch_length in the front as a list
+        # initialize norm stabilizer term
+        norm_stabilizer = 0
+
+        # move batch_length to the front as a list
         rinput = tf.unpack(tf.transpose(rinput, [1, 0, 2]))
 
         for li in range(self.rnn_layers):
             with tf.variable_scope('rnn%d' % li) as vs:
                 # determine cell
                 if self.cell == 'rnn':
-                    cell = tf.nn.rnn_cell.BasicRNNCell(self.rnn_units[li])
+                    cell = tf.nn.rnn_cell.BasicRNNCell(self.rnn_units[li], activation=self.activation)
                 elif self.cell == 'gru':
-                    cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li])
+                    cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li], activation=self.activation)
                 elif self.cell == 'lstm':
-                    cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+                    # cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+                    cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True), activation=self.activation)
                 else:
                     print('Cannot recognize RNN cell type %s' % self.cell)
                     exit(1)
@@ -84,7 +88,17 @@ class RNN:
                     cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1.0-self.rnn_dropout[li]))
 
                 # run bidirectional
-                outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
+                if self.cnn_layers == 0 and li == 0:
+                    outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
+                else:
+                    outputs, _, _ = bidirectional_rnn_tied(cell, cell, rinput, dtype=tf.float32)
+
+                # accumulate norm stablizer
+                if self.norm_stabilizer[li] > 0:
+                    output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), reduction_indices=1))
+                    print(output_norms.get_shape())
+                    tmp = tf.squared_difference(output_norms[1:,:], output_norms[:seq_length-1,:])
+                    norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(tmp)
 
                 # outputs become input to next layer
                 rinput = outputs
@@ -118,12 +132,12 @@ class RNN:
         sq_diff = tf.squared_difference(self.preds, self.targets[:,self.batch_buffer:self.batch_length-self.batch_buffer,:])
 
         # set any NaN's to zero
-        nan_indexes = tf.is_nan(sq_diff)
-        tens0 = tf.zeros_like(sq_diff)
-        sq_diff = tf.select(nan_indexes, tens0, sq_diff)
+        # nan_indexes = tf.is_nan(sq_diff)
+        # tens0 = tf.zeros_like(sq_diff)
+        # sq_diff = tf.select(nan_indexes, tens0, sq_diff)
 
         # take the mean
-        self.loss_op = tf.reduce_mean(sq_diff)
+        self.loss_op = tf.reduce_mean(sq_diff) + norm_stabilizer
 
         # define optimization
         if self.optimization == 'adam':
@@ -184,12 +198,17 @@ class RNN:
         self.rnn_units = np.atleast_1d(job.get('rnn_units', [100]))
         self.rnn_layers = len(self.rnn_units)
         self.cell = job.get('cell', 'lstm').lower()
+        self.activation = tf.tanh
+        if job.get('activation').lower() == 'relu':
+            self.activation = tf.nn.relu
 
         ###################################################
         # regularization
         ###################################################
         self.cnn_dropout = layer_extend(job.get('cnn_dropout', []), 0, self.cnn_layers)
+
         self.rnn_dropout = layer_extend(job.get('rnn_dropout', []), 0, self.rnn_layers)
+        self.norm_stabilizer = layer_extend(job.get('norm_stabilizer', []), 0, self.rnn_layers)
 
         # batch normalization?
 
@@ -233,9 +252,9 @@ class RNN:
             targets_ti = targets[:,:,ti].flatten()
 
             # remove NaN's
-            valid_indexes = np.logical_not(np.isnan(targets_ti))
-            preds_ti = preds_ti[valid_indexes]
-            targets_ti = targets_ti[valid_indexes]
+            #valid_indexes = np.logical_not(np.isnan(targets_ti))
+            #preds_ti = preds_ti[valid_indexes]
+            #targets_ti = targets_ti[valid_indexes]
 
             # compute R2
             tmean = targets_ti.mean(dtype='float64')
@@ -290,4 +309,26 @@ def layer_extend(var, default, layers):
 
     return var
 
+from tensorflow.python.ops import variable_scope as vs
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops.rnn import _reverse_seq
+def bidirectional_rnn_tied(cell_fw, cell_bw, inputs,
+                      initial_state_fw=None, initial_state_bw=None,
+                      dtype=None, sequence_length=None, scope=None):
+    name = scope or "BiRNN"
+    with vs.variable_scope(name) as fw_scope:
+        # Forward direction
+        output_fw, output_state_fw = tf.nn.rnn(cell_fw, inputs, initial_state_fw, dtype, sequence_length, scope=fw_scope)
+
+    with vs.variable_scope(name, reuse=True) as bw_scope:
+        # Backward direction
+        tmp, output_state_bw = tf.nn.rnn(cell_bw, _reverse_seq(inputs, sequence_length),
+                 initial_state_bw, dtype, sequence_length, scope=bw_scope)
+
+    output_bw = _reverse_seq(tmp, sequence_length)
+
+    # Concat each of the forward/backward outputs
+    outputs = [array_ops.concat(1, [fw, bw]) for fw, bw in zip(output_fw, output_bw)]
+
+    return (outputs, output_state_fw, output_state_bw)
 

@@ -94,6 +94,7 @@ def main():
                     best_r2 = valid_r2
                     best_str = 'best!'
                     early_stop_i = 0
+                    saver.save(sess, '%s_best.tf' % options.save_prefix)
                 else:
                     early_stop_i += 1
 
@@ -110,8 +111,8 @@ def main():
                 print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
                 sys.stdout.flush()
 
-                # Save the variables to disk.
-                saver.save(sess, '%s.ckpt' % options.save_prefix)
+                # save the variables to disk.
+                # saver.save(sess, '%s_ckpt.tf' % options.save_prefix)
 
     # print result to file
     if options.result_file:

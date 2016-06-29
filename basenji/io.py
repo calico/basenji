@@ -49,3 +49,36 @@ def dna_1hot(seq, seq_len=None):
                 seq_code[i,:] = 0.25
 
     return seq_code
+
+
+def read_job_params(job_file):
+    ''' Read job parameters from table. '''
+
+    job = {}
+
+    if job_file is not None:
+        for line in open(job_file):
+            param, val = line.split()
+
+            # require a decimal for floats
+            try:
+                if val.find('.') == -1:
+                    val = int(val)
+                else:
+                    val = float(val)
+            except ValueError:
+                pass
+
+            if param in job:
+                # change to a list
+                if type(job[param]) != list:
+                    job[param] = [job[param]]
+
+                # append new value
+                job[param].append(val)
+            else:
+                job[param] = val
+
+        print(job)
+
+    return job

@@ -40,7 +40,7 @@ def main():
     #######################################################
     # model parameters and placeholders
     #######################################################
-    job = read_job_params(options.job)
+    job = basenji.io.read_job_params(options.job)
 
     job['batch_length'] = test_seqs.shape[1]
     job['seq_depth'] = test_seqs.shape[2]
@@ -76,38 +76,6 @@ def main():
 
     data_open.close()
 
-
-def read_job_params(job_file):
-    ''' Read job parameters from table. '''
-
-    job = {}
-
-    if job_file is not None:
-        for line in open(job_file):
-            param, val = line.split()
-
-            # require a decimal for floats
-            try:
-                if val.find('.') == -1:
-                    val = int(val)
-                else:
-                    val = float(val)
-            except ValueError:
-                pass
-
-            if param in job:
-                # change to a list
-                if type(job[param]) != list:
-                    job[param] = [job[param]]
-
-                # append new value
-                job[param].append(val)
-            else:
-                job[param] = val
-
-        print(job)
-
-    return job
 
 ################################################################################
 # __main__

@@ -24,6 +24,7 @@ def main():
     usage = 'usage: %prog [options] <data_file>'
     parser = OptionParser(usage)
     parser.add_option('-j', '--job', dest='job')
+    parser.add_option('-r', '--result', dest='result_file', help='Print accuracy result to file')
     parser.add_option('-s', '--save', dest='save_prefix', default='houndrnn')
     (options,args) = parser.parse_args()
 
@@ -103,14 +104,20 @@ def main():
                 elif et < 6000:
                     time_str = '%3dm' % (et/60)
                 else:
-                    time_str = '%3.1fh' % et/(3600)
+                    time_str = '%3.1fh' % (et/3600)
 
                 # print update
                 print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
                 sys.stdout.flush()
 
                 # Save the variables to disk.
-                # saver.save(sess, '%s.ckpt' % options.save_prefix)
+                saver.save(sess, '%s.ckpt' % options.save_prefix)
+
+    # print result to file
+    if options.result_file:
+        result_out = open(options.result_file, 'w')
+        print(best_r2, file=result_out)
+        result_out.close()
 
 
 def read_job_params(job_file):
@@ -123,10 +130,13 @@ def read_job_params(job_file):
             param, val = line.split()
 
             # require a decimal for floats
-            if val.find('.') == -1:
-                val = int(val)
-            else:
-                val = float(val)
+            try:
+                if val.find('.') == -1:
+                    val = int(val)
+                else:
+                    val = float(val)
+            except ValueError:
+                pass
 
             if param in job:
                 # change to a list

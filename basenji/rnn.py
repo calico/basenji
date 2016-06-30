@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+import sys
 import time
 
 import numpy as np
@@ -197,9 +197,14 @@ class RNN:
         self.rnn_units = np.atleast_1d(job.get('rnn_units', [100]))
         self.rnn_layers = len(self.rnn_units)
         self.cell = job.get('cell', 'lstm').lower()
-        self.activation = tf.tanh
-        if job.get('activation').lower() == 'relu':
+        self.activation = job.get('activation','tanh').lower()
+        if self.activation == 'relu':
             self.activation = tf.nn.relu
+        elif self.activation == 'tanh':
+            self.activation = tf.tanh
+        else:
+            print('Activation %s not implemented' % self.activation, file=sys.stderr)
+            exit(1)
 
         ###################################################
         # regularization

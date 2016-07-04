@@ -19,8 +19,17 @@ class RNN:
         ###################################################
         self.set_params(job)
 
+        # batches
         self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth))
         self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.num_targets))
+
+        # dropout rates
+        self.cnn_dropout_ph = []
+        for li in range(self.cnn_layers):
+            self.cnn_dropout_ph.append(tf.placeholder(tf.float32))
+        self.rnn_dropout_ph = []
+        for lin in range(self.rnn_layers):
+            self.rnn_dropout_ph.append(tf.placeholder(tf.float32))
 
         ###################################################
         # convolution layers
@@ -85,7 +94,7 @@ class RNN:
 
                 # dropout
                 if li < len(self.rnn_dropout) and self.rnn_dropout[li] > 0:
-                    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1.0-self.rnn_dropout[li]))
+                    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1-self.rnn_dropout_ph[li]))
 
                 # run bidirectional
                 if self.cnn_layers == 0 and li == 0:
@@ -95,8 +104,8 @@ class RNN:
 
                 # accumulate norm stablizer
                 if self.norm_stabilizer[li] > 0:
-                    output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), reduction_indices=1))
-                    output_norms_diff = tf.squared_difference(output_norms[1:,:], output_norms[:seq_length-1,:])
+                    output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), reduction_indices=2))
+                    output_norms_diff = tf.squared_difference(output_norms[self.batch_buffer:,:], output_norms[:seq_length-self.batch_buffer,:])
                     norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(output_norms_diff)
 
                 # outputs become input to next layer
@@ -154,10 +163,6 @@ class RNN:
         self.step_op = opt.apply_gradients(clip_gvs)
 
 
-    def load(self):
-        pass
-
-
     def set_params(self, job):
         ''' Set RNN parameters. '''
 
@@ -177,7 +182,7 @@ class RNN:
         ###################################################
         # training
         ###################################################
-        self.learning_rate = job.get('learning_rate', 0.004)
+        self.learning_rate = job.get('learning_rate', 0.001)
         self.adam_beta1 = job.get('adam_beta1', 0.9)
         self.adam_beta2 = job.get('adam_beta2', 0.99)
         self.optimization = job.get('optimization', 'adam').lower()
@@ -217,19 +222,30 @@ class RNN:
         # batch normalization?
 
 
-    def test(self, sess, batcher):
+    def test(self, sess, batcher, return_preds=False):
         ''' Compute model accuracy on a test set. '''
 
         batch_losses = []
         preds = []
         targets = []
 
+        # setup feed dict for dropout
+        fd = {}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = 0
+
         # get first batch
         Xb, Yb = batcher.next()
 
         while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+            fd[self.targets] = Yb
+
             # measure batch loss
-            preds_batch, loss_batch = sess.run([self.preds, self.loss_op], feed_dict={self.inputs:Xb, self.targets:Yb})
+            preds_batch, loss_batch = sess.run([self.preds, self.loss_op], feed_dict=fd)
 
             # accumulate loss
             batch_losses.append(loss_batch)
@@ -267,7 +283,10 @@ class RNN:
             r2[ti] = 1.0 - pvar/tvar
             # print('%d %f %f %f %f' % (ti, tmean, tvar, pvar, r2[ti]))
 
-        return np.mean(batch_losses), np.mean(r2)
+        if return_preds:
+            return np.mean(batch_losses), np.mean(r2), preds
+        else:
+            return np.mean(batch_losses), np.mean(r2)
 
 
     def train_epoch(self, sess, batcher):
@@ -276,12 +295,23 @@ class RNN:
         # initialize training loss
         train_loss = []
 
+        # setup feed dict for dropout
+        fd = {}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
+
         # get first batch
         Xb, Yb = batcher.next()
 
         while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+            fd[self.targets] = Yb
+
             # run step
-            loss_batch, _ = sess.run([self.loss_op, self.step_op], feed_dict={self.inputs:Xb, self.targets:Yb})
+            loss_batch, _ = sess.run([self.loss_op, self.step_op], feed_dict=fd)
 
             # accumulate loss
             train_loss.append(loss_batch)
@@ -312,6 +342,7 @@ def layer_extend(var, default, layers):
         var.append(default)
 
     return var
+
 
 from tensorflow.python.ops import variable_scope as vs
 from tensorflow.python.ops import array_ops

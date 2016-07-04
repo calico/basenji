@@ -8,7 +8,7 @@ class Batcher:
 
     Class to manage batches.
     '''
-    def __init__(self, Xf, Yf, batch_size=8):
+    def __init__(self, Xf, Yf=None, batch_size=8):
         self.Xf = Xf
         self.num_seqs = self.Xf.shape[0]
 
@@ -28,12 +28,16 @@ class Batcher:
         if stop <= self.num_seqs:
             # copy data
             Xb = np.array(self.Xf[self.start:stop], dtype='float32')
-            Yb = np.nan_to_num(np.array(self.Yf[self.start:stop], dtype='float32'))
+            if self.Yf is not None:
+                Yb = np.nan_to_num(np.array(self.Yf[self.start:stop], dtype='float32'))
 
             # update start
             self.start = stop
 
-        return Xb, Yb
+        if self.Yf is None:
+            return Xb
+        else:
+            return Xb, Yb
 
 
     def reset(self):

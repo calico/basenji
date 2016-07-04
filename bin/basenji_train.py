@@ -80,7 +80,7 @@ def main():
         early_stop_i = 0
 
         for epoch in range(200):
-            if early_stop_i <= job.get('early_stop',12):
+            if early_stop_i < job.get('early_stop',12):
                 t0 = time.time()
 
                 # train

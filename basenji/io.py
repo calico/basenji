@@ -50,6 +50,28 @@ def dna_1hot(seq, seq_len=None):
 
     return seq_code
 
+def hot1_dna(seqs_1hot):
+    ''' Convert 1-hot coded sequences to ACGTN. '''
+
+    seqs = []
+    for si in range(seqs_1hot.shape[0]):
+        seq_list = ['A']*seqs_1hot.shape[1]
+        for li in range(seqs_1hot.shape[1]):
+            if seqs_1hot[si,li,0] == 1:
+                seq_list[li] = 'A'
+            elif seqs_1hot[si,li,1] == 1:
+                seq_list[li] = 'C'
+            elif seqs_1hot[si,li,2] == 1:
+                seq_list[li] = 'G'
+            elif seqs_1hot[si,li,3] == 1:
+                seq_list[li] = 'T'
+            else:
+                seq_list[li] = 'N'
+
+        seqs.append(''.join(seq_list))
+
+    return seqs
+
 
 def read_job_params(job_file):
     ''' Read job parameters from table. '''

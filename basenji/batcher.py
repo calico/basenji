@@ -23,21 +23,38 @@ class Batcher:
         ''' Load the next batch from the HDF5. '''
         Xb = None
         Yb = None
+        Nb = 0
 
         stop = self.start + self.batch_size
         if stop <= self.num_seqs:
+            # full batch
+
             # copy data
             Xb = np.array(self.Xf[self.start:stop], dtype='float32')
             if self.Yf is not None:
                 Yb = np.nan_to_num(np.array(self.Yf[self.start:stop], dtype='float32'))
 
-            # update start
-            self.start = stop
+            # specify full batch
+            Nb = self.batch_size
 
-        if self.Yf is None:
-            return Xb
-        else:
-            return Xb, Yb
+        elif self.start < self.num_seqs:
+            # partial batch
+
+            # initialize full batch of zeros
+            Xb = np.zeros((self.batch_size, self.Xf.shape[1], self.Xf.shape[2]), dtype='float32')
+            if self.Yf is not None:
+                Yb = np.zeros((self.batch_size, self.Yf.shape[1], self.Yf.shape[2]), dtype='float32')
+
+            # copy data
+            Nb = self.num_seqs - self.start
+            Xb[:Nb] = self.Xf[self.start:self.start+Nb]
+            if self.Yf is not None:
+                Yb[:Nb] = np.nan_to_num(self.Yf[self.start:self.start+batch+n])
+
+        # update start
+        self.start = stop
+
+        return Xb, Yb, Nb
 
 
     def reset(self):

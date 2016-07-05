@@ -127,7 +127,7 @@ class RNN:
         preds = tf.pack(preds_length)
 
         # transpose back to batches in front
-        self.preds = tf.transpose(preds, [1, 0, 2])
+        self.preds_op = tf.transpose(preds, [1, 0, 2])
 
         for v in tf.all_variables():
             print(v.name, v.get_shape())
@@ -137,7 +137,7 @@ class RNN:
         # loss and optimization
         ###################################################
         # take square difference
-        sq_diff = tf.squared_difference(self.preds, self.targets[:,self.batch_buffer:self.batch_length-self.batch_buffer,:])
+        sq_diff = tf.squared_difference(self.preds_op, self.targets[:,self.batch_buffer:self.batch_length-self.batch_buffer,:])
 
         # set any NaN's to zero
         # nan_indexes = tf.is_nan(sq_diff)
@@ -222,6 +222,43 @@ class RNN:
         # batch normalization?
 
 
+    def predict(self, sess, batcher):
+        ''' Compute predictions on a test set. '''
+
+        preds = []
+
+        # setup feed dict for dropout
+        fd = {}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = 0
+
+        # get first batch
+        Xb, _, Nb = batcher.next()
+
+        while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+
+            # measure batch loss
+            preds_batch = sess.run(self.preds_op, feed_dict=fd)
+
+            # accumulate predictions and targets
+            preds.append(preds_batch[:Nb])
+
+            # next batch
+            Xb, _, Nb = batcher.next()
+
+        # reset batcher
+        batcher.reset()
+
+        # accumulate predictions
+        preds = np.vstack(preds)
+
+        return preds
+
+
     def test(self, sess, batcher, return_preds=False):
         ''' Compute model accuracy on a test set. '''
 
@@ -237,7 +274,7 @@ class RNN:
             fd[self.rnn_dropout_ph[li]] = 0
 
         # get first batch
-        Xb, Yb = batcher.next()
+        Xb, Yb, Nb = batcher.next()
 
         while Xb is not None:
             # update feed dict
@@ -245,17 +282,17 @@ class RNN:
             fd[self.targets] = Yb
 
             # measure batch loss
-            preds_batch, loss_batch = sess.run([self.preds, self.loss_op], feed_dict=fd)
+            preds_batch, loss_batch = sess.run([self.preds_op, self.loss_op], feed_dict=fd)
 
             # accumulate loss
             batch_losses.append(loss_batch)
 
             # accumulate predictions and targets
-            preds.append(preds_batch)
-            targets.append(Yb[:,self.batch_buffer:self.batch_length-self.batch_buffer,:])
+            preds.append(preds_batch[:Nb])
+            targets.append(Yb[:Nb,self.batch_buffer:self.batch_length-self.batch_buffer,:])
 
             # next batch
-            Xb, Yb = batcher.next()
+            Xb, Yb, Nb = batcher.next()
 
         # reset batcher
         batcher.reset()
@@ -303,9 +340,9 @@ class RNN:
             fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
 
         # get first batch
-        Xb, Yb = batcher.next()
+        Xb, Yb, Nb = batcher.next()
 
-        while Xb is not None:
+        while Xb is not None and Nb == self.batch_size:
             # update feed dict
             fd[self.inputs] = Xb
             fd[self.targets] = Yb
@@ -317,7 +354,7 @@ class RNN:
             train_loss.append(loss_batch)
 
             # next batch
-            Xb, Yb = batcher.next()
+            Xb, Yb, Nb = batcher.next()
 
         # reset training batcher
         batcher.reset()

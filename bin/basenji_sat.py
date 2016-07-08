@@ -197,11 +197,10 @@ def delta_matrix(seqs_1hot, si, sat_preds, satmut_len):
     for li in range(satmut_len):
         for ni in range(4):
             if seqs_1hot[si,ssi+li,ni] == 1:
-                # sat_delta[ni,li,:] = sat_preds[si,sli+li,:]
                 sat_delta[ni,li,:] = 0
             else:
-                # sat_delta[ni,li,:] = sat_preds[si,sli+li,:] - sat_preds[smi,sli+li,:]
-                sat_delta[ni,li,:] = sat_preds[smi,spi+li,:] - sat_preds[si,spi+li,:]
+                # sat_delta[ni,li,:] = sat_preds[smi,spi+li,:] - sat_preds[si,spi+li,:]
+                sat_delta[ni,li,:] = sat_preds[smi].mean(axis=0) - sat_preds[si].mean(axis=0)
                 smi += 1
 
     return sat_delta
@@ -410,11 +409,11 @@ def subplot_params(seq_len):
     if seq_len < 500:
         spp = {'heat_cols': 400,
                 'pred_start': 0,
-                'pred_span': 323,
+                'pred_span': 322,
                 'sad_start': 1,
-                'sad_span': 322,
+                'sad_span': 321,
                 'logo_start': 0,
-                'logo_span': 324}
+                'logo_span': 323}
     else:
         spp = {'heat_cols': 400,
                 'pred_start': 0,

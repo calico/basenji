@@ -49,7 +49,7 @@ class Batcher:
             Nb = self.num_seqs - self.start
             Xb[:Nb] = self.Xf[self.start:self.start+Nb]
             if self.Yf is not None:
-                Yb[:Nb] = np.nan_to_num(self.Yf[self.start:self.start+batch+n])
+                Yb[:Nb] = np.nan_to_num(self.Yf[self.start:self.start+Nb])
 
         # update start
         self.start = stop

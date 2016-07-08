@@ -50,14 +50,15 @@ class RNN:
 
                     # convolution
                     conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
-                    convf = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
+                    cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
 
-                    if self.cnn_pool[li] == 1:
-                        cinput = convf
-                    else:
-                        # pool
-                        pool = tf.nn.max_pool(convf, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME', name='pool%d'%li)
-                        cinput = pool
+                    # pooling
+                    if self.cnn_pool[li] > 1:
+                        cinput = tf.nn.max_pool(cinput, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME', name='pool%d'%li)
+
+                    # dropout
+                    if self.cnn_dropout[li] > 0:
+                        cinput = tf.nn.dropout(cinput, 1.0-self.cnn_dropout[li])
 
                     # updates size variables
                     seq_length = seq_length // self.cnn_pool[li]
@@ -68,6 +69,13 @@ class RNN:
 
         else:
             rinput = self.inputs
+
+        # update batch buffer to reflect pooling
+        pool_ratio = self.batch_length // seq_length
+        if self.batch_buffer % pool_ratio != 0:
+            print('Please make the batch_buffer %d divisible by the CNN pooling %d' % (self.batch_buffer, pool_ratio), file=sys.stderr)
+            exit(1)
+        self.batch_buffer_pool = self.batch_buffer // pool_ratio
 
         ###################################################
         # recurrent layers
@@ -86,7 +94,6 @@ class RNN:
                 elif self.cell == 'gru':
                     cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li], activation=self.activation)
                 elif self.cell == 'lstm':
-                    # cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
                     cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True), activation=self.activation)
                 else:
                     print('Cannot recognize RNN cell type %s' % self.cell)
@@ -105,7 +112,7 @@ class RNN:
                 # accumulate norm stablizer
                 if self.norm_stabilizer[li] > 0:
                     output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), reduction_indices=2))
-                    output_norms_diff = tf.squared_difference(output_norms[self.batch_buffer:,:], output_norms[:seq_length-self.batch_buffer,:])
+                    output_norms_diff = tf.squared_difference(output_norms[self.batch_buffer_pool:,:], output_norms[:seq_length-self.batch_buffer_pool,:])
                     norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(output_norms_diff)
 
                 # outputs become input to next layer
@@ -120,7 +127,7 @@ class RNN:
 
         # make final predictions
         preds_length = []
-        for li in range(self.batch_buffer, self.batch_length-self.batch_buffer):
+        for li in range(self.batch_buffer_pool, seq_length-self.batch_buffer_pool):
             preds_length.append(tf.matmul(outputs[li], out_weights) + out_biases)
 
         # convert list to tensor
@@ -129,6 +136,11 @@ class RNN:
         # transpose back to batches in front
         self.preds_op = tf.transpose(preds, [1, 0, 2])
 
+        # repeat if pooling
+        if pool_ratio > 1:
+            self.preds_op = tf.reshape(tf.tile(tf.reshape(self.preds_op, (-1,self.num_targets)), (1,pool_ratio)), (self.batch_size, self.batch_length-2*self.batch_buffer, self.num_targets))
+
+        # print variables
         for v in tf.all_variables():
             print(v.name, v.get_shape())
 

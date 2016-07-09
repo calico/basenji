@@ -122,8 +122,8 @@ def main():
                 print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
                 sys.stdout.flush()
 
-                # if training or validation stagnant
-                if train_loss_last is not None and (train_loss_last - train_loss) / train_loss_last < 0.001 or early_stop_i >= job['rate_drop']:
+                # if training stagnant
+                if train_loss_last is not None and (train_loss_last - train_loss) / train_loss_last < 0.001:
                     print(' Dropping the learning rate.')
                     dr.drop_rate()
 

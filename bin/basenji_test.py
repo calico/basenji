@@ -65,7 +65,7 @@ def main():
     # initialize batcher
     batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size)
 
-    # initialie saver
+    # initialize saver
     saver = tf.train.Saver()
 
     with tf.Session() as sess:

@@ -76,11 +76,11 @@ def main():
     out_hdf5_open = h5py.File(out_hdf5_file, 'w')
 
     # input
-    train_in = out_hdf5_open.create_dataset('train_in', (train_num,site_len,4), dtype='float16')
+    train_in = out_hdf5_open.create_dataset('train_in', (train_num,site_len,4), dtype='bool')
     if options.valid_num > 0:
-        valid_in = out_hdf5_open.create_dataset('valid_in', (options.valid_num,site_len,4), dtype='float16')
+        valid_in = out_hdf5_open.create_dataset('valid_in', (options.valid_num,site_len,4), dtype='bool')
     if options.test_num > 0:
-        test_in = out_hdf5_open.create_dataset('test_in', (options.test_num,site_len,4), dtype='float16')
+        test_in = out_hdf5_open.create_dataset('test_in', (options.test_num,site_len,4), dtype='bool')
 
     # output
     train_out = out_hdf5_open.create_dataset('train_out', (train_num,site_len,num_targets), dtype='float16')

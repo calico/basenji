@@ -356,8 +356,14 @@ class RNN:
         for li in range(self.rnn_layers):
             fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
 
+        # TEMP
+        # shuffle batches
+        # batcher.shuffle()
+
         # get first batch
+        # TEMP
         Xb, Yb, Nb = batcher.next()
+        # Xb, Yb, Nb = batcher.next_shuffle()
 
         while Xb is not None and Nb == self.batch_size:
             # update feed dict
@@ -371,7 +377,9 @@ class RNN:
             train_loss.append(loss_batch)
 
             # next batch
+            # TEMP
             Xb, Yb, Nb = batcher.next()
+            # Xb, Yb, Nb = batcher.next_shuffle()
 
         # reset training batcher
         batcher.reset()

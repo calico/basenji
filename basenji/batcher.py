@@ -92,6 +92,42 @@ class Batcher:
         return Xb, Yb, Nb
 
 
+    def next_shuffle_bool(self):
+        ''' Load the next batch from the HDF5. '''
+        Xb = None
+        Yb = None
+        Nb = 0
+
+        stop = self.start + self.batch_size
+        if stop <= self.num_seqs:
+            # full batch
+
+            # initialize full batch of zeros
+            Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
+            if self.Yf is not None:
+                Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
+
+            # copy data
+            for i in range(self.batch_size):
+                si = self.shuffled[self.start+i]
+                Xb[i] = self.Xf[si]
+
+                # fix N positions
+                Xbi_n = (Xb[i].sum(axis=1) == 0)
+                Xb[i] = Xb[i] + 0.25*Xbi_n.repeat(self.seq_depth).reshape(self.seq_len,self.seq_depth)
+
+                if self.Yf is not None:
+                    Yb[i] = np.nan_to_num(self.Yf[si])
+
+            # specify full batch
+            Nb = self.batch_size
+
+        # update start
+        self.start = stop
+
+        return Xb, Yb, Nb
+
+
     def reset(self):
         self.start = 0
 

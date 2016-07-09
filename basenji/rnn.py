@@ -161,18 +161,23 @@ class RNN:
 
         # define optimization
         if self.optimization == 'adam':
-            opt = tf.train.AdamOptimizer(self.learning_rate, self.adam_beta1, self.adam_beta2)
+            self.opt = tf.train.AdamOptimizer(self.learning_rate, self.adam_beta1, self.adam_beta2)
         else:
             print('Cannot recognize optimization algorithm %s' % self.optimization)
             exit(1)
 
         # clip gradients
-        gvs = opt.compute_gradients(self.loss_op)
+        gvs = self.opt.compute_gradients(self.loss_op)
         if self.grad_clip is None:
             clip_gvs = gvs
         else:
             clip_gvs = [(tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v) for g, v in gvs]
-        self.step_op = opt.apply_gradients(clip_gvs)
+        self.step_op = self.opt.apply_gradients(clip_gvs)
+
+
+    def drop_rate(self):
+        ''' Drop the optimizer learning rate. '''
+        self.opt._lr /= 2
 
 
     def set_params(self, job):

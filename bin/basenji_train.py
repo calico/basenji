@@ -24,7 +24,8 @@ def main():
     usage = 'usage: %prog [options] <data_file>'
     parser = OptionParser(usage)
     parser.add_option('-j', '--job', dest='job')
-    parser.add_option('-r', '--result', dest='result_file', help='Print accuracy result to file')
+    parser.add_option('-o', '--output', dest='output_file', help='Print accuracy output to file')
+    parser.add_option('-r', '--restart', dest='restart', help='Restart training this model')
     parser.add_option('-s', '--save', dest='save_prefix', default='houndrnn')
     (options,args) = parser.parse_args()
 
@@ -51,6 +52,8 @@ def main():
     job['batch_length'] = train_seqs.shape[1]
     job['seq_depth'] = train_seqs.shape[2]
     job['num_targets'] = train_targets.shape[2]
+    job['early_stop'] = job.get('early_stop', 8)
+    job['rate_drop'] = job.get('rate_drop', 3)
 
     t0 = time.time()
     dr = basenji.rnn.RNN()
@@ -71,17 +74,25 @@ def main():
     with tf.Session() as sess:
         t0 = time.time()
 
-        # initialize variables
-        sess.run(tf.initialize_all_variables())
-        print("Initialization time %f" % (time.time()-t0))
-        sys.stdout.flush()
+        if options.restart:
+            # load variables into session
+            saver.restore(sess, options.restart)
+        else:
+            # initialize variables
+            sess.run(tf.initialize_all_variables())
+            print("Initialization time %f" % (time.time()-t0))
+            sys.stdout.flush()
 
+        train_loss = None
         best_r2 = -1000
         early_stop_i = 0
 
         for epoch in range(200):
-            if early_stop_i < job.get('early_stop',12):
+            if early_stop_i < job['early_stop']:
                 t0 = time.time()
+
+                # save previous
+                train_loss_last = train_loss
 
                 # train
                 train_loss = dr.train_epoch(sess, batcher_train)
@@ -111,14 +122,19 @@ def main():
                 print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
                 sys.stdout.flush()
 
+                # if training or validation stagnant
+                if train_loss_last is not None and (train_loss_last - train_loss) / train_loss_last < 0.001 or early_stop_i >= job['rate_drop']:
+                    print(' Dropping the learning rate.')
+                    dr.drop_rate()
+
                 # save the variables to disk.
                 # saver.save(sess, '%s_ckpt.tf' % options.save_prefix)
 
     # print result to file
-    if options.result_file:
-        result_out = open(options.result_file, 'w')
-        print(best_r2, file=result_out)
-        result_out.close()
+    if options.output_file:
+        output_open = open(options.output_file, 'w')
+        print(best_r2, file=output_open)
+        output_open.close()
 
 
 ################################################################################

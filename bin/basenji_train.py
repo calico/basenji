@@ -65,7 +65,7 @@ def main():
     # train
     #######################################################
     # initialize batcher
-    batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size)
+    batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, shuffle=True)
     batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
 
     # checkpoints
@@ -87,7 +87,7 @@ def main():
         best_r2 = -1000
         early_stop_i = 0
 
-        for epoch in range(200):
+        for epoch in range(1000):
             if early_stop_i < job['early_stop']:
                 t0 = time.time()
 
@@ -123,12 +123,9 @@ def main():
                 sys.stdout.flush()
 
                 # if training stagnant
-                if train_loss_last is not None and (train_loss_last - train_loss) / train_loss_last < 0.001:
+                if train_loss_last is not None and train_loss > train_loss_last:
                     print(' Dropping the learning rate.')
                     dr.drop_rate()
-
-                # save the variables to disk.
-                # saver.save(sess, '%s_ckpt.tf' % options.save_prefix)
 
     # print result to file
     if options.output_file:

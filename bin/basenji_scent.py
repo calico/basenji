@@ -93,6 +93,8 @@ def main():
     # read parameters
     job = basenji.io.read_job_params(options.job)
 
+    job['num_targets'] = targets.shape[1]
+
     # initialize model
     model = basenji.autoencoder.AE(job)
 
@@ -122,7 +124,7 @@ def main():
         early_stop_i = 0
 
         for epoch in range(1000):
-            if early_stop_i < job['early_stop']:
+            if early_stop_i < model.early_stop:
                 t0 = time.time()
 
                 # save previous

@@ -9,7 +9,7 @@ class Batcher:
 
     Class to manage batches.
     '''
-    def __init__(self, Xf, Yf=None, batch_size=8):
+    def __init__(self, Xf, Yf=None, batch_size=8, shuffle=False):
         self.Xf = Xf
         self.num_seqs = self.Xf.shape[0]
         self.seq_len = self.Xf.shape[1]
@@ -20,10 +20,12 @@ class Batcher:
 
         self.batch_size = batch_size
 
+        self.shuffle = shuffle
+
         self.reset()
 
 
-    def next(self):
+    def next_float(self):
         ''' Load the next batch from the HDF5. '''
         Xb = None
         Yb = None
@@ -61,7 +63,7 @@ class Batcher:
         return Xb, Yb, Nb
 
 
-    def next_shuffle(self):
+    def next(self):
         ''' Load the next batch from the HDF5. '''
         Xb = None
         Yb = None
@@ -71,50 +73,19 @@ class Batcher:
         if stop <= self.num_seqs:
             # full batch
 
-            # initialize full batch of zeros
-            Xb = np.zeros((self.batch_size, self.Xf.shape[1], self.Xf.shape[2]), dtype='float32')
-            if self.Yf is not None:
-                Yb = np.zeros((self.batch_size, self.Yf.shape[1], self.Yf.shape[2]), dtype='float32')
-
-            # copy data
-            for i in range(self.batch_size):
-                si = self.shuffled[self.start+i]
-                Xb[i] = self.Xf[si]
-                if self.Yf is not None:
-                    Yb[i] = np.nan_to_num(self.Yf[si])
-
-            # specify full batch
-            Nb = self.batch_size
-
-        # update start
-        self.start = stop
-
-        return Xb, Yb, Nb
-
-
-    def next_shuffle_bool(self):
-        ''' Load the next batch from the HDF5. '''
-        Xb = None
-        Yb = None
-        Nb = 0
-
-        stop = self.start + self.batch_size
-        if stop <= self.num_seqs:
-            # full batch
-
-            # initialize full batch of zeros
+            # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             if self.Yf is not None:
                 Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
 
             # copy data
             for i in range(self.batch_size):
-                si = self.shuffled[self.start+i]
+                si = self.order[self.start+i]
                 Xb[i] = self.Xf[si]
 
                 # fix N positions
                 Xbi_n = (Xb[i].sum(axis=1) == 0)
-                Xb[i] = Xb[i] + 0.25*Xbi_n.repeat(self.seq_depth).reshape(self.seq_len,self.seq_depth)
+                Xb[i] = Xb[i] + (1/self.seq_depth)*Xbi_n.repeat(self.seq_depth).reshape(self.seq_len,self.seq_depth)
 
                 if self.Yf is not None:
                     Yb[i] = np.nan_to_num(self.Yf[si])
@@ -130,7 +101,69 @@ class Batcher:
 
     def reset(self):
         self.start = 0
+        self.order = list(range(self.num_seqs))
+        if self.shuffle:
+            random.shuffle(self.order)
 
-    def shuffle(self):
-        self.shuffled = list(range(self.num_seqs))
-        random.shuffle(self.shuffled)
+
+class BatcherT:
+    ''' BatcherT
+
+    Class to manage batches for nucleotide target prediction.
+    '''
+    def __init__(self, Yf, batch_size=64, shuffle=False):
+        self.Yf = Yf
+        self.num_nts = self.Yf.shape[0]
+        self.num_targets = self.Yf.shape[1]
+
+        self.batch_size = batch_size
+
+        self.shuffle = shuffle
+
+        self.reset()
+
+
+    def next(self):
+        ''' Load the next batch from the HDF5. '''
+        Yb = None
+        Nb = 0
+
+        stop = self.start + self.batch_size
+        if stop <= self.num_nts:
+            # full batch
+
+            # initialize
+            Yb = np.zeros((self.batch_size, self.num_targets), dtype='float32')
+
+            # specify full batch
+            Nb = self.batch_size
+
+            # copy data
+            for i in range(Nb):
+                si = self.order[self.start+i]
+                Yb[i] = np.nan_to_num(self.Yf[si])
+
+        elif self.start < self.num_nts:
+            # initialize full batch of zeros
+            Yb = np.zeros((self.batch_size, self.num_targets), dtype='float32')
+
+            # specify partial batch
+            Nb = self.num_nts - self.start
+
+            # copy data
+            for i in range(Nb):
+                si = self.order[self.start+i]
+                Yb[i] = np.nan_to_num(self.Yf[si])
+
+        # update start
+        self.start = stop
+
+        return Yb, Nb
+
+
+    def reset(self):
+        self.start = 0
+        self.order = list(range(self.num_nts))
+        if self.shuffle:
+            random.shuffle(self.order)
+

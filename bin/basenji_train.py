@@ -23,10 +23,10 @@ import basenji
 def main():
     usage = 'usage: %prog [options] <data_file>'
     parser = OptionParser(usage)
-    parser.add_option('-j', '--job', dest='job')
-    parser.add_option('-o', '--output', dest='output_file', help='Print accuracy output to file')
-    parser.add_option('-r', '--restart', dest='restart', help='Restart training this model')
-    parser.add_option('-s', '--save', dest='save_prefix', default='houndrnn')
+    parser.add_option('-m', dest='params_file', help='Model parameters')
+    parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
+    parser.add_option('-r', dest='restart', help='Restart training this model')
+    parser.add_option('-s', dest='save_prefix', default='houndrnn')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
@@ -47,7 +47,7 @@ def main():
     #######################################################
     # model parameters and placeholders
     #######################################################
-    job = basenji.io.read_job_params(options.job)
+    job = basenji.io.read_job_params(options.params_file)
 
     job['batch_length'] = train_seqs.shape[1]
     job['seq_depth'] = train_seqs.shape[2]

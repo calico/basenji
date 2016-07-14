@@ -16,9 +16,11 @@ import basenji
 ################################################################################
 # basenji_scent.py
 #
-#
+# Train an autoencoder to project the full functional profiles defined by a set
+# of Bigwig files into a lower dimension latent space that simultaneously
+# smooths the signal using cross-dataset correlations and compresses the space
+# required to store it. Win-win.
 ################################################################################
-
 
 ################################################################################
 # main
@@ -28,6 +30,7 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-g', dest='gaps_file', help='Genome assebmly gaps BED [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Model parameters')
+    parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-s', dest='sample', type='int', default=1000, help='Genomic positions to sample for training data [Default: %default]')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.1, help='Proportion of the data for validation [Default: %default]')
     (options,args) = parser.parse_args()
@@ -76,26 +79,8 @@ def main():
     sys.stdout.flush()
     t0 = time.time()
 
-    targets_t = []
-    for sample in target_wigs:
-        wig_file = target_wigs[sample]
-        print('  %s' % wig_file)
-        sys.stdout.flush()
-
-        # initialize new row
-        targets_t.append([])
-
-        # open wig
-        wig_in = pyBigWig.open(wig_file)
-
-        for chrom in chrom_samples:
-            for pos in chrom_samples[chrom]:
-                try:
-                    pos_val = wig_in.values(chrom, pos, pos+1)[0]
-                except:
-                    print(chrom,pos)
-                    exit(1)
-                targets_t[-1].append(pos_val)
+    p = multiprocessing.Pool(options.processes)
+    targets_t = p.starmap(bigwig_read, [(wig_file, chrom_samples) for wig_file in target_wigs.values()])
 
     # convert and transpose
     targets = np.array(targets_t).T
@@ -182,6 +167,25 @@ def main():
                 if train_loss_last is not None and (train_loss_last - train_loss) / train_loss_last < 0.0001:
                     print(' Dropping the learning rate.')
                     model.drop_rate()
+
+
+def bigwig_read(wig_file, chrom_samples):
+    print('  %s' % wig_file)
+    sys.stdout.flush()
+
+    # initialize target values
+    targets = []
+
+    # open wig
+    wig_in = pyBigWig.open(wig_file)
+
+    # read position values
+    for chrom in chrom_samples:
+        for pos in chrom_samples[chrom]:
+            pos_val = wig_in.values(chrom, pos, pos+1)[0]
+            targets.append(pos_val)
+
+    return targets
 
 
 def load_chromosomes(genome_file):

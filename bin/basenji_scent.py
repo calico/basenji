@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+from collections import OrderedDict
+import multiprocessing
 import sys
 import time
 
 import h5py
 import numpy as np
+import pyBigWig
+import pysam
 import tensorflow as tf
 
 import basenji
@@ -22,8 +26,8 @@ import basenji
 def main():
     usage = 'usage: %prog [options] <genome_file> <sample_wigs_file> <model_out_file>'
     parser = OptionParser(usage)
-    parser.add_option('-j', dest='job')
     parser.add_option('-g', dest='gaps_file', help='Genome assebmly gaps BED [Default: %default]')
+    parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('-s', dest='sample', type='int', default=1000, help='Genomic positions to sample for training data [Default: %default]')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.1, help='Proportion of the data for validation [Default: %default]')
     (options,args) = parser.parse_args()
@@ -38,7 +42,7 @@ def main():
     #######################################################
     # sample genome
     #######################################################
-    chrom_segments = load_genome(genome_file)
+    chrom_segments = load_chromosomes(genome_file)
     if options.gaps_file:
         chrom_segments = split_contigs(chrom_segments, options.gaps_file)
 
@@ -55,7 +59,8 @@ def main():
     for chrom in chrom_segments:
         chrom_samples[chrom] = []
         for seg_start, seg_end in chrom_segments[chrom]:
-            chrom_samples[chrom] += [int(pos) for pos in np.linspace(seg_start, seg_end, sample_every)][1:-1]
+            sample_num = (seg_end - seg_start) // sample_every
+            chrom_samples[chrom] += [int(pos) for pos in np.linspace(seg_start, seg_end, sample_num)][1:-1]
 
     #######################################################
     # read from bigwigs
@@ -67,10 +72,15 @@ def main():
         target_wigs[a[0]] = a[1]
     num_targets = len(target_wigs)
 
+    print('Loading from BigWigs')
+    sys.stdout.flush()
+    t0 = time.time()
+
     targets_t = []
     for sample in target_wigs:
         wig_file = target_wigs[sample]
-        print(wig_file)
+        print('  %s' % wig_file)
+        sys.stdout.flush()
 
         # initialize new row
         targets_t.append([])
@@ -80,29 +90,41 @@ def main():
 
         for chrom in chrom_samples:
             for pos in chrom_samples[chrom]:
-                pos_val = wig_in.values(chrom, pos, pos+1)[0]
+                try:
+                    pos_val = wig_in.values(chrom, pos, pos+1)[0]
+                except:
+                    print(chrom,pos)
+                    exit(1)
                 targets_t[-1].append(pos_val)
 
-    # convert and shuffle
-    targets = np.random.shuffle(np.array(targets_t).T)
+    # convert and transpose
+    targets = np.array(targets_t).T
 
+    # shuffle
+    np.random.shuffle(targets)
+
+    print('%ds' % (time.time()-t0))
+    print('\nSampled dataset', targets.shape, '\n')
+    sys.stdout.flush()
 
     #######################################################
     # model parameters and placeholders
     #######################################################
     # read parameters
-    job = basenji.io.read_job_params(options.job)
+    job = basenji.io.read_job_params(options.params_file)
 
     job['num_targets'] = targets.shape[1]
 
-    # initialize model
+    # construct model
+    print('Constructing model')
+    sys.stdout.flush()
     model = basenji.autoencoder.AE(job)
 
     #######################################################
     # train
     #######################################################
     # divide train and valid
-    tv_line = int(job['valid_pct']*targets.shape[0])
+    tv_line = int(options.valid_pct*targets.shape[0])
 
     # initialize batcher
     batcher_train = basenji.batcher.BatcherT(targets[tv_line:], model.batch_size, shuffle=True)
@@ -116,8 +138,6 @@ def main():
 
         # initialize variables
         sess.run(tf.initialize_all_variables())
-        print("Initialization time %f" % (time.time()-t0))
-        sys.stdout.flush()
 
         train_loss = None
         best_r2 = -1000
@@ -141,7 +161,7 @@ def main():
                     best_r2 = valid_r2
                     best_str = 'best!'
                     early_stop_i = 0
-                    saver.save(sess, '%s_best.tf' % options.save_prefix)
+                    saver.save(sess, model_out_file)
                 else:
                     early_stop_i += 1
 
@@ -163,14 +183,12 @@ def main():
                     print(' Dropping the learning rate.')
                     model.drop_rate()
 
-                # save the variables to disk.
-                # saver.save(sess, '%s_ckpt.tf' % options.save_prefix)
-
 
 def load_chromosomes(genome_file):
     ''' Load genome segments from file as (chrom,start,end). '''
     chrom_segments = {}
     for line in open(genome_file):
+        a = line.split()
         chrom_segments[a[0]] = [(0, int(a[1]))]
     return chrom_segments
 

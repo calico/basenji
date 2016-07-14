@@ -192,9 +192,9 @@ class RNN:
         ###################################################
         # batching
         ###################################################
-        self.batch_size = job.get('batch_size', 4)
+        self.batch_size = job.get('batch_size', 64)
         self.batch_length = job.get('batch_length', 1024)
-        self.batch_buffer = job.get('batch_buffer', 8)
+        self.batch_buffer = job.get('batch_buffer', 64)
 
         ###################################################
         # training
@@ -203,7 +203,7 @@ class RNN:
         self.adam_beta1 = job.get('adam_beta1', 0.9)
         self.adam_beta2 = job.get('adam_beta2', 0.99)
         self.optimization = job.get('optimization', 'adam').lower()
-        self.grad_clip = job.get('grad_clip', 4)
+        self.grad_clip = job.get('grad_clip', 1)
 
         ###################################################
         # CNN params

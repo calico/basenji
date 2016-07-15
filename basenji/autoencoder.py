@@ -156,41 +156,70 @@ class AE:
         self.dropout = layer_extend(job.get('dropout', []), 0, len(self.encoder_units))
 
 
-    # def predict(self, sess, batcher):
-    #     ''' Compute predictions on a test set. '''
+    def latent(self, sess, batcher):
+        ''' Compute latent representation '''
 
-    #     preds = []
+        latents = []
 
-    #     # setup feed dict for dropout
-    #     fd = {}
-    #     for li in range(self.cnn_layers):
-    #         fd[self.cnn_dropout_ph[li]] = 0
-    #     for li in range(self.rnn_layers):
-    #         fd[self.rnn_dropout_ph[li]] = 0
+        # setup feed dict for dropout
+        fd = {self.train:0}
 
-    #     # get first batch
-    #     Xb, _, Nb = batcher.next()
+        # get first batch
+        Yb, Nb = batcher.next()
 
-    #     while Xb is not None:
-    #         # update feed dict
-    #         fd[self.inputs] = Yb
+        while Yb is not None:
+            # update feed dict
+            fd[self.y] = Yb
 
-    #         # measure batch loss
-    #         preds_batch = sess.run(self.preds_op, feed_dict=fd)
+            # measure batch loss
+            latents_batch = sess.run(self.mu, feed_dict=fd)
 
-    #         # accumulate predictions and targets
-    #         preds.append(preds_batch[:Nb])
+            # accumulate predictions and targets
+            latents.append(latents_batch[:Nb])
 
-    #         # next batch
-    #         Xb, _, Nb = batcher.next()
+            # next batch
+            Yb, Nb = batcher.next()
 
-    #     # reset batcher
-    #     batcher.reset()
+        # reset batcher
+        batcher.reset()
 
-    #     # accumulate predictions
-    #     preds = np.vstack(preds)
+        # accumulate predictions
+        latents = np.vstack(latents)
 
-    #     return preds
+        return latents
+
+
+    def predict(self, sess, batcher):
+        ''' Compute predictions on a test set. '''
+
+        preds = []
+
+        # setup feed dict for dropout
+        fd = {self.train:0}
+
+        # get first batch
+        Yb, Nb = batcher.next()
+
+        while Yb is not None:
+            # update feed dict
+            fd[self.y] = Yb
+
+            # measure batch loss
+            preds_batch = sess.run(self.preds, feed_dict=fd)
+
+            # accumulate predictions and targets
+            preds.append(preds_batch[:Nb])
+
+            # next batch
+            Yb, Nb = batcher.next()
+
+        # reset batcher
+        batcher.reset()
+
+        # accumulate predictions
+        preds = np.vstack(preds)
+
+        return preds
 
 
     def test(self, sess, batcher, return_preds=False):

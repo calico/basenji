@@ -28,7 +28,7 @@ import basenji
 def main():
     usage = 'usage: %prog [options] <genome_file> <sample_wigs_file> <model_out_file>'
     parser = OptionParser(usage)
-    parser.add_option('-g', dest='gaps_file', help='Genome assebmly gaps BED [Default: %default]')
+    parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-s', dest='sample', type='int', default=1000, help='Genomic positions to sample for training data [Default: %default]')
@@ -45,9 +45,9 @@ def main():
     #######################################################
     # sample genome
     #######################################################
-    chrom_segments = load_chromosomes(genome_file)
+    chrom_segments = basenji.genome.load_chromosomes(genome_file)
     if options.gaps_file:
-        chrom_segments = split_contigs(chrom_segments, options.gaps_file)
+        chrom_segments = basenji.genome.split_contigs(chrom_segments, options.gaps_file)
 
     # determine how frequently to sample
     genome_sum = 0
@@ -182,70 +182,14 @@ def bigwig_read(wig_file, chrom_samples):
     # read position values
     for chrom in chrom_samples:
         for pos in chrom_samples[chrom]:
-            pos_val = wig_in.values(chrom, pos, pos+1)[0]
+            try:
+                pos_val = wig_in.values(chrom, pos, pos+1)[0]
+            except:
+                print(chrom, pos)
+                exit(1)
             targets.append(pos_val)
 
     return targets
-
-
-def load_chromosomes(genome_file):
-    ''' Load genome segments from file as (chrom,start,end). '''
-    chrom_segments = {}
-    for line in open(genome_file):
-        a = line.split()
-        chrom_segments[a[0]] = [(0, int(a[1]))]
-    return chrom_segments
-
-
-def split_contigs(chrom_segments, gaps_file):
-    ''' Split the assembly up into contigs defined by the gaps. '''
-    chrom_events = {}
-
-    # add known segments
-    for chrom in chrom_segments:
-        if len(chrom_segments[chrom]):
-            print("I've made a terrible mistake.", file=sys.stderr)
-            exit(1)
-        cstart, cend = chrom_segments[chrom][0]
-        chrom_events[chrom].append((seg_start, 'cstart'))
-        chrom_events[chrom].append((seg_end, 'cend'))
-
-    # add gaps
-    for line in open(gaps_file):
-        a = line.split()
-        chrom = a[0]
-        gstart = int(a[1])
-        gend = int(a[2])
-        chrom_events[chrom].append((gstart,'gstart'))
-        chrom_events[chrom].append((gend,'gend'))
-
-    for chrom in chrom_events:
-        # sort
-        chrom_events[chrom].sort()
-
-        # read out segments
-        chrom_segments[chrom] = []
-        for i in range(len(chrom_events[chrom])-1):
-            pos1, event1 = chrom_events[chrom][i]
-            pos2, event2 = chrom_events[chrom][i+1]
-            seg = (pos1,pos2)
-
-            shipit = False
-            if event1 == 'cstart' and event2 == 'gstart':
-                shipit = True
-            elif event1 == 'gend' and event2 == 'gstart':
-                shipit = True
-            elif event1 == 'gend' and event2 == 'cend':
-                shipit = True
-            elif event1 == 'gstart' and event2 == 'gend':
-                pass
-            else:
-                print("I'm confused by this event ordering", file=sys.stderr)
-
-            if shipit:
-                chrom_segments[chrom].append(seg)
-
-    return chrom_segments
 
 
 ################################################################################

@@ -29,9 +29,11 @@ def main():
     usage = 'usage: %prog [options] <genome_file> <sample_wigs_file> <model_out_file>'
     parser = OptionParser(usage)
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
+    parser.add_option('-l', dest='load_targets_file', help='Load the sampled target set from disk')
     parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
-    parser.add_option('-s', dest='sample', type='int', default=1000, help='Genomic positions to sample for training data [Default: %default]')
+    parser.add_option('-n', dest='num_samples', type='int', default=1000, help='Genomic positions to sample for training data [Default: %default]')
+    parser.add_option('-s', dest='save_targets_file', help='Save the sampled target set to disk')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.1, help='Proportion of the data for validation [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -42,53 +44,60 @@ def main():
         sample_wigs_file = args[1]
         model_out_file = args[2]
 
-    #######################################################
-    # sample genome
-    #######################################################
-    chrom_segments = basenji.genome.load_chromosomes(genome_file)
-    if options.gaps_file:
-        chrom_segments = basenji.genome.split_contigs(chrom_segments, options.gaps_file)
+    if options.load_targets_file is not None:
+        targets = np.load(options.load_targets_file)
 
-    # determine how frequently to sample
-    genome_sum = 0
-    for chrom in chrom_segments:
-        for seg_start, seg_end in chrom_segments[chrom]:
-            genome_sum += (seg_end - seg_start)
+    else:
+        #######################################################
+        # sample genome
+        #######################################################
+        chrom_segments = basenji.genome.load_chromosomes(genome_file)
+        if options.gaps_file:
+            chrom_segments = basenji.genome.split_contigs(chrom_segments, options.gaps_file)
 
-    sample_every = genome_sum // options.sample
+        # determine how frequently to sample
+        genome_sum = 0
+        for chrom in chrom_segments:
+            for seg_start, seg_end in chrom_segments[chrom]:
+                genome_sum += (seg_end - seg_start)
 
-    # sample positions
-    chrom_samples = {}
-    for chrom in chrom_segments:
-        chrom_samples[chrom] = []
-        for seg_start, seg_end in chrom_segments[chrom]:
-            sample_num = (seg_end - seg_start) // sample_every
-            chrom_samples[chrom] += [int(pos) for pos in np.linspace(seg_start, seg_end, sample_num)][1:-1]
+        sample_every = genome_sum // options.num_samples
 
-    #######################################################
-    # read from bigwigs
-    #######################################################
-    # get wig files and labels
-    target_wigs = OrderedDict()
-    for line in open(sample_wigs_file):
-        a = line.split()
-        target_wigs[a[0]] = a[1]
-    num_targets = len(target_wigs)
+        # sample positions
+        chrom_samples = {}
+        for chrom in chrom_segments:
+            chrom_samples[chrom] = []
+            for seg_start, seg_end in chrom_segments[chrom]:
+                sample_num = (seg_end - seg_start) // sample_every
+                chrom_samples[chrom] += [int(pos) for pos in np.linspace(seg_start, seg_end, sample_num)][1:-1]
 
-    print('Loading from BigWigs')
-    sys.stdout.flush()
-    t0 = time.time()
+        #######################################################
+        # read from bigwigs
+        #######################################################
+        # get wig files and labels
+        target_wigs = OrderedDict()
+        for line in open(sample_wigs_file):
+            a = line.split()
+            target_wigs[a[0]] = a[1]
 
-    p = multiprocessing.Pool(options.processes)
-    targets_t = p.starmap(bigwig_read, [(wig_file, chrom_samples) for wig_file in target_wigs.values()])
+        print('Loading from BigWigs')
+        sys.stdout.flush()
+        t0 = time.time()
 
-    # convert and transpose
-    targets = np.array(targets_t).T
+        pool = multiprocessing.Pool(options.processes)
+        targets_t = pool.starmap(bigwig_read, [(wig_file, chrom_samples) for wig_file in target_wigs.values()])
 
-    # shuffle
-    np.random.shuffle(targets)
+        # convert and transpose
+        targets = np.array(targets_t).T
 
-    print('%ds' % (time.time()-t0))
+        # shuffle
+        np.random.shuffle(targets)
+
+        if options.save_targets_file is not None:
+            np.save(options.save_targets_file, targets)
+
+        print('%ds' % (time.time()-t0))
+
     print('\nSampled dataset', targets.shape, '\n')
     sys.stdout.flush()
 

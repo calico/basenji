@@ -12,7 +12,7 @@ def load_chromosomes(genome_file):
           chromosome length table. '''
 
     # is genome_file FASTA or (chrom,start,end) table?
-    file_fasta = (open(gneome_file).readline()[0] == '>':)
+    file_fasta = (open(genome_file).readline()[0] == '>')
 
     chrom_segments = {}
 

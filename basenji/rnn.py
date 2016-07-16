@@ -161,7 +161,7 @@ class RNN:
 
         # define optimization
         if self.optimization == 'adam':
-            self.opt = tf.train.AdamOptimizer(self.learning_rate, self.adam_beta1, self.adam_beta2)
+            self.opt = tf.train.AdamOptimizer(self.learning_rate, beta1=self.adam_beta1, beta2=self.adam_beta2, epsilon=1e-3)
         else:
             print('Cannot recognize optimization algorithm %s' % self.optimization)
             exit(1)

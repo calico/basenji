@@ -123,9 +123,9 @@ def main():
                 sys.stdout.flush()
 
                 # if training stagnant
-                if train_loss_last is not None and train_loss > train_loss_last:
-                    print(' Dropping the learning rate.')
-                    dr.drop_rate()
+                # if train_loss_last is not None and train_loss > train_loss_last:
+                #     print(' Dropping the learning rate.')
+                #     dr.drop_rate()
 
     # print result to file
     if options.output_file:

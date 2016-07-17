@@ -8,7 +8,7 @@ from sklearn.metrics import r2_score
 import tensorflow as tf
 
 
-class AE:
+class VAE:
     def __init__(self, job):
         ###################################################
         # model parameters and placeholders
@@ -17,9 +17,6 @@ class AE:
 
         # batches
         self.y = tf.placeholder(tf.float32, shape=(self.batch_size, self.num_targets))
-
-        # training indicator
-        self.train = tf.placeholder(tf.float32, shape=[])
 
         # dropout rates
         # self.dropout_ph = []
@@ -36,14 +33,8 @@ class AE:
                 weights = tf.get_variable(name='weights', shape=(layer_rep.get_shape()[1], self.encoder_units[li]), dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
                 bias = tf.Variable(tf.zeros(self.encoder_units[li]), name='bias')
 
-                # linear transformation
-                layer_rep = tf.matmul(layer_rep, weights) + bias
-
-                # batch normalization
-                layer_rep = tf.contrib.layers.python.layers.batch_norm(layer_rep, center=True, scale=True, is_training=True)
-
-                # nonlinearity
-                layer_rep = tf.nn.relu(layer_rep)
+                # compute
+                layer_rep = tf.nn.relu(tf.matmul(layer_rep, weights) + bias)
 
         ###################################
         # latent
@@ -58,21 +49,21 @@ class AE:
             self.mu = tf.matmul(layer_rep, weights) + bias
 
         # std
-        if self.variational:
-            with tf.variable_scope('latent_std') as vs:
-                # initialize parameters
-                weights = tf.get_variable(name='weights', shape=(layer_rep.get_shape()[1], self.latent_dim), dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
-                bias = tf.Variable(tf.zeros(self.latent_dim), name='bias')
+        # TEMP
+        # with tf.variable_scope('latent_std') as vs:
+        #     # initialize parameters
+        #     weights = tf.get_variable(name='weights', shape=(layer_rep.get_shape()[1], self.latent_dim), dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+        #     bias = tf.Variable(tf.zeros(self.latent_dim), name='bias')
 
-                # compute
-                logvar = tf.matmul(layer_rep, weights) + bias
-                self.std = tf.exp(0.5*logvar)
+        #     # compute
+        #     logvar = tf.matmul(layer_rep, weights) + bias
+        #     self.std = tf.exp(0.5*logvar)
 
         # sample latent variables
+        # TEMP
+        # epsilon = tf.random_normal(tf.shape(logvar), dtype=tf.float32, name='epsilon')
+        # x = self.mu + tf.mul(self.std, epsilon)
         x = self.mu
-        if self.variational:
-            epsilon = tf.random_normal(tf.shape(logvar), stddev=0.005, dtype=tf.float32, name='epsilon')
-            x += tf.scalar_mul(self.train, tf.mul(self.std, epsilon))
 
         ###################################
         # decoder
@@ -84,14 +75,8 @@ class AE:
                 weights = tf.get_variable(name='weights', shape=(layer_rep.get_shape()[1], self.decoder_units[li]), dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
                 bias = tf.Variable(tf.zeros(self.decoder_units[li]), name='bias')
 
-                # linear transformation
-                layer_rep = tf.matmul(layer_rep, weights) + bias
-
-                # batch normalization
-                # layer_rep = tf.contrib.layers.python.layers.batch_norm(layer_rep, center=True, scale=True, is_training=True)
-
-                # nonlinearity
-                layer_rep = tf.nn.relu(layer_rep)
+                # compute
+                layer_rep = tf.nn.relu(tf.matmul(layer_rep, weights) + bias)
 
         with tf.variable_scope('reconstruct') as vs:
             # initialize parameters
@@ -104,16 +89,17 @@ class AE:
         ###################################
         # loss
         ###################################
-        # L2 loss
-        self.loss = tf.reduce_mean(tf.squared_difference(self.y, self.preds), reduction_indices=1)
-
         # KL divergence
-        if self.variational:
-            kld = -0.5 * tf.reduce_sum(1 + logvar - tf.square(self.mu) - tf.exp(logvar), reduction_indices=1)
-            self.loss += kld
+        # TEMP
+        # kld = -0.5 * tf.reduce_sum(1 + logvar - tf.square(self.mu) - tf.exp(logvar), reduction_indices=1)
 
-        # finalize
-        self.loss = tf.reduce_mean(self.loss)
+        # L2 norm
+        l2 = tf.reduce_mean(tf.squared_difference(self.y, self.preds), reduction_indices=1)
+
+        # combine
+        # TEMP
+        # self.loss = tf.reduce_mean(kld + l2)
+        self.loss = tf.reduce_mean(l2)
 
         # print variables
         for v in tf.all_variables():
@@ -122,14 +108,14 @@ class AE:
         ###################################
         # optimization
         ###################################
-        self.opt = tf.train.AdamOptimizer(self.learning_rate, self.adam_beta1, self.adam_beta2, self.adam_eps)
+        self.opt = tf.train.AdamOptimizer(self.learning_rate, self.adam_beta1, self.adam_beta2)
 
         self.step_op = self.opt.minimize(self.loss)
 
 
     def drop_rate(self):
         ''' Drop the optimizer learning rate. '''
-        self.opt._lr /= 1.5
+        self.opt._lr /= 2
 
 
     def set_params(self, job):
@@ -143,96 +129,64 @@ class AE:
         ###################################################
         # batching
         ###################################################
-        self.batch_size = job.get('batch_size', 64)
+        self.batch_size = job.get('batch_size', 32)
 
         ###################################################
         # training
         ###################################################
         self.learning_rate = job.get('learning_rate', 0.001)
         self.adam_beta1 = job.get('adam_beta1', 0.9)
-        self.adam_beta2 = job.get('adam_beta2', 0.999)
-        self.adam_eps = job.get('adam_eps', 1e-8)
+        self.adam_beta2 = job.get('adam_beta2', 0.99)
         self.optimization = job.get('optimization', 'adam').lower()
 
         ###################################################
         # neural net
         ###################################################
-        self.variational = bool(job.get('variational', 0))
-        self.encoder_units = np.atleast_1d(job.get('encoder_units', [300]))
+        self.encoder_units = np.atleast_1d(job.get('encoder_units', [10]))
         self.decoder_units = np.atleast_1d(job.get('decoder_units', self.encoder_units))
-        self.latent_dim = job.get('latent_dim', 20)
+        self.latent_dim = job.get('latent_dim', 10)
 
         ###################################################
         # regularization?
         ###################################################
-        self.early_stop = job.get('early_stop', 10)
         self.dropout = layer_extend(job.get('dropout', []), 0, len(self.encoder_units))
 
 
-    def latent(self, sess, batcher):
-        ''' Compute latent representation '''
+    # def predict(self, sess, batcher):
+    #     ''' Compute predictions on a test set. '''
 
-        latents = []
+    #     preds = []
 
-        # setup feed dict for dropout
-        fd = {self.train:0}
+    #     # setup feed dict for dropout
+    #     fd = {}
+    #     for li in range(self.cnn_layers):
+    #         fd[self.cnn_dropout_ph[li]] = 0
+    #     for li in range(self.rnn_layers):
+    #         fd[self.rnn_dropout_ph[li]] = 0
 
-        # get first batch
-        Yb, Nb = batcher.next()
+    #     # get first batch
+    #     Xb, _, Nb = batcher.next()
 
-        while Yb is not None:
-            # update feed dict
-            fd[self.y] = Yb
+    #     while Xb is not None:
+    #         # update feed dict
+    #         fd[self.inputs] = Yb
 
-            # measure batch loss
-            latents_batch = sess.run(self.mu, feed_dict=fd)
+    #         # measure batch loss
+    #         preds_batch = sess.run(self.preds_op, feed_dict=fd)
 
-            # accumulate predictions and targets
-            latents.append(latents_batch[:Nb])
+    #         # accumulate predictions and targets
+    #         preds.append(preds_batch[:Nb])
 
-            # next batch
-            Yb, Nb = batcher.next()
+    #         # next batch
+    #         Xb, _, Nb = batcher.next()
 
-        # reset batcher
-        batcher.reset()
+    #     # reset batcher
+    #     batcher.reset()
 
-        # accumulate predictions
-        latents = np.vstack(latents)
+    #     # accumulate predictions
+    #     preds = np.vstack(preds)
 
-        return latents
-
-
-    def predict(self, sess, batcher):
-        ''' Compute predictions on a test set. '''
-
-        preds = []
-
-        # setup feed dict for dropout
-        fd = {self.train:0}
-
-        # get first batch
-        Yb, Nb = batcher.next()
-
-        while Yb is not None:
-            # update feed dict
-            fd[self.y] = Yb
-
-            # measure batch loss
-            preds_batch = sess.run(self.preds, feed_dict=fd)
-
-            # accumulate predictions and targets
-            preds.append(preds_batch[:Nb])
-
-            # next batch
-            Yb, Nb = batcher.next()
-
-        # reset batcher
-        batcher.reset()
-
-        # accumulate predictions
-        preds = np.vstack(preds)
-
-        return preds
+    #     return preds
 
 
     def test(self, sess, batcher, return_preds=False):
@@ -243,7 +197,7 @@ class AE:
         targets = []
 
         # setup feed dict for dropout
-        fd = {self.train:0}
+        fd = {}
         # for li in range(self.layers):
         #     fd[self.dropout_ph[li]] = 0
 
@@ -300,7 +254,7 @@ class AE:
         train_loss = []
 
         # setup feed dict for dropout
-        fd = {self.train:1}
+        fd = {}
         # for li in range(self.layers):
         #     fd[self.dropout_ph[li]] = self.dropout[li]
 

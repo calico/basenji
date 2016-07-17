@@ -13,7 +13,7 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 
-import basenji.io
+import basenji.dna_io
 from seq_logo import seq_logo
 
 ################################################################################
@@ -61,7 +61,7 @@ def main():
     #################################################################
     # setup model
     #################################################################
-    job = basenji.io.read_job_params(params_file)
+    job = basenji.dna_io.read_job_params(params_file)
 
     job['batch_length'] = seqs_1hot.shape[1]
     job['seq_depth'] = seqs_1hot.shape[2]
@@ -271,7 +271,7 @@ def parse_input(input_file, sample):
                 # seq_headers = seq_headers[sample_i]
 
             # convert to ACGT sequences
-            seqs = basenji.io.hot1_dna(seqs_1hot)
+            seqs = basenji.dna_io.hot1_dna(seqs_1hot)
 
         except IOError:
             parser.error('Could not parse input file as FASTA or HDF5.')

@@ -8,7 +8,7 @@ import numpy as np
 import pyBigWig
 import pysam
 
-import basenji.io
+import basenji.dna_io
 
 ################################################################################
 # sites_hdf5_rnn.py
@@ -108,7 +108,7 @@ def main():
             ds_i = si - train_num - options.valid_num
 
         # one hot code sequence
-        ds_in[ds_i,:,:] = basenji.io.dna_1hot(sites[si].seq(fasta_in, site_len))
+        ds_in[ds_i,:,:] = basenji.dna_io.dna_1hot(sites[si].seq(fasta_in, site_len))
 
     fasta_in.close()
 

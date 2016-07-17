@@ -105,7 +105,7 @@ def main():
     # model parameters and placeholders
     #######################################################
     # read parameters
-    job = basenji.io.read_job_params(options.params_file)
+    job = basenji.dna_io.read_job_params(options.params_file)
 
     job['num_targets'] = targets.shape[1]
 

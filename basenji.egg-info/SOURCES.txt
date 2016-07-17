@@ -1,0 +1,12 @@
+setup.py
+basenji/__init__.py
+basenji/autoencoder.py
+basenji/batcher.py
+basenji/batcher_cat.py
+basenji/genome.py
+basenji/io.py
+basenji/rnn.py
+basenji.egg-info/PKG-INFO
+basenji.egg-info/SOURCES.txt
+basenji.egg-info/dependency_links.txt
+basenji.egg-info/top_level.txt

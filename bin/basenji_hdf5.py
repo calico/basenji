@@ -71,7 +71,7 @@ def main():
     ################################################################
     # load model
     ################################################################
-    job = basenji.io.read_job_params(params_file)
+    job = basenji.dna_io.read_job_params(params_file)
     job['num_targets'] = targets.shape[1]
     job['batch_size'] = 1024
 
@@ -238,7 +238,7 @@ def segments_1hot(fasta_file, segments, seq_length):
         seq_end = seq_start + seq_length
         while seq_end < len(seg_seq):
             # append
-            seqs_1hot.append(basenji.io.dna_1hot(seg_seq[seq_start:seq_end]))
+            seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[seq_start:seq_end]))
 
             # update
             seg_start += batch_length

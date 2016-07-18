@@ -126,7 +126,9 @@ def read_job_params(job_file):
 
             # require a decimal for floats
             try:
-                if val.find('.') == -1:
+                if val.find('e') != -1:
+                    val = float(val)
+                elif val.find('.') == -1:
                     val = int(val)
                 else:
                     val = float(val)

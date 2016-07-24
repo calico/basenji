@@ -1,3 +1,4 @@
-basenji/*~
-bin/*~
-build/lib
+**/*~
+build/
+dist/
+basenji.egg-info/

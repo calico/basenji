@@ -6,9 +6,12 @@ import sys
 import time
 
 import h5py
+import joblib
 import numpy as np
 import pyBigWig
 import pysam
+from sklearn import preprocessing
+from sklearn.decomposition import PCA
 import tensorflow as tf
 
 import basenji
@@ -33,8 +36,10 @@ def main():
     parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-n', dest='num_samples', type='int', default=1000, help='Genomic positions to sample for training data [Default: %default]')
+    parser.add_option('-r', dest='reconstruct_out_pre', help='Save the recontructed validation targets to disk')
     parser.add_option('-s', dest='save_targets_file', help='Save the sampled target set to disk')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.1, help='Proportion of the data for validation [Default: %default]')
+    parser.add_option('-w', dest='whiten', default=False, action='store_true', help='Whiten functional data [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -67,9 +72,15 @@ def main():
         chrom_samples = {}
         for chrom in chrom_segments:
             chrom_samples[chrom] = []
+            sample_counter = 0
             for seg_start, seg_end in chrom_segments[chrom]:
-                sample_num = (seg_end - seg_start) // sample_every
-                chrom_samples[chrom] += [int(pos) for pos in np.linspace(seg_start, seg_end, sample_num)][1:-1]
+                seg_i = seg_start
+                while seg_i + (sample_every - sample_counter) < seg_end:
+                    seg_i += (sample_every - sample_counter)
+                    chrom_samples[chrom].append(seg_i)
+                    sample_counter = 0
+
+                sample_counter += seg_end-seg_i
 
         #######################################################
         # read from bigwigs
@@ -99,7 +110,14 @@ def main():
         print('%ds' % (time.time()-t0))
 
     print('\nSampled dataset', targets.shape, '\n')
-    sys.stdout.flush()
+
+    # pre-process
+    if options.whiten:
+        targets = np.nan_to_num(targets)
+        targets = preprocessing.scale(targets)
+
+     # divide train and valid
+    tv_line = int(options.valid_pct*targets.shape[0])
 
     #######################################################
     # model parameters and placeholders
@@ -112,70 +130,89 @@ def main():
     # construct model
     print('Constructing model')
     sys.stdout.flush()
-    model = basenji.autoencoder.AE(job)
 
-    #######################################################
-    # train
-    #######################################################
-    # divide train and valid
-    tv_line = int(options.valid_pct*targets.shape[0])
+    if job.get('model','autoencoder') == 'pca':
+        # construct
+        model = PCA(n_components=job['latent_dim'])
 
-    # initialize batcher
-    batcher_train = basenji.batcher.BatcherT(targets[tv_line:], model.batch_size, shuffle=True)
-    batcher_valid = basenji.batcher.BatcherT(targets[:tv_line], model.batch_size)
+        # train
+        model.fit(targets[tv_line:])
 
-    # checkpoints
-    saver = tf.train.Saver()
+        # validate
+        latent_valid = model.transform(targets[:tv_line])
+        recon_valid = model.inverse_transform(latent_valid)
+        valid_var = targets[:tv_line].var()
+        recon_var = (targets[:tv_line] - recon_valid).var()
+        r2 = 1.0 - np.divide(recon_var, valid_var)
+        print('Valid R2: %7.5f' % r2.mean())
 
-    with tf.Session() as sess:
-        t0 = time.time()
+        # save
+        joblib.dump(model, model_out_file)
 
-        # initialize variables
-        sess.run(tf.initialize_all_variables())
+        if options.reconstruct_out_pre:
+            np.save(options.reconstruct_out_pre, recon_valid)
 
-        train_loss = None
-        best_r2 = -1000
-        early_stop_i = 0
+    else:
+        model = basenji.autoencoder.AE(job)
 
-        for epoch in range(1000):
-            if early_stop_i < model.early_stop:
-                t0 = time.time()
+        #######################################################
+        # train
+        #######################################################
+        # initialize batcher
+        batcher_train = basenji.batcher.BatcherT(targets[tv_line:], model.batch_size, shuffle=True)
+        batcher_valid = basenji.batcher.BatcherT(targets[:tv_line], model.batch_size)
 
-                # save previous
-                train_loss_last = train_loss
+        # checkpoints
+        saver = tf.train.Saver()
 
-                # train
-                train_loss = model.train_epoch(sess, batcher_train)
+        with tf.Session() as sess:
+            t0 = time.time()
 
-                # validate
-                valid_loss, valid_r2 = model.test(sess, batcher_valid)
+            # initialize variables
+            sess.run(tf.initialize_all_variables())
 
-                best_str = ''
-                if valid_r2 > best_r2:
-                    best_r2 = valid_r2
-                    best_str = 'best!'
-                    early_stop_i = 0
-                    saver.save(sess, model_out_file)
-                else:
-                    early_stop_i += 1
+            train_loss = None
+            best_r2 = -1000
+            early_stop_i = 0
 
-                # measure time
-                et = time.time() - t0
-                if et < 600:
-                    time_str = '%3ds' % et
-                elif et < 6000:
-                    time_str = '%3dm' % (et/60)
-                else:
-                    time_str = '%3.1fh' % (et/3600)
+            for epoch in range(1000):
+                if early_stop_i < model.early_stop:
+                    t0 = time.time()
 
-                # print update
-                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
-                sys.stdout.flush()
+                    # save previous
+                    train_loss_last = train_loss
 
-                # if training stagnant
-                if train_loss_last is not None and (train_loss_last - train_loss) / train_loss_last < 0.0001:
-                    print(' Dropping the learning rate.')
-                    model.drop_rate()
+                    # train
+                    train_loss = model.train_epoch(sess, batcher_train)
+
+                    # validate
+                    valid_loss, valid_r2 = model.test(sess, batcher_valid)
+
+                    best_str = ''
+                    if valid_r2 > best_r2:
+                        best_r2 = valid_r2
+                        best_str = 'best!'
+                        early_stop_i = 0
+                        saver.save(sess, model_out_file)
+                    else:
+                        early_stop_i += 1
+
+                    # measure time
+                    et = time.time() - t0
+                    if et < 600:
+                        time_str = '%3ds' % et
+                    elif et < 6000:
+                        time_str = '%3dm' % (et/60)
+                    else:
+                        time_str = '%3.1fh' % (et/3600)
+
+                    # print update
+                    print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
+                    sys.stdout.flush()
+
+            if options.reconstruct_out_pre:
+                preds = model.predict(sess, batcher_valid)
+                np.save(options.reconstruct_out_pre, preds)
 
 
 def bigwig_read(wig_file, chrom_samples):

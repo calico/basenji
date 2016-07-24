@@ -8,7 +8,9 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
-import basenji
+import basenji.dna_io
+import basenji.batcher
+import basenji.rnn
 
 ################################################################################
 # basenji_train.py

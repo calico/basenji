@@ -115,8 +115,41 @@ class RNN:
                     output_norms_diff = tf.squared_difference(output_norms[self.batch_buffer_pool:,:], output_norms[:seq_length-self.batch_buffer_pool,:])
                     norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(output_norms_diff)
 
+                # pooling
+                if self.rnn_pool[li] > 1:
+                    # pack into a tensor
+                    outputs = tf.pack(outputs)
+
+                    # transpose batch to the front
+                    outputs = tf.transpose(outputs, [1, 0, 2])
+
+                    # reshape to pretend 4D
+                    outputs = tf.reshape(outputs, [self.batch_size, 1, seq_length, 2*self.rnn_units[li]])
+
+                    # pool
+                    outputs = tf.nn.max_pool(outputs, ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='pool%d'%li)
+
+                    # updates size variable
+                    seq_length = seq_length // self.rnn_pool[li]
+
+                    # reshape to real 3D
+                    outputs = tf.reshape(outputs, [self.batch_size, seq_length, 2*self.rnn_units[li]])
+
+                    # transpose length to the front
+                    outputs = tf.transpose(outputs, [1, 0, 2])
+
+                    # unpack into a list
+                    outputs = tf.unpack(outputs)
+
                 # outputs become input to next layer
                 rinput = outputs
+
+        # update batch buffer to reflect pooling
+        pool_ratio = self.batch_length // seq_length
+        if self.batch_buffer % pool_ratio != 0:
+            print('Please make the batch_buffer %d divisible by the pooling %d' % (self.batch_buffer, pool_ratio), file=sys.stderr)
+            exit(1)
+        self.batch_buffer_pool = self.batch_buffer // pool_ratio
 
         ###################################################
         # output layers
@@ -219,6 +252,8 @@ class RNN:
         ###################################################
         self.rnn_units = np.atleast_1d(job.get('rnn_units', [100]))
         self.rnn_layers = len(self.rnn_units)
+        self.rnn_pool = layer_extend(job.get('rnn_pool', []), 1, self.rnn_layers)
+
         self.cell = job.get('cell', 'lstm').lower()
         self.activation = job.get('activation','tanh').lower()
         if self.activation == 'relu':

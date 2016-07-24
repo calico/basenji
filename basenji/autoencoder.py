@@ -22,14 +22,23 @@ class AE:
         self.train = tf.placeholder(tf.float32, shape=[])
 
         # dropout rates
-        # self.dropout_ph = []
-        # for li in range(self.layers):
-        #     self.dropout_ph.append(tf.placeholder(tf.float32))
+        self.encoder_dropout_ph = []
+        for li in range(len(self.encoder_units)):
+            self.encoder_dropout_ph.append(tf.placeholder(tf.float32))
+        self.decoder_dropout_ph = []
+        for li in range(len(self.decoder_units)):
+            self.decoder_dropout_ph.append(tf.placeholder(tf.float32))
 
         ###################################
         # encoder
         ###################################
         layer_rep = self.y
+
+        # inject pre-noise
+        if self.noise_gaussian > 0:
+            noise = tf.random_normal(tf.shape(layer_rep), stddev=self.noise_gaussian, dtype=tf.float32, name='epsilon')
+            layer_rep += tf.scalar_mul(self.train, epsilon)
+
         for li in range(len(self.encoder_units)):
             with tf.variable_scope('encode%d' % li) as vs:
                 # initialize parameters
@@ -40,10 +49,15 @@ class AE:
                 layer_rep = tf.matmul(layer_rep, weights) + bias
 
                 # batch normalization
-                layer_rep = tf.contrib.layers.python.layers.batch_norm(layer_rep, center=True, scale=True, is_training=True)
+                # layer_rep = tf.contrib.layers.python.layers.batch_norm(layer_rep, center=True, scale=True, is_training=True)
 
                 # nonlinearity
                 layer_rep = tf.nn.relu(layer_rep)
+
+                # dropout
+                if self.encoder_dropout[li] > 0:
+                    layer_rep = tf.nn.dropout(layer_rep, keep_prob=(1.0-self.encoder_dropout_ph[li]))
+
 
         ###################################
         # latent
@@ -71,7 +85,7 @@ class AE:
         # sample latent variables
         x = self.mu
         if self.variational:
-            epsilon = tf.random_normal(tf.shape(logvar), stddev=0.005, dtype=tf.float32, name='epsilon')
+            epsilon = tf.random_normal(tf.shape(logvar), stddev=1, dtype=tf.float32, name='epsilon')
             x += tf.scalar_mul(self.train, tf.mul(self.std, epsilon))
 
         ###################################
@@ -92,6 +106,10 @@ class AE:
 
                 # nonlinearity
                 layer_rep = tf.nn.relu(layer_rep)
+
+                # dropout
+                if self.decoder_dropout[li] > 0:
+                    layer_rep = tf.nn.dropout(layer_rep, keep_prob=(1.0-self.decoder_dropout_ph[li]))
 
         with tf.variable_scope('reconstruct') as vs:
             # initialize parameters
@@ -166,7 +184,9 @@ class AE:
         # regularization?
         ###################################################
         self.early_stop = job.get('early_stop', 10)
-        self.dropout = layer_extend(job.get('dropout', []), 0, len(self.encoder_units))
+        self.noise_gaussian = job.get('noise_gaussian', 0)
+        self.encoder_dropout = layer_extend(job.get('encoder_dropout', []), 0, len(self.encoder_units))
+        self.decoder_dropout = layer_extend(job.get('encoder_dropout', self.encoder_dropout), 0, len(self.decoder_units))
 
 
     def latent(self, sess, batcher):
@@ -176,6 +196,10 @@ class AE:
 
         # setup feed dict for dropout
         fd = {self.train:0}
+        for li in range(len(self.encoder_dropout_ph)):
+            fd[self.encoder_dropout_ph[li]] = 0
+        for li in range(len(self.decoder_dropout_ph)):
+            fd[self.decoder_dropout_ph[li]] = 0
 
         # get first batch
         Yb, Nb = batcher.next()
@@ -209,6 +233,10 @@ class AE:
 
         # setup feed dict for dropout
         fd = {self.train:0}
+        for li in range(len(self.encoder_dropout_ph)):
+            fd[self.encoder_dropout_ph[li]] = 0
+        for li in range(len(self.decoder_dropout_ph)):
+            fd[self.decoder_dropout_ph[li]] = 0
 
         # get first batch
         Yb, Nb = batcher.next()
@@ -244,8 +272,10 @@ class AE:
 
         # setup feed dict for dropout
         fd = {self.train:0}
-        # for li in range(self.layers):
-        #     fd[self.dropout_ph[li]] = 0
+        for li in range(len(self.encoder_dropout_ph)):
+            fd[self.encoder_dropout_ph[li]] = 0
+        for li in range(len(self.decoder_dropout_ph)):
+            fd[self.decoder_dropout_ph[li]] = 0
 
         # get first batch
         Yb, Nb = batcher.next()
@@ -301,8 +331,10 @@ class AE:
 
         # setup feed dict for dropout
         fd = {self.train:1}
-        # for li in range(self.layers):
-        #     fd[self.dropout_ph[li]] = self.dropout[li]
+        for li in range(len(self.encoder_dropout_ph)):
+            fd[self.encoder_dropout_ph[li]] = self.encoder_dropout[li]
+        for li in range(len(self.decoder_dropout_ph)):
+            fd[self.decoder_dropout_ph[li]] = self.decoder_dropout[li]
 
         # get first batch
         Yb, Nb = batcher.next()

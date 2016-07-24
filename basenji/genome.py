@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import sys
+import pysam
 
 ################################################################################
 # genome.py
@@ -18,7 +19,7 @@ def load_chromosomes(genome_file):
 
     if file_fasta:
         fasta_open = pysam.Fastafile(genome_file)
-        for i in range(fasta_open.references):
+        for i in range(len(fasta_open.references)):
             chrom_segments[fasta_open.references[i]] = [(0, fasta_open.lengths[i])]
         fasta_open.close()
 
@@ -45,12 +46,12 @@ def split_contigs(chrom_segments, gaps_file):
 
     # add known segments
     for chrom in chrom_segments:
-        if len(chrom_segments[chrom]):
-            print("I've made a terrible mistake.", file=sys.stderr)
+        if len(chrom_segments[chrom]) > 1:
+            print("I've made a terrible mistake...regarding the length of chrom_segments[%s]" % chrom, file=sys.stderr)
             exit(1)
         cstart, cend = chrom_segments[chrom][0]
-        chrom_events[chrom].append((seg_start, 'cstart'))
-        chrom_events[chrom].append((seg_end, 'cend'))
+        chrom_events.setdefault(chrom,[]).append((cstart, 'Cstart'))
+        chrom_events[chrom].append((cend, 'cend'))
 
     # add gaps
     for line in open(gaps_file):
@@ -58,8 +59,11 @@ def split_contigs(chrom_segments, gaps_file):
         chrom = a[0]
         gstart = int(a[1])
         gend = int(a[2])
-        chrom_events[chrom].append((gstart,'gstart'))
-        chrom_events[chrom].append((gend,'gend'))
+
+        # consider only if its in our genome
+        if chrom in chrom_events:
+            chrom_events[chrom].append((gstart,'gstart'))
+            chrom_events[chrom].append((gend,'Gend'))
 
     for chrom in chrom_events:
         # sort
@@ -71,8 +75,13 @@ def split_contigs(chrom_segments, gaps_file):
             pos1, event1 = chrom_events[chrom][i]
             pos2, event2 = chrom_events[chrom][i+1]
 
+            event1 = event1.lower()
+            event2 = event2.lower()
+
             shipit = False
-            if event1 == 'cstart' and event2 == 'gstart':
+            if event1 == 'cstart' and event2 == 'cend':
+                shipit = True
+            elif event1 == 'cstart' and event2 == 'gstart':
                 shipit = True
             elif event1 == 'gend' and event2 == 'gstart':
                 shipit = True
@@ -81,9 +90,10 @@ def split_contigs(chrom_segments, gaps_file):
             elif event1 == 'gstart' and event2 == 'gend':
                 pass
             else:
-                print("I'm confused by this event ordering", file=sys.stderr)
+                print("I'm confused by this event ordering: %s - %s" % (event1,event2), file=sys.stderr)
+                exit(1)
 
-            if shipit:
+            if shipit and pos1 < pos2:
                 chrom_segments[chrom].append((pos1,pos2))
 
     return chrom_segments

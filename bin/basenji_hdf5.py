@@ -2,6 +2,7 @@
 from optparse import OptionParser
 from collections import OrderedDict
 import multiprocessing
+import random
 import sys
 
 import h5py
@@ -34,8 +35,8 @@ def main():
     parser.add_option('-m', dest='params_file', help='Dimension reduction hyper-parameters file')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
-    parser.add_option('-t', dest='test_pct', type='float', default=0.05, help='Proportion of the data for testing [Default: %default]')
-    parser.add_option('-v', dest='valid_pct', type='float', default=0.05, help='Proportion of the data for validation [Default: %default]')
+    parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
+    parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -96,6 +97,12 @@ def main():
     targets_real = []
     targets_imag = []
 
+    targets_test = []
+    test_indexes = []
+    targets_n = 0
+
+    filtered_n = 0
+
     # initialize multiprocessing pool
     pool = multiprocessing.Pool(options.processes)
 
@@ -122,6 +129,18 @@ def main():
             wig_targets = np.array(wig_targets)
             targets_wig = np.transpose(wig_targets, axes=(1,2,0))
 
+            # filter boring segments
+            prefilter_n = targets_wig.shape[0]
+            targets_wig = filter_boring(targets_wig)
+            filtered_n += prefilter_n - targets_wig.shape[0]
+
+            # set aside test sequences
+            test_n = int(options.test_pct*targets_wig.shape[0])
+            test_bindexes = random.sample(range(targets_wig.shape[0]),test_n)
+            targets_test.append(targets_wig[test_bindexes])
+            test_indexes += [targets_n+tbi for tbi in test_bindexes]
+            targets_n += targets_wig.shape[0]
+
             # map to latent space
             if options.scent_file:
                 batcher = basenji.batcher.BatcherT(targets_wig, model.batch_size)
@@ -146,8 +165,13 @@ def main():
     pool.close()
 
     # stack arrays
-    targets = np.vstack(targets)
-    print('%d sequences' % targets.shape[0])
+    targets_real = np.vstack(targets_real)
+    if options.fourier_dim is not None:
+        targets_imag = np.vstack(targets_imag)
+    targets_test = np.vstack(targets_test)
+
+    print('%d sequences' % targets_real.shape[0])
+    print('%d filtered for low variability' % filtered_n)
     sys.stdout.flush()
 
 
@@ -160,12 +184,40 @@ def main():
     ################################################################
     # write to train, valid, test HDF5
     ################################################################
-    # determine # of each
-    total_n = seqs_1hot.shape[0]
-    valid_n = int(options.valid_pct*total_n)
-    test_n = int(options.test_pct*total_n)
-    train_n = total_n - valid_n - test_n
 
+    # sample valid indexes (we already have test)
+    valid_n = int(options.valid_pct*targets_n)
+    nontest_indexes = set(range(total_n)) - set(test_indexes)
+    valid_indexes = random.sample(nontest_indexes, valid_n)
+
+    # remainder is training
+    train_indexes = list(nontest_indexes - set(valid_indexes))
+
+    # training requires shuffle
+    random.shuffle(train_indexes)
+
+    # HDF5 train
+    hdf5_out.create_dataset('train_in', data=seqs_1hot[train_indexes], dtype='bool')
+    hdf5_out.create_dataset('train_out', data=targets_real[train_indexes], dtype='float16')
+    if options.fourier_dim is not None:
+        hdf5_out.create_dataset('train_out_imag', data=targets_imag[train_indexes], dtype='float16')
+
+    # HDF5 valid
+    hdf5_out.create_dataset('valid_in', data=seqs_1hot[valid_indexes], dtype='bool')
+    hdf5_out.create_dataset('valid_out', data=targets_real[valid_indexes], dtype='float16')
+    if options.fourier_dim is not None:
+        hdf5_out.create_dataset('valid_out_imag', data=targets_imag[valid_indexes], dtype='float16')
+
+    # test
+    hdf5_out.create_dataset('test_in', data=seqs_1hot[test_indexes], dtype='bool')
+    hdf5_out.create_dataset('test_out', data=targets_real[test_indexes], dtype='float16')
+    if options.fourier_dim is not None:
+        hdf5_out.create_dataset('test_out_imag', data=targets_imag[test_indexes], dtype='float16')
+    hdf5_out.create_dataset('test_out_full', data=targets_test, dtype='float16')
+
+    hdf5_out.close()
+
+    '''
     # shuffle (little nervous about memory here)
     order = np.random.permutation(total_n)
     seqs_1hot = seqs_1hot[order]
@@ -195,6 +247,7 @@ def main():
     hdf5_out.create_dataset('test_out', data=targets_real[ti:], dtype='float16')
     if options.fourier_dim is not None:
         hdf5_out.create_dataset('test_out_imag', data=targets_imag[ti:], dtype='float16')
+    '''
 
     hdf5_out.close()
 
@@ -260,6 +313,22 @@ def bigwig_batch(wig_file, segments, seq_length):
             bend += seq_length
 
     return targets
+
+
+################################################################################
+def filter_boring(targets, var_t=.01):
+    ''' Filter boring segments without signal variance.
+
+    Args
+     targets: SxLxT array of target values
+     var_t: Average variance threshold
+
+    Returns:
+     targets_exciting: SxLxT array of target values
+    '''
+    target_lvar_max = targets.var(axis=1).max(axis=1)
+    exciting_indexes = [si for si in targets.shape[0] if target_lvar_max[si] > var_t]
+    return targets[exciting_indexes]
 
 
 ################################################################################

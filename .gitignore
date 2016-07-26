@@ -2,3 +2,4 @@
 build/
 dist/
 basenji.egg-info/
+basenji/__pycache__/

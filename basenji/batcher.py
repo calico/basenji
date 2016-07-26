@@ -9,7 +9,7 @@ class Batcher:
 
     Class to manage batches.
     '''
-    def __init__(self, Xf, Yf=None, batch_size=8, shuffle=False):
+    def __init__(self, Xf, Yf=None, batch_size=64, shuffle=False):
         self.Xf = Xf
         self.num_seqs = self.Xf.shape[0]
         self.seq_len = self.Xf.shape[1]
@@ -106,6 +106,73 @@ class Batcher:
             random.shuffle(self.order)
 
 
+class BatcherF:
+    ''' BatcherF
+
+    Class to manage batches of data in fourier space.
+    '''
+    def __init__(self, Xf, Yf_real, Yf_imag, batch_size=64, shuffle=False):
+        self.Xf = Xf
+        self.num_seqs = self.Xf.shape[0]
+        self.seq_len = self.Xf.shape[1]
+        self.seq_depth = self.Xf.shape[2]
+
+        self.Yf_real = Yf_real
+        self.Yf_imag = Yf_imag
+        self.num_targets = self.Yf.shape[2]
+
+        self.batch_size = batch_size
+
+        self.shuffle = shuffle
+
+        self.reset()
+
+
+    def next(self):
+        ''' Load the next batch from the HDF5. '''
+        Xb = None
+        Yb = None
+        Nb = 0
+
+        stop = self.start + self.batch_size
+        if stop <= self.num_seqs:
+            # full batch
+
+            # initialize
+            Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
+            if self.Yf is not None:
+                Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
+
+            # copy data
+            for i in range(self.batch_size):
+                si = self.order[self.start+i]
+                Xb[i] = self.Xf[si]
+
+                # fix N positions
+                Xbi_n = (Xb[i].sum(axis=1) == 0)
+                Xb[i] = Xb[i] + (1/self.seq_depth)*Xbi_n.repeat(self.seq_depth).reshape(self.seq_len,self.seq_depth)
+
+                # inverse fourier transform
+                ybi_fourier = self.Yf_real[si] + self.Yf_imag[si]*1j
+                for ti in range(self.num_targets):
+                    Yb[i,:,ti] = np.fft.irfft(ybi_fourier[:,ti], self.seq_len)
+
+            # specify full batch
+            Nb = self.batch_size
+
+        # update start
+        self.start = stop
+
+        return Xb, Yb, Nb
+
+
+    def reset(self):
+        self.start = 0
+        self.order = list(range(self.num_seqs))
+        if self.shuffle:
+            random.shuffle(self.order)
+
+
 class BatcherT:
     ''' BatcherT
 
@@ -166,4 +233,3 @@ class BatcherT:
         self.order = list(range(self.num_nts))
         if self.shuffle:
             random.shuffle(self.order)
-

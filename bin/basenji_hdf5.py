@@ -30,6 +30,7 @@ To Do:
 def main():
     usage = 'usage: %prog [options] <fasta_file> <sample_wigs_file> <hdf5_file>'
     parser = OptionParser(usage)
+    parser.add_option('-b', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
     parser.add_option('-f', dest='fourier_dim', default=None, type='int', help='Fourier transform dimension [Default: %default]')
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
@@ -187,7 +188,7 @@ def main():
     ################################################################
     # one hot code sequences
     ################################################################
-    seqs_1hot = segments_1hot(fasta_file, segments, options.seq_length)
+    seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length)
 
 
     ################################################################
@@ -229,39 +230,16 @@ def main():
 
     hdf5_out.close()
 
-    '''
-    # shuffle (little nervous about memory here)
-    order = np.random.permutation(total_n)
-    seqs_1hot = seqs_1hot[order]
-    targets_real = targets_real[order]
-    if options.fourier_dim is not None:
-        targets_imag = targets_imag[order]
-
-    # write to HDF5
-    hdf5_out = h5py.File(hdf5_file, 'w')
-
-    # train
-    hdf5_out.create_dataset('train_in', data=seqs_1hot[:train_n], dtype='bool')
-    hdf5_out.create_dataset('train_out', data=targets_real[:train_n], dtype='float16')
-    if options.fourier_dim is not None:
-        hdf5_out.create_dataset('train_out_imag', data=targets_imag[:train_n], dtype='float16')
-
-    # valid
-    vi = train_n
-    hdf5_out.create_dataset('valid_in', data=seqs_1hot[vi:vi+valid_n], dtype='bool')
-    hdf5_out.create_dataset('valid_out', data=targets_real[vi:vi+valid_n], dtype='float16')
-    if options.fourier_dim is not None:
-        hdf5_out.create_dataset('valid_out_imag', data=targets_imag[vi:vi+valid_n], dtype='float16')
-
-    # test
-    ti = train_n + valid_n
-    hdf5_out.create_dataset('test_in', data=seqs_1hot[ti:], dtype='bool')
-    hdf5_out.create_dataset('test_out', data=targets_real[ti:], dtype='float16')
-    if options.fourier_dim is not None:
-        hdf5_out.create_dataset('test_out_imag', data=targets_imag[ti:], dtype='float16')
-
-    hdf5_out.close()
-    '''
+    # output BED file
+    if options.out_bed_file:
+        out_bed_out = open(options.out_bed_file, 'w')
+        for si in train_indexes:
+            print('%s\t%d\t%d\ttrain' % seqs_segments[si], file=out_bed_out)
+        for si in valid_indexes
+            print('%s\t%d\t%d\tvalid' % seqs_segments[si], file=out_bed_out)
+        for si in test_indexes:
+            print('%s\t%d\t%d\ttest' % seqs_segments[si], file=out_bed_out)
+        out_bed_out.close()
 
 
 ################################################################################
@@ -406,6 +384,7 @@ def segments_1hot(fasta_file, segments, seq_length):
 
     Returns:
      seqs_1hot: You know.
+     seqs_segments: list of (chrom,start,end) sequence segments
     '''
 
     # open fasta
@@ -413,6 +392,9 @@ def segments_1hot(fasta_file, segments, seq_length):
 
     # initialize 1-hot coding list
     seqs_1hot = []
+
+    # segment corresponding to each sequence
+    seqs_segments = []
 
     # for status updates
     last_chrom = ''
@@ -432,13 +414,15 @@ def segments_1hot(fasta_file, segments, seq_length):
                 # append
                 seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[bstart:bend]))
 
+                seqs_segments.append((chrom,bstart,bend))
+
                 # update
                 bstart += seq_length
                 bend += seq_length
 
         last_chrom = chrom
 
-    return np.array(seqs_1hot)
+    return np.array(seqs_1hot), seqs_segments
 
 
 ################################################################################

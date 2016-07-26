@@ -187,7 +187,7 @@ def main():
     ################################################################
     # one hot code sequences
     ################################################################
-    seqs_1hot, segments = segments_1hot(fasta_file, segments, options.seq_length)
+    seqs_1hot = segments_1hot(fasta_file, segments, options.seq_length)
 
 
     ################################################################
@@ -406,7 +406,6 @@ def segments_1hot(fasta_file, segments, seq_length):
 
     Returns:
      seqs_1hot: You know.
-     segments_used: A filtered list of only the (chrom,start,end) segments used
     '''
 
     # open fasta
@@ -418,9 +417,6 @@ def segments_1hot(fasta_file, segments, seq_length):
     # for status updates
     last_chrom = ''
 
-    # save used segments
-    segments_used = []
-
     for chrom, seg_start, seg_end in segments:
         if chrom != last_chrom:
             print(' %s' % chrom)
@@ -428,9 +424,6 @@ def segments_1hot(fasta_file, segments, seq_length):
         if seg_start + seq_length <= seg_end:
             # read sequence
             seg_seq = fasta.fetch(chrom, seg_start, seg_end)
-
-            # remember use
-            segments_used.append((chrom, seg_start, seg_end))
 
             # break up into batchable sequences (as above in bigwig_batch)
             bstart = 0
@@ -445,7 +438,7 @@ def segments_1hot(fasta_file, segments, seq_length):
 
         last_chrom = chrom
 
-    return np.array(seqs_1hot), segments_used
+    return np.array(seqs_1hot)
 
 
 ################################################################################

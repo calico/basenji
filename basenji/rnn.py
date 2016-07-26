@@ -105,7 +105,8 @@ class RNN:
 
                 # run bidirectional
                 if self.cnn_layers == 0 and li == 0:
-                    outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
+                    # outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
+                    outputs, _, _ = bidirectional_rnn_rc(cell, cell, rinput, dtype=tf.float32)
                 else:
                     outputs, _, _ = bidirectional_rnn_tied(cell, cell, rinput, dtype=tf.float32)
 
@@ -433,13 +434,15 @@ def layer_extend(var, default, layers):
 
     return var
 
-
+###################################################################################################
+# TensorFlow adjustments
+###################################################################################################
 from tensorflow.python.ops import variable_scope as vs
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops.rnn import _reverse_seq
-def bidirectional_rnn_tied(cell_fw, cell_bw, inputs,
-                      initial_state_fw=None, initial_state_bw=None,
-                      dtype=None, sequence_length=None, scope=None):
+
+################################################################################
+def bidirectional_rnn_tied(cell_fw, cell_bw, inputs, initial_state_fw=None, initial_state_bw=None, dtype=None, sequence_length=None, scope=None):
     name = scope or "BiRNN"
     with vs.variable_scope(name) as fw_scope:
         # Forward direction
@@ -457,3 +460,39 @@ def bidirectional_rnn_tied(cell_fw, cell_bw, inputs,
 
     return (outputs, output_state_fw, output_state_bw)
 
+################################################################################
+def bidirectional_rnn_rc(cell_fw, cell_bw, inputs, initial_state_fw=None, initial_state_bw=None, dtype=None, sequence_length=None, scope=None):
+    name = scope or "BiRNN"
+    with vs.variable_scope(name) as fw_scope:
+        # Forward direction
+        output_fw, output_state_fw = tf.nn.rnn(cell_fw, inputs, initial_state_fw, dtype, sequence_length, scope=fw_scope)
+
+    with vs.variable_scope(name, reuse=True) as bw_scope:
+        # Backward direction
+        tmp, output_state_bw = tf.nn.rnn(cell_bw, _reverse_complement(inputs, sequence_length),
+                 initial_state_bw, dtype, sequence_length, scope=bw_scope)
+
+    output_bw = _reverse_seq(tmp, sequence_length)
+
+    # Concat each of the forward/backward outputs
+    outputs = [array_ops.concat(1, [fw, bw]) for fw, bw in zip(output_fw, output_bw)]
+
+    return (outputs, output_state_fw, output_state_bw)
+
+################################################################################
+def _reverse_complement(input_seq, lengths):
+    """Reverse complement a list of one hot coded nucleotide Tensors.
+    Args:
+    input_seq: Sequence of seq_len tensors of dimension (batch_size, 4)
+    lengths:   A `Tensor` of dimension batch_size, containing lengths for each
+               sequence in the batch. If "None" is specified, simply reverse
+               complements the list.
+    Returns:
+    reverse complemented sequence
+    """
+    if lengths is not None:
+        print('Not yet implemented', file=sys.stderr)
+        exit(1)
+    else:
+        nt_rc = tf.constant([[0,0,0,1],[0,0,1,0],[0,1,0,0],[1,0,0,0]], dtype='float32')
+        return [tf.matmul(ris,nt_rc) for ris in reversed(input_seq)]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
 from collections import OrderedDict
+import joblib
 import multiprocessing
 import random
 import sys
@@ -85,15 +86,20 @@ def main():
         job = basenji.dna_io.read_job_params(options.params_file)
         job['num_targets'] = len(target_wigs)
         job['batch_size'] = 1024
+        job['model'] = job.get('model','autoencoder')
 
-        model = basenji.autoencoder.AE(job)
-
-        saver = tf.train.Saver()
-
+        if job['model'] == 'autoencoder':
+            model = basenji.autoencoder.AE(job)
+            saver = tf.train.Saver()
+        else:
+            model = joblib.load(options.scent_file)
 
     ################################################################
     # bigwig read and process
     ################################################################
+    print('Reading and pre-processing bigwigs')
+    sys.stdout.flush()
+
     targets_real = []
     targets_imag = []
 
@@ -103,21 +109,24 @@ def main():
 
     filtered_n = 0
 
+    update_i = 0
+
     # initialize multiprocessing pool
     pool = multiprocessing.Pool(options.processes)
 
     with tf.Session() as sess:
-        if options.scent_file:
+        if options.scent_file and job['model'] == 'autoencoder':
             saver.restore(sess, options.scent_file)
 
         # batch segment processing
         bstart = 0
         while bstart < len(segments):
-            print('Tiling from %s:%d-%d' % segments[bstart])
-            sys.stdout.flush()
+            if update_i % 5 == 0:
+                print('Tiling from %s:%d-%d' % segments[bstart])
+                sys.stdout.flush()
 
             # determine batch end
-            bend = batch_end(segments, bstart, 200000)
+            bend = batch_end(segments, bstart, 300000)
 
             # bigwig_read parameters
             bwr_params = [(wig_file, segments[bstart:bend], options.seq_length) for wig_file in target_wigs.values()]
@@ -142,11 +151,10 @@ def main():
             targets_n += targets_wig.shape[0]
 
             # map to latent space
-            if options.scent_file:
-                batcher = basenji.batcher.BatcherT(targets_wig, model.batch_size)
-                targets_latent = model.latent(sess, batcher)
-            else:
+            if options.scent_file is None:
                 targets_latent = targets_wig
+            else:
+                targets_latent = latent_transform(sess, model, job, targets_wig)
 
             # compress across length
             if options.fourier_dim is None:
@@ -161,6 +169,7 @@ def main():
 
             # update batch
             bstart = bend
+            update_i += 1
 
     pool.close()
 
@@ -187,7 +196,7 @@ def main():
 
     # sample valid indexes (we already have test)
     valid_n = int(options.valid_pct*targets_n)
-    nontest_indexes = set(range(total_n)) - set(test_indexes)
+    nontest_indexes = set(range(targets_n)) - set(test_indexes)
     valid_indexes = random.sample(nontest_indexes, valid_n)
 
     # remainder is training
@@ -195,6 +204,9 @@ def main():
 
     # training requires shuffle
     random.shuffle(train_indexes)
+
+    # write to HDF5
+    hdf5_out = h5py.File(hdf5_file, 'w')
 
     # HDF5 train
     hdf5_out.create_dataset('train_in', data=seqs_1hot[train_indexes], dtype='bool')
@@ -247,9 +259,9 @@ def main():
     hdf5_out.create_dataset('test_out', data=targets_real[ti:], dtype='float16')
     if options.fourier_dim is not None:
         hdf5_out.create_dataset('test_out_imag', data=targets_imag[ti:], dtype='float16')
-    '''
 
     hdf5_out.close()
+    '''
 
 
 ################################################################################
@@ -327,7 +339,7 @@ def filter_boring(targets, var_t=.01):
      targets_exciting: SxLxT array of target values
     '''
     target_lvar_max = targets.var(axis=1).max(axis=1)
-    exciting_indexes = [si for si in targets.shape[0] if target_lvar_max[si] > var_t]
+    exciting_indexes = [si for si in range(targets.shape[0]) if target_lvar_max[si] > var_t]
     return targets[exciting_indexes]
 
 
@@ -353,6 +365,34 @@ def fourier_transform(targets, dim):
         fourier_imag[:,:,ti] = fourier_ti.imag.astype('float16')
 
     return fourier_real, fourier_imag
+
+
+################################################################################
+def latent_transform(sess, model, job, targets_wig):
+    ''' Transform raw data to latent representation.
+
+    Args
+     sess: TensorFlow session
+     model: TF or sklearn model
+     job: dictionary of model hyper-parameters
+     targets_wig: SxLxT array of target values
+
+    Returns:
+     targets_latent: SxDxT array of target values
+    '''
+
+    S, L, T = targets_wig.shape
+    targets_length = targets_wig.reshape((S*L, T))
+
+    if job['model'] == 'pca':
+        targets_length_latent = model.transform(targets_length)
+    else:
+        batcher = basenji.batcher.BatcherT(targets_length, model.batch_size)
+        targets_length_latent = model.latent(sess, batcher)
+
+    targets_latent = targets_length_latent.reshape((S,L,job['latent_dim']))
+
+    return targets_latent
 
 
 ################################################################################

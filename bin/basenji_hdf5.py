@@ -5,6 +5,7 @@ import joblib
 import multiprocessing
 import random
 import sys
+import time
 
 import h5py
 import numpy as np
@@ -122,12 +123,12 @@ def main():
         # batch segment processing
         bstart = 0
         while bstart < len(segments):
-            if update_i % 5 == 0:
+            if update_i % 1 == 0:
                 print('Tiling from %s:%d-%d' % segments[bstart])
                 sys.stdout.flush()
 
             # determine batch end
-            bend = batch_end(segments, bstart, 300000)
+            bend = batch_end(segments, bstart, 400000)
 
             # bigwig_read parameters
             bwr_params = [(wig_file, segments[bstart:bend], options.seq_length) for wig_file in target_wigs.values()]
@@ -135,14 +136,20 @@ def main():
             # pull the target values in parallel
             wig_targets = pool.starmap(bigwig_batch, bwr_params)
 
+            times = [time.time()]
+
             # convert and transpose to S x L x T
             wig_targets = np.array(wig_targets)
             targets_wig = np.transpose(wig_targets, axes=(1,2,0))
+            times.append(time.time())
+            print('Transpose: %d' % (times[-1]-times[-2]))
 
             # filter boring segments
             prefilter_n = targets_wig.shape[0]
             targets_wig = filter_boring(targets_wig)
             filtered_n += prefilter_n - targets_wig.shape[0]
+            times.append(time.time())
+            print('Filter: %d' % (times[-1]-times[-2]))
 
             # set aside test sequences
             test_n = int(options.test_pct*targets_wig.shape[0])
@@ -150,12 +157,16 @@ def main():
             targets_test.append(targets_wig[test_bindexes])
             test_indexes += [targets_n+tbi for tbi in test_bindexes]
             targets_n += targets_wig.shape[0]
+            times.append(time.time())
+            print('Test full: %d' % (times[-1]-times[-2]))
 
             # map to latent space
             if options.scent_file is None:
                 targets_latent = targets_wig
             else:
                 targets_latent = latent_transform(sess, model, job, targets_wig)
+            times.append(time.time())
+            print('Latent: %d' % (times[-1]-times[-2]))
 
             # compress across length
             if options.fourier_dim is None:
@@ -163,6 +174,8 @@ def main():
                 targets_ifour = None
             else:
                 targets_rfour, targets_ifour = fourier_transform(targets_latent, options.fourier_dim)
+            times.append(time.time())
+            print('Fourier: %d' % (times[-1]-times[-2]))
 
             # save
             targets_real.append(targets_rfour)

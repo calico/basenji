@@ -136,20 +136,17 @@ def main():
             # pull the target values in parallel
             wig_targets = pool.starmap(bigwig_batch, bwr_params)
 
-            times = [time.time()]
 
             # convert and transpose to S x L x T
             wig_targets = np.array(wig_targets)
             targets_wig = np.transpose(wig_targets, axes=(1,2,0))
-            times.append(time.time())
-            print('Transpose: %d' % (times[-1]-times[-2]))
 
+            ''' too slow
             # filter boring segments
-            prefilter_n = targets_wig.shape[0]
-            targets_wig = filter_boring(targets_wig)
+            prefilter_n = targets_tmp.shape[0]
+            targets_wig = filter_boring(targets_tmp)
             filtered_n += prefilter_n - targets_wig.shape[0]
-            times.append(time.time())
-            print('Filter: %d' % (times[-1]-times[-2]))
+            '''
 
             # set aside test sequences
             test_n = int(options.test_pct*targets_wig.shape[0])
@@ -157,16 +154,12 @@ def main():
             targets_test.append(targets_wig[test_bindexes])
             test_indexes += [targets_n+tbi for tbi in test_bindexes]
             targets_n += targets_wig.shape[0]
-            times.append(time.time())
-            print('Test full: %d' % (times[-1]-times[-2]))
 
             # map to latent space
             if options.scent_file is None:
                 targets_latent = targets_wig
             else:
                 targets_latent = latent_transform(sess, model, job, targets_wig)
-            times.append(time.time())
-            print('Latent: %d' % (times[-1]-times[-2]))
 
             # compress across length
             if options.fourier_dim is None:
@@ -174,8 +167,6 @@ def main():
                 targets_ifour = None
             else:
                 targets_rfour, targets_ifour = fourier_transform(targets_latent, options.fourier_dim)
-            times.append(time.time())
-            print('Fourier: %d' % (times[-1]-times[-2]))
 
             # save
             targets_real.append(targets_rfour)
@@ -331,7 +322,6 @@ def filter_boring(targets, var_t=.01):
     '''
     target_lvar_max = targets.var(axis=1).max(axis=1)
     exciting_mask = (target_lvar_max > var_t)
-    # exciting_indexes = [si for si in range(targets.shape[0]) if target_lvar_max[si] > var_t]
     return targets[exciting_mask]
 
 

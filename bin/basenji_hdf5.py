@@ -136,17 +136,8 @@ def main():
             # pull the target values in parallel
             wig_targets = pool.starmap(bigwig_batch, bwr_params)
 
-
-            # convert and transpose to S x L x T
-            wig_targets = np.array(wig_targets)
-            targets_wig = np.transpose(wig_targets, axes=(1,2,0))
-
-            ''' too slow
-            # filter boring segments
-            prefilter_n = targets_tmp.shape[0]
-            targets_wig = filter_boring(targets_tmp)
-            filtered_n += prefilter_n - targets_wig.shape[0]
-            '''
+            # transpose to S x L x T (making a copy?)
+            targets_wig = np.transpose(np.array(wig_targets), axes=(1,2,0))
 
             # set aside test sequences
             test_n = int(options.test_pct*targets_wig.shape[0])
@@ -184,7 +175,7 @@ def main():
         targets_imag = np.vstack(targets_imag)
     targets_test = np.vstack(targets_test)
 
-    print('%d sequences' % targets_real.shape[0])
+    print('%d target sequences' % targets_real.shape[0])
     print('%d filtered for low variability' % filtered_n)
     sys.stdout.flush()
 
@@ -193,6 +184,7 @@ def main():
     # one hot code sequences
     ################################################################
     seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length)
+    print('%d sequences one hot coded' % seqs_1hot.shape[0])
 
 
     ################################################################
@@ -293,7 +285,8 @@ def bigwig_batch(wig_file, segments, seq_length):
             seg_values = np.array(wig_in.values(chrom, seg_start, seg_end), dtype='float16')
         except:
             print("WARNING: %s doesn't see %s:%d-%d" % (wig_file,chrom,seg_start,seg_end))
-            seg_values = np.array([np.nan]*(seg_end-seg_start), dtype='float16')
+            # seg_values = np.array([np.nan]*(seg_end-seg_start), dtype='float16')
+            seg_values = np.zeros(seg_end-seg_start, dtype='float16')
 
         # break up into batchable sequences (as below in segments_1hot)
         bstart = 0
@@ -306,7 +299,8 @@ def bigwig_batch(wig_file, segments, seq_length):
             bstart += seq_length
             bend += seq_length
 
-    return targets
+    # set NaN's to zero
+    return np.nan_to_num(targets)
 
 
 ################################################################################
@@ -407,22 +401,21 @@ def segments_1hot(fasta_file, segments, seq_length):
         if chrom != last_chrom:
             print(' %s' % chrom)
 
-        if seg_start + seq_length <= seg_end:
-            # read sequence
-            seg_seq = fasta.fetch(chrom, seg_start, seg_end)
+        # read sequence
+        seg_seq = fasta.fetch(chrom, seg_start, seg_end)
 
-            # break up into batchable sequences (as above in bigwig_batch)
-            bstart = 0
-            bend = bstart + seq_length
-            while bend < len(seg_seq):
-                # append
-                seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[bstart:bend]))
+        # break up into batchable sequences (as above in bigwig_batch)
+        bstart = 0
+        bend = bstart + seq_length
+        while bend < len(seg_seq):
+            # append
+            seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[bstart:bend]))
 
-                seqs_segments.append((chrom,bstart,bend))
+            seqs_segments.append((chrom,bstart,bend))
 
-                # update
-                bstart += seq_length
-                bend += seq_length
+            # update
+            bstart += seq_length
+            bend += seq_length
 
         last_chrom = chrom
 

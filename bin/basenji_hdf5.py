@@ -330,8 +330,9 @@ def filter_boring(targets, var_t=.01):
      targets_exciting: SxLxT array of target values
     '''
     target_lvar_max = targets.var(axis=1).max(axis=1)
-    exciting_indexes = [si for si in range(targets.shape[0]) if target_lvar_max[si] > var_t]
-    return targets[exciting_indexes]
+    exciting_mask = (target_lvar_max > var_t)
+    # exciting_indexes = [si for si in range(targets.shape[0]) if target_lvar_max[si] > var_t]
+    return targets[exciting_mask]
 
 
 ################################################################################

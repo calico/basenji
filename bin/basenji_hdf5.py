@@ -235,7 +235,7 @@ def main():
         out_bed_out = open(options.out_bed_file, 'w')
         for si in train_indexes:
             print('%s\t%d\t%d\ttrain' % seqs_segments[si], file=out_bed_out)
-        for si in valid_indexes
+        for si in valid_indexes:
             print('%s\t%d\t%d\tvalid' % seqs_segments[si], file=out_bed_out)
         for si in test_indexes:
             print('%s\t%d\t%d\ttest' % seqs_segments[si], file=out_bed_out)

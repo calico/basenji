@@ -36,6 +36,7 @@ class RNN:
         ###################################################
         seq_length = self.batch_length
         seq_depth = self.seq_depth
+        self.layer_reprs = []
 
         if self.cnn_layers > 0:
             # reshape
@@ -63,6 +64,9 @@ class RNN:
                     # updates size variables
                     seq_length = seq_length // self.cnn_pool[li]
                     seq_depth = self.cnn_filters[li]
+
+                    # save representation (not positive about this one)
+                    self.layer_reprs.append(tf.reshape(cinput, [self.batch_size, seq_length, seq_depth]))
 
             # reshape for RNN
             rinput = tf.reshape(cinput, [self.batch_size, seq_length, seq_depth])
@@ -142,6 +146,9 @@ class RNN:
                     # unpack into a list
                     outputs = tf.unpack(outputs)
 
+                # save representation
+                self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
+
                 # outputs become input to next layer
                 rinput = outputs
 
@@ -212,6 +219,51 @@ class RNN:
     def drop_rate(self):
         ''' Drop the optimizer learning rate. '''
         self.opt._lr /= 2
+
+
+    def hidden(self, sess, batcher, layers=None):
+        ''' Compute hidden representations for a test set. '''
+
+        if layers is None:
+            layers = list(range(self.cnn_layers+self.rnn_layers))
+
+        # initialize layer representation data structure
+        layer_reprs = []
+        for li in range(1+np.max(layers)):
+            layer_reprs.append([])
+
+        # setup feed dict for dropout
+        fd = {}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = 0
+
+        # get first batch
+        Xb, _, Nb = batcher.next()
+
+        while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+
+            # compute predictions
+            layer_reprs_batch = sess.run(self.layer_reprs, feed_dict=fd)
+
+            # accumulate hidden representations
+            for li in layers:
+                layer_reprs[li].append(layer_reprs_batch[li][:Nb])
+
+            # next batch
+            Xb, _, Nb = batcher.next()
+
+        # reset batcher
+        batcher.reset()
+
+        # accumulate predictions
+        for li in layers:
+            layer_reprs[li] = np.vstack(layer_reprs[li])
+
+        return layer_reprs
 
 
     def set_params(self, job):
@@ -295,7 +347,7 @@ class RNN:
             # update feed dict
             fd[self.inputs] = Xb
 
-            # measure batch loss
+            # compute predictions
             preds_batch = sess.run(self.preds_op, feed_dict=fd)
 
             # accumulate predictions and targets

@@ -70,8 +70,12 @@ class Batcher:
         Nb = 0
 
         stop = self.start + self.batch_size
-        if stop <= self.num_seqs:
-            # full batch
+        if self.start < self.num_seqs:
+            # full or partial batch
+            if stop <= self.num_seqs:
+                Nb = self.batch_size
+            else:
+                Nb = self.num_seqs - self.start
 
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
@@ -79,7 +83,7 @@ class Batcher:
                 Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
 
             # copy data
-            for i in range(self.batch_size):
+            for i in range(Nb):
                 si = self.order[self.start+i]
                 Xb[i] = self.Xf[si]
 
@@ -89,9 +93,6 @@ class Batcher:
 
                 if self.Yf is not None:
                     Yb[i] = np.nan_to_num(self.Yf[si])
-
-            # specify full batch
-            Nb = self.batch_size
 
         # update start
         self.start = stop

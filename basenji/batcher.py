@@ -120,7 +120,7 @@ class BatcherF:
 
         self.Yf_real = Yf_real
         self.Yf_imag = Yf_imag
-        self.num_targets = self.Yf.shape[2]
+        self.num_targets = self.Yf_real.shape[2]
 
         self.batch_size = batch_size
 
@@ -141,8 +141,7 @@ class BatcherF:
 
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
-            if self.Yf is not None:
-                Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
+            Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
 
             # copy data
             for i in range(self.batch_size):

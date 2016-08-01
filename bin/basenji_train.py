@@ -29,6 +29,7 @@ def main():
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
     parser.add_option('-s', dest='save_prefix', default='houndrnn')
+    parser.add_option('-u', dest='summary', default=None, help='TensorBoard summary directory')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
@@ -76,6 +77,11 @@ def main():
     with tf.Session() as sess:
         t0 = time.time()
 
+        if options.summary is None:
+            train_writer = None
+        else:
+            train_writer = tf.train.SummaryWriter(options.summary + '/train', sess.graph)
+
         if options.restart:
             # load variables into session
             saver.restore(sess, options.restart)
@@ -97,7 +103,7 @@ def main():
                 train_loss_last = train_loss
 
                 # train
-                train_loss = dr.train_epoch(sess, batcher_train)
+                train_loss = dr.train_epoch(sess, batcher_train, train_writer)
 
                 # validate
                 valid_loss, valid_r2 = dr.test(sess, batcher_valid)
@@ -128,6 +134,8 @@ def main():
                 # if train_loss_last is not None and train_loss > train_loss_last:
                 #     print(' Dropping the learning rate.')
                 #     dr.drop_rate()
+
+        train_writer.close()
 
     # print result to file
     if options.output_file:

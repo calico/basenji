@@ -175,7 +175,7 @@ class RNN:
         preds = tf.pack(preds_length)
 
         # transpose back to batches in front
-        self.preds_op = tf.transpose(preds, [1, 0, 2])
+        self.preds_op = tf.transpose(preds, [1, 0, 2], name='predictions')
 
         # repeat if pooling
         if pool_ratio > 1:
@@ -198,7 +198,8 @@ class RNN:
         # sq_diff = tf.select(nan_indexes, tens0, sq_diff)
 
         # take the mean
-        self.loss_op = tf.reduce_mean(sq_diff) + norm_stabilizer
+        self.loss_op = tf.reduce_mean(sq_diff, name='r2_loss') + norm_stabilizer
+        tf.scalar_summary('loss', self.loss_op)
 
         # define optimization
         if self.optimization == 'adam':
@@ -215,10 +216,18 @@ class RNN:
             clip_gvs = [(tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v) for g, v in gvs]
         self.step_op = self.opt.apply_gradients(clip_gvs)
 
+        ###################################################
+        # summary
+        ###################################################
+        self.merged_summary = tf.merge_all_summaries()
+
+        # initialize steps
+        self.step = 0
+
 
     def drop_rate(self):
         ''' Drop the optimizer learning rate. '''
-        self.opt._lr /= 2
+        self.opt._lr *= 2/3
 
 
     def hidden(self, sess, batcher, layers=None):
@@ -432,7 +441,7 @@ class RNN:
             return np.mean(batch_losses), np.mean(r2)
 
 
-    def train_epoch(self, sess, batcher):
+    def train_epoch(self, sess, batcher, sum_writer):
         ''' Execute one training epoch '''
 
         # initialize training loss
@@ -453,14 +462,17 @@ class RNN:
             fd[self.inputs] = Xb
             fd[self.targets] = Yb
 
-            # run step
-            loss_batch, _ = sess.run([self.loss_op, self.step_op], feed_dict=fd)
+            summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
+
+            # add summary
+            sum_writer.add_summary(summary, self.step)
 
             # accumulate loss
             train_loss.append(loss_batch)
 
             # next batch
             Xb, Yb, Nb = batcher.next()
+            self.step += 1
 
         # reset training batcher
         batcher.reset()

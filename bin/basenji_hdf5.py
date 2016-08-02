@@ -32,6 +32,7 @@ def main():
     usage = 'usage: %prog [options] <fasta_file> <sample_wigs_file> <hdf5_file>'
     parser = OptionParser(usage)
     parser.add_option('-b', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
+    parser.add_option('-d', dest='sample_pct', default=1.0, type='float', help='Down-sample the segments')
     parser.add_option('-f', dest='fourier_dim', default=None, type='int', help='Fourier transform dimension [Default: %default]')
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
@@ -79,6 +80,10 @@ def main():
 
     # filter for large enough
     segments = [cse for cse in segments if cse[2]-cse[1] >= options.seq_length]
+
+    # down-sample
+    if options.sample_pct < 1.0:
+        segments = random.sample(segments, int(options.sample_pct*len(segments)))
 
 
     ################################################################

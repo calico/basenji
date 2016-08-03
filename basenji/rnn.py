@@ -465,7 +465,8 @@ class RNN:
             summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
 
             # add summary
-            sum_writer.add_summary(summary, self.step)
+            if sum_writer is not None:
+                sum_writer.add_summary(summary, self.step)
 
             # accumulate loss
             train_loss.append(loss_batch)

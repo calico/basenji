@@ -66,7 +66,8 @@ class RNN:
                     seq_depth = self.cnn_filters[li]
 
                     # save representation (not positive about this one)
-                    self.layer_reprs.append(tf.reshape(cinput, [self.batch_size, seq_length, seq_depth]))
+                    if self.save_reprs:
+                        self.layer_reprs.append(tf.reshape(cinput, [self.batch_size, seq_length, seq_depth]))
 
             # reshape for RNN
             rinput = tf.reshape(cinput, [self.batch_size, seq_length, seq_depth])
@@ -147,7 +148,8 @@ class RNN:
                     outputs = tf.unpack(outputs)
 
                 # save representation
-                self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
+                if self.save_reprs:
+                    self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
 
                 # outputs become input to next layer
                 rinput = outputs
@@ -240,6 +242,7 @@ class RNN:
         layer_reprs = []
         for li in range(1+np.max(layers)):
             layer_reprs.append([])
+        preds = []
 
         # setup feed dict for dropout
         fd = {}
@@ -256,11 +259,51 @@ class RNN:
             fd[self.inputs] = Xb
 
             # compute predictions
-            layer_reprs_batch = sess.run(self.layer_reprs, feed_dict=fd)
+            layer_reprs_batch, preds_batch = sess.run([self.layer_reprs, self.preds_op], feed_dict=fd)
 
-            # accumulate hidden representations
+            # accumulate representations
             for li in layers:
                 layer_reprs[li].append(layer_reprs_batch[li][:Nb])
+            preds.append(preds_batch[:Nb])
+
+            # next batch
+            Xb, _, Nb = batcher.next()
+
+        # reset batcher
+        batcher.reset()
+
+        # accumulate representations
+        for li in layers:
+            layer_reprs[li] = np.vstack(layer_reprs[li])
+        preds = np.vstack(preds)
+
+        return layer_reprs, preds
+
+
+    def predict(self, sess, batcher):
+        ''' Compute predictions on a test set. '''
+
+        preds = []
+
+        # setup feed dict for dropout
+        fd = {}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = 0
+
+        # get first batch
+        Xb, _, Nb = batcher.next()
+
+        while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+
+            # compute predictions
+            preds_batch = sess.run(self.preds_op, feed_dict=fd)
+
+            # accumulate predictions
+            preds.append(preds_batch[:Nb])
 
             # next batch
             Xb, _, Nb = batcher.next()
@@ -269,10 +312,9 @@ class RNN:
         batcher.reset()
 
         # accumulate predictions
-        for li in layers:
-            layer_reprs[li] = np.vstack(layer_reprs[li])
+        preds = np.vstack(preds)
 
-        return layer_reprs
+        return preds
 
 
     def set_params(self, job):
@@ -336,42 +378,10 @@ class RNN:
 
         # batch normalization?
 
-
-    def predict(self, sess, batcher):
-        ''' Compute predictions on a test set. '''
-
-        preds = []
-
-        # setup feed dict for dropout
-        fd = {}
-        for li in range(self.cnn_layers):
-            fd[self.cnn_dropout_ph[li]] = 0
-        for li in range(self.rnn_layers):
-            fd[self.rnn_dropout_ph[li]] = 0
-
-        # get first batch
-        Xb, _, Nb = batcher.next()
-
-        while Xb is not None:
-            # update feed dict
-            fd[self.inputs] = Xb
-
-            # compute predictions
-            preds_batch = sess.run(self.preds_op, feed_dict=fd)
-
-            # accumulate predictions and targets
-            preds.append(preds_batch[:Nb])
-
-            # next batch
-            Xb, _, Nb = batcher.next()
-
-        # reset batcher
-        batcher.reset()
-
-        # accumulate predictions
-        preds = np.vstack(preds)
-
-        return preds
+        ###################################################
+        # other
+        ###################################################
+        self.save_reprs = job.get('save_reprs', False)
 
 
     def test(self, sess, batcher, return_preds=False):

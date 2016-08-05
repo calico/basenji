@@ -16,7 +16,8 @@ class Batcher:
         self.seq_depth = self.Xf.shape[2]
 
         self.Yf = Yf
-        self.num_targets = self.Yf.shape[2]
+        if self.Yf is not None:
+            self.num_targets = self.Yf.shape[2]
 
         self.batch_size = batch_size
 

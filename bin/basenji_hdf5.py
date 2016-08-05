@@ -31,15 +31,18 @@ To Do:
 def main():
     usage = 'usage: %prog [options] <fasta_file> <sample_wigs_file> <hdf5_file>'
     parser = OptionParser(usage)
-    parser.add_option('-b', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
+    parser.add_option('-b', dest='limit_bed', help='Limit to segments that overlap regions in a BED file')
     parser.add_option('-d', dest='sample_pct', default=1.0, type='float', help='Down-sample the segments')
     parser.add_option('-f', dest='fourier_dim', default=None, type='int', help='Fourier transform dimension [Default: %default]')
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Dimension reduction hyper-parameters file')
+    parser.add_option('-n', dest='no_full', default=False, action='store_true', help='Do not save full test sequence targets [Default: %default]')
+    parser.add_option('-o', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
+    parser.add_option('-x', dest='exclude_below', type='float', default=0, help='Exclude segments where the max across length and targets is below [Default: %default]')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -87,6 +90,10 @@ def main():
     if options.sample_pct < 1.0:
         segments = random.sample(segments, int(options.sample_pct*len(segments)))
 
+    # limit to a BED file
+    if options.limit_bed is not None:
+        segments = limit_segments(segments, options.limit_bed)
+
 
     ################################################################
     # load model
@@ -103,6 +110,7 @@ def main():
         else:
             model = joblib.load(options.scent_file)
 
+
     ################################################################
     # bigwig read and process
     ################################################################
@@ -112,11 +120,12 @@ def main():
     targets_real = []
     targets_imag = []
 
+    include_indexes = []
+    include_marker = 0
+
     targets_test = []
     test_indexes = []
-    targets_n = 0
-
-    filtered_n = 0
+    test_marker = 0
 
     update_i = 0
 
@@ -146,12 +155,31 @@ def main():
             # transpose to S x L x T (making a copy?)
             targets_wig = np.transpose(np.array(wig_targets), axes=(1,2,0))
 
-            # set aside test sequences
+            # exclude max values below a threshold
+            if options.exclude_below is not None:
+                # capture included indexes
+                include_bindexes = exclude_below(targets_wig, options.exclude_below)
+                include_indexes += [include_marker+ibi for ibi in include_indexes]
+
+                # update inclusion marker
+                include_marker += wig_targets.shape[0]
+
+                # filter wig_targets
+                wig_targets = wig_targets[include_bindexes]
+
+            # sample indexes from this batch
             test_n = int(options.test_pct*targets_wig.shape[0])
             test_bindexes = random.sample(range(targets_wig.shape[0]),test_n)
-            targets_test.append(targets_wig[test_bindexes])
-            test_indexes += [targets_n+tbi for tbi in test_bindexes]
-            targets_n += targets_wig.shape[0]
+
+            # capture test indexes
+            test_indexes += [test_marker+tbi for tbi in test_bindexes]
+
+            # update test marker
+            test_marker += targets_wig.shape[0]
+
+            # save the full test targets
+            if not options.no_full:
+                targets_test.append(targets_wig[test_bindexes])
 
             # map to latent space
             if options.scent_file is None:
@@ -180,10 +208,12 @@ def main():
     targets_real = np.vstack(targets_real)
     if options.fourier_dim is not None:
         targets_imag = np.vstack(targets_imag)
-    targets_test = np.vstack(targets_test)
+    if not options.no_full:
+        targets_test = np.vstack(targets_test)
 
-    print('%d target sequences' % targets_real.shape[0])
-    print('%d filtered for low variability' % filtered_n)
+    num_seqs = targets_real.shape[0]
+    print('%d target sequences' % num_seqs)
+    print('%d excluded' % (include_marker-num_seqs))
     sys.stdout.flush()
 
 
@@ -193,14 +223,19 @@ def main():
     seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length)
     print('%d sequences one hot coded' % seqs_1hot.shape[0])
 
+    if options.exclude_below is not None:
+        seqs_1hot = seqs_1hot[include_indexes]
+        seqs_segments = seqs_segments[include_indexes]
+        print('%d sequences included' % seqs_1hot.shape[0])
+
 
     ################################################################
     # write to train, valid, test HDF5
     ################################################################
 
     # sample valid indexes (we already have test)
-    valid_n = int(options.valid_pct*targets_n)
-    nontest_indexes = set(range(targets_n)) - set(test_indexes)
+    valid_n = int(options.valid_pct*num_seqs)
+    nontest_indexes = set(range(num_seqs)) - set(test_indexes)
     valid_indexes = random.sample(nontest_indexes, valid_n)
 
     # remainder is training
@@ -229,7 +264,8 @@ def main():
     hdf5_out.create_dataset('test_out', data=targets_real[test_indexes], dtype='float16')
     if options.fourier_dim is not None:
         hdf5_out.create_dataset('test_out_imag', data=targets_imag[test_indexes], dtype='float16')
-    hdf5_out.create_dataset('test_out_full', data=targets_test, dtype='float16')
+    if not options.no_full:
+        hdf5_out.create_dataset('test_out_full', data=targets_test, dtype='float16')
 
     hdf5_out.close()
 
@@ -308,6 +344,56 @@ def bigwig_batch(wig_file, segments, seq_length):
 
     # set NaN's to zero
     return np.nan_to_num(targets)
+
+
+################################################################################
+def exclude_below(targets_wig, x):
+    ''' Filter for segments overlapping the given BED
+
+    Args
+     segments: list of (chrom,start,end) genomic segments
+     filter_bed: BED file to filter by
+
+    Returns:
+     fsegments: list of (chrom,start,end) genomic segments
+    '''
+
+    targets_max = targets_wig.max(axis=1).max(axis=1)
+
+
+
+################################################################################
+def limit_segments(segments, filter_bed):
+    ''' Limit to segments overlapping the given BED.
+
+    Args
+     segments: list of (chrom,start,end) genomic segments
+     filter_bed: BED file to filter by
+
+    Returns:
+     fsegments: list of (chrom,start,end) genomic segments
+    '''
+
+    # print segments to BED
+    seg_fd, seg_bed_file = tempfile.mkstemp()
+    seg_bed_out = open(seg_bed_file, 'w')
+    for chrom, seg_start, seg_end in segments:
+        print('%s\t%d\t%d' % (chrom, seg_start, seg_end), file=seg_bed_out)
+    seg_bed_out.close()
+
+    # intersect w/ filter_bed
+    fsegments = []
+    p = subprocess.Popen('bedtools intersect -u -a %s -b %s' % (seg_bed_file, filter_bed), shell=True, stdout=subprocess.PIPE)
+    for line in p.stdout:
+        a = line.split()
+        chrom = a[0]
+        seg_start = int(a[1])
+        seg_end = int(a[2])
+        fsegments.append((chrom,seg_start,seg_end))
+
+    p.communicate()
+
+    return fsegments
 
 
 ################################################################################

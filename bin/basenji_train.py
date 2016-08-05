@@ -136,7 +136,8 @@ def main():
                 #     print(' Dropping the learning rate.')
                 #     dr.drop_rate()
 
-        train_writer.close()
+        if options.summary is not None:
+            train_writer.close()
 
     # print result to file
     if options.output_file:

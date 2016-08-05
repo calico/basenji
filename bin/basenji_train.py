@@ -25,6 +25,7 @@ import basenji.rnn
 def main():
     usage = 'usage: %prog [options] <data_file>'
     parser = OptionParser(usage)
+    parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
@@ -106,7 +107,7 @@ def main():
                 train_loss = dr.train_epoch(sess, batcher_train, train_writer)
 
                 # validate
-                valid_loss, valid_r2 = dr.test(sess, batcher_valid)
+                valid_loss, valid_r2 = dr.test(sess, batcher_valid, down_sample=options.down_sample)
 
                 best_str = ''
                 if valid_r2 > best_r2:

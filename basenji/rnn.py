@@ -384,12 +384,35 @@ class RNN:
         self.save_reprs = job.get('save_reprs', False)
 
 
-    def test(self, sess, batcher, return_preds=False):
-        ''' Compute model accuracy on a test set. '''
+    def test(self, sess, batcher, return_preds=False, down_sample=1):
+        ''' Compute model accuracy on a test set.
+
+        Args:
+          sess:         TensorFlow session
+          batcher:      Batcher object to provide data
+          return_preds: Bool indicating whether to return predictions
+          down_sample:  Int specifying to consider uniformly spaced sampled positions
+
+        Returns:
+          mean_loss:    Mean loss across targets
+          mean_r2:      Mean R^2 across targets
+          preds:        Predictions
+        '''
 
         batch_losses = []
-        preds = []
-        targets = []
+
+        # determine non-buffer region
+        buf_start = self.batch_buffer
+        buf_end = self.batch_length - self.batch_buffer
+        buf_len = buf_end - buf_start
+
+        # uniformly sample indexes
+        ds_indexes = np.arange(0, buf_len, down_sample)
+
+        # initialize prediction and target arrays
+        preds = np.zeros((batcher.num_seqs, len(ds_indexes), self.num_targets), dtype='float16')
+        targets = np.zeros((batcher.num_seqs, len(ds_indexes), self.num_targets), dtype='float16')
+        si = 0
 
         # setup feed dict for dropout
         fd = {}
@@ -413,18 +436,17 @@ class RNN:
             batch_losses.append(loss_batch)
 
             # accumulate predictions and targets
-            preds.append(preds_batch[:Nb])
-            targets.append(Yb[:Nb,self.batch_buffer:self.batch_length-self.batch_buffer,:])
+            preds[si:si+Nb,:,:] = preds_batch[:Nb,ds_indexes,:]
+            targets[si:si+Nb,:,:] = Yb[:Nb,buf_start+ds_indexes,:]
+
+            # update sequence index
+            si += Nb
 
             # next batch
             Xb, Yb, Nb = batcher.next()
 
         # reset batcher
         batcher.reset()
-
-        # accumulate predictions and targets
-        preds = np.vstack(preds)
-        targets = np.vstack(targets)
 
         # compute R2 per target
         r2 = np.zeros(self.num_targets)

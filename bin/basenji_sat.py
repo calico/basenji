@@ -83,7 +83,7 @@ def main():
     sat_seqs_1hot = satmut_seqs(seqs_1hot, options.satmut_len)
 
     # initialize batcher
-    batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=options.batch_size)
+    batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
     # initialie saver
     saver = tf.train.Saver()

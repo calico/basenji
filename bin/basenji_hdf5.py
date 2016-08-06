@@ -44,7 +44,7 @@ def main():
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
-    parser.add_option('-x', dest='exclude_below', type='float', default=0, help='Exclude segments where the max across length and targets is below [Default: %default]')
+    parser.add_option('-x', dest='exclude_below', type='float', default=None, help='Exclude segments where the max across length and targets is below')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -227,7 +227,7 @@ def main():
 
     if options.exclude_below is not None:
         seqs_1hot = seqs_1hot[include_indexes]
-        seqs_segments = seqs_segments[include_indexes]
+        seqs_segments = [seqs_segments[ii] for ii in include_indexes]
         print('%d sequences included' % seqs_1hot.shape[0])
 
 

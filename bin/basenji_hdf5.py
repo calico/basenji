@@ -4,6 +4,7 @@ from collections import OrderedDict
 import joblib
 import multiprocessing
 import random
+import subprocess
 import sys
 import tempfile
 import time
@@ -163,7 +164,7 @@ def main():
                 include_indexes += [include_marker+ibi for ibi in include_indexes]
 
                 # update inclusion marker
-                include_marker += wig_targets.shape[0]
+                include_marker += targets_wig.shape[0]
 
                 # filter wig_targets
                 wig_targets = wig_targets[include_bindexes]

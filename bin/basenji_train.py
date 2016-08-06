@@ -44,10 +44,8 @@ def main():
     data_open = h5py.File(data_file)
     train_seqs = data_open['train_in']
     train_targets = data_open['train_out']
-    train_targets_imag = data_open['train_out_imag']
     valid_seqs = data_open['valid_in']
     valid_targets = data_open['valid_out']
-    valid_targets_imag = data_open['valid_out_imag']
 
 
     #######################################################
@@ -67,12 +65,23 @@ def main():
     print('Model building time %f' % (time.time()-t0))
     sys.stdout.flush()
 
+    # adjust for fourier
+    job['fourier'] = 'train_out_imag' in data_open
+    if job['fourier']:
+        train_targets_imag = data_open['train_out_imag']
+        valid_targets_imag = data_open['valid_out_imag']
+
+
     #######################################################
     # train
     #######################################################
     # initialize batcher
-    batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, dr.batch_size, shuffle=True)
-    batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
+    if job['fourier']:
+        batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, dr.batch_size, shuffle=True)
+        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
+    else:
+        batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, shuffle=True)
+        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
 
     # checkpoints
     saver = tf.train.Saver()

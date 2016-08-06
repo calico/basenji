@@ -468,9 +468,9 @@ class RNN:
             # print('%d %f %f %f %f' % (ti, tmean, tvar, pvar, r2[ti]))
 
         if return_preds:
-            return np.mean(batch_losses), np.mean(r2), preds
+            return np.mean(batch_losses), r2, preds
         else:
-            return np.mean(batch_losses), np.mean(r2)
+            return np.mean(batch_losses), r2
 
 
     def train_epoch(self, sess, batcher, sum_writer):

@@ -137,15 +137,19 @@ class BatcherF:
         Nb = 0
 
         stop = self.start + self.batch_size
-        if stop <= self.num_seqs:
-            # full batch
+        if self.start < self.num_seqs:
+            # full or partial batch
+            if stop <= self.num_seqs:
+                Nb = self.batch_size
+            else:
+                Nb = self.num_seqs - self.start
 
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
 
             # copy data
-            for i in range(self.batch_size):
+            for i in range(Nb):
                 si = self.order[self.start+i]
                 Xb[i] = self.Xf[si]
 
@@ -157,9 +161,6 @@ class BatcherF:
                 ybi_fourier = self.Yf_real[si] + self.Yf_imag[si]*1j
                 for ti in range(self.num_targets):
                     Yb[i,:,ti] = np.fft.irfft(ybi_fourier[:,ti], self.seq_len)
-
-            # specify full batch
-            Nb = self.batch_size
 
         # update start
         self.start = stop

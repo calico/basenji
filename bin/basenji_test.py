@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 from __future__ import print_function
 from optparse import OptionParser
+import os
 import time
 
 import h5py
+import joblib
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import roc_auc_score
@@ -25,7 +27,10 @@ def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
     parser = OptionParser(usage)
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
+    parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
+    parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
+    parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -35,12 +40,20 @@ def main():
         model_file = args[1]
         data_file = args[2]
 
+    if not os.path.isdir(options.out_dir):
+        os.mkdir(options.out_dir)
+
     #######################################################
     # load data
     #######################################################
     data_open = h5py.File(data_file)
-    test_seqs = data_open['test_in']
-    test_targets = data_open['test_out']
+
+    if not options.valid:
+        test_seqs = data_open['test_in']
+        test_targets = data_open['test_out']
+    else:
+        test_seqs = data_open['valid_in']
+        test_targets = data_open['valid_out']
 
     #######################################################
     # model parameters and placeholders
@@ -59,11 +72,26 @@ def main():
     if options.batch_size is None:
         options.batch_size = dr.batch_size
 
+    # adjust for fourier
+    job['fourier'] = 'train_out_imag' in data_open
+    if job['fourier']:
+        test_targets_imag = data_open['test_out_imag']
+        if options.valid:
+            test_targets_imag = data_open['valid_out_imag']
+
+    # adjust for factors
+    if options.scent_file is not None:
+        test_targets_full = data_open['test_out_full']
+        model = joblib.load(options.scent_file)
+
     #######################################################
     # test
     #######################################################
     # initialize batcher
-    batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size)
+    if job['fourier']:
+        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, options.batch_size)
+    else:
+        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size)
 
     # initialize saver
     saver = tf.train.Saver()
@@ -75,9 +103,47 @@ def main():
         # test
         test_loss, test_r2, test_preds = dr.test(sess, batcher_test, return_preds=True)
 
+        print(test_r2.shape)
+
         # print
         print('Test loss: %7.5f' % test_loss)
-        print('Test R2:   %7.5f' % test_r2)
+        print('Test R2:   %7.5f' % test_r2.mean())
+
+        r2_out = open('%s/r2.txt' % options.out_dir, 'w')
+        for ti in range(len(test_r2)):
+            print('%4d  %.4f' % (ti,test_r2[ti]), file=r2_out)
+        r2_out.close()
+
+        if options.scent_file is not None:
+            full_targets = test_targets_full.shape[2]
+
+            # inverse transform in length batches
+            test_preds_full = np.zeros((test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
+            for li in range(test_preds.shape[1]):
+                test_preds_full[:,li,:] = model.inverse_transform(test_preds[:,li,:])
+
+            print(test_preds_full.shape)
+            print(test_targets_full.shape)
+
+            # compute R2 by target
+            test_r2_full = np.zeros(full_targets)
+            for ti in range(full_targets):
+                # flatten
+                preds_ti = test_preds_full[:,:,ti].flatten()
+                targets_ti = test_targets_full[:,dr.batch_buffer:-dr.batch_buffer,ti].flatten()
+
+                # compute R2
+                tmean = targets_ti.mean(dtype='float64')
+                tvar = (targets_ti-tmean).var(dtype='float64')
+                pvar = (targets_ti-preds_ti).var(dtype='float64')
+                test_r2_full[ti] = 1.0 - pvar/tvar
+
+            print('Test full R2: %7.5f' % test_r2_full.mean())
+
+            r2_out = open('%s/r2_full.txt' % options.out_dir, 'w')
+            for ti in range(len(test_r2_full)):
+                print('%4d  %.4f' % (ti,test_r2_full[ti]), file=r2_out)
+            r2_out.close()
 
         #######################################################
         # peaks AUC

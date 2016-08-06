@@ -44,8 +44,10 @@ def main():
     data_open = h5py.File(data_file)
     train_seqs = data_open['train_in']
     train_targets = data_open['train_out']
+    train_targets_imag = data_open['train_out_imag']
     valid_seqs = data_open['valid_in']
     valid_targets = data_open['valid_out']
+    valid_targets_imag = data_open['valid_out_imag']
 
 
     #######################################################
@@ -69,8 +71,8 @@ def main():
     # train
     #######################################################
     # initialize batcher
-    batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, shuffle=True)
-    batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
+    batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, dr.batch_size, shuffle=True)
+    batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
 
     # checkpoints
     saver = tf.train.Saver()
@@ -107,7 +109,8 @@ def main():
                 train_loss = dr.train_epoch(sess, batcher_train, train_writer)
 
                 # validate
-                valid_loss, valid_r2 = dr.test(sess, batcher_valid, down_sample=options.down_sample)
+                valid_loss, valid_r2_list = dr.test(sess, batcher_valid, down_sample=options.down_sample)
+                valid_r2 = valid_r2_list.mean()
 
                 best_str = ''
                 if valid_r2 > best_r2:

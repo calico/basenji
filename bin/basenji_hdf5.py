@@ -161,13 +161,13 @@ def main():
             if options.exclude_below is not None:
                 # capture included indexes
                 include_bindexes = exclude_below(targets_wig, options.exclude_below)
-                include_indexes += [include_marker+ibi for ibi in include_indexes]
+                include_indexes += [include_marker+ibi for ibi in include_bindexes]
 
                 # update inclusion marker
                 include_marker += targets_wig.shape[0]
 
-                # filter wig_targets
-                wig_targets = wig_targets[include_bindexes]
+                # filter targets_wig
+                targets_wig = targets_wig[include_bindexes]
 
             # sample indexes from this batch
             test_n = int(options.test_pct*targets_wig.shape[0])

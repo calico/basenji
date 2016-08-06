@@ -353,14 +353,14 @@ def exclude_below(targets_wig, x):
     ''' Filter for segments overlapping the given BED
 
     Args
-     segments: list of (chrom,start,end) genomic segments
-     filter_bed: BED file to filter by
+     targets_wig: SxLxT array of target values
+     x: threshold below which we ignore
 
     Returns:
-     fsegments: list of (chrom,start,end) genomic segments
+     include_indexes: indexes above the threshold
     '''
-
     targets_max = targets_wig.max(axis=1).max(axis=1)
+    return [i for i in range(targets_max.shape[0]) if targets_max[i] >= x]
 
 
 

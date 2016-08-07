@@ -225,10 +225,8 @@ def main():
     seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length)
     print('%d sequences one hot coded' % seqs_1hot.shape[0])
 
-    print(options.exclude_below)
     if options.exclude_below is not None:
         seqs_1hot = seqs_1hot[include_indexes]
-        print(include_indexes)
         seqs_segments = [seqs_segments[ii] for ii in include_indexes]
         print('%d sequences included' % seqs_1hot.shape[0])
 
@@ -491,13 +489,7 @@ def segments_1hot(fasta_file, segments, seq_length):
     # segment corresponding to each sequence
     seqs_segments = []
 
-    # for status updates
-    last_chrom = ''
-
     for chrom, seg_start, seg_end in segments:
-        if chrom != last_chrom:
-            print(' %s' % chrom)
-
         # read sequence
         seg_seq = fasta.fetch(chrom, seg_start, seg_end)
 
@@ -513,8 +505,6 @@ def segments_1hot(fasta_file, segments, seq_length):
             # update
             bstart += seq_length
             bend += seq_length
-
-        last_chrom = chrom
 
     return np.array(seqs_1hot), seqs_segments
 

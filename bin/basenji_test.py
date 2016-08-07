@@ -27,6 +27,7 @@ def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
     parser = OptionParser(usage)
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
+    parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
@@ -101,17 +102,15 @@ def main():
         saver.restore(sess, model_file)
 
         # test
-        test_loss, test_r2, test_preds = dr.test(sess, batcher_test, return_preds=True)
-
-        print(test_r2.shape)
+        test_loss, test_r2_list, test_preds = dr.test(sess, batcher_test, return_preds=True, down_sample=options.down_sample)
 
         # print
         print('Test loss: %7.5f' % test_loss)
-        print('Test R2:   %7.5f' % test_r2.mean())
+        print('Test R2:   %7.5f' % test_r2_list.mean())
 
         r2_out = open('%s/r2.txt' % options.out_dir, 'w')
-        for ti in range(len(test_r2)):
-            print('%4d  %.4f' % (ti,test_r2[ti]), file=r2_out)
+        for ti in range(len(test_r2_list)):
+            print('%4d  %.4f' % (ti,test_r2_list[ti]), file=r2_out)
         r2_out.close()
 
         if options.scent_file is not None:

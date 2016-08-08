@@ -85,6 +85,9 @@ def main():
     for chrom in chrom_segments:
         segments += [(chrom, seg_start, seg_end) for seg_start, seg_end in chrom_segments[chrom]]
 
+    # standardize order
+    segments.sort()
+
     # filter for large enough
     segments = [cse for cse in segments if cse[2]-cse[1] >= options.seq_length]
 
@@ -116,7 +119,7 @@ def main():
     ################################################################
     # bigwig read and process
     ################################################################
-    print('Reading and pre-processing bigwigs')
+    print('Reading and pre-processing bigwigs for %d segments' % len(segments))
     sys.stdout.flush()
 
     targets_real = []

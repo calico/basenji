@@ -215,7 +215,8 @@ def main():
 
     num_seqs = targets_real.shape[0]
     print('%d target sequences' % num_seqs)
-    print('%d excluded' % (include_marker-num_seqs))
+    if options.exclude_below is not None:
+        print('%d excluded' % (include_marker-num_seqs))
     sys.stdout.flush()
 
 
@@ -394,6 +395,9 @@ def limit_segments(segments, filter_bed):
         fsegments.append((chrom,seg_start,seg_end))
 
     p.communicate()
+
+    os.close(seg_fd)
+    os.remove(seg_bed_file)
 
     return fsegments
 

@@ -112,8 +112,8 @@ def main():
     print('\nSampled dataset', targets.shape, '\n')
 
     # pre-process
+    targets = np.nan_to_num(targets)
     if options.whiten:
-        targets = np.nan_to_num(targets)
         targets = preprocessing.scale(targets)
 
      # divide train and valid

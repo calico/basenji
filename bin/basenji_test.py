@@ -7,7 +7,7 @@ import time
 import h5py
 import joblib
 import numpy as np
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
@@ -32,6 +32,7 @@ def main():
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
+    parser.add_option('-w', dest='pool_width', default=1, type='int', help='Max pool width for regressing nucleotide predictions to predict peak calls [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -156,10 +157,16 @@ def main():
             batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, options.batch_size)
 
             # make predictions
-            _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True)
+            _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True, down_sample=options.down_sample)
             valid_n = valid_preds.shape[0]
 
             print(valid_preds.shape)
+
+            # max pool
+            if options.pool_width > 1:
+                valid_preds = max_pool(valid_preds, options.pool_width)
+                test_preds = max_pool(test_preds, options.pool_width)
+                print(valid_preds.shape)
 
             # load peaks
             peaks_open = h5py.File(options.peaks_hdf5)
@@ -169,13 +176,16 @@ def main():
 
             # compute target AUCs
             target_aucs = []
+            model_coefs = []
             for ti in range(test_peaks.shape[1]):
                 # train a predictor for peak calls
-                model = LinearRegression()
+                model = LogisticRegression()
                 model.fit(valid_preds[:,:,ti], valid_peaks[:valid_n,ti])
+                model_coefs.append(model.coef_)
+                
 
                 # predict peaks for test set
-                test_peaks_preds = model.predict(test_preds[:,:,ti])
+                test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
                 test_n = test_peaks_preds.shape[0]
 
                 # compute AUC
@@ -185,8 +195,19 @@ def main():
 
             print('AUC: %f' % np.mean(target_aucs))
 
+            model_coefs = np.vstack(model_coefs)
+            np.save('%s/coefs.npy' % options.out_dir, model_coefs)
+
     data_open.close()
 
+
+def max_pool(preds, pool):
+    # group by pool
+    preds_pool = preds.reshape((preds.shape[0], preds.shape[1]//pool, pool, preds.shape[2]), order='C')
+
+    # max
+    return preds_pool.max(axis=2)
+    
 
 ################################################################################
 # __main__

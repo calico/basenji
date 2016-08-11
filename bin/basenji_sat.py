@@ -72,8 +72,8 @@ def main():
     dr.build(job)
     print('Model building time %f' % (time.time()-t0))
 
-    if options.batch_size is None:
-        options.batch_size = dr.batch_size
+    if options.batch_size is not None:
+        dr.batch_size = options.batch_size
 
 
     #################################################################

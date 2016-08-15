@@ -117,6 +117,9 @@ def main():
         if options.scent_file is not None:
             full_targets = test_targets_full.shape[2]
 
+            # uniformly sample indexes
+            ds_indexes = np.arange(0, dr.batch_length-2*dr.batch_buffer, options.down_sample)
+
             # inverse transform in length batches
             test_preds_full = np.zeros((test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
             for li in range(test_preds.shape[1]):
@@ -130,7 +133,7 @@ def main():
             for ti in range(full_targets):
                 # flatten
                 preds_ti = test_preds_full[:,:,ti].flatten()
-                targets_ti = test_targets_full[:,dr.batch_buffer:-dr.batch_buffer,ti].flatten()
+                targets_ti = test_targets_full[:,dr.batch_buffer+ds_indexes,ti].flatten()
 
                 # compute R2
                 tmean = targets_ti.mean(dtype='float64')

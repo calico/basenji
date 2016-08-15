@@ -3,6 +3,7 @@ from optparse import OptionParser
 from collections import OrderedDict
 import joblib
 import multiprocessing
+import os
 import random
 import subprocess
 import sys
@@ -218,7 +219,8 @@ def main():
 
     num_seqs = targets_real.shape[0]
     print('%d target sequences' % num_seqs)
-    print('%d excluded' % (include_marker-num_seqs))
+    if options.exclude_below is not None:
+        print('%d excluded' % (include_marker-num_seqs))
     sys.stdout.flush()
 
 
@@ -398,6 +400,9 @@ def limit_segments(segments, filter_bed):
 
     p.communicate()
 
+    os.close(seg_fd)
+    os.remove(seg_bed_file)
+
     return fsegments
 
 
@@ -503,7 +508,7 @@ def segments_1hot(fasta_file, segments, seq_length):
             # append
             seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[bstart:bend]))
 
-            seqs_segments.append((chrom,bstart,bend))
+            seqs_segments.append((chrom,seg_start+bstart,seg_start+bend))
 
             # update
             bstart += seq_length

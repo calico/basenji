@@ -3,6 +3,7 @@ from optparse import OptionParser
 from collections import OrderedDict
 import joblib
 import multiprocessing
+import os
 import random
 import subprocess
 import sys
@@ -507,7 +508,7 @@ def segments_1hot(fasta_file, segments, seq_length):
             # append
             seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[bstart:bend]))
 
-            seqs_segments.append((chrom,bstart,bend))
+            seqs_segments.append((chrom,seg_start+bstart,seg_start+bend))
 
             # update
             bstart += seq_length

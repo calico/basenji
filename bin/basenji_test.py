@@ -156,7 +156,11 @@ def main():
             valid_targets = data_open['valid_out']
 
             # initialize batcher
-            batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, options.batch_size)
+            if job['fourier']:
+                valid_targets_imag = data_open['valid_out_imag']
+                batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, options.batch_size)
+            else:
+                batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, options.batch_size)
 
             # make predictions
             _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True, down_sample=options.down_sample)
@@ -184,7 +188,7 @@ def main():
                 model = LogisticRegression()
                 model.fit(valid_preds[:,:,ti], valid_peaks[:valid_n,ti])
                 model_coefs.append(model.coef_)
-                
+
 
                 # predict peaks for test set
                 test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
@@ -209,7 +213,7 @@ def max_pool(preds, pool):
 
     # max
     return preds_pool.max(axis=2)
-    
+
 
 ################################################################################
 # __main__

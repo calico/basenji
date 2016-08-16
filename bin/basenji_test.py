@@ -2,6 +2,7 @@
 from __future__ import print_function
 from optparse import OptionParser
 import os
+import sys
 import time
 
 import h5py
@@ -102,7 +103,9 @@ def main():
         saver.restore(sess, model_file)
 
         # test
+        t0 = time.time()
         test_loss, test_r2_list, test_preds = dr.test(sess, batcher_test, return_preds=True, down_sample=options.down_sample)
+        print('RNN test: %d' % (time.time()-t0), file=sys.stderr)
 
         # print
         print('Test loss: %7.5f' % test_loss)
@@ -120,9 +123,11 @@ def main():
             ds_indexes = np.arange(0, dr.batch_length-2*dr.batch_buffer, options.down_sample)
 
             # inverse transform in length batches
+            t0 = time.time()
             test_preds_full = np.zeros((test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
             for li in range(test_preds.shape[1]):
                 test_preds_full[:,li,:] = model.inverse_transform(test_preds[:,li,:])
+            print('PCA transform: %d' % (time.time()-t0), file=sys.stderr)
 
             print(test_preds_full.shape)
             print(test_targets_full.shape)
@@ -186,12 +191,20 @@ def main():
             for ti in range(test_peaks.shape[1]):
                 # train a predictor for peak calls
                 model = LogisticRegression()
-                model.fit(valid_preds[:,:,ti], valid_peaks[:valid_n,ti])
+                if options.scent_file is not None:
+                    valid_preds_flat = valid_preds.reshape((valid_preds.shape[0],-1))
+                    model.fit(valid_preds_flat, valid_peaks[:valid_n,ti])
+                else:
+                    model.fit(valid_preds[:,:,ti], valid_peaks[:valid_n,ti])
                 model_coefs.append(model.coef_)
 
 
                 # predict peaks for test set
-                test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
+                if options.scent_file is not None:
+                    test_preds_flat = test_preds.reshape((test_preds.shape[0],-1))
+                    test_peaks_preds = model.predict_proba(test_preds_flat[:,1])
+                else:
+                    test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
                 test_n = test_peaks_preds.shape[0]
 
                 # compute AUC

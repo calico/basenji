@@ -41,7 +41,7 @@ def main():
             start = int(a[1])
             end = int(a[2])
 
-            bed_seq = fasta.fetch(chrom, start, end)
+            bed_seq = fasta.fetch(chrom, start, end).upper()
             hdf5_seq = basenji.dna_io.hot1_dna(hdf5_in['train_in'][si:si+1])[0]
 
             print(bed_seq[:10], len(bed_seq))

@@ -47,6 +47,7 @@ def main():
     parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
     parser.add_option('-x', dest='exclude_below', type='float', help='Exclude segments where the max across length and targets is below')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
+    parser.add_option('-z', dest='compression', help='h5py compression [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -255,24 +256,24 @@ def main():
     hdf5_out = h5py.File(hdf5_file, 'w')
 
     # HDF5 train
-    hdf5_out.create_dataset('train_in', data=seqs_1hot[train_indexes], dtype='bool')
-    hdf5_out.create_dataset('train_out', data=targets_real[train_indexes], dtype='float16')
+    hdf5_out.create_dataset('train_in', data=seqs_1hot[train_indexes], dtype='bool', compression=options.compression)
+    hdf5_out.create_dataset('train_out', data=targets_real[train_indexes], dtype='float16', compression=options.compression)
     if options.fourier_dim is not None:
-        hdf5_out.create_dataset('train_out_imag', data=targets_imag[train_indexes], dtype='float16')
+        hdf5_out.create_dataset('train_out_imag', data=targets_imag[train_indexes], dtype='float16', compression=options.compression)
 
     # HDF5 valid
-    hdf5_out.create_dataset('valid_in', data=seqs_1hot[valid_indexes], dtype='bool')
-    hdf5_out.create_dataset('valid_out', data=targets_real[valid_indexes], dtype='float16')
+    hdf5_out.create_dataset('valid_in', data=seqs_1hot[valid_indexes], dtype='bool', compression=options.compression)
+    hdf5_out.create_dataset('valid_out', data=targets_real[valid_indexes], dtype='float16', compression=options.compression)
     if options.fourier_dim is not None:
-        hdf5_out.create_dataset('valid_out_imag', data=targets_imag[valid_indexes], dtype='float16')
+        hdf5_out.create_dataset('valid_out_imag', data=targets_imag[valid_indexes], dtype='float16', compression=options.compression)
 
     # test
-    hdf5_out.create_dataset('test_in', data=seqs_1hot[test_indexes], dtype='bool')
-    hdf5_out.create_dataset('test_out', data=targets_real[test_indexes], dtype='float16')
+    hdf5_out.create_dataset('test_in', data=seqs_1hot[test_indexes], dtype='bool', compression=options.compression)
+    hdf5_out.create_dataset('test_out', data=targets_real[test_indexes], dtype='float16', compression=options.compression)
     if options.fourier_dim is not None:
-        hdf5_out.create_dataset('test_out_imag', data=targets_imag[test_indexes], dtype='float16')
+        hdf5_out.create_dataset('test_out_imag', data=targets_imag[test_indexes], dtype='float16', compression=options.compression)
     if not options.no_full:
-        hdf5_out.create_dataset('test_out_full', data=targets_test, dtype='float16')
+        hdf5_out.create_dataset('test_out_full', data=targets_test, dtype='float16', compression=options.compression)
 
     hdf5_out.close()
 

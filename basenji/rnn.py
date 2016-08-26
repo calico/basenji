@@ -132,8 +132,22 @@ class RNN:
                     # reshape to pretend 4D
                     outputs = tf.reshape(outputs, [self.batch_size, 1, seq_length, 2*self.rnn_units[li]])
 
-                    # pool
-                    outputs = tf.nn.max_pool(outputs, ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='pool%d'%li)
+                    if self.activation == 'tanh':
+                        # max pool
+                        max_pool = tf.nn.max_pool(outputs, ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='pool%d'%li)
+
+                        # abs max pool
+                        abs_max_pool = tf.nn.max_pool(tf.abs(outputs), ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='abs_pool%d'%li)
+
+                        # construct matrix of 1/-1 for abs max
+                        abs_max_mask1 =  tf.to_float(tf.equal(max_pool, abs_max_pool))
+                        abs_max_mask = abs_max_mask1*2 - 1
+
+                        outputs = abs_max_mask * abs_max_pool
+
+                    else:
+                        # pool
+                        outputs = tf.nn.max_pool(outputs, ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='pool%d'%li)
 
                     # updates size variable
                     seq_length = seq_length // self.rnn_pool[li]

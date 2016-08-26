@@ -45,6 +45,7 @@ def main():
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
+    parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
     parser.add_option('-x', dest='exclude_below', type='float', help='Exclude segments where the max across length and targets is below')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
     parser.add_option('-z', dest='compression', help='h5py compression [Default: %default]')
@@ -68,8 +69,8 @@ def main():
         a = line.split()
         target_wigs[a[0]] = a[1]
 
-    if options.fourier_dim is not None and 2*options.fourier_dim >= options.seq_length:
-        print("Fourier transform to %d dims won't compress %d length sequences" % (options.fourier_dim, options.seq_length), file=sys.stderr)
+    if options.fourier_dim is not None and 2*options.fourier_dim >= options.seq_length/options.pool_width:
+        print("Fourier transform to %d dims won't compress %d length sequences with %d pooling" % (options.fourier_dim, options.seq_length, options.pool_width), file=sys.stderr)
         exit(1)
 
 
@@ -154,7 +155,7 @@ def main():
             bend = batch_end(segments, bstart, 400000)
 
             # bigwig_read parameters
-            bwr_params = [(wig_file, segments[bstart:bend], options.seq_length) for wig_file in target_wigs.values()]
+            bwr_params = [(wig_file, segments[bstart:bend], options.seq_length, options.pool_width) for wig_file in target_wigs.values()]
 
             # pull the target values in parallel
             wig_targets = pool.starmap(bigwig_batch, bwr_params)
@@ -255,6 +256,9 @@ def main():
     # write to HDF5
     hdf5_out = h5py.File(hdf5_file, 'w')
 
+    # store pooling
+    hdf5_out.create_dataset('pool_width', data=options.pool_width, dtype='int')
+
     # HDF5 train
     hdf5_out.create_dataset('train_in', data=seqs_1hot[train_indexes], dtype='bool', compression=options.compression)
     hdf5_out.create_dataset('train_out', data=targets_real[train_indexes], dtype='float16', compression=options.compression)
@@ -311,7 +315,7 @@ def batch_end(segments, bstart, batch_max):
 
 
 ################################################################################
-def bigwig_batch(wig_file, segments, seq_length):
+def bigwig_batch(wig_file, segments, seq_length, pool_width=1):
     ''' Read a batch of segment values from a bigwig file
 
     Args:
@@ -319,6 +323,7 @@ def bigwig_batch(wig_file, segments, seq_length):
       segments: list of (chrom,start,end) genomic segments to read,
                   assuming those segments are appropriate length
       seq_length: sequence length to break them into
+      pool_width: average pool adjacent nucleotides of this width
 
     Returns:
       targets: target Bigwig value matrix
@@ -339,19 +344,27 @@ def bigwig_batch(wig_file, segments, seq_length):
             # seg_values = np.array([np.nan]*(seg_end-seg_start), dtype='float16')
             seg_values = np.zeros(seg_end-seg_start, dtype='float16')
 
+        # set NaN's to zero
+        seg_values = np.nan_to_num(seg_values)
+
         # break up into batchable sequences (as below in segments_1hot)
         bstart = 0
         bend = bstart + seq_length
         while bend < len(seg_values):
+            # extract (and pool)
+            if pool_width == 1:
+                sv = seg_values[bstart:bend]
+            else:
+                sv = seg_values[bstart:bend].reshape((seq_length, pool_width)).mean(axis=1)
+
             # append
-            targets.append(seg_values[bstart:bend])
+            targets.append(sv)
 
             # update
             bstart += seq_length
             bend += seq_length
 
-    # set NaN's to zero
-    return np.nan_to_num(targets)
+    return targets
 
 
 ################################################################################

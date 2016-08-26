@@ -2,6 +2,7 @@
 from __future__ import print_function
 from optparse import OptionParser
 import os
+import random
 import sys
 import time
 
@@ -57,6 +58,7 @@ def main():
         test_seqs = data_open['valid_in']
         test_targets = data_open['valid_out']
 
+
     #######################################################
     # model parameters and placeholders
     #######################################################
@@ -65,11 +67,12 @@ def main():
     job['batch_length'] = test_seqs.shape[1]
     job['seq_depth'] = test_seqs.shape[2]
     job['num_targets'] = test_targets.shape[2]
+    job['pool_width'] = int(np.array(data_open.get('pool_width', 1)))
 
     t0 = time.time()
     dr = basenji.rnn.RNN()
     dr.build(job)
-    print('Model building time %f' % (time.time()-t0))
+    print('Model building time %ds' % (time.time()-t0))
 
     if options.batch_size is None:
         options.batch_size = dr.batch_size
@@ -83,6 +86,7 @@ def main():
 
     # adjust for factors
     if options.scent_file is not None:
+        t0 = time.time()
         test_targets_full = data_open['test_out_full']
         model = joblib.load(options.scent_file)
 
@@ -91,9 +95,9 @@ def main():
     #######################################################
     # initialize batcher
     if job['fourier']:
-        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, options.batch_size)
+        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, options.batch_size, job['pool_width'])
     else:
-        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size)
+        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size, job['pool_width'])
 
     # initialize saver
     saver = tf.train.Saver()
@@ -105,7 +109,7 @@ def main():
         # test
         t0 = time.time()
         test_loss, test_r2_list, test_preds = dr.test(sess, batcher_test, return_preds=True, down_sample=options.down_sample)
-        print('RNN test: %d' % (time.time()-t0), file=sys.stderr)
+        print('RNN test: %ds' % (time.time()-t0))
 
         # print
         print('Test loss: %7.5f' % test_loss)
@@ -122,28 +126,33 @@ def main():
             # uniformly sample indexes
             ds_indexes = np.arange(0, dr.batch_length-2*dr.batch_buffer, options.down_sample)
 
+            # filter down full test targets
+            test_targets_full_ds = test_targets_full[:,dr.batch_buffer+ds_indexes,:]
+
             # inverse transform in length batches
             t0 = time.time()
             test_preds_full = np.zeros((test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
             for li in range(test_preds.shape[1]):
                 test_preds_full[:,li,:] = model.inverse_transform(test_preds[:,li,:])
-            print('PCA transform: %d' % (time.time()-t0), file=sys.stderr)
+            print('PCA transform: %ds' % (time.time()-t0))
 
             print(test_preds_full.shape)
             print(test_targets_full.shape)
 
             # compute R2 by target
+            t0 = time.time()
             test_r2_full = np.zeros(full_targets)
             for ti in range(full_targets):
                 # flatten
                 preds_ti = test_preds_full[:,:,ti].flatten()
-                targets_ti = test_targets_full[:,dr.batch_buffer+ds_indexes,ti].flatten()
+                targets_ti = test_targets_full_ds[:,:,ti].flatten()
 
                 # compute R2
                 tmean = targets_ti.mean(dtype='float64')
                 tvar = (targets_ti-tmean).var(dtype='float64')
                 pvar = (targets_ti-preds_ti).var(dtype='float64')
                 test_r2_full[ti] = 1.0 - pvar/tvar
+            print('Compute full R2: %d' % (time.time()-t0))
 
             print('Test full R2: %7.5f' % test_r2_full.mean())
 
@@ -169,7 +178,6 @@ def main():
 
             # make predictions
             _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True, down_sample=options.down_sample)
-            valid_n = valid_preds.shape[0]
 
             print(valid_preds.shape)
 
@@ -189,26 +197,29 @@ def main():
             target_aucs = []
             model_coefs = []
             for ti in range(test_peaks.shape[1]):
+                # balance positive and negative examples
+                # valid_preds_ti, valid_peaks_ti = balance(valid_preds, valid_peaks[:,ti])
+                valid_preds_ti, valid_peaks_ti = valid_preds, valid_peaks[:,ti]
+
                 # train a predictor for peak calls
                 model = LogisticRegression()
                 if options.scent_file is not None:
-                    valid_preds_flat = valid_preds.reshape((valid_preds.shape[0],-1))
-                    model.fit(valid_preds_flat, valid_peaks[:valid_n,ti])
+                    valid_preds_ti_flat = valid_preds_ti.reshape((valid_preds_ti.shape[0],-1))
+                    model.fit(valid_preds_ti_flat, valid_peaks_ti)
                 else:
-                    model.fit(valid_preds[:,:,ti], valid_peaks[:valid_n,ti])
+                    model.fit(valid_preds_ti[:,:,ti], valid_peaks_ti)
                 model_coefs.append(model.coef_)
 
 
                 # predict peaks for test set
                 if options.scent_file is not None:
                     test_preds_flat = test_preds.reshape((test_preds.shape[0],-1))
-                    test_peaks_preds = model.predict_proba(test_preds_flat[:,1])
+                    test_peaks_preds = model.predict_proba(test_preds_flat)[:,1]
                 else:
                     test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
-                test_n = test_peaks_preds.shape[0]
 
                 # compute AUC
-                auc = roc_auc_score(test_peaks[:test_n,ti], test_peaks_preds)
+                auc = roc_auc_score(test_peaks[:,ti], test_peaks_preds)
                 target_aucs.append(auc)
                 print('%d AUC: %f' % (ti,auc))
 
@@ -218,6 +229,19 @@ def main():
             np.save('%s/coefs.npy' % options.out_dir, model_coefs)
 
     data_open.close()
+
+def balance(X, Y):
+    # determine positive and negative indexes
+    indexes_pos = [i for i in range(len(Y)) if Y[i] == 1]
+    indexes_neg = [i for i in range(len(Y)) if Y[i] == 0]
+
+    # sample down negative
+    indexes_neg_sample = random.sample(indexes_neg, len(indexes_pos))
+
+    # combine
+    indexes = sorted(indexes_pos + indexes_neg_sample)
+
+    return X[indexes], Y[indexes]
 
 
 def max_pool(preds, pool):

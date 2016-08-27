@@ -21,7 +21,7 @@ class RNN:
 
         # batches
         self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth))
-        self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.num_targets))
+        self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
 
         # dropout rates
         self.cnn_dropout_ph = []
@@ -76,11 +76,11 @@ class RNN:
             rinput = self.inputs
 
         # update batch buffer to reflect pooling
-        pool_ratio = self.batch_length // seq_length
-        if self.batch_buffer % pool_ratio != 0:
-            print('Please make the batch_buffer %d divisible by the CNN pooling %d' % (self.batch_buffer, pool_ratio), file=sys.stderr)
+        pool_preds = self.batch_length // seq_length
+        if self.batch_buffer % pool_preds != 0:
+            print('Please make the batch_buffer %d divisible by the CNN pooling %d' % (self.batch_buffer, pool_preds), file=sys.stderr)
             exit(1)
-        self.batch_buffer_pool = self.batch_buffer // pool_ratio
+        self.batch_buffer_pool = self.batch_buffer // pool_preds
 
         ###################################################
         # recurrent layers
@@ -169,11 +169,11 @@ class RNN:
                 rinput = outputs
 
         # update batch buffer to reflect pooling
-        pool_ratio = self.batch_length // seq_length
-        if self.batch_buffer % pool_ratio != 0:
-            print('Please make the batch_buffer %d divisible by the pooling %d' % (self.batch_buffer, pool_ratio), file=sys.stderr)
+        pool_preds = self.batch_length // seq_length
+        if self.batch_buffer % pool_preds != 0:
+            print('Please make the batch_buffer %d divisible by the pooling %d' % (self.batch_buffer, pool_preds), file=sys.stderr)
             exit(1)
-        self.batch_buffer_pool = self.batch_buffer // pool_ratio
+        self.batch_buffer_pool = self.batch_buffer // pool_preds
 
         ###################################################
         # output layers
@@ -194,8 +194,10 @@ class RNN:
         self.preds_op = tf.transpose(preds, [1, 0, 2], name='predictions')
 
         # repeat if pooling
-        if pool_ratio > 1:
-            self.preds_op = tf.reshape(tf.tile(tf.reshape(self.preds_op, (-1,self.num_targets)), (1,pool_ratio)), (self.batch_size, self.batch_length-2*self.batch_buffer, self.num_targets))
+        pool_repeat = pool_preds // self.target_pool
+        if pool_repeat > 1:
+            tlength = (self.batch_length-2*self.batch_buffer) // self.target_pool
+            self.preds_op = tf.reshape(tf.tile(tf.reshape(self.preds_op, (-1,self.num_targets)), (1,pool_repeat)), (self.batch_size, tlength, self.num_targets))
 
         # print variables
         for v in tf.all_variables():
@@ -206,7 +208,9 @@ class RNN:
         # loss and optimization
         ###################################################
         # take square difference
-        sq_diff = tf.squared_difference(self.preds_op, self.targets[:,self.batch_buffer:self.batch_length-self.batch_buffer,:])
+        tstart = self.batch_buffer // self.target_pool
+        tend = (self.batch_length - self.batch_buffer) // self.target_pool
+        sq_diff = tf.squared_difference(self.preds_op, self.targets[:,tstart:tend,:])
 
         # set any NaN's to zero
         # nan_indexes = tf.is_nan(sq_diff)
@@ -339,6 +343,7 @@ class RNN:
         ###################################################
         self.seq_depth = job.get('seq_depth', 4)
         self.num_targets = job['num_targets']
+        self.target_pool = job.get('target_pool', 1)
 
         ###################################################
         # batching
@@ -416,8 +421,8 @@ class RNN:
         batch_losses = []
 
         # determine non-buffer region
-        buf_start = self.batch_buffer
-        buf_end = self.batch_length - self.batch_buffer
+        buf_start = self.batch_buffer // self.target_pool
+        buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
         buf_len = buf_end - buf_start
 
         # uniformly sample indexes

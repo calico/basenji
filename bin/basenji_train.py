@@ -56,6 +56,7 @@ def main():
     job['batch_length'] = train_seqs.shape[1]
     job['seq_depth'] = train_seqs.shape[2]
     job['num_targets'] = train_targets.shape[2]
+    job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
     job['early_stop'] = job.get('early_stop', 8)
     job['rate_drop'] = job.get('rate_drop', 3)
 

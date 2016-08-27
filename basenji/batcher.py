@@ -3,13 +3,14 @@
 import h5py
 import numpy as np
 import random
+import sys
 
 class Batcher:
     ''' Batcher
 
     Class to manage batches.
     '''
-    def __init__(self, Xf, Yf=None, batch_size=64, shuffle=False):
+    def __init__(self, Xf, Yf=None, batch_size=64, pool_width=1, shuffle=False):
         self.Xf = Xf
         self.num_seqs = self.Xf.shape[0]
         self.seq_len = self.Xf.shape[1]
@@ -20,48 +21,14 @@ class Batcher:
             self.num_targets = self.Yf.shape[2]
 
         self.batch_size = batch_size
+        self.pool_width = pool_width
+        if self.seq_len % self.pool_width != 0:
+            print('Pool width %d does not evenly divide the sequence length %d' % (self.pool_width,self.seq_len), file=sys.stderr)
+            exit(1)
 
         self.shuffle = shuffle
 
         self.reset()
-
-
-    def next_float(self):
-        ''' Load the next batch from the HDF5. '''
-        Xb = None
-        Yb = None
-        Nb = 0
-
-        stop = self.start + self.batch_size
-        if stop <= self.num_seqs:
-            # full batch
-
-            # copy data
-            Xb = np.array(self.Xf[self.start:stop], dtype='float32')
-            if self.Yf is not None:
-                Yb = np.nan_to_num(np.array(self.Yf[self.start:stop], dtype='float32'))
-
-            # specify full batch
-            Nb = self.batch_size
-
-        elif self.start < self.num_seqs:
-            # partial batch
-
-            # initialize full batch of zeros
-            Xb = np.zeros((self.batch_size, self.Xf.shape[1], self.Xf.shape[2]), dtype='float32')
-            if self.Yf is not None:
-                Yb = np.zeros((self.batch_size, self.Yf.shape[1], self.Yf.shape[2]), dtype='float32')
-
-            # copy data
-            Nb = self.num_seqs - self.start
-            Xb[:Nb] = self.Xf[self.start:self.start+Nb]
-            if self.Yf is not None:
-                Yb[:Nb] = np.nan_to_num(self.Yf[self.start:self.start+Nb])
-
-        # update start
-        self.start = stop
-
-        return Xb, Yb, Nb
 
 
     def next(self):
@@ -81,7 +48,7 @@ class Batcher:
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             if self.Yf is not None:
-                Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
+                Yb = np.zeros((self.batch_size, self.seq_len/self.pool_width, self.num_targets), dtype='float32')
 
             # copy data
             for i in range(Nb):
@@ -113,7 +80,7 @@ class BatcherF:
 
     Class to manage batches of data in fourier space.
     '''
-    def __init__(self, Xf, Yf_real, Yf_imag, batch_size=64, shuffle=False):
+    def __init__(self, Xf, Yf_real, Yf_imag, batch_size=64, pool_width=1, shuffle=False):
         self.Xf = Xf
         self.num_seqs = self.Xf.shape[0]
         self.seq_len = self.Xf.shape[1]
@@ -124,6 +91,10 @@ class BatcherF:
         self.num_targets = self.Yf_real.shape[2]
 
         self.batch_size = batch_size
+        self.pool_width = pool_width
+        if self.seq_len % self.pool_width != 0:
+            print('Pool width %d does not evenly divide the sequence length %d' % (self.pool_width,self.seq_len), file=sys.stderr)
+            exit(1)
 
         self.shuffle = shuffle
 
@@ -146,7 +117,7 @@ class BatcherF:
 
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
-            Yb = np.zeros((self.batch_size, self.seq_len, self.num_targets), dtype='float32')
+            Yb = np.zeros((self.batch_size, self.seq_len/self.pool_width, self.num_targets), dtype='float32')
 
             # copy data
             for i in range(Nb):
@@ -160,7 +131,7 @@ class BatcherF:
                 # inverse fourier transform
                 ybi_fourier = self.Yf_real[si] + self.Yf_imag[si]*1j
                 for ti in range(self.num_targets):
-                    Yb[i,:,ti] = np.fft.irfft(ybi_fourier[:,ti], self.seq_len)
+                    Yb[i,:,ti] = np.fft.irfft(ybi_fourier[:,ti], self.seq_len/self.pool_width)
 
         # update start
         self.start = stop

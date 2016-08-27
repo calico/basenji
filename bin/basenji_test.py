@@ -67,7 +67,7 @@ def main():
     job['batch_length'] = test_seqs.shape[1]
     job['seq_depth'] = test_seqs.shape[2]
     job['num_targets'] = test_targets.shape[2]
-    job['pool_width'] = int(np.array(data_open.get('pool_width', 1)))
+    job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
     t0 = time.time()
     dr = basenji.rnn.RNN()

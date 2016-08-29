@@ -355,7 +355,7 @@ def bigwig_batch(wig_file, segments, seq_length, pool_width=1):
             if pool_width == 1:
                 sv = seg_values[bstart:bend]
             else:
-                sv = seg_values[bstart:bend].reshape((seq_length, pool_width)).mean(axis=1)
+                sv = seg_values[bstart:bend].reshape((seq_length//pool_width, pool_width)).mean(axis=1)
 
             # append
             targets.append(sv)

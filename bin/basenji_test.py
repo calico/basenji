@@ -95,9 +95,9 @@ def main():
     #######################################################
     # initialize batcher
     if job['fourier']:
-        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, options.batch_size, job['pool_width'])
+        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, options.batch_size, job['target_pool'])
     else:
-        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size, job['pool_width'])
+        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size, job['target_pool'])
 
     # initialize saver
     saver = tf.train.Saver()

@@ -48,7 +48,7 @@ class Batcher:
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             if self.Yf is not None:
-                Yb = np.zeros((self.batch_size, self.seq_len/self.pool_width, self.num_targets), dtype='float32')
+                Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='float32')
 
             # copy data
             for i in range(Nb):
@@ -117,7 +117,7 @@ class BatcherF:
 
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
-            Yb = np.zeros((self.batch_size, self.seq_len/self.pool_width, self.num_targets), dtype='float32')
+            Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='float32')
 
             # copy data
             for i in range(Nb):
@@ -131,7 +131,7 @@ class BatcherF:
                 # inverse fourier transform
                 ybi_fourier = self.Yf_real[si] + self.Yf_imag[si]*1j
                 for ti in range(self.num_targets):
-                    Yb[i,:,ti] = np.fft.irfft(ybi_fourier[:,ti], self.seq_len/self.pool_width)
+                    Yb[i,:,ti] = np.fft.irfft(ybi_fourier[:,ti], self.seq_len//self.pool_width)
 
         # update start
         self.start = stop

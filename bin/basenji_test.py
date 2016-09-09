@@ -124,10 +124,18 @@ def main():
             full_targets = test_targets_full.shape[2]
 
             # uniformly sample indexes
-            ds_indexes = np.arange(0, dr.batch_length-2*dr.batch_buffer, options.down_sample)
+            # ds_indexes = np.arange(0, dr.batch_length-2*dr.batch_buffer, options.down_sample)
+
+            # determine non-buffer region
+            buf_start = dr.batch_buffer // dr.target_pool
+            buf_end = (dr.batch_length - dr.batch_buffer) // dr.target_pool
+            buf_len = buf_end - buf_start
+
+            # uniformly sample indexes
+            ds_indexes = np.arange(0, buf_len, options.down_sample)
 
             # filter down full test targets
-            test_targets_full_ds = test_targets_full[:,dr.batch_buffer+ds_indexes,:]
+            test_targets_full_ds = test_targets_full[:,buf_start+ds_indexes,:]
 
             # inverse transform in length batches
             t0 = time.time()
@@ -137,7 +145,7 @@ def main():
             print('PCA transform: %ds' % (time.time()-t0))
 
             print(test_preds_full.shape)
-            print(test_targets_full.shape)
+            print(test_targets_full_ds.shape)
 
             # compute R2 by target
             t0 = time.time()

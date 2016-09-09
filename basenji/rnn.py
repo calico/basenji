@@ -161,6 +161,14 @@ class RNN:
                     # unpack into a list
                     outputs = tf.unpack(outputs)
 
+                    # update batch buffer to reflect pooling
+                    pool_preds = self.batch_length // seq_length
+                    if self.batch_buffer % pool_preds != 0:
+                        print('Please make the batch_buffer %d divisible by the pooling %d' % (self.batch_buffer, pool_preds), file=sys.stderr)
+                        exit(1)
+                    self.batch_buffer_pool = self.batch_buffer // pool_preds
+
+
                 # save representation
                 if self.save_reprs:
                     self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
@@ -168,12 +176,6 @@ class RNN:
                 # outputs become input to next layer
                 rinput = outputs
 
-        # update batch buffer to reflect pooling
-        pool_preds = self.batch_length // seq_length
-        if self.batch_buffer % pool_preds != 0:
-            print('Please make the batch_buffer %d divisible by the pooling %d' % (self.batch_buffer, pool_preds), file=sys.stderr)
-            exit(1)
-        self.batch_buffer_pool = self.batch_buffer // pool_preds
 
         ###################################################
         # output layers

@@ -100,6 +100,9 @@ class RNN:
                     cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li], activation=self.activation)
                 elif self.cell == 'lstm':
                     cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True), activation=self.activation)
+                elif self.cell == 'fused':
+                    print('fused cell')
+                    cell = tf.contrib.rnn.LSTMFusedCell(self.rnn_units[li])
                 else:
                     print('Cannot recognize RNN cell type %s' % self.cell)
                     exit(1)

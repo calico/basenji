@@ -161,16 +161,6 @@ class RNN:
                     # transpose length to the front
                     outputs = tf.transpose(outputs, [1, 0, 2])
 
-                    ''' fake pooling for testing
-                    # temp
-                    outputs = tf.pack(outputs)
-                    pool_mask = np.arange(0, seq_length, self.rnn_pool[li])
-                    outputs = tf.strided_slice(outputs, [0, seq_length, self.rnn_pool[li]])
-
-                    # updates size variable
-                    seq_length = seq_length // self.rnn_pool[li]
-                    '''
-
                     # unpack into a list
                     outputs = tf.unpack(outputs)
 

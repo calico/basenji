@@ -7,7 +7,6 @@ import numpy as np
 from sklearn.metrics import r2_score
 import tensorflow as tf
 
-
 class RNN:
     def __init__(self):
         pass
@@ -20,6 +19,7 @@ class RNN:
         self.set_params(job)
 
         # batches
+        print('batch_size: %d' % self.batch_size)
         self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth))
         self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
 
@@ -157,6 +157,16 @@ class RNN:
 
                     # transpose length to the front
                     outputs = tf.transpose(outputs, [1, 0, 2])
+
+                    ''' fake pooling for testing
+                    # temp
+                    outputs = tf.pack(outputs)
+                    pool_mask = np.arange(0, seq_length, self.rnn_pool[li])
+                    outputs = tf.strided_slice(outputs, [0, seq_length, self.rnn_pool[li]])
+
+                    # updates size variable
+                    seq_length = seq_length // self.rnn_pool[li]
+                    '''
 
                     # unpack into a list
                     outputs = tf.unpack(outputs)

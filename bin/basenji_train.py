@@ -83,6 +83,9 @@ def main():
     else:
         batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, shuffle=True)
         batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
+    print('Batcher initialized')
+    sys.stdout.flush()
+
 
     # checkpoints
     saver = tf.train.Saver()
@@ -100,6 +103,8 @@ def main():
             saver.restore(sess, options.restart)
         else:
             # initialize variables
+            print('Initializing...')
+            sys.stdout.flush()
             sess.run(tf.initialize_all_variables())
             print("Initialization time %f" % (time.time()-t0))
             sys.stdout.flush()

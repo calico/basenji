@@ -78,11 +78,11 @@ def main():
     #######################################################
     # initialize batcher
     if job['fourier']:
-        batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, dr.batch_size, shuffle=True)
-        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
+        batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, dr.batch_size, dr.target_pool, shuffle=True)
+        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size, dr.target_pool)
     else:
-        batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, shuffle=True)
-        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
+        batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, dr.target_pool, shuffle=True)
+        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size, dr.target_pool)
     print('Batcher initialized')
     sys.stdout.flush()
 

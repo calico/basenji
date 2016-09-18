@@ -89,8 +89,7 @@ class RNN:
         norm_stabilizer = 0
 
         # move batch_length to the front as a list
-        # rinput = tf.unpack(tf.transpose(rinput, [1, 0, 2]))
-        rinput = tf.transpose(rinput, [1, 0, 2])
+        rinput = tf.unpack(tf.transpose(rinput, [1, 0, 2]))
 
         for li in range(self.rnn_layers):
             with tf.variable_scope('rnn%d' % li) as vs:
@@ -113,16 +112,11 @@ class RNN:
                     cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1-self.rnn_dropout_ph[li]))
 
                 # run bidirectional
-                '''
                 if self.cnn_layers == 0 and li == 0:
                     # outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
                     outputs, _, _ = bidirectional_rnn_rc(cell, cell, rinput, dtype=tf.float32)
                 else:
                     outputs, _, _ = bidirectional_rnn_tied(cell, cell, rinput, dtype=tf.float32)
-                '''
-                print(rinput.get_shape())
-                outputs, _ = tf.nn.bidirectional_dynamic_rnn(cell, cell, rinput, sequence_length=[seq_length]*self.batch_size, dtype=tf.float32, time_major=True)
-                outputs = tf.concat(2, outputs)
 
                 # accumulate norm stablizer
                 if self.norm_stabilizer[li] > 0:
@@ -133,7 +127,7 @@ class RNN:
                 # pooling
                 if self.rnn_pool[li] > 1:
                     # pack into a tensor
-                    # outputs = tf.pack(outputs)
+                    outputs = tf.pack(outputs)
 
                     # transpose batch to the front
                     outputs = tf.transpose(outputs, [1, 0, 2])
@@ -168,7 +162,7 @@ class RNN:
                     outputs = tf.transpose(outputs, [1, 0, 2])
 
                     # unpack into a list
-                    # outputs = tf.unpack(outputs)
+                    outputs = tf.unpack(outputs)
 
                     # update batch buffer to reflect pooling
                     pool_preds = self.batch_length // seq_length
@@ -180,8 +174,7 @@ class RNN:
 
                 # save representation
                 if self.save_reprs:
-                    # self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
-                    self.layer_reprs.append(tf.transpose(outputs, [1, 0, 2]))
+                    self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
 
                 # outputs become input to next layer
                 rinput = outputs
@@ -606,42 +599,6 @@ def bidirectional_rnn_rc(cell_fw, cell_bw, inputs, initial_state_fw=None, initia
     outputs = [array_ops.concat(1, [fw, bw]) for fw, bw in zip(output_fw, output_bw)]
 
     return (outputs, output_state_fw, output_state_bw)
-
-################################################################################
-def bidirectional_dynamic_rnn_tied(cell_fw, cell_bw, inputs, sequence_length=None,
-                              initial_state_fw=None, initial_state_bw=None,
-                              dtype=None, parallel_iterations=None,
-                              swap_memory=False, time_major=False, scope=None):
-
-    if not isinstance(cell_fw, rnn_cell.RNNCell):
-        raise TypeError("cell_fw must be an instance of RNNCell")
-    if not isinstance(cell_bw, rnn_cell.RNNCell):
-        raise TypeError("cell_bw must be an instance of RNNCell")
-
-    with vs.variable_scope(scope or "BiRNN"):
-        # Forward direction
-        with vs.variable_scope("FWBW") as fw_scope:
-            output_fw, output_state_fw = dynamic_rnn(cell=cell_fw, inputs=inputs, sequence_length=sequence_length, initial_state=initial_state_fw, dtype=dtype, parallel_iterations=parallel_iterations, swap_memory=swap_memory, time_major=time_major, scope=fw_scope)
-
-        # Backward direction
-        if not time_major:
-            time_dim = 1
-            batch_dim = 0
-        else:
-            time_dim = 0
-            batch_dim = 1
-
-        with vs.variable_scope("FWBW", reuse=True) as bw_scope:
-            inputs_reverse = array_ops.reverse_sequence(input=inputs, seq_lengths=sequence_length, seq_dim=time_dim, batch_dim=batch_dim)
-            tmp, output_state_bw = dynamic_rnn(cell=cell_bw, inputs=inputs_reverse, sequence_length=sequence_length, initial_state=initial_state_bw, dtype=dtype, parallel_iterations=parallel_iterations, swap_memory=swap_memory, time_major=time_major, scope=bw_scope)
-
-  output_bw = array_ops.reverse_sequence(input=tmp, seq_lengths=sequence_length, seq_dim=time_dim, batch_dim=batch_dim)
-
-  outputs = (output_fw, output_bw)
-  output_states = (output_state_fw, output_state_bw)
-
-  return (outputs, output_states)
-
 
 ################################################################################
 def _reverse_complement(input_seq, lengths):

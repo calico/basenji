@@ -40,11 +40,13 @@ def main():
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Dimension reduction hyper-parameters file')
-    parser.add_option('-n', dest='no_full', default=False, action='store_true', help='Do not save full test sequence targets [Default: %default]')
+    parser.add_option('-n', dest='na_t', default=0.25, action='float', help='Remove sequences with an NA% greater than this threshold [Default: %default]')
+    parser.add_option('--no_full', dest='no_full', default=False, action='store_true', help='Do not save full test sequence targets [Default: %default]')
     parser.add_option('-o', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
+    parser.add_option('-u', dest='unmap_bed', help='Unmappable segments to set to NA')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
     parser.add_option('-x', dest='exclude_below', type='float', help='Exclude segments where the max across length and targets is below')
     parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
@@ -219,10 +221,9 @@ def main():
     if not options.no_full:
         targets_test = np.vstack(targets_test)
 
-    num_seqs = targets_real.shape[0]
-    print('%d target sequences' % num_seqs)
+    print('%d target sequences' % targets_real.shape[0])
     if options.exclude_below is not None:
-        print('%d excluded' % (include_marker-num_seqs))
+        print('%d excluded' % (include_marker-targets_real.shape[0]))
     sys.stdout.flush()
 
 
@@ -237,14 +238,51 @@ def main():
         seqs_segments = [seqs_segments[ii] for ii in include_indexes]
         print('%d sequences included' % seqs_1hot.shape[0])
 
+    ################################################################
+    # correct for unmappable regions
+    ################################################################
+    if options.unmap_bed is not None:
+        seqs_na = annotate_na(seqs_segments, options.unmap_bed, options.seq_length, options.pool_width)
+
+        # determine mappable sequences and update test indexes
+        map_indexes = []
+        test_indexes_na = []
+        test_i = 0
+
+        for i in range(seqs_na.shape[0]):
+            # mappable
+            if seqs_na[i,:].mean() < options.na_t:
+                map_indexes.append(i)
+
+                if i in test_indexes:
+                    test_indexes_na.append(test_i)
+
+                test_i += 1
+
+            # unmappable
+            else:
+                # forget it
+                pass
+
+        # update data structures
+        targets_real = targets_real[map_indexes]
+        if options.fourier_dim is not None:
+            targets_imag = targets_imag[map_indexes]
+
+        seqs_1hot = seqs_1hot[map_indexes]
+        seqs_segments = seqs_segments[map_indexes]
+        seqs_na = seqs_na[map_indexes]
+
+        test_indexes = test_indexes_na
+
 
     ################################################################
     # write to train, valid, test HDF5
     ################################################################
 
     # sample valid indexes (we already have test)
-    valid_n = int(options.valid_pct*num_seqs)
-    nontest_indexes = set(range(num_seqs)) - set(test_indexes)
+    valid_n = int(options.valid_pct*targets_real.shape[0])
+    nontest_indexes = set(range(targets_real.shape[0])) - set(test_indexes)
     valid_indexes = random.sample(nontest_indexes, valid_n)
 
     # remainder is training
@@ -264,12 +302,14 @@ def main():
     hdf5_out.create_dataset('train_out', data=targets_real[train_indexes], dtype='float16', compression=options.compression)
     if options.fourier_dim is not None:
         hdf5_out.create_dataset('train_out_imag', data=targets_imag[train_indexes], dtype='float16', compression=options.compression)
+    hdf5_out.create_dataset('train_na', data=seqs_na[train_indexes], dtype='bool', compression=options.compression)
 
     # HDF5 valid
     hdf5_out.create_dataset('valid_in', data=seqs_1hot[valid_indexes], dtype='bool', compression=options.compression)
     hdf5_out.create_dataset('valid_out', data=targets_real[valid_indexes], dtype='float16', compression=options.compression)
     if options.fourier_dim is not None:
         hdf5_out.create_dataset('valid_out_imag', data=targets_imag[valid_indexes], dtype='float16', compression=options.compression)
+    hdf5_out.create_dataset('valid_na', data=seqs_na[valid_indexes], dtype='bool', compression=options.compression)
 
     # test
     hdf5_out.create_dataset('test_in', data=seqs_1hot[test_indexes], dtype='bool', compression=options.compression)
@@ -278,6 +318,7 @@ def main():
         hdf5_out.create_dataset('test_out_imag', data=targets_imag[test_indexes], dtype='float16', compression=options.compression)
     if not options.no_full:
         hdf5_out.create_dataset('test_out_full', data=targets_test, dtype='float16', compression=options.compression)
+    hdf5_out.create_dataset('test_na', data=seqs_na[test_indexes], dtype='bool', compression=options.compression)
 
     hdf5_out.close()
 
@@ -291,6 +332,56 @@ def main():
         for si in test_indexes:
             print('%s\t%d\t%d\ttest' % seqs_segments[si], file=out_bed_out)
         out_bed_out.close()
+
+
+################################################################################
+def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
+    ''' Read a batch of segment values from a bigwig file
+
+    Args:
+      seqs_segments: list of (chrom,start,end) sequence segments
+      unmap_bed: unmappable regions BED file
+      seq_length: sequence length
+      pool_width: pooled bin width
+
+    Returns:
+      seqs_na: NxL binary NA indicators
+    '''
+
+    # print sequence segments to file
+    segs_bed, segs_fd = tempfile.mkstemp()
+    segs_out = open(segs_bed, 'w')
+    for (chrom, start, end) in seqs_segments:
+        print('%s\t%d\t%d' % (chrom,start,end), file=segs_out)
+    segs_out.close()
+
+    # hash segments to indexes
+    segment_indexes = {}
+    for i in range(len(seqs_segments)):
+        segment_indexes[seqs_segments[i]] = i
+
+    # initialize NA array
+    seqs_na = np.zeros((seqs_segments.shape[0],seq_length//pool_width), dtype='bool')
+
+    # intersect with unmappable regions
+    p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (segs_bed, unmap_bed), shell=True, stdout=subprocess.PIPE)
+    for line in p.stdout:
+        a = line.split()
+
+        seg_chrom = a[0]
+        seg_start = int(a[1])
+        seg_end = int(a[2])
+        seg_tup = (seg_chrom,seg_start,seg_end)
+
+        unmap_start = int(a[4])
+        unmap_end = int(a[5])
+
+        seg_unmap_start_i = math.floor((unmap_start - seg_start) / pool_width)
+        seg_unmap_end_i = math.ceil((unmap_end - seg_start) / pool_width)
+
+        seqs_na[segment_indexes[seg_tup],seg_unmap_start_i:seg_unmap_end_i] = True
+
+    return seqs_na
 
 
 ################################################################################

@@ -40,7 +40,7 @@ def main():
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Dimension reduction hyper-parameters file')
-    parser.add_option('-n', dest='na_t', default=0.25, action='float', help='Remove sequences with an NA% greater than this threshold [Default: %default]')
+    parser.add_option('-n', dest='na_t', default=0.25, type='float', help='Remove sequences with an NA% greater than this threshold [Default: %default]')
     parser.add_option('--no_full', dest='no_full', default=False, action='store_true', help='Do not save full test sequence targets [Default: %default]')
     parser.add_option('-o', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')

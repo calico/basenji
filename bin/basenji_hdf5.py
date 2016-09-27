@@ -270,7 +270,7 @@ def main():
             targets_imag = targets_imag[map_indexes]
 
         seqs_1hot = seqs_1hot[map_indexes]
-        seqs_segments = seqs_segments[map_indexes]
+        seqs_segments = [seqs_segments[mi] for mi in map_indexes]
         seqs_na = seqs_na[map_indexes]
 
         test_indexes = test_indexes_na

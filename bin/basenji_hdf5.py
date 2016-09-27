@@ -361,7 +361,7 @@ def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
         segment_indexes[seqs_segments[i]] = i
 
     # initialize NA array
-    seqs_na = np.zeros((seqs_segments.shape[0],seq_length//pool_width), dtype='bool')
+    seqs_na = np.zeros((len(seqs_segments),seq_length//pool_width), dtype='bool')
 
     # intersect with unmappable regions
     p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (segs_bed, unmap_bed), shell=True, stdout=subprocess.PIPE)

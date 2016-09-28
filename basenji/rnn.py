@@ -219,8 +219,7 @@ class RNN:
         sq_diff = tf.squared_difference(self.preds_op, self.targets[:,tstart:tend,:])
 
         # set NaN's to zero
-        tens0 = tf.zeros_like(sq_diff)
-        sq_diff = tf.select(self.targets_na[:,tstart:tend], tens0, sq_diff)
+        sq_diff = tf.boolean_mask(sq_diff, tf.logical_not(self.targets_na[:,tstart:tend]))
 
         # take the mean
         self.loss_op = tf.reduce_sum(sq_diff, name='r2_loss') + norm_stabilizer
@@ -511,7 +510,7 @@ class RNN:
             # update feed dict
             fd[self.inputs] = Xb
             fd[self.targets] = Yb
-            fd[self.targets_na] = Nb
+            fd[self.targets_na] = NAb
 
             summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
 
@@ -520,11 +519,8 @@ class RNN:
                 sum_writer.add_summary(summary, self.step)
 
             # accumulate loss
-            train_loss.append(loss_batch)
-
-            # accumulate loss
             avail_sum = np.logical_not(NAb[:Nb,:]).sum()
-            batch_losses.append(loss_batch / avail_sum)
+            train_loss.append(loss_batch / avail_sum)
 
             # next batch
             Xb, Yb, NAb, Nb = batcher.next()

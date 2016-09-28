@@ -51,7 +51,7 @@ class Batcher:
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             if self.Yf is not None:
                 Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='float32')
-                NAb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='bool')
+                NAb = np.zeros((self.batch_size, self.seq_len//self.pool_width), dtype='bool')
 
             # copy data
             for i in range(Nb):
@@ -126,7 +126,7 @@ class BatcherF:
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='float32')
-            NAb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='bool')
+            NAb = np.zeros((self.batch_size, self.seq_len//self.pool_width), dtype='bool')
 
             # copy data
             for i in range(Nb):

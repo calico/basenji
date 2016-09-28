@@ -42,10 +42,18 @@ def main():
     # load data
     #######################################################
     data_open = h5py.File(data_file)
+
     train_seqs = data_open['train_in']
     train_targets = data_open['train_out']
+    train_na = None
+    if 'train_na' in data_open:
+        train_na = data_open['train_na']
+
     valid_seqs = data_open['valid_in']
     valid_targets = data_open['valid_out']
+    valid_na = None
+    if 'valid_na' in data_open:
+        valid_na = data_open['valid_na']
 
 
     #######################################################
@@ -78,11 +86,11 @@ def main():
     #######################################################
     # initialize batcher
     if job['fourier']:
-        batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, dr.batch_size, dr.target_pool, shuffle=True)
-        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size, dr.target_pool)
+        batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, train_na, dr.batch_size, dr.target_pool, shuffle=True)
+        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, valid_na, dr.batch_size, dr.target_pool)
     else:
-        batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, dr.batch_size, dr.target_pool, shuffle=True)
-        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size, dr.target_pool)
+        batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, train_na, dr.batch_size, dr.target_pool, shuffle=True)
+        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, valid_na, dr.batch_size, dr.target_pool)
     print('Batcher initialized')
     sys.stdout.flush()
 

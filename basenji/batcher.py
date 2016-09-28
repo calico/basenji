@@ -10,7 +10,7 @@ class Batcher:
 
     Class to manage batches.
     '''
-    def __init__(self, Xf, Yf=None, batch_size=64, pool_width=1, shuffle=False):
+    def __init__(self, Xf, Yf=None, NAf=None, batch_size=64, pool_width=1, shuffle=False):
         self.Xf = Xf
         self.num_seqs = self.Xf.shape[0]
         self.seq_len = self.Xf.shape[1]
@@ -19,6 +19,8 @@ class Batcher:
         self.Yf = Yf
         if self.Yf is not None:
             self.num_targets = self.Yf.shape[2]
+
+        self.NAf = NAf
 
         self.batch_size = batch_size
         self.pool_width = pool_width
@@ -49,6 +51,7 @@ class Batcher:
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             if self.Yf is not None:
                 Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='float32')
+                NAb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='bool')
 
             # copy data
             for i in range(Nb):
@@ -62,10 +65,13 @@ class Batcher:
                 if self.Yf is not None:
                     Yb[i] = np.nan_to_num(self.Yf[si])
 
+                    if self.NAf is not None:
+                        NAb[i] = self.NAf[si]
+
         # update start
         self.start = stop
 
-        return Xb, Yb, Nb
+        return Xb, Yb, NAb, Nb
 
 
     def reset(self):
@@ -80,7 +86,7 @@ class BatcherF:
 
     Class to manage batches of data in fourier space.
     '''
-    def __init__(self, Xf, Yf_real, Yf_imag, batch_size=64, pool_width=1, shuffle=False):
+    def __init__(self, Xf, Yf_real, Yf_imag, NAf=None, batch_size=64, pool_width=1, shuffle=False):
         self.Xf = Xf
         self.num_seqs = self.Xf.shape[0]
         self.seq_len = self.Xf.shape[1]
@@ -89,6 +95,8 @@ class BatcherF:
         self.Yf_real = Yf_real
         self.Yf_imag = Yf_imag
         self.num_targets = self.Yf_real.shape[2]
+
+        self.NAf = NAf
 
         self.batch_size = batch_size
         self.pool_width = pool_width
@@ -118,6 +126,7 @@ class BatcherF:
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='float32')
+            NAb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='bool')
 
             # copy data
             for i in range(Nb):
@@ -133,10 +142,14 @@ class BatcherF:
                 for ti in range(self.num_targets):
                     Yb[i,:,ti] = np.fft.irfft(ybi_fourier[:,ti], self.seq_len//self.pool_width)
 
+                if self.NAf is not None:
+                    NAb[i] = self.NAf[si]
+
+
         # update start
         self.start = stop
 
-        return Xb, Yb, Nb
+        return Xb, Yb, NAb, Nb
 
 
     def reset(self):

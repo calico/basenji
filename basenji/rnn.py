@@ -22,6 +22,7 @@ class RNN:
         print('batch_size: %d' % self.batch_size)
         self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth))
         self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
+        self.targets_na = tf.placeholder(tf.bool, shape=(self.batch_size, self.batch_length//self.target_pool))
 
         # dropout rates
         self.cnn_dropout_ph = []
@@ -217,13 +218,12 @@ class RNN:
         tend = (self.batch_length - self.batch_buffer) // self.target_pool
         sq_diff = tf.squared_difference(self.preds_op, self.targets[:,tstart:tend,:])
 
-        # set any NaN's to zero
-        # nan_indexes = tf.is_nan(sq_diff)
-        # tens0 = tf.zeros_like(sq_diff)
-        # sq_diff = tf.select(nan_indexes, tens0, sq_diff)
+        # set NaN's to zero
+        tens0 = tf.zeros_like(sq_diff)
+        sq_diff = tf.select(self.targets_na, tens0, sq_diff)
 
         # take the mean
-        self.loss_op = tf.reduce_mean(sq_diff, name='r2_loss') + norm_stabilizer
+        self.loss_op = tf.reduce_sum(sq_diff, name='r2_loss') + norm_stabilizer
         tf.scalar_summary('loss', self.loss_op)
 
         # define optimization
@@ -316,7 +316,7 @@ class RNN:
             fd[self.rnn_dropout_ph[li]] = 0
 
         # get first batch
-        Xb, _, Nb = batcher.next()
+        Xb, _, _, Nb = batcher.next()
 
         while Xb is not None:
             # update feed dict
@@ -329,7 +329,7 @@ class RNN:
             preds.append(preds_batch[:Nb])
 
             # next batch
-            Xb, _, Nb = batcher.next()
+            Xb, _, _, Nb = batcher.next()
 
         # reset batcher
         batcher.reset()
@@ -436,6 +436,7 @@ class RNN:
         # initialize prediction and target arrays
         preds = np.zeros((batcher.num_seqs, len(ds_indexes), self.num_targets), dtype='float16')
         targets = np.zeros((batcher.num_seqs, len(ds_indexes), self.num_targets), dtype='float16')
+        targets_na = np.zeros((batcher.num_seqs, len(ds_indexes)), dtype='bool')
         si = 0
 
         # setup feed dict for dropout
@@ -446,28 +447,31 @@ class RNN:
             fd[self.rnn_dropout_ph[li]] = 0
 
         # get first batch
-        Xb, Yb, Nb = batcher.next()
+        Xb, Yb, NAb, Nb = batcher.next()
 
         while Xb is not None:
             # update feed dict
             fd[self.inputs] = Xb
             fd[self.targets] = Yb
+            fd[self.targets_na] = NAb
 
             # measure batch loss
             preds_batch, loss_batch = sess.run([self.preds_op, self.loss_op], feed_dict=fd)
 
-            # accumulate loss
-            batch_losses.append(loss_batch)
-
             # accumulate predictions and targets
             preds[si:si+Nb,:,:] = preds_batch[:Nb,ds_indexes,:]
             targets[si:si+Nb,:,:] = Yb[:Nb,buf_start+ds_indexes,:]
+            targets_na[si:si+Nb,:] = NAb[:Nb,buf_start+ds_indexes]
+
+            # accumulate loss
+            avail_sum = np.logical_not(targets_na[si:si+Nb,:]).sum()
+            batch_losses.append(loss_batch / avail_sum)
 
             # update sequence index
             si += Nb
 
             # next batch
-            Xb, Yb, Nb = batcher.next()
+            Xb, Yb, NAb, Nb = batcher.next()
 
         # reset batcher
         batcher.reset()
@@ -475,21 +479,11 @@ class RNN:
         # compute R2 per target
         r2 = np.zeros(self.num_targets)
         for ti in range(self.num_targets):
-            # flatten
-            preds_ti = preds[:,:,ti].flatten()
-            targets_ti = targets[:,:,ti].flatten()
-
-            # remove NaN's
-            #valid_indexes = np.logical_not(np.isnan(targets_ti))
-            #preds_ti = preds_ti[valid_indexes]
-            #targets_ti = targets_ti[valid_indexes]
-
             # compute R2
             tmean = targets_ti.mean(dtype='float64')
             tvar = (targets_ti-tmean).var(dtype='float64')
             pvar = (targets_ti-preds_ti).var(dtype='float64')
             r2[ti] = 1.0 - pvar/tvar
-            # print('%d %f %f %f %f' % (ti, tmean, tvar, pvar, r2[ti]))
 
         if return_preds:
             return np.mean(batch_losses), r2, preds
@@ -511,12 +505,13 @@ class RNN:
             fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
 
         # get first batch
-        Xb, Yb, Nb = batcher.next()
+        Xb, Yb, NAb, Nb = batcher.next()
 
         while Xb is not None and Nb == self.batch_size:
             # update feed dict
             fd[self.inputs] = Xb
             fd[self.targets] = Yb
+            fd[self.targets_na] = Nb
 
             summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
 
@@ -527,8 +522,12 @@ class RNN:
             # accumulate loss
             train_loss.append(loss_batch)
 
+            # accumulate loss
+            avail_sum = np.logical_not(NAb[:Nb,:]).sum()
+            batch_losses.append(loss_batch / avail_sum)
+
             # next batch
-            Xb, Yb, Nb = batcher.next()
+            Xb, Yb, NAb, Nb = batcher.next()
             self.step += 1
 
         # reset training batcher

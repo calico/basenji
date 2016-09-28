@@ -18,7 +18,10 @@ import basenji
 ################################################################################
 # basenji_test.py
 #
-#
+# Notes
+#  -This probably needs work for the pooled large sequence version. I tried to
+#   update the "full" comparison, but it's not tested. The notion of peak calls
+#   will need to completely change; we probably want to predict in each bin.
 ################################################################################
 
 ################################################################################

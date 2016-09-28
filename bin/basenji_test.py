@@ -162,8 +162,8 @@ def main():
                 # flatten
                 # preds_ti = test_preds_full[:,:,ti].flatten()
                 # targets_ti = test_targets_full_ds[:,:,ti].flatten()
-                preds_ti = test_preds_full[test_na_ds,ti]
-                targets_ti = test_targets_full_ds[test_na_ds,ti]
+                preds_ti = test_preds_full[np.logical_not(test_na_ds),ti]
+                targets_ti = test_targets_full_ds[np.logical_not(test_na_ds),ti]
 
                 # compute R2
                 tmean = targets_ti.mean(dtype='float64')

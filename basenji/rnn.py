@@ -476,6 +476,9 @@ class RNN:
         # compute R2 per target
         r2 = np.zeros(self.num_targets)
         for ti in range(self.num_targets):
+            preds_ti = preds[np.logical_not(targets_na),ti]
+            targets_ti = targets[np.logical_not(targets_na),ti]
+
             # compute R2
             tmean = targets_ti.mean(dtype='float64')
             tvar = (targets_ti-tmean).var(dtype='float64')

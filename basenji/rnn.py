@@ -220,7 +220,7 @@ class RNN:
 
         # set NaN's to zero
         tens0 = tf.zeros_like(sq_diff)
-        sq_diff = tf.select(self.targets_na, tens0, sq_diff)
+        sq_diff = tf.select(self.targets_na[:,tstart:tend], tens0, sq_diff)
 
         # take the mean
         self.loss_op = tf.reduce_sum(sq_diff, name='r2_loss') + norm_stabilizer

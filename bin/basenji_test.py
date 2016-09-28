@@ -54,9 +54,16 @@ def main():
     if not options.valid:
         test_seqs = data_open['test_in']
         test_targets = data_open['test_out']
+        test_na = None
+        if 'test_na' in data_open:
+            test_na = data_open['test_na']
+
     else:
         test_seqs = data_open['valid_in']
         test_targets = data_open['valid_out']
+        test_na = None
+        if 'test_na' in data_open:
+            test_na = data_open['test_na']
 
 
     #######################################################
@@ -95,9 +102,9 @@ def main():
     #######################################################
     # initialize batcher
     if job['fourier']:
-        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, options.batch_size, job['target_pool'])
+        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, test_na, options.batch_size, job['target_pool'])
     else:
-        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size, job['target_pool'])
+        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, test_na, options.batch_size, job['target_pool'])
 
     # initialize saver
     saver = tf.train.Saver()
@@ -123,9 +130,6 @@ def main():
         if options.scent_file is not None:
             full_targets = test_targets_full.shape[2]
 
-            # uniformly sample indexes
-            # ds_indexes = np.arange(0, dr.batch_length-2*dr.batch_buffer, options.down_sample)
-
             # determine non-buffer region
             buf_start = dr.batch_buffer // dr.target_pool
             buf_end = (dr.batch_length - dr.batch_buffer) // dr.target_pool
@@ -136,6 +140,7 @@ def main():
 
             # filter down full test targets
             test_targets_full_ds = test_targets_full[:,buf_start+ds_indexes,:]
+            test_na_ds = test_na[:,buf_start+ds_indexes]
 
             # inverse transform in length batches
             t0 = time.time()
@@ -152,8 +157,10 @@ def main():
             test_r2_full = np.zeros(full_targets)
             for ti in range(full_targets):
                 # flatten
-                preds_ti = test_preds_full[:,:,ti].flatten()
-                targets_ti = test_targets_full_ds[:,:,ti].flatten()
+                # preds_ti = test_preds_full[:,:,ti].flatten()
+                # targets_ti = test_targets_full_ds[:,:,ti].flatten()
+                preds_ti = test_preds_full[test_na_ds,ti]
+                targets_ti = test_targets_full_ds[test_na_ds,ti]
 
                 # compute R2
                 tmean = targets_ti.mean(dtype='float64')

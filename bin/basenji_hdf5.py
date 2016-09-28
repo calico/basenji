@@ -2,6 +2,7 @@
 from optparse import OptionParser
 from collections import OrderedDict
 import joblib
+import math
 import multiprocessing
 import os
 import random
@@ -349,7 +350,8 @@ def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
     '''
 
     # print sequence segments to file
-    segs_bed, segs_fd = tempfile.mkstemp()
+    segs_temp = tempfile.NamedTemporaryFile()
+    segs_bed = segs_temp.name
     segs_out = open(segs_bed, 'w')
     for (chrom, start, end) in seqs_segments:
         print('%s\t%d\t%d' % (chrom,start,end), file=segs_out)
@@ -366,6 +368,7 @@ def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
     # intersect with unmappable regions
     p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (segs_bed, unmap_bed), shell=True, stdout=subprocess.PIPE)
     for line in p.stdout:
+        line = line.decode("utf-8")
         a = line.split()
 
         seg_chrom = a[0]

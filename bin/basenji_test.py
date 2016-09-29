@@ -32,9 +32,11 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
+    parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome length information [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
+    parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
     parser.add_option('-w', dest='pool_width', default=1, type='int', help='Max pool width for regressing nucleotide predictions to predict peak calls [Default: %default]')
     (options,args) = parser.parse_args()
@@ -228,7 +230,6 @@ def main():
                     model.fit(valid_preds_ti[:,:,ti], valid_peaks_ti)
                 model_coefs.append(model.coef_)
 
-
                 # predict peaks for test set
                 if options.scent_file is not None:
                     test_preds_flat = test_preds.reshape((test_preds.shape[0],-1))
@@ -246,7 +247,32 @@ def main():
             model_coefs = np.vstack(model_coefs)
             np.save('%s/coefs.npy' % options.out_dir, model_coefs)
 
+    # print bigwig tracks for visualization
+    if options.track_bed:
+        if options.genome_file is None:
+            parser.error('Must provide genome file in order to print valid BigWigs')
+
+        if not os.path.isdir('%s/tracks' % options.out_dir):
+            os.mkdir('%s/tracks' % options.out_dir)
+
+        for ti in test_preds.shape[2]:
+            if options.scent_file is not None:
+                test_targets_ti = test_targets_full[:,:,ti]
+            else:
+                test_targets_ti = test_targets[:,:,ti]
+
+            # make true targets bigwig
+            bw_out = bigwig_open('%s/tracks/t%d_true.bw' % (options.out_dir,ti), options.genome_file)
+            bigwig_write(bw_out, test_targets_ti, options.track_bed)
+            bw_out.close()
+
+            # make predictions bigwig
+            bw_out = bigwig_open('%s/tracks/t%d_preds.bw' % (options.out_dir,ti), options.genome_file)
+            bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed)
+            bw_out.close()
+
     data_open.close()
+
 
 def balance(X, Y):
     # determine positive and negative indexes
@@ -260,6 +286,56 @@ def balance(X, Y):
     indexes = sorted(indexes_pos + indexes_neg_sample)
 
     return X[indexes], Y[indexes]
+
+
+def bigwig_open(bw_file, genome_file):
+    ''' Open the bigwig file for writing and write the header. '''
+
+    bw_out = pyBigWig.open(bw_file, 'w')
+
+    chrom_sizes = []
+    for line in open(genome_file):
+        a = line.split()
+        chrom_sizes.append((a[0],int(a[1])))
+
+    bw_out.add_header(chrom_sizes)
+
+    return bw_out
+
+
+def bigwig_write(bw_out, signal_ti, track_bed):
+    si = 0
+    bw_entries = []
+
+    # set entries
+    for line in open(track_bed):
+        a = line.split()
+        if a[3] == 'test':
+            chrom = a[0]
+            start = int(a[1])
+            end = int(a[2])
+
+            preds_pool = (end - start) // signal_ti.shape[1]
+
+            bw_start = start
+            for li in range(signal_ti.shape[1]):
+                bw_end = bw_start + preds_pool
+                bw_entries.append((chrom,bw_start,bw_end,signal_ti[si,li]))
+                bw_start = bw_end
+
+            si += 1
+
+    # sort entries
+    bw_entries.sort()
+
+    # add entries
+    bw_entries_chroms = [be[0] for be in bw_entries]
+    bw_entries_starts = [be[1] for be in bw_entries]
+    bw_entries_ends = [be[2] for be in bw_entries]
+    bw_entries_values = [be[3] for be in bw_entries]
+    bw_out.addEntries(bw_entries_chroms, bw_entries_starts, ends=bw_entries_ends, values=bw_entries_values)
+
+    bw_out.close()
 
 
 def max_pool(preds, pool):

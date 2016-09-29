@@ -312,7 +312,7 @@ def main():
         hdf5_out.create_dataset('valid_out_imag', data=targets_imag[valid_indexes], dtype='float16', compression=options.compression)
     hdf5_out.create_dataset('valid_na', data=seqs_na[valid_indexes], dtype='bool', compression=options.compression)
 
-    # test
+    # HDF5 test
     hdf5_out.create_dataset('test_in', data=seqs_1hot[test_indexes], dtype='bool', compression=options.compression)
     hdf5_out.create_dataset('test_out', data=targets_real[test_indexes], dtype='float16', compression=options.compression)
     if options.fourier_dim is not None:

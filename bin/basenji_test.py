@@ -9,6 +9,7 @@ import time
 import h5py
 import joblib
 import numpy as np
+import pyBigWig
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
@@ -255,7 +256,7 @@ def main():
         if not os.path.isdir('%s/tracks' % options.out_dir):
             os.mkdir('%s/tracks' % options.out_dir)
 
-        for ti in test_preds.shape[2]:
+        for ti in range(test_preds.shape[2]):
             if options.scent_file is not None:
                 test_targets_ti = test_targets_full[:,:,ti]
             else:
@@ -298,7 +299,7 @@ def bigwig_open(bw_file, genome_file):
         a = line.split()
         chrom_sizes.append((a[0],int(a[1])))
 
-    bw_out.add_header(chrom_sizes)
+    bw_out.addHeader(chrom_sizes)
 
     return bw_out
 
@@ -332,7 +333,7 @@ def bigwig_write(bw_out, signal_ti, track_bed):
     bw_entries_chroms = [be[0] for be in bw_entries]
     bw_entries_starts = [be[1] for be in bw_entries]
     bw_entries_ends = [be[2] for be in bw_entries]
-    bw_entries_values = [be[3] for be in bw_entries]
+    bw_entries_values = [float(be[3]) for be in bw_entries]
     bw_out.addEntries(bw_entries_chroms, bw_entries_starts, ends=bw_entries_ends, values=bw_entries_values)
 
     bw_out.close()

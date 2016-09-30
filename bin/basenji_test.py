@@ -38,12 +38,13 @@ def main():
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
+    parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
     parser.add_option('-w', dest='pool_width', default=1, type='int', help='Max pool width for regressing nucleotide predictions to predict peak calls [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
-    	parser.error('Must provide paramters, model, and test data HDF5')
+    	parser.error('Must provide parameters, model, and test data HDF5')
     else:
         params_file = args[0]
         model_file = args[1]
@@ -256,7 +257,11 @@ def main():
         if not os.path.isdir('%s/tracks' % options.out_dir):
             os.mkdir('%s/tracks' % options.out_dir)
 
-        for ti in range(test_preds.shape[2]):
+        track_indexes = range(test_preds.shape[2])
+        if options.track_indexes:
+            track_indexes = ','.join(options.track_indexes)
+
+        for ti in track_indexes:
             if options.scent_file is not None:
                 test_targets_ti = test_targets_full[:,:,ti]
             else:
@@ -264,12 +269,12 @@ def main():
 
             # make true targets bigwig
             bw_out = bigwig_open('%s/tracks/t%d_true.bw' % (options.out_dir,ti), options.genome_file)
-            bigwig_write(bw_out, test_targets_ti, options.track_bed)
+            bigwig_write(bw_out, test_targets_ti, options.track_bed, options.genome_file)
             bw_out.close()
 
             # make predictions bigwig
             bw_out = bigwig_open('%s/tracks/t%d_preds.bw' % (options.out_dir,ti), options.genome_file)
-            bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed)
+            bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed, options.genome_file)
             bw_out.close()
 
     data_open.close()
@@ -304,7 +309,7 @@ def bigwig_open(bw_file, genome_file):
     return bw_out
 
 
-def bigwig_write(bw_out, signal_ti, track_bed):
+def bigwig_write(bw_out, signal_ti, track_bed, genome_file):
     si = 0
     bw_entries = []
 
@@ -330,11 +335,17 @@ def bigwig_write(bw_out, signal_ti, track_bed):
     bw_entries.sort()
 
     # add entries
-    bw_entries_chroms = [be[0] for be in bw_entries]
-    bw_entries_starts = [be[1] for be in bw_entries]
-    bw_entries_ends = [be[2] for be in bw_entries]
-    bw_entries_values = [float(be[3]) for be in bw_entries]
-    bw_out.addEntries(bw_entries_chroms, bw_entries_starts, ends=bw_entries_ends, values=bw_entries_values)
+    for line in open(genome_file):
+        chrom = line.split()[0]
+
+        bw_entries_chroms = [be[0] for be in bw_entries if be[0] == chrom]
+        bw_entries_starts = [be[1] for be in bw_entries if be[0] == chrom]
+        bw_entries_ends = [be[2] for be in bw_entries if be[0] == chrom]
+        bw_entries_values = [float(be[3]) for be in bw_entries if be[0] == chrom]
+
+        if len(bw_entries_chroms) > 0:
+            print(chrom, len(bw_entries_chroms))
+            bw_out.addEntries(bw_entries_chroms, bw_entries_starts, ends=bw_entries_ends, values=bw_entries_values)
 
     bw_out.close()
 

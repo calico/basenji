@@ -114,6 +114,20 @@ def hot1_dna(seqs_1hot):
 
     return seqs
 
+def hot1_set(seqs_1hot, pos, nt):
+    # reset
+    seqs_1hot[pos,:] = 0
+
+    # set
+    if nt == 'A':
+        seqs_1hot[pos,0] = 1
+    elif nt == 'C':
+        seqs_1hot[pos,1] = 1
+    elif nt == 'G':
+        seqs_1hot[pos,2] = 1
+    elif nt == 'T':
+        seqs_1hot[pos,3] = 1
+
 
 def read_job_params(job_file):
     ''' Read job parameters from table. '''

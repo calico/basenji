@@ -8,8 +8,12 @@ import time
 
 import h5py
 import joblib
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import numpy as np
 import pyBigWig
+import seaborn as sns
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
@@ -37,6 +41,7 @@ def main():
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
+    parser.add_option('--si', dest='scatter_indexes', help='Comma-separated list of target indexes to scatter plot true versus predicted values')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
@@ -249,6 +254,9 @@ def main():
             model_coefs = np.vstack(model_coefs)
             np.save('%s/coefs.npy' % options.out_dir, model_coefs)
 
+    #######################################################
+    # visualizations
+
     # print bigwig tracks for visualization
     if options.track_bed:
         if options.genome_file is None:
@@ -259,7 +267,7 @@ def main():
 
         track_indexes = range(test_preds.shape[2])
         if options.track_indexes:
-            track_indexes = ','.join(options.track_indexes)
+            track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
 
         for ti in track_indexes:
             if options.scent_file is not None:
@@ -276,6 +284,24 @@ def main():
             bw_out = bigwig_open('%s/tracks/t%d_preds.bw' % (options.out_dir,ti), options.genome_file)
             bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed, options.genome_file)
             bw_out.close()
+
+    # scatter plots
+    if options.scatter_indexes is not None:
+        scatter_indexes = [int(ti) for ti in options.scatter_indexes.split(',')]
+
+        li = test_preds.shape[1] // 2
+
+        if not os.path.isdir('%s/scatter' % options.out_dir):
+            os.mkdir('%s/scatter' % options.out_dir)
+
+        for ti in scatter_indexes:
+            if options.scent_file is not None:
+                test_targets_ti = test_targets_full[:,:,ti]
+            else:
+                test_targets_ti = test_targets[:,:,ti]
+
+            out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
+            jointplot(test_targets_ti[:,li], test_preds[:,li,ti], out_pdf)
 
     data_open.close()
 
@@ -350,12 +376,41 @@ def bigwig_write(bw_out, signal_ti, track_bed, genome_file):
     bw_out.close()
 
 
+def jointplot(vals1, vals2, out_pdf):
+    plt.figure()
+    g = sns.jointplot(vals1, vals2, alpha=0.5, color='black')
+    ax = g.ax_joint
+    vmin, vmax = scatter_lims(vals1, vals2)
+    ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')
+    ax.set_xlim(vmin,vmax)
+    ax.set_xlabel('True')
+    ax.set_ylim(vmin,vmax)
+    ax.set_ylabel('Pred')
+    ax.grid(True, linestyle=':')
+    plt.tight_layout(w_pad=0, h_pad=0)
+    plt.savefig(out_pdf)
+    plt.close()
+
+
 def max_pool(preds, pool):
     # group by pool
     preds_pool = preds.reshape((preds.shape[0], preds.shape[1]//pool, pool, preds.shape[2]), order='C')
 
     # max
     return preds_pool.max(axis=2)
+
+
+def scatter_lims(vals1, vals2, buffer=.05):
+    vals = np.concatenate((vals1, vals2))
+    vmin = np.nanmin(vals)
+    vmax = np.nanmax(vals)
+
+    buf = .05*(vmax-vmin)
+
+    vmin -= buf
+    vmax += buf
+
+    return vmin, vmax
 
 
 ################################################################################

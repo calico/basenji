@@ -217,10 +217,10 @@ class RNN:
         sq_diff = tf.squared_difference(self.preds_op, self.targets[:,tstart:tend,:])
 
         # set NaN's to zero
-        sq_diff = tf.boolean_mask(sq_diff, tf.logical_not(self.targets_na[:,tstart:tend]))
+        # sq_diff = tf.boolean_mask(sq_diff, tf.logical_not(self.targets_na[:,tstart:tend]))
 
         # take the mean
-        self.loss_op = tf.reduce_sum(sq_diff, name='r2_loss') + norm_stabilizer
+        self.loss_op = tf.reduce_mean(sq_diff, name='r2_loss') + norm_stabilizer
         tf.scalar_summary('loss', self.loss_op)
 
         # define optimization
@@ -461,8 +461,9 @@ class RNN:
             targets_na[si:si+Nb,:] = NAb[:Nb,buf_start+ds_indexes]
 
             # accumulate loss
-            avail_sum = np.logical_not(targets_na[si:si+Nb,:]).sum()
-            batch_losses.append(loss_batch / avail_sum)
+            # avail_sum = np.logical_not(targets_na[si:si+Nb,:]).sum()
+            # batch_losses.append(loss_batch / avail_sum)
+            batch_losses.append(loss_batch)
 
             # update sequence index
             si += Nb
@@ -520,8 +521,9 @@ class RNN:
                 sum_writer.add_summary(summary, self.step)
 
             # accumulate loss
-            avail_sum = np.logical_not(NAb[:Nb,:]).sum()
-            train_loss.append(loss_batch / avail_sum)
+            # avail_sum = np.logical_not(NAb[:Nb,:]).sum()
+            # train_loss.append(loss_batch / avail_sum)
+            train_loss.append(loss_batch)
 
             # next batch
             Xb, Yb, NAb, Nb = batcher.next()

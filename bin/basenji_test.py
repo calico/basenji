@@ -370,7 +370,6 @@ def bigwig_write(bw_out, signal_ti, track_bed, genome_file):
         bw_entries_values = [float(be[3]) for be in bw_entries if be[0] == chrom]
 
         if len(bw_entries_chroms) > 0:
-            print(chrom, len(bw_entries_chroms))
             bw_out.addEntries(bw_entries_chroms, bw_entries_starts, ends=bw_entries_ends, values=bw_entries_values)
 
     bw_out.close()

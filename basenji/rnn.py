@@ -50,16 +50,16 @@ class RNN:
                     # convolution params
                     stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
                     kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
-                    biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
+                    # biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
 
                     # convolution
                     conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
 
                     # batch normalization
-                    conv = tf.batch_norm(conv, center=True, scale=True, is_training=self.is_training, update_collections=None)
+                    conv = tf.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, update_collections=None, name='bnconv%d'%li)
 
                     # nonlinearity
-                    cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
+                    # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
 
                     # pooling
                     if self.cnn_pool[li] > 1:

@@ -50,7 +50,7 @@ class RNN:
                     # convolution params
                     stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
                     kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
-                    # biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
+                    biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
 
                     # convolution
                     conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')

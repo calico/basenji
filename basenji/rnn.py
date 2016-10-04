@@ -56,10 +56,10 @@ class RNN:
                     conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
 
                     # batch normalization
-                    conv = tf.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, update_collections=None, name='bnconv%d'%li)
+                    # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
 
                     # nonlinearity
-                    # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
+                    cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
 
                     # pooling
                     if self.cnn_pool[li] > 1:
@@ -314,7 +314,7 @@ class RNN:
         preds = []
 
         # setup feed dict for dropout
-        fd = {}
+        fd = {self.is_training:False}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = 0
         for li in range(self.rnn_layers):
@@ -445,7 +445,7 @@ class RNN:
         si = 0
 
         # setup feed dict for dropout
-        fd = {'is_training':False}
+        fd = {self.is_training:False}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = 0
         for li in range(self.rnn_layers):
@@ -507,7 +507,7 @@ class RNN:
         train_loss = []
 
         # setup feed dict for dropout
-        fd = {'is_training':True}
+        fd = {self.is_training:True}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
         for li in range(self.rnn_layers):

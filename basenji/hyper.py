@@ -27,16 +27,18 @@ class param:
         if type(self.range_min) == int and type(self.range_max) == int:
             self.type = int
 
+        self.value = None
+
     def rand(self):
         if self.type == int:
-            rval = random.randint(self.range_min, self.range_max)
+            self.value = random.randint(self.range_min, self.range_max)
         else:
             if self.logscale:
-                rval = np.power(2, random.uniform(np.log2(self.range_min), np.log2(self.range_max)))
+                self.value = np.power(2, random.uniform(np.log2(self.range_min), np.log2(self.range_max)))
             else:
-                rval = random.uniform(self.range_min, self.range_max)
+                self.value = random.uniform(self.range_min, self.range_max)
 
-        return rval
+        return self.value
 
 
 def to_num(x):

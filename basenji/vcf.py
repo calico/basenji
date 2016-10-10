@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import os
+import subprocess
 import sys
 
 import numpy as np
@@ -88,7 +90,7 @@ def snps_seq1(snps, seq_len, genome_fasta):
         # one hot code ref allele
         seq_vecs_ref, seq_ref = dna_length_1hot(seq, seq_len)
         seq_vecs_list.append(seq_vecs_ref)
-        seqs.append(seq_ref)
+        # seqs.append(seq_ref) # not using right now
 
         # name ref allele
         seq_headers.append('%s_%s' % (snp.rsid, cap_allele(snp.ref_allele)))
@@ -100,7 +102,7 @@ def snps_seq1(snps, seq_len, genome_fasta):
             # one hot code
             seq_vecs_alt, seq_alt = dna_length_1hot(seq_alt, seq_len)
             seq_vecs_list.append(seq_vecs_alt)
-            seqs.append(seq_alt)
+            # seqs.append(seq_alt) # not using right now
 
             # name
             seq_headers.append('%s_%s' % (snp.rsid, cap_allele(alt_al)))
@@ -236,6 +238,28 @@ def dna_length_1hot(seq, length):
     return seq_1hot, seq
 
 
+def filter_positive(pos_vcf, uneg_vcf, neg_vcf, dist_t=100):
+    ''' Remove SNPs in uneg_vcf within dist_t from SNPs in pos_vcf '''
+
+    neg_out = open(neg_vcf, 'w')
+    print('##fileformat=VCFv4.0', file=neg_out)
+
+    printed_snps = set()
+
+    p = subprocess.Popen('bedtools closest -d -a %s -b %s' % (uneg_vcf,pos_vcf), shell=True, stdout=subprocess.PIPE)
+    for line in p.stdout:
+        line = line.decode('UTF-8')
+        a = line.split()
+        snp_id = a[2]
+        dist = int(a[-1])
+        if dist == -1 or dist > dist_t:
+            if snp_id not in printed_snps:
+                print('\t'.join(a[:7]), file=neg_out)
+                printed_snps.add(snp_id)
+
+    neg_out.close()
+
+
 def vcf_snps(vcf_file, index_snp=False, score=False, pos2=False):
     ''' Load SNPs from a VCF file '''
     vcf_in = open(vcf_file)
@@ -252,6 +276,22 @@ def vcf_snps(vcf_file, index_snp=False, score=False, pos2=False):
         line = vcf_in.readline()
 
     return snps
+
+
+def vcf_sort(vcf_file):
+    # move
+    os.rename(vcf_file, '%s.tmp' % vcf_file)
+
+    # print header
+    vcf_out = open(vcf_file, 'w')
+    print('##fileformat=VCFv4.0', file=vcf_out)
+    vcf_out.close()
+
+    # sort
+    subprocess.call('bedtools sort -i %s.tmp >> %s' % (vcf_file, vcf_file), shell=True)
+
+    # clean
+    os.remove('%s.tmp' % vcf_file)
 
 
 class SNP:

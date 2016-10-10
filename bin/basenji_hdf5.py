@@ -298,6 +298,10 @@ def main():
     # store pooling
     hdf5_out.create_dataset('pool_width', data=options.pool_width, dtype='int')
 
+    # store targets
+    target_labels = np.array(list(target_wigs.keys()), dtype='S')
+    hdf5_out.create_dataset('target_labels', data=target_labels)
+
     # HDF5 train
     hdf5_out.create_dataset('train_in', data=seqs_1hot[train_indexes], dtype='bool', compression=options.compression)
     hdf5_out.create_dataset('train_out', data=targets_real[train_indexes], dtype='float16', compression=options.compression)

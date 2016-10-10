@@ -61,6 +61,8 @@ def main():
     else:
         seqs_1hot, seqs, seq_headers, snps = basenji.vcf.snps2_seq1(snps, options.seq_len, options.genome1_fasta, options.genome2_fasta)
 
+    print('Variant sequences', seqs_1hot.shape)
+
 
     #################################################################
     # setup model
@@ -98,6 +100,8 @@ def main():
 
         # predict
         seq_preds = dr.predict(sess, batcher)
+
+    print('Variant predictions: ', seq_preds.shape)
 
 
     #################################################################

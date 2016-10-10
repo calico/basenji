@@ -57,9 +57,9 @@ def main():
 
     # get one hot coded input sequences
     if not options.genome1_fasta or not options.genome2_fasta:
-        seqs_1hot, _, seq_headers, snps = basenji.vcf.snps_seq1(snps, options.seq_len, options.genome_fasta)
+        seqs_1hot, seq_headers, snps = basenji.vcf.snps_seq1(snps, options.seq_len, options.genome_fasta)
     else:
-        seqs_1hot, _, seq_headers, snps = basenji.vcf.snps2_seq1(snps, options.seq_len, options.genome1_fasta, options.genome2_fasta)
+        seqs_1hot, seq_headers, snps = basenji.vcf.snps2_seq1(snps, options.seq_len, options.genome1_fasta, options.genome2_fasta)
 
     print('Variant sequences', seqs_1hot.shape)
 

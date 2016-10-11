@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import os
+import time
 
 import h5py
 import numpy as np
@@ -23,6 +25,7 @@ Notes:
 def main():
     usage = 'usage: %prog [options] <fasta_file> <gtf_file> <hdf5_file>'
     parser = OptionParser(usage)
+    parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
     (options,args) = parser.parse_args()
@@ -37,6 +40,8 @@ def main():
 
     ################################################################
     # organize transcript TSS's by chromosome
+
+    t0 = time.time()
 
     # read transcripts
     transcripts = basenji.gff.read_genes(gtf_file, key_id='transcript_id')
@@ -54,15 +59,24 @@ def main():
     for chrom in chrom_tss:
         chrom_tss[chrom].sort()
 
+    print('Preparing genes: %d' % (time.time()-t0))
+
     ################################################################
     # determine segments / map transcripts
+
+    chrom_sizes = {}
+    for line in open(options.genome_file):
+        a = line.split()
+        chrom_sizes[a[0]] = int(a[1])
 
     merge_distance = .2*options.seq_length
 
     seq_segments = []
     transcript_map = {}
 
+    t0 = time.time()
     for chrom in chrom_tss:
+        print(chrom)
         ctss = chrom_tss[chrom]
 
         left_i = 0
@@ -84,21 +98,26 @@ def main():
             seg_end = seg_start + options.seq_length
 
             # save segment
-            seq_segments.append((chrom,seg_start,seg_end))
+            if seg_start >= 0 and seg_end < chrom_sizes[chrom]:
+                seq_segments.append((chrom,seg_start,seg_end))
 
-            # annotate TSS to indexes
-            seg_index = len(seq_segments)-1
-            for i in range(left_i,right_i+1):
-                tx_tss, tx_id = ctss[i]
-                tx_pos = (tx_tss - seg_start) // options.pool_width
-                transcript_map[tx_id] = (chrom,seg_index,tx_pos)
+                # annotate TSS to indexes
+                seg_index = len(seq_segments)-1
+                for i in range(left_i,right_i+1):
+                    tx_tss, tx_id = ctss[i]
+                    tx_pos = (tx_tss - seg_start) // options.pool_width
+                    transcript_map[tx_id] = (seg_index,tx_pos)
 
             # update
             left_i = right_i + 1
 
+    print('Mapping transcripts to segments: %d' % (time.time()-t0))
+
 
     ################################################################
     # extract sequences
+
+    t0 = time.time()
 
     seqs_1hot = []
 
@@ -109,6 +128,8 @@ def main():
     seqs_1hot = np.array(seqs_1hot)
 
     fasta.close()
+
+    print('Extracting sequences: %d' % (time.time()-t0))
 
 
     ################################################################
@@ -122,16 +143,15 @@ def main():
 
     # store transcript map
     transcripts = sorted(list(transcript_map.keys()))
-    transcript_chrom = np.array([transcript_map[tx_id][0] for tx_id in transcripts], dtype='S')
-    transcript_index = np.array([transcript_map[tx_id][1] for tx_id in transcripts])
-    transcript_pos = np.array([transcript_map[tx_id][2] for tx_id in transcripts])
+    transcript_index = np.array([transcript_map[tx_id][0] for tx_id in transcripts])
+    transcript_pos = np.array([transcript_map[tx_id][1] for tx_id in transcripts])
 
-    hdf5_out.create_dataset('transcript_chrom', data=transcript_chrom)
+    hdf5_out.create_dataset('transcripts', data=np.array(transcripts, dtype='S'))
     hdf5_out.create_dataset('transcript_index', data=transcript_index)
-    hdf5_out.create_dataset('transcript_pos', data=transcript_chrom)
+    hdf5_out.create_dataset('transcript_pos', data=transcript_pos)
 
     # store sequences
-    hdf5_out.create_dataset('test_in', data=seqs_1hot, dtype='bool')
+    hdf5_out.create_dataset('seqs_1hot', data=seqs_1hot, dtype='bool')
 
     # store segments
     seg_chrom = np.array([ss[0] for ss in seq_segments], dtype='S')

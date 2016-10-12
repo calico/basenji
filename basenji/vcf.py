@@ -23,6 +23,68 @@ def cap_allele(allele, cap=5):
     return allele
 
 
+def snp_seq1(snp, seq_len, genome_open):
+    ''' Produce a one hot coded sequences for a SNP.
+
+    Attrs:
+        snp [SNP] :
+        seq_len (int) : sequence length to code
+        genome_open (File) : open genome FASTA file
+
+    Return:
+        seq_vecs_list [array] : list of one hot coded sequences surrounding the SNP
+    '''
+    left_len = seq_len//2 - 1
+    right_len = seq_len//2
+
+    # initialize one hot coded vector list
+    seq_vecs_list = []
+
+    # specify positions in GFF-style 1-based
+    seq_start = snp.pos - left_len
+    seq_end = snp.pos + right_len + len(snp.ref_allele) - snp.longest_alt()
+
+    # extract sequence as BED style
+    if seq_start < 0:
+        seq = 'N'*(-seq_start) + genome_open.fetch(snp.chrom, 0, seq_end).upper()
+    else:
+        seq = genome_open.fetch(snp.chrom, seq_start-1, seq_end).upper()
+
+    # extend to full length
+    if len(seq) < seq_end - seq_start:
+        seq += 'N'*(seq_end-seq_start-len(seq))
+
+    # verify that ref allele matches ref sequence
+    seq_ref = seq[left_len:left_len+len(snp.ref_allele)]
+    if seq_ref != snp.ref_allele:
+        if seq_ref not in snp.alt_alleles:
+            print('WARNING: Skipping %s - neither allele matches reference genome: %s vs %s' % (snp.rsid, snp.ref_allele, seq_ref), file=sys.stderr)
+
+        else:
+            print('WARNING: %s - alt (as opposed to ref) allele matches reference genome; changing reference genome to match.' % (snp.rsid), file=sys.stderr)
+
+            # remove alt allele and include ref allele
+            seq = seq[:left_len] + snp.ref_allele + seq[left_len+len(seq_ref):]
+
+            # note that this won't work for indels, but they will be sent to the
+            # skipping code above because seq_ref will be the wrong length as the
+            # proper alternative allele
+
+    # one hot code ref allele
+    seq_vecs_ref, seq_ref = dna_length_1hot(seq, seq_len)
+    seq_vecs_list.append(seq_vecs_ref)
+
+    for alt_al in snp.alt_alleles:
+        # remove ref allele and include alt allele
+        seq_alt = seq[:left_len] + alt_al + seq[left_len+len(snp.ref_allele):]
+
+        # one hot code
+        seq_vecs_alt, seq_alt = dna_length_1hot(seq_alt, seq_len)
+        seq_vecs_list.append(seq_vecs_alt)
+
+    return seq_vecs_list
+
+
 def snps_seq1(snps, seq_len, genome_fasta, return_seqs=False):
     ''' Produce an array of one hot coded sequences for a list of SNPs.
 

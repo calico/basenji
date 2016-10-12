@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import pysam
 import seaborn as sns
 import tensorflow as tf
 
@@ -29,8 +30,6 @@ def main():
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-e', dest='heatmaps', default=False, action='store_true', help='Draw score heatmaps, grouped by index SNP [Default: %default]')
     parser.add_option('-f', dest='genome_fasta', default='%s/data/genomes/hg19.fa'%os.environ['BASSETDIR'], help='Genome FASTA from which sequences will be drawn [Default: %default]')
-    parser.add_option('--f1', dest='genome1_fasta', default=None, help='Genome FASTA which which major allele sequences will be drawn')
-    parser.add_option('--f2', dest='genome2_fasta', default=None, help='Genome FASTA which which minor allele sequences will be drawn')
     parser.add_option('-i', dest='index_snp', default=False, action='store_true', help='SNPs are labeled with their index SNP as column 6 [Default: %default]')
     parser.add_option('-l', dest='seq_len', type='int', default=1024, help='Sequence length provided to the model [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.1, type='float', help='Minimum heatmap limit [Default: %default]')
@@ -50,27 +49,10 @@ def main():
         os.mkdir(options.out_dir)
 
     #################################################################
-    # prep SNPs
-    #################################################################
-    # load SNPs
-    snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score, options.genome2_fasta is not None)
-
-    # get one hot coded input sequences
-    if not options.genome1_fasta or not options.genome2_fasta:
-        seqs_1hot, seq_headers, snps = basenji.vcf.snps_seq1(snps, options.seq_len, options.genome_fasta)
-    else:
-        seqs_1hot, seq_headers, snps = basenji.vcf.snps2_seq1(snps, options.seq_len, options.genome1_fasta, options.genome2_fasta)
-
-    print('Variant sequences', seqs_1hot.shape)
-
-
-    #################################################################
     # setup model
-    #################################################################
-    job = basenji.dna_io.read_job_params(params_file)
 
-    job['batch_length'] = seqs_1hot.shape[1]
-    job['seq_depth'] = seqs_1hot.shape[2]
+    job = basenji.dna_io.read_job_params(params_file)
+    job['batch_length'] = options.seq_len
 
     if 'num_targets' not in job:
         print("Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.", file=sys.stderr)
@@ -84,31 +66,20 @@ def main():
     if options.batch_size is not None:
         dr.batch_size = options.batch_size
 
-
-    #################################################################
-    # predict
-    #################################################################
-    # initialize batcher
-    batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=dr.batch_size)
-
-    # initialie saver
+    # initialize saver
     saver = tf.train.Saver()
 
-    with tf.Session() as sess:
-        # load variables into session
-        saver.restore(sess, model_file)
+    #################################################################
+    # load SNPs
 
-        # predict
-        seq_preds = dr.predict(sess, batcher)
-
-    print('Variant predictions: ', seq_preds.shape)
+    snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score)
 
 
     #################################################################
-    # collect and print SADs
-    #################################################################
+    # setup output
+
     if options.targets_file is None:
-        target_labels = ['t%d' % ti for ti in range(seq_preds.shape[1])]
+        target_labels = ['t%d' % ti for ti in range(job['num_targets'])]
     else:
         target_labels = [line.split()[0] for line in open(options.targets_file)]
 
@@ -125,46 +96,80 @@ def main():
     sad_labels = {}
     sad_scores = {}
 
-    pi = 0
-    for snp in snps:
-        # get reference prediction (LxT)
-        ref_preds = seq_preds[pi]
-        pi += 1
+    #################################################################
+    # process
 
-        for alt_al in snp.alt_alleles:
-            # get alternate prediction (LxT)
-            alt_preds = seq_preds[pi]
-            pi += 1
+    # open genome FASTA
+    genome_open = pysam.Fastafile(options.genome_fasta)
 
-            # normalize by reference and mean across length
-            alt_sad = (alt_preds - ref_preds).mean(axis=0)
-            sad_matrices.setdefault(snp.index_snp,[]).append(alt_sad)
+    snp_i = 0
 
-            # label as mutation from reference
-            alt_label = '%s_%s>%s' % (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al))
-            sad_labels.setdefault(snp.index_snp,[]).append(alt_label)
+    with tf.Session() as sess:
+        # load variables into session
+        saver.restore(sess, model_file)
 
-            # save scores
-            sad_scores.setdefault(snp.index_snp,[]).append(snp.score)
+        # construct first batch
+        batch_1hot, batch_snps, snp_i = snps_next_batch(snps, snp_i, dr.batch_size, options.seq_len, genome_open)
 
-            # print table lines
-            for ti in range(len(alt_sad)):
-                # set index SNP
-                snp_is = '%-13s' % '.'
-                if options.index_snp:
-                    snp_is = '%-13s' % snp.index_snp
+        while len(batch_snps) > 0:
+            ###################################################
+            # predict
 
-                # set score
-                snp_score = '%5s' % '.'
-                if options.score:
-                    snp_score = '%5.3f' % snp.score
+            # initialize batcher
+            batcher = basenji.batcher.Batcher(batch_1hot, batch_size=dr.batch_size)
 
-                # print line
-                cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), target_labels[ti], ref_preds[ti].mean(), alt_preds[ti].mean(), alt_sad[ti])
-                if options.csv:
-                    print(','.join([str(c) for c in cols]), file=sad_out)
-                else:
-                    print('%-13s %s %5s %6s %6s %12s %6.4f %6.4f %7.4f' % cols, file=sad_out)
+            # predict
+            batch_preds = dr.predict(sess, batcher)
+
+            ###################################################
+            # collect and print SADs
+
+            pi = 0
+            for snp in batch_snps:
+                # get reference prediction (LxT)
+                ref_preds = batch_preds[pi]
+                pi += 1
+
+                for alt_al in snp.alt_alleles:
+                    # get alternate prediction (LxT)
+                    alt_preds = batch_preds[pi]
+                    pi += 1
+
+                    # normalize by reference and mean across length
+                    alt_sad = (alt_preds - ref_preds).mean(axis=0)
+                    sad_matrices.setdefault(snp.index_snp,[]).append(alt_sad)
+
+                    # label as mutation from reference
+                    alt_label = '%s_%s>%s' % (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al))
+                    sad_labels.setdefault(snp.index_snp,[]).append(alt_label)
+
+                    # save scores
+                    sad_scores.setdefault(snp.index_snp,[]).append(snp.score)
+
+                    # print table lines
+                    for ti in range(len(alt_sad)):
+                        # set index SNP
+                        snp_is = '%-13s' % '.'
+                        if options.index_snp:
+                            snp_is = '%-13s' % snp.index_snp
+
+                        # set score
+                        snp_score = '%5s' % '.'
+                        if options.score:
+                            snp_score = '%5.3f' % snp.score
+
+                        # print line
+                        cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), target_labels[ti], ref_preds[ti].mean(), alt_preds[ti].mean(), alt_sad[ti])
+                        if options.csv:
+                            print(','.join([str(c) for c in cols]), file=sad_out)
+                        else:
+                            print('%-13s %s %5s %6s %6s %12s %6.4f %6.4f %7.4f' % cols, file=sad_out)
+
+            ###################################################
+            # construct next batch
+
+            batch_1hot, batch_snps, snp_i = snps_next_batch(snps, snp_i, dr.batch_size, options.seq_len, genome_open)
+
 
     sad_out.close()
 
@@ -209,6 +214,30 @@ def main():
                 plt.savefig(out_pdf)
                 plt.close()
 
+
+def snps_next_batch(snps, snp_i, batch_size, seq_len, genome_open):
+    ''' Load the next batch of SNP sequence 1-hot. '''
+
+    batch_1hot = []
+    batch_snps = []
+
+    while len(batch_1hot) < batch_size and snp_i < len(snps):
+        # get SNP sequences
+        snp_1hot = basenji.vcf.snp_seq1(snps[snp_i], seq_len, genome_open)
+
+        # if it was valid
+        if len(snp_1hot) > 0:
+            # accumulate
+            batch_1hot += snp_1hot
+            batch_snps.append(snps[snp_i])
+
+        # advance SNP index
+        snp_i += 1
+
+    # convert to array
+    batch_1hot = np.array(batch_1hot)
+
+    return batch_1hot, batch_snps, snp_i
 
 ################################################################################
 # __main__

@@ -3,6 +3,7 @@ from optparse import OptionParser
 import os
 import random
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -29,6 +30,7 @@ from seq_logo import seq_logo
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <input_file>'
     parser = OptionParser(usage)
+    parser.add_option('-a', dest='activity_enrich', default=1, type='float', help='Enrich the sample for the top proportion sorted by acitvity in the target cells requested. [Default: %default]')
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
     parser.add_option('-c', dest='cuda', default=False, action='store_true', help='Run on GPGPU [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
@@ -56,6 +58,15 @@ def main():
     #################################################################
     seqs, seqs_1hot, targets = parse_input(test_file, options.sample)
 
+    # decide which targets to obtain
+    if options.targets == '-1':
+        target_indexes = range(targets.shape[2])
+    else:
+        target_indexes = [int(ti) for ti in options.targets.split(',')]
+
+    # enrich for active sequences
+    seqs, seqs_1hot, targets = enrich_activity(seqs, seqs_1hot, targets, options.activity_enrich, target_indexes)
+
     seqs_n = seqs_1hot.shape[0]
 
     #################################################################
@@ -66,6 +77,7 @@ def main():
     job['batch_length'] = seqs_1hot.shape[1]
     job['seq_depth'] = seqs_1hot.shape[2]
     job['num_targets'] = targets.shape[2]
+    job['target_pool'] = job['batch_length'] // targets.shape[1]
 
     t0 = time.time()
     dr = basenji.rnn.RNN()
@@ -82,6 +94,8 @@ def main():
     # supplement with saturated mutagenesis
     sat_seqs_1hot = satmut_seqs(seqs_1hot, options.satmut_len)
 
+    print('Satmut sequences: %d' % sys.getsizeof(sat_seqs_1hot))
+
     # initialize batcher
     batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
@@ -93,17 +107,12 @@ def main():
         saver.restore(sess, model_file)
 
         # predict
-        sat_preds = dr.predict(sess, batcher_sat)
+        sat_preds = dr.predict(sess, batcher_sat, target_indexes)
 
 
     #################################################################
     # plots
     #################################################################
-    # decide which targets to plot
-    if options.targets == '-1':
-        plot_targets = range(sat_preds.shape[2])
-    else:
-        plot_targets = [int(ti) for ti in options.targets.split(',')]
 
     for si in range(seqs_n):
         ##############################################
@@ -119,7 +128,7 @@ def main():
         ##############################################
         # plot targets
         ##############################################
-        for ti in plot_targets:
+        for ti in range(len(target_indexes)):
             # setup plot
             sns.set(style='white', font_scale=1)
             spp = subplot_params(sat_delta.shape[1])
@@ -145,20 +154,23 @@ def main():
             plt.close()
 
 
-def loss_gain(sat_delta, sat_preds_si, satmut_len):
-    # compute min and max
-    sat_min = sat_delta.min(axis=0)
-    sat_max = sat_delta.max(axis=0)
+def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
+    ''' Filter data for the most active sequences in the set. '''
 
-    # determine sat mut region
-    sm_start = (sat_preds_si.shape[0] - satmut_len) // 2
-    sm_end = sm_start + satmut_len
+    # compute the max across sequence lengths and mean across targets
+    seq_scores = targets[:,:,target_indexes].max(axis=1).mean(axis=1)
 
-    # compute loss and gain matrixes
-    sat_loss = sat_min - sat_preds_si[sm_start:sm_end,:]
-    sat_gain = sat_max - sat_preds_si[sm_start:sm_end,:]
+    # sort the sequences
+    scores_indexes = [(seq_scores[si], si) for si in range(seq_scores.shape[0])]
+    scores_indexes.sort(reverse=True)
 
-    return sat_loss, sat_gain
+    # filter for the top
+    enrich_indexes = sorted([scores_indexes[si][1] for si in range(seq_scores.shape[0])])
+    seqs = [seqs[ei] for ei in enrich_indexes]
+    seqs_1hot = seqs_1hot[enrich_indexes]
+    targets = targets[enrich_indexes]
+
+    return seqs, seqs_1hot, targets
 
 
 def delta_matrix(seqs_1hot, si, sat_preds, satmut_len):
@@ -206,6 +218,22 @@ def delta_matrix(seqs_1hot, si, sat_preds, satmut_len):
     return sat_delta
 
 
+def loss_gain(sat_delta, sat_preds_si, satmut_len):
+    # compute min and max
+    sat_min = sat_delta.min(axis=0)
+    sat_max = sat_delta.max(axis=0)
+
+    # determine sat mut region
+    sm_start = (sat_preds_si.shape[0] - satmut_len) // 2
+    sm_end = sm_start + satmut_len
+
+    # compute loss and gain matrixes
+    sat_loss = sat_min - sat_preds_si[sm_start:sm_end,:]
+    sat_gain = sat_max - sat_preds_si[sm_start:sm_end,:]
+
+    return sat_loss, sat_gain
+
+
 def parse_input(input_file, sample):
     ''' Parse an input file that might be FASTA or HDF5. '''
 
@@ -229,7 +257,7 @@ def parse_input(input_file, sample):
         model_input_hdf5 = '%s/model_in.h5'%options.out_dir
 
         # load sequences
-        seqs_1hot = dna_io.load_sequences(input_file, permute=False)
+        seqs_1hot = basenji.dna_io.load_sequences(input_file, permute=False)
         target_labels = False
         if options.targets_file:
             target_labels = [line.split()[1] for line in open(options.targets_file)]
@@ -260,7 +288,7 @@ def parse_input(input_file, sample):
             seqs_1hot = np.array(hdf5_in['test_in'])
             targets = np.array(hdf5_in['test_out'])
             # seq_headers = np.array(hdf5_in['test_headers'])
-            target_labels = np.array(hdf5_in['target_labels'])
+            # target_labels = np.array(hdf5_in['target_labels'])   # TEMP
             hdf5_in.close()
 
             # sample
@@ -377,7 +405,7 @@ def satmut_seqs(seqs_1hot, satmut_len):
     satmut_n = seqs_n + seqs_n*satmut_len*3
 
     # initialize satmut seqs 1hot
-    sat_seqs_1hot = np.zeros((satmut_n, seq_len, 4))
+    sat_seqs_1hot = np.zeros((satmut_n, seq_len, 4), dtype='bool')
 
     # copy over seqs_1hot
     sat_seqs_1hot[:seqs_n,:,:] = seqs_1hot

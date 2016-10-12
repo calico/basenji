@@ -308,7 +308,7 @@ class RNN:
         return layer_reprs, preds
 
 
-    def predict(self, sess, batcher):
+    def predict(self, sess, batcher, target_indexes=None):
         ''' Compute predictions on a test set. '''
 
         preds = []
@@ -329,6 +329,10 @@ class RNN:
 
             # compute predictions
             preds_batch = sess.run(self.preds_op, feed_dict=fd)
+
+            # filter for specific targets
+            if target_indexes is not None:
+                preds_batch = preds_batch[:,:,target_indexes]
 
             # accumulate predictions
             preds.append(preds_batch[:Nb])

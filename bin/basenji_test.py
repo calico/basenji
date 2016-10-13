@@ -35,7 +35,6 @@ import basenji
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
     parser = OptionParser(usage)
-    parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome length information [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
@@ -93,9 +92,6 @@ def main():
     dr.build(job)
     print('Model building time %ds' % (time.time()-t0))
 
-    if options.batch_size is None:
-        options.batch_size = dr.batch_size
-
     # adjust for fourier
     job['fourier'] = 'train_out_imag' in data_open
     if job['fourier']:
@@ -114,9 +110,9 @@ def main():
     #######################################################
     # initialize batcher
     if job['fourier']:
-        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, test_na, options.batch_size, job['target_pool'])
+        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, test_na, dr.batch_size, job['target_pool'])
     else:
-        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, test_na, options.batch_size, job['target_pool'])
+        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, test_na, dr.batch_size, job['target_pool'])
 
     # initialize saver
     saver = tf.train.Saver()
@@ -199,9 +195,9 @@ def main():
             # initialize batcher
             if job['fourier']:
                 valid_targets_imag = data_open['valid_out_imag']
-                batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, options.batch_size)
+                batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
             else:
-                batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, options.batch_size)
+                batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
 
             # make predictions
             _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True, down_sample=options.down_sample)

@@ -40,6 +40,7 @@ class RNN:
         seq_length = self.batch_length
         seq_depth = self.seq_depth
         self.layer_reprs = []
+        self.filter_weights = []
 
         if self.cnn_layers > 0:
             # reshape
@@ -51,6 +52,9 @@ class RNN:
                     stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
                     kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
                     biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
+
+                    # maintain a pointer to the weights
+                    self.filter_weights.append(kernel)
 
                     # convolution
                     conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
@@ -280,7 +284,7 @@ class RNN:
             fd[self.rnn_dropout_ph[li]] = 0
 
         # get first batch
-        Xb, _, Nb = batcher.next()
+        Xb, _, _, Nb = batcher.next()
 
         while Xb is not None:
             # update feed dict
@@ -295,7 +299,7 @@ class RNN:
             preds.append(preds_batch[:Nb])
 
             # next batch
-            Xb, _, Nb = batcher.next()
+            Xb, _, _, Nb = batcher.next()
 
         # reset batcher
         batcher.reset()

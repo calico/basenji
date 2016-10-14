@@ -278,7 +278,7 @@ def main():
 
             # make predictions bigwig
             bw_out = bigwig_open('%s/tracks/t%d_preds.bw' % (options.out_dir,ti), options.genome_file)
-            bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed, options.genome_file)
+            bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed, options.genome_file, dr.batch_buffer)
             bw_out.close()
 
     # scatter plots
@@ -331,7 +331,7 @@ def bigwig_open(bw_file, genome_file):
     return bw_out
 
 
-def bigwig_write(bw_out, signal_ti, track_bed, genome_file):
+def bigwig_write(bw_out, signal_ti, track_bed, genome_file, buffer=0):
     si = 0
     bw_entries = []
 
@@ -343,9 +343,9 @@ def bigwig_write(bw_out, signal_ti, track_bed, genome_file):
             start = int(a[1])
             end = int(a[2])
 
-            preds_pool = (end - start) // signal_ti.shape[1]
+            preds_pool = (end - start - 2*buffer) // signal_ti.shape[1]
 
-            bw_start = start
+            bw_start = start + buffer
             for li in range(signal_ti.shape[1]):
                 bw_end = bw_start + preds_pool
                 bw_entries.append((chrom,bw_start,bw_end,signal_ti[si,li]))

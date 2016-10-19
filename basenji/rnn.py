@@ -71,7 +71,7 @@ class RNN:
 
                     # dropout
                     if self.cnn_dropout[li] > 0:
-                        cinput = tf.nn.dropout(cinput, 1.0-self.cnn_dropout[li])
+                        cinput = tf.nn.dropout(cinput, 1.0-self.cnn_dropout_ph[li])
 
                     # updates size variables
                     seq_length = seq_length // self.cnn_pool[li]

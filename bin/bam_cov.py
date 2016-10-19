@@ -24,6 +24,7 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-c', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
     parser.add_option('-m', dest='multi_window', default=None, type='int', help='Window size with which to model coverage in order to distribute multi-mapping read weight [Default: %default]')
+    parser.add_option('-u', dest='assume_unique', default=False, action='store_true', help='Assume alignments are unique reads and ignore query_names [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -37,38 +38,8 @@ def main():
 
     t0 = time.time()
 
-    read_index = {}
-    read_counts = []
-
-    ri = 0
-    for align in pysam.Samfile(bam_file, 'rb'):
-        rname = align.query_name
-
-        # if read name is new
-        if align.query_name not in read_index:
-            # map it to an index
-            read_index[rname] = ri
-            ri += 1
-
-        # determine the number of multimaps
-        nh_tag = 1
-        if align.has_tag('NH'):
-            nh_tag = 1 / align.get_tag('NH')
-
-        # count the number of multimap-adjusted read alignments
-        ari = read_index[rname]
-        if len(read_counts) <= ari:
-            read_counts.append(0)
-        read_counts[ari] += nh_tag
-
-    # check read counts
-    for rname in read_counts:
-        if read_counts[rname] > 1:
-            print('Multi-weighted coverage for %s > 1' % rname, file=sys.stderr)
-            exit(1)
-
-    # save number of reads
-    num_reads = len(read_index)
+    # map reads to indexes
+    read_index, num_reads = index_bam_reads(bam_file, options.assume_unique)
 
     print('Map read query_names to indexes: %ds' % (time.time()-t0))
 
@@ -90,9 +61,13 @@ def main():
 
     read_weights = dok_matrix((num_reads, genome_length), dtype='float16')
 
+    # initialize for assume_unique
+    ri = 0
+
     for align in bam_in:
-        rname = align.query_name
-        ri = read_index[rname]
+        read_id = (align.query_name, align.is_read1)
+        if not options.assume_unique:
+            ri = read_index[read_id]
 
         # determine alignment position
         align_pos = align.reference_start
@@ -104,6 +79,9 @@ def main():
 
         # initialize weight
         read_weights[ri,gi] = 1/read_counts[ri]
+
+        # update for assume_unique
+        ri += 1
 
     print('Initialize read coverage weights: %ds' % (time.time()-t0))
 
@@ -261,6 +239,60 @@ def genome_index(chrom_lengths, align_ci, align_pos):
         else:
             gi += chrom_lengths[ci]
     return gi
+
+
+def index_bam_reads(bam_file, assume_unique):
+    ''' Index the reads aligned in a BAM file, and determine whether
+         the query_name's and NH tags are trustworthy.
+
+    Args
+     bam_file (str):
+
+    Output
+     read_index ({str: int}): Dict mapping query_name to an int index.
+     num_reads (int): Number of aligned reads
+    '''
+
+    read_index = {}
+    read_counts = []
+
+    ri = 0
+    for align in pysam.Samfile(bam_file, 'rb'):
+        if not align.is_unmapped:
+            read_id = (align.query_name, align.is_read1)
+
+            if assume_unique:
+                num_reads += 1
+
+            else:
+                # if read name is new
+                if align.query_name not in read_index:
+                    # map it to an index
+                    read_index[read_id] = ri
+                    ri += 1
+
+                # determine the number of multimaps
+                nh_tag = 1
+                if align.has_tag('NH'):
+                    nh_tag = 1 / align.get_tag('NH')
+
+                # count the number of multimap-adjusted read alignments
+                ari = read_index[read_id]
+                if len(read_counts) <= ari:
+                    read_counts.append(0)
+                read_counts[ari] += nh_tag
+
+    # check read counts
+    for read_id in read_index:
+        if read_counts[read_index[read_id]] > 1:
+            print('Multi-weighted coverage for %s > 1' % read_id, file=sys.stderr)
+            exit(1)
+
+    # save number of reads
+    if not assume_unique:
+        num_reads = len(read_index)
+
+    return read_index, num_reads
 
 
 def initialize_kmers(k, pseudocount=1.):

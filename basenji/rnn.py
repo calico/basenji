@@ -209,6 +209,10 @@ class RNN:
         # transpose back to batches in front
         self.preds_op = tf.transpose(preds, [1, 0, 2], name='predictions')
 
+        # clip predictions
+        if self.target_space == 'positive':
+            self.preds_op = tf.nn.relu(self.preds_op)
+
         # repeat if pooling
         pool_repeat = pool_preds // self.target_pool
         if pool_repeat > 1:
@@ -223,10 +227,18 @@ class RNN:
         ###################################################
         # loss and optimization
         ###################################################
-        # take square difference
+
+        # remove buffer
         tstart = self.batch_buffer // self.target_pool
         tend = (self.batch_length - self.batch_buffer) // self.target_pool
-        sq_diff = tf.squared_difference(self.preds_op, self.targets[:,tstart:tend,:])
+        self.targets_op = self.targets[:,tstart:tend,:]
+
+        # clip targets
+        if self.target_space == 'positive':
+            self.targets_op = tf.nn.relu(self.targets_op)
+
+        # take square difference
+        sq_diff = tf.squared_difference(self.preds_op, self.targets_op)
 
         # set NaN's to zero
         # sq_diff = tf.boolean_mask(sq_diff, tf.logical_not(self.targets_na[:,tstart:tend]))
@@ -416,6 +428,14 @@ class RNN:
         # batch normalization?
 
         ###################################################
+        # loss
+        ###################################################
+        self.target_space = job.get('target_space', 'real')
+        if self.target_space not in ['real', 'positive', 'integer']:
+            print('target_space: %s invalid. Must be one of real, positive, or integer' % self.target_space, file=sys.stderr)
+            exit(1)
+
+        ###################################################
         # other
         ###################################################
         self.save_reprs = job.get('save_reprs', False)
@@ -469,12 +489,13 @@ class RNN:
             fd[self.targets_na] = NAb
 
             # measure batch loss
-            preds_batch, loss_batch = sess.run([self.preds_op, self.loss_op], feed_dict=fd)
+            preds_batch, targets_batch, loss_batch = sess.run([self.preds_op, self.targets_op, self.loss_op], feed_dict=fd)
 
             # accumulate predictions and targets
             preds[si:si+Nb,:,:] = preds_batch[:Nb,ds_indexes,:]
-            targets[si:si+Nb,:,:] = Yb[:Nb,buf_start+ds_indexes,:]
-            targets_na[si:si+Nb,:] = NAb[:Nb,buf_start+ds_indexes]
+            targets[si:si+Nb,:,:] = targets_batch[:Nb,ds_indexes,:]
+            # targets[si:si+Nb,:,:] = Yb[:Nb,buf_start+ds_indexes,:]
+            # targets_na[si:si+Nb,:] = NAb[:Nb,buf_start+ds_indexes]
 
             # accumulate loss
             # avail_sum = np.logical_not(targets_na[si:si+Nb,:]).sum()

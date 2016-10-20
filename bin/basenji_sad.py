@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
 import os
+import sys
 import time
 
 import matplotlib

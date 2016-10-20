@@ -36,7 +36,7 @@ def main():
     usage = 'usage: %prog [options] <fasta_file> <sample_wigs_file> <hdf5_file>'
     parser = OptionParser(usage)
     parser.add_option('-b', dest='limit_bed', help='Limit to segments that overlap regions in a BED file')
-    parser.add_option('-c', dest='clip', default=None, action='float', help='Clip target values to have minimum [Default: %default]')
+    parser.add_option('-c', dest='clip', default=None, type='float', help='Clip target values to have minimum [Default: %default]')
     parser.add_option('-d', dest='sample_pct', default=1.0, type='float', help='Down-sample the segments')
     parser.add_option('-f', dest='fourier_dim', default=None, type='int', help='Fourier transform dimension [Default: %default]')
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')

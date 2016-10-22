@@ -233,18 +233,25 @@ class RNN:
         tend = (self.batch_length - self.batch_buffer) // self.target_pool
         self.targets_op = self.targets[:,tstart:tend,:]
 
-        # clip targets
-        if self.target_space == 'positive':
-            self.targets_op = tf.nn.relu(self.targets_op)
+        if self.target_space == 'integer':
+            # Poisson loss
+            self.loss_op = tf.nn.log_poisson_loss(self.preds_op, self.targets_op)
 
-        # take square difference
-        sq_diff = tf.squared_difference(self.preds_op, self.targets_op)
+        else:
+            # clip targets
+            if self.target_space == 'positive':
+                self.targets_op = tf.nn.relu(self.targets_op)
 
-        # set NaN's to zero
-        # sq_diff = tf.boolean_mask(sq_diff, tf.logical_not(self.targets_na[:,tstart:tend]))
+            # take square difference
+            sq_diff = tf.squared_difference(self.preds_op, self.targets_op)
 
-        # take the mean
-        self.loss_op = tf.reduce_mean(sq_diff, name='r2_loss') + norm_stabilizer
+            # set NaN's to zero
+            # sq_diff = tf.boolean_mask(sq_diff, tf.logical_not(self.targets_na[:,tstart:tend]))
+
+            # take the mean
+            self.loss_op = tf.reduce_mean(sq_diff, name='r2_loss') + norm_stabilizer
+
+        # track
         tf.scalar_summary('loss', self.loss_op)
 
         # define optimization

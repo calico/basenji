@@ -245,6 +245,7 @@ def main():
         seqs_segments = [seqs_segments[ii] for ii in include_indexes]
         print('%d sequences included' % seqs_1hot.shape[0])
 
+
     ################################################################
     # correct for unmappable regions
     ################################################################
@@ -347,7 +348,8 @@ def main():
 
 ################################################################################
 def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
-    ''' Read a batch of segment values from a bigwig file
+    ''' Intersect the sequence segments with unmappable regions
+         and annoate the segments as NaN to possible be ignored.
 
     Args:
       seqs_segments: list of (chrom,start,end) sequence segments

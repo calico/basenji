@@ -34,7 +34,7 @@ def main():
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
     parser.add_option('-c', dest='cuda', default=False, action='store_true', help='Run on GPGPU [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
-    parser.add_option('-m', dest='min_limit', default=0.1, type='float', help='Minimum heatmap limit [Default: %default]')
+    parser.add_option('-m', dest='min_limit', default=0.0005, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='heat', help='Output directory [Default: %default]')
     parser.add_option('-r', dest='rng_seed', default=1, type='float', help='Random number generator seed [Default: %default]')
     parser.add_option('-s', dest='sample', default=None, type='int', help='Sample sequences from the test set [Default:%default]')
@@ -69,6 +69,7 @@ def main():
 
     seqs_n = seqs_1hot.shape[0]
 
+
     #################################################################
     # setup model
     #################################################################
@@ -93,8 +94,6 @@ def main():
     #################################################################
     # supplement with saturated mutagenesis
     sat_seqs_1hot = satmut_seqs(seqs_1hot, options.satmut_len)
-
-    print('Satmut sequences: %d' % sys.getsizeof(sat_seqs_1hot))
 
     # initialize batcher
     batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
@@ -139,7 +138,7 @@ def main():
             ax_heat = plt.subplot2grid((4,spp['heat_cols']), (3,0), colspan=spp['heat_cols'])
 
             # plot predictions
-            plot_predictions(ax_pred, sat_preds[si,:,ti], options.satmut_len)
+            plot_predictions(ax_pred, sat_preds[si,:,ti], options.satmut_len, dr.batch_length, dr.batch_buffer)
 
             # plot sequence weblogo
             plot_weblogo(ax_logo, seqs[si], sat_loss[:,ti], options.min_limit)
@@ -166,6 +165,7 @@ def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
 
     # filter for the top
     enrich_indexes = sorted([scores_indexes[si][1] for si in range(seq_scores.shape[0])])
+    enrich_indexes = enrich_indexes[:int(activity_enrich*len(enrich_indexes))]
     seqs = [seqs[ei] for ei in enrich_indexes]
     seqs_1hot = seqs_1hot[enrich_indexes]
     targets = targets[enrich_indexes]
@@ -187,7 +187,7 @@ def delta_matrix(seqs_1hot, si, sat_preds, satmut_len):
 
     Todo:
         -Rather than computing the delta as the change at that nucleotide's prediction,
-            compute it as the maximum change across the sequence. That way, we better
+            compute it as the mean change across the sequence. That way, we better
             pick up on motif-flanking interactions.
     '''
     seqs_n = int(sat_preds.shape[0] / (1 + 3*satmut_len))
@@ -199,11 +199,14 @@ def delta_matrix(seqs_1hot, si, sat_preds, satmut_len):
     # jump to si's mutated sequences
     smi = seqs_n + si*3*satmut_len
 
-    # jump to satmut region in preds
-    spi = int((sat_preds.shape[1] - satmut_len) // 2)
+    # jump to satmut region in preds (incorrect with target pooling)
+    # spi = int((sat_preds.shape[1] - satmut_len) // 2)
 
     # jump to satmut region in sequence
     ssi = int((seqs_1hot.shape[1] - satmut_len) // 2)
+
+    # to study across sequence length
+    # sat_delta_length = np.zeros((4, satmut_len, sat_preds.shape[1], num_targets))
 
     # compute delta matrix
     for li in range(satmut_len):
@@ -211,9 +214,25 @@ def delta_matrix(seqs_1hot, si, sat_preds, satmut_len):
             if seqs_1hot[si,ssi+li,ni] == 1:
                 sat_delta[ni,li,:] = 0
             else:
+                # to study across sequence length
+                # sat_delta_length[ni,li,:,:] = sat_preds[smi] - sat_preds[si]
+
                 # sat_delta[ni,li,:] = sat_preds[smi,spi+li,:] - sat_preds[si,spi+li,:]
                 sat_delta[ni,li,:] = sat_preds[smi].mean(axis=0) - sat_preds[si].mean(axis=0)
                 smi += 1
+
+    # to study across sequence length
+    '''
+    sat_delta_length = sat_delta_length.mean(axis=0)
+
+    if not os.path.isdir('length'):
+        os.mkdir('length')
+    for ti in range(sat_delta_length.shape[2]):
+        plt.figure()
+        sns.heatmap(sat_delta_length[:,:,ti], linewidths=0, cmap='RdBu_r')
+        plt.savefig('length/delta_length_s%d_t%d.pdf' % (si,ti))
+        plt.close()
+    '''
 
     return sat_delta
 
@@ -320,7 +339,7 @@ def plot_heat(ax, sat_delta_ti, min_limit):
     ax.yaxis.set_ticklabels('TGCA', rotation='horizontal') # , size=10)
 
 
-def plot_predictions(ax, preds, satmut_len):
+def plot_predictions(ax, preds, satmut_len, seq_len, buffer):
     ''' Plot the raw predictions for a sequence and target
         across the specificed saturated mutagenesis region.
 
@@ -329,11 +348,19 @@ def plot_predictions(ax, preds, satmut_len):
         preds (L array): Target predictions for one sequence.
         satmut_len (int): Satmut length from which to determine
                            the values to plot.
+        seq_len (int): Full sequence length.
+        buffer (int): Ignored buffer sequence on each side
     '''
-    satmut_start = (preds.shape[0] - satmut_len) // 2
+
+    # repeat preds across pool width
+    target_pool = (seq_len - 2*buffer) // preds.shape[0]
+    epreds = preds.repeat(target_pool)
+
+    satmut_start = (epreds.shape[0] - satmut_len) // 2
     satmut_end = satmut_start + satmut_len
 
-    ax.plot(preds[satmut_start:satmut_end], linewidth=1)
+    ax.plot(epreds[satmut_start:satmut_end], linewidth=1)
+    ax.set_xlim(0, satmut_len)
     ax.axhline(0, c='black', linewidth=1, linestyle='--')
     for axis in ['top','bottom','left','right']:
         ax.spines[axis].set_linewidth(0.5)

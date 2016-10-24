@@ -236,6 +236,7 @@ class RNN:
         if self.target_space == 'integer':
             # Poisson loss
             self.loss_op = tf.nn.log_poisson_loss(self.preds_op, self.targets_op)
+            self.loss_op = tf.reduce_mean(self.loss_op)
 
         else:
             # clip targets
@@ -517,6 +518,9 @@ class RNN:
 
         # reset batcher
         batcher.reset()
+
+        if self.target_space == 'integer'
+            preds = np.exp(preds)
 
         # compute R2 per target
         r2 = np.zeros(self.num_targets)

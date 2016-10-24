@@ -519,7 +519,7 @@ class RNN:
         # reset batcher
         batcher.reset()
 
-        if self.target_space == 'integer'
+        if self.target_space == 'integer':
             preds = np.exp(preds)
 
         # compute R2 per target

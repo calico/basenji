@@ -281,6 +281,12 @@ def main():
             bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed, options.genome_file, dr.batch_buffer)
             bw_out.close()
 
+        # make NA bigwig
+        bw_out = bigwig_open('%s/tracks/na.bw' % options.out_dir, options.genome_file)
+        bigwig_write(bw_out, test_na, options.track_bed, options.genome_file)
+        bw_out.close()
+
+
     # scatter plots
     if options.scatter_indexes is not None:
         scatter_indexes = [int(ti) for ti in options.scatter_indexes.split(',')]

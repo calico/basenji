@@ -112,8 +112,8 @@ class RNN:
                     cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li], activation=self.activation)
                 elif self.cell == 'lstm':
                     cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True), activation=self.activation)
-                elif self.cell == 'fused':
-                    cell = tf.contrib.rnn.LSTMFusedCell(self.rnn_units[li])
+                elif self.cell == 'block':
+                    cell = tf.contrib.rnn.LSTMBlockCell(self.rnn_units[li])
                 else:
                     print('Cannot recognize RNN cell type %s' % self.cell)
                     exit(1)
@@ -234,8 +234,11 @@ class RNN:
         self.targets_op = self.targets[:,tstart:tend,:]
 
         if self.target_space == 'integer':
+            # move negatives into exponential space and align positives
+            self.preds_op = tf.select(self.preds_op > 0, self.preds_op + 1, tf.exp(self.preds_op))
+
             # Poisson loss
-            self.loss_op = tf.nn.log_poisson_loss(self.preds_op, self.targets_op)
+            self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=True)
             self.loss_op = tf.reduce_mean(self.loss_op)
 
         else:
@@ -518,9 +521,6 @@ class RNN:
 
         # reset batcher
         batcher.reset()
-
-        if self.target_space == 'integer':
-            preds = np.exp(preds)
 
         # compute R2 per target
         r2 = np.zeros(self.num_targets)

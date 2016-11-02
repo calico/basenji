@@ -305,6 +305,11 @@ def main():
             out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
             jointplot(test_targets_ti[:,li], test_preds[:,li,ti], out_pdf)
 
+            scatter_out = open('%s/scatter/t%d.txt' % (options.out_dir,ti), 'w')
+            for si in range(test_preds.shape[0]):
+                print(test_targets_ti[si,li], test_preds[si,li,ti], file=scatter_out)
+            scatter_out.close()
+
     data_open.close()
 
 

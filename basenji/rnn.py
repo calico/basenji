@@ -60,10 +60,14 @@ class RNN:
                     conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
 
                     # batch normalization
+                    cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
                     # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                    # cinput = tf.cond(self.is_training,
+                                # lambda: tf.contrib.layers.batch_norm(conv, is_training=True, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs),
+                                # lambda: tf.contrib.layers.batch_norm(conv, is_training=False, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs, reuse=True))
 
                     # nonlinearity
-                    cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
+                    # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
 
                     # pooling
                     if self.cnn_pool[li] > 1:
@@ -401,7 +405,7 @@ class RNN:
         self.adam_beta2 = job.get('adam_beta2', 0.999)
         self.adam_eps = job.get('adam_eps', 1e-8)
         self.optimization = job.get('optimization', 'adam').lower()
-        self.grad_clip = job.get('grad_clip', 1)
+        self.grad_clip = job.get('grad_clip', None)
 
         ###################################################
         # CNN params

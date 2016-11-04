@@ -251,7 +251,7 @@ class RNN:
             self.preds_op = tf.select(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
 
             # Poisson loss
-            self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=True)
+            self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=False)
             self.loss_op = tf.reduce_mean(self.loss_op)
 
         else:

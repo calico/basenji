@@ -30,6 +30,7 @@ def main():
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
     parser.add_option('-s', dest='save_prefix', default='houndrnn')
+    parser.add_option('--seed', dest='seed', type='float', default=1, help='RNG seed')
     parser.add_option('-u', dest='summary', default=None, help='TensorBoard summary directory')
     (options,args) = parser.parse_args()
 
@@ -37,6 +38,8 @@ def main():
     	parser.error('Must provide data file')
     else:
     	data_file = args[0]
+
+    np.random.seed(options.seed)
 
     #######################################################
     # load data
@@ -101,6 +104,9 @@ def main():
     with tf.Session() as sess:
         t0 = time.time()
 
+        # set seed
+        tf.set_random_seed(options.seed)
+
         if options.summary is None:
             train_writer = None
         else:
@@ -118,7 +124,7 @@ def main():
             sys.stdout.flush()
 
         train_loss = None
-        best_r2 = -1000
+        best_loss = None
         early_stop_i = 0
 
         for epoch in range(1000):
@@ -136,8 +142,8 @@ def main():
                 valid_r2 = valid_r2_list.mean()
 
                 best_str = ''
-                if valid_r2 > best_r2:
-                    best_r2 = valid_r2
+                if best_loss is None or valid_loss < best_loss:
+                    best_loss = valid_loss
                     best_str = 'best!'
                     early_stop_i = 0
                     saver.save(sess, '%s_best.tf' % options.save_prefix)

@@ -68,7 +68,7 @@ def main():
     job['seq_depth'] = train_seqs.shape[2]
     job['num_targets'] = train_targets.shape[2]
     job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
-    job['early_stop'] = job.get('early_stop', 8)
+    job['early_stop'] = job.get('early_stop', 12)
     job['rate_drop'] = job.get('rate_drop', 3)
 
     t0 = time.time()

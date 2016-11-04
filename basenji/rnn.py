@@ -101,8 +101,6 @@ class RNN:
         ###################################################
         # recurrent layers
         ###################################################
-        # initialize norm stabilizer term
-        norm_stabilizer = 0
 
         # move batch_length to the front as a list
         rinput = tf.unpack(tf.transpose(rinput, [1, 0, 2]))
@@ -198,8 +196,15 @@ class RNN:
         ###################################################
         # output layers
         ###################################################
+        # if no RNN layers
+        if self.rnn_layers == 0:
+            outputs = rinput
+            repr_depth = self.cnn_filters[-1]
+        else:
+            repr_depth = 2*self.rnn_units[-1]
+
         with tf.variable_scope('out'):
-            out_weights = tf.get_variable(name='weights', shape=[2*self.rnn_units[-1], self.num_targets], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+            out_weights = tf.get_variable(name='weights', shape=[repr_depth, self.num_targets], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
             out_biases = tf.Variable(tf.zeros(self.num_targets), name='bias')
 
         # make final predictions
@@ -418,7 +423,7 @@ class RNN:
         ###################################################
         # RNN params
         ###################################################
-        self.rnn_units = np.atleast_1d(job.get('rnn_units', [100]))
+        self.rnn_units = np.atleast_1d(job.get('rnn_units', []))
         self.rnn_layers = len(self.rnn_units)
         self.rnn_pool = layer_extend(job.get('rnn_pool', []), 1, self.rnn_layers)
 

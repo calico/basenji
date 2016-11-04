@@ -280,7 +280,9 @@ class RNN:
 
         # clip gradients
         self.gvs = self.opt.compute_gradients(self.loss_op)
-        if self.grad_clip is not None:
+        if self.grad_clip is None:
+            clip_gvs =  self.gvs
+        else:
             # self.gvs = [(tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v) for g, v in self.gvs]
 
             # batch norm introduces these None values that we have to dodge

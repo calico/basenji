@@ -105,6 +105,9 @@ class RNN:
         # move batch_length to the front as a list
         rinput = tf.unpack(tf.transpose(rinput, [1, 0, 2]))
 
+        # initialize norm stabilizer
+        norm_stabilizer = 0
+
         for li in range(self.rnn_layers):
             with tf.variable_scope('rnn%d' % li) as vs:
                 # determine cell
@@ -244,7 +247,8 @@ class RNN:
 
         if self.target_space == 'integer':
             # move negatives into exponential space and align positives
-            self.preds_op = tf.select(self.preds_op > 0, self.preds_op + 1, tf.exp(self.preds_op))
+            #  clipping the negatives prevents overflow that TF dislikes
+            self.preds_op = tf.select(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
 
             # Poisson loss
             self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=True)
@@ -275,12 +279,22 @@ class RNN:
             exit(1)
 
         # clip gradients
-        gvs = self.opt.compute_gradients(self.loss_op)
-        if self.grad_clip is None:
-            clip_gvs = gvs
-        else:
-            clip_gvs = [(tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v) for g, v in gvs]
+        self.gvs = self.opt.compute_gradients(self.loss_op)
+        if self.grad_clip is not None:
+            # self.gvs = [(tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v) for g, v in self.gvs]
+
+            # batch norm introduces these None values that we have to dodge
+            clip_gvs = []
+            for i in range(len(self.gvs)):
+                g,v = self.gvs[i]
+                if g is None:
+                    clip_gvs.append(self.gvs[i])
+                else:
+                    clip_gvs.append((tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v))
+
+        # apply gradients
         self.step_op = self.opt.apply_gradients(clip_gvs)
+
 
         ###################################################
         # summary
@@ -572,6 +586,9 @@ class RNN:
             fd[self.targets_na] = NAb
 
             summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
+
+            # pull gradients
+            # gvs_batch = sess.run([g for (g,v) in self.gvs if g is not None], feed_dict=fd)
 
             # add summary
             if sum_writer is not None:

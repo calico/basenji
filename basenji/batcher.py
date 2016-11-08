@@ -114,6 +114,7 @@ class BatcherF:
         ''' Load the next batch from the HDF5. '''
         Xb = None
         Yb = None
+        NAb = None
         Nb = 0
 
         stop = self.start + self.batch_size

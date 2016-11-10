@@ -83,8 +83,11 @@ def main():
         # update for assume_unique
         ri += 1
 
-    print('Initialize read coverage weights: %ds' % (time.time()-t0))
+    # clean up big read_index
+    del read_index
+    gc.collect()
 
+    print('Initialize read coverage weights: %ds' % (time.time()-t0))
 
     # convert to CSR format
     t0 = time.time()

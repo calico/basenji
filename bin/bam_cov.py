@@ -10,6 +10,8 @@ import pyBigWig
 import pysam
 from scipy.sparse import dok_matrix
 
+import size
+
 '''
 bam_cov.py
 
@@ -42,7 +44,15 @@ def main():
     read_index, num_reads = index_bam_reads(bam_file, options.assume_unique)
 
     print('Map read query_names to indexes: %ds' % (time.time()-t0))
+    sys.stdout.flush()
+    print(' read_index: %d bytes' % sys.getsizeof(read_index))
+    sys.stdout.flush()
 
+    total_size = len(read_index) * sys.getsizeof(read_index.items().__iter__().__next__())
+    print(' read_index: %d bytes' % total_size)
+    #print(' read_index: %d bytes' % size.total_size(read_index))
+    sys.stdout.flush()
+    
 
     ################################################################
     # compute genome length
@@ -77,23 +87,31 @@ def main():
         # determine genome index
         gi = genome_index(chrom_lengths, align.reference_id, align_pos)
 
+        # determine the number of multimaps
+        nh_tag = 1
+        if align.has_tag('NH'):
+            nh_tag = align.get_tag('NH')
+
         # initialize weight
-        read_weights[ri,gi] = 1/read_counts[ri]
+        read_weights[ri,gi] = 1/nh_tag
 
         # update for assume_unique
         ri += 1
 
-    # clean up big read_index
-    del read_index
-    gc.collect()
+        if ri % 1000000 == 0:
+            print(' read_weights[%d]: %d bytes' % (ri, sys.getsizeof(read_weights)))
+            print(' read_weights[%d]: %d bytes' % (ri, size.total_size(read_weights, {dok_matrix: iter})))
+            sys.stdout.flush()
 
     print('Initialize read coverage weights: %ds' % (time.time()-t0))
+    sys.stdout.flush()
+
 
     # convert to CSR format
     t0 = time.time()
     read_weights = read_weights.tocsr()
     print('Convert to CSR: %ds' % (time.time()-t0))
-
+    sys.stdout.flush()
 
     ################################################################
     # run EM to distribute multi-mapping read weights
@@ -150,6 +168,7 @@ def main():
         t0 = time.time()
         bigwig_out.addEntries(chromosomes[ci], 0, values=chrom_coverage, span=1, step=1)
         print('pybigwig add: %ds' % (time.time()-t0))
+        sys.stdout.flush()
 
         # update genomic index
         gi += cl

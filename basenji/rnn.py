@@ -113,10 +113,10 @@ class RNN:
         # assuming dinput has been reshaped by convolution layers
 
         for li in range(self.dcnn_layers):
-            with tf.variabel_scope('dcnn%d' % li) as vs:
+            with tf.variable_scope('dcnn%d' % li) as vs:
                 # convolution params
                 stdev = 1./np.sqrt(self.dcnn_filters[li]*seq_depth)
-                kernel = tf.Variable(tf.random_uniform([1, self.dcnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
+                kernel = tf.Variable(tf.random_uniform([1, self.dcnn_filter_sizes[li], seq_depth, self.dcnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
                 biases = tf.Variable(tf.zeros([self.dcnn_filters[li]]), name='bias')
 
                 # convolution
@@ -241,6 +241,9 @@ class RNN:
                 # outputs become input to next layer
                 rinput = outputs
 
+        # prep for target prediction
+        if self.rnn_layers == 0:
+            outputs = rinput
 
         ###################################################
         # output layers

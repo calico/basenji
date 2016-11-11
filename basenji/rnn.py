@@ -63,7 +63,11 @@ class RNN:
 
                 # batch normalization
                 cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
+
+                # batch normalization (poor test performance)
                 # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+
+                # batch normalization (poor test performance)
                 # cinput = tf.cond(self.is_training,
                 #             lambda: tf.contrib.layers.batch_norm(conv, is_training=True, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs),
                 #             lambda: tf.contrib.layers.batch_norm(conv, is_training=False, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs, reuse=True))
@@ -133,7 +137,7 @@ class RNN:
                 seq_depth = self.dcnn_filters[li]
 
         # prep for RNN
-        if self.dcnn_layers > 0:
+        if self.cnn_layers + self.dcnn_layers > 0:
             # reshape
             rinput = tf.reshape(dinput, [self.batch_size, seq_length, seq_depth])
 

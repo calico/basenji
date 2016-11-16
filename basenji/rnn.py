@@ -27,6 +27,9 @@ class RNN:
         self.cnn_dropout_ph = []
         for li in range(self.cnn_layers):
             self.cnn_dropout_ph.append(tf.placeholder(tf.float32))
+        self.dcnn_dropout_ph = []
+        for li in range(self.dcnn_layers):
+            self.dcnn_dropout_ph.append(tf.placeholder(tf.float32))
         self.rnn_dropout_ph = []
         for lin in range(self.rnn_layers):
             self.rnn_dropout_ph.append(tf.placeholder(tf.float32))
@@ -42,54 +45,59 @@ class RNN:
         self.layer_reprs = []
         self.filter_weights = []
 
+        # reshape for convolution
+        cinput = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
+
+        for li in range(self.cnn_layers):
+            with tf.variable_scope('cnn%d' % li) as vs:
+                # convolution params
+                stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
+                kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
+                biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
+
+                # maintain a pointer to the weights
+                self.filter_weights.append(kernel)
+
+                # convolution
+                conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
+
+                # batch normalization
+                cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
+                # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                # cinput = tf.cond(self.is_training,
+                #             lambda: tf.contrib.layers.batch_norm(conv, is_training=True, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs),
+                #             lambda: tf.contrib.layers.batch_norm(conv, is_training=False, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs, reuse=True))
+
+                # nonlinearity
+                # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
+
+                # pooling
+                if self.cnn_pool[li] > 1:
+                    cinput = tf.nn.max_pool(cinput, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME', name='pool%d'%li)
+
+                # dropout
+                if self.cnn_dropout[li] > 0:
+                    cinput = tf.nn.dropout(cinput, 1.0-self.cnn_dropout_ph[li])
+
+                # updates size variables
+                seq_length = seq_length // self.cnn_pool[li]
+                seq_depth = self.cnn_filters[li]
+
+                # save representation (not positive about this one)
+                if self.save_reprs:
+                    self.layer_reprs.append(tf.reshape(cinput, [self.batch_size, seq_length, seq_depth]))
+
+
         if self.cnn_layers > 0:
-            # reshape
-            cinput = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
-
-            for li in range(self.cnn_layers):
-                with tf.variable_scope('cnn%d' % li) as vs:
-                    # convolution params
-                    stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
-                    kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
-                    biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
-
-                    # maintain a pointer to the weights
-                    self.filter_weights.append(kernel)
-
-                    # convolution
-                    conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
-
-                    # batch normalization
-                    cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
-                    # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                    # cinput = tf.cond(self.is_training,
-                    #             lambda: tf.contrib.layers.batch_norm(conv, is_training=True, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs),
-                    #             lambda: tf.contrib.layers.batch_norm(conv, is_training=False, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs, reuse=True))
-
-                    # nonlinearity
-                    # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
-
-                    # pooling
-                    if self.cnn_pool[li] > 1:
-                        cinput = tf.nn.max_pool(cinput, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME', name='pool%d'%li)
-
-                    # dropout
-                    if self.cnn_dropout[li] > 0:
-                        cinput = tf.nn.dropout(cinput, 1.0-self.cnn_dropout_ph[li])
-
-                    # updates size variables
-                    seq_length = seq_length // self.cnn_pool[li]
-                    seq_depth = self.cnn_filters[li]
-
-                    # save representation (not positive about this one)
-                    if self.save_reprs:
-                        self.layer_reprs.append(tf.reshape(cinput, [self.batch_size, seq_length, seq_depth]))
-
             # reshape for RNN
-            rinput = tf.reshape(cinput, [self.batch_size, seq_length, seq_depth])
+            # dinput = tf.reshape(cinput, [self.batch_size, seq_length, seq_depth])
+
+            # pass to dilated CNN
+            dinput = cinput
 
         else:
-            rinput = self.inputs
+            # pass input along (assuming it's actually heading towards RNN layers)
+            dinput = self.inputs
 
         # update batch buffer to reflect pooling
         pool_preds = self.batch_length // seq_length
@@ -97,6 +105,42 @@ class RNN:
             print('Please make the batch_buffer %d divisible by the CNN pooling %d' % (self.batch_buffer, pool_preds), file=sys.stderr)
             exit(1)
         self.batch_buffer_pool = self.batch_buffer // pool_preds
+
+        ###################################################
+        # dilated convolution layers
+        ###################################################
+
+        # assuming dinput has been reshaped by convolution layers
+
+        for li in range(self.dcnn_layers):
+            with tf.variabel_scope('dcnn%d' % li) as vs:
+                # convolution params
+                stdev = 1./np.sqrt(self.dcnn_filters[li]*seq_depth)
+                kernel = tf.Variable(tf.random_uniform([1, self.dcnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
+                biases = tf.Variable(tf.zeros([self.dcnn_filters[li]]), name='bias')
+
+                # convolution
+                dinput = tf.nn.atrous_conv2d(dinput, kernel, rate=np.power(2,li), padding='SAME')
+
+                # batch normalization and ReLU
+                dinput = tf.contrib.layers.batch_norm(dinput, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
+
+                # dropout
+                if self.dcnn_dropout[li] > 0:
+                    dinput = tf.nn.dropout(dinput, 1.0-self.dcnn_dropout_ph[li])
+
+                # update size variables
+                seq_depth = self.dcnn_filters[li]
+
+        # prep for RNN
+        if self.dcnn_layers > 0:
+            # reshape
+            rinput = tf.reshape(dinput, [self.batch_size, seq_length, seq_depth])
+
+        else:
+            # pass input along
+            rinput = dinput
+
 
         ###################################################
         # recurrent layers
@@ -134,6 +178,9 @@ class RNN:
                 else:
                     outputs, _, _ = bidirectional_rnn_tied(cell, cell, rinput, dtype=tf.float32)
 
+                # update depth
+                seq_depth = 2*self.rnn_units[li]
+
                 # accumulate norm stablizer
                 if self.norm_stabilizer[li] > 0:
                     output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), reduction_indices=2))
@@ -149,7 +196,7 @@ class RNN:
                     outputs = tf.transpose(outputs, [1, 0, 2])
 
                     # reshape to pretend 4D
-                    outputs = tf.reshape(outputs, [self.batch_size, 1, seq_length, 2*self.rnn_units[li]])
+                    outputs = tf.reshape(outputs, [self.batch_size, 1, seq_length, seq_depth])
 
                     if self.activation == 'tanh':
                         # max pool
@@ -172,7 +219,7 @@ class RNN:
                     seq_length = seq_length // self.rnn_pool[li]
 
                     # reshape to real 3D
-                    outputs = tf.reshape(outputs, [self.batch_size, seq_length, 2*self.rnn_units[li]])
+                    outputs = tf.reshape(outputs, [self.batch_size, seq_length, seq_depth])
 
                     # transpose length to the front
                     outputs = tf.transpose(outputs, [1, 0, 2])
@@ -187,7 +234,6 @@ class RNN:
                         exit(1)
                     self.batch_buffer_pool = self.batch_buffer // pool_preds
 
-
                 # save representation
                 if self.save_reprs:
                     self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
@@ -199,15 +245,8 @@ class RNN:
         ###################################################
         # output layers
         ###################################################
-        # if no RNN layers
-        if self.rnn_layers == 0:
-            outputs = rinput
-            repr_depth = self.cnn_filters[-1]
-        else:
-            repr_depth = 2*self.rnn_units[-1]
-
         with tf.variable_scope('out'):
-            out_weights = tf.get_variable(name='weights', shape=[repr_depth, self.num_targets], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+            out_weights = tf.get_variable(name='weights', shape=[seq_depth, self.num_targets], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
             out_biases = tf.Variable(tf.zeros(self.num_targets), name='bias')
 
         # make final predictions
@@ -328,6 +367,8 @@ class RNN:
         fd = {}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.dcnn_layers):
+            fd[self.dcnn_dropout_ph[li]] = 0
         for li in range(self.rnn_layers):
             fd[self.rnn_dropout_ph[li]] = 0
 
@@ -369,6 +410,8 @@ class RNN:
         fd = {self.is_training:False}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.dcnn_layers):
+            fd[self.dcnn_dropout_ph[li]] = 0
         for li in range(self.rnn_layers):
             fd[self.rnn_dropout_ph[li]] = 0
 
@@ -437,6 +480,13 @@ class RNN:
         self.cnn_pool = layer_extend(job.get('cnn_pool', []), 1, self.cnn_layers)
 
         ###################################################
+        # dilated CNN params
+        ###################################################
+        self.dcnn_filters = np.atleast_1d(job.get('dcnn_filters', []))
+        self.dcnn_filter_sizes = np.atleast_1d(job.get('dcnn_filter_sizes', []))
+        self.dcnn_layers = len(self.dcnn_filters)
+
+        ###################################################
         # RNN params
         ###################################################
         self.rnn_units = np.atleast_1d(job.get('rnn_units', []))
@@ -457,7 +507,7 @@ class RNN:
         # regularization
         ###################################################
         self.cnn_dropout = layer_extend(job.get('cnn_dropout', []), 0, self.cnn_layers)
-
+        self.dcnn_dropout = layer_extend(job.get('dcnn_dropout', []), 0, self.dcnn_layers)
         self.rnn_dropout = layer_extend(job.get('rnn_dropout', []), 0, self.rnn_layers)
         self.norm_stabilizer = layer_extend(job.get('norm_stabilizer', []), 0, self.rnn_layers)
 
@@ -512,6 +562,8 @@ class RNN:
         fd = {self.is_training:False}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.dcnn_layers):
+            fd[self.dcnn_dropout_ph[li]] = 0
         for li in range(self.rnn_layers):
             fd[self.rnn_dropout_ph[li]] = 0
 
@@ -575,6 +627,8 @@ class RNN:
         fd = {self.is_training:True}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
+        for li in range(self.dcnn_layers):
+            fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
         for li in range(self.rnn_layers):
             fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
 

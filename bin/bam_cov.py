@@ -8,7 +8,7 @@ import time
 import numpy as np
 import pyBigWig
 import pysam
-from scipy.sparse import dok_matrix
+from scipy.sparse import csr_matrix
 
 import size
 
@@ -26,7 +26,6 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-c', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
     parser.add_option('-m', dest='multi_window', default=None, type='int', help='Window size with which to model coverage in order to distribute multi-mapping read weight [Default: %default]')
-    parser.add_option('-u', dest='assume_unique', default=False, action='store_true', help='Assume alignments are unique reads and ignore query_names [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -34,25 +33,6 @@ def main():
     else:
         bam_file = args[0]
         bigwig_file = args[1]
-
-    ################################################################
-    # map read query_name's to indexes
-
-    t0 = time.time()
-
-    # map reads to indexes
-    read_index, num_reads = index_bam_reads(bam_file, options.assume_unique)
-
-    print('Map read query_names to indexes: %ds' % (time.time()-t0))
-    sys.stdout.flush()
-    print(' read_index: %d bytes' % sys.getsizeof(read_index))
-    sys.stdout.flush()
-
-    total_size = len(read_index) * sys.getsizeof(read_index.items().__iter__().__next__())
-    print(' read_index: %d bytes' % total_size)
-    #print(' read_index: %d bytes' % size.total_size(read_index))
-    sys.stdout.flush()
-    
 
     ################################################################
     # compute genome length
@@ -65,53 +45,79 @@ def main():
 
 
     ################################################################
-    # initialize read coverage weights
+    # construct multi-mapper alignment matrix
 
-    t0 = time.time()
+    # intialize genome uniquc coverage
+    genome_unique_coverage = np.zeros(genome_length, dtype='uint16')
 
-    read_weights = dok_matrix((num_reads, genome_length), dtype='float16')
+    # intialize sparse matrix in COO format
+    # multi_read_pos = []
+    multi_reads = []
+    multi_positions = []
+    multi_weight = []
 
-    # initialize for assume_unique
+    # initialize dict mapping read_id's to indexes
+    multi_read_index = {}
+
     ri = 0
+    for align in pysam.Samfile(bam_file, 'rb'):
+        if not align.is_unmapped:
+            read_id = (align.query_name, align.is_read1)
 
-    for align in bam_in:
-        read_id = (align.query_name, align.is_read1)
-        if not options.assume_unique:
-            ri = read_index[read_id]
+            # determine alignment position
+            chrom_pos = align.reference_start
+            if align.is_reverse:
+                chrom_pos = align.reference_end
 
-        # determine alignment position
-        align_pos = align.reference_start
-        if align.is_reverse:
-            align_pos = align.reference_end
+            # determine genome index
+            gi = genome_index(chrom_lengths, align.reference_id, chrom_pos)
 
-        # determine genome index
-        gi = genome_index(chrom_lengths, align.reference_id, align_pos)
+            # determine multi-mapping state
+            nh_tag = 1
+            if align.has_tag('NH'):
+                nh_tag = align.get_tag('NH')
 
-        # determine the number of multimaps
-        nh_tag = 1
-        if align.has_tag('NH'):
-            nh_tag = align.get_tag('NH')
+            # if unique
+            if nh_tag == 1:
+                genome_unique_coverage[gi] += 1
 
-        # initialize weight
-        read_weights[ri,gi] = 1/nh_tag
+            # if multi
+            else:
+                # if read name is new
+                if align.query_name not in multi_read_index:
+                    # map it to an index
+                    multi_read_index[read_id] = ri
+                    ri += 1
 
-        # update for assume_unique
-        ri += 1
+                # store alignment matrix
+                ari = multi_read_index[read_id]
+                # multi_read_pos.append((ari,gi))
+                multi_reads.append(ari)
+                multi_positions.append(gi)
+                multi_weight.append(np.float16(1/nh_tag))
 
-        if ri % 1000000 == 0:
-            print(' read_weights[%d]: %d bytes' % (ri, sys.getsizeof(read_weights)))
-            print(' read_weights[%d]: %d bytes' % (ri, size.total_size(read_weights, {dok_matrix: iter})))
-            sys.stdout.flush()
+    # store number of reads
+    num_reads = len(multi_read_index)
 
-    print('Initialize read coverage weights: %ds' % (time.time()-t0))
-    sys.stdout.flush()
+    # convert sparse matrix
+    # multi_weight_matrix = csr_matrix((multi_read_index,multi_weight), shape=(num_reads,genome_length))
+    multi_weight_matrix = csr_matrix((multi_weight,(multi_reads,multi_positions)), shape=(num_reads,genome_length))
 
+    # validate that weights sum to 1
+    multi_sum = multi_weight_matrix.sum(axis=1)
+    for read_id, ri in multi_read_index.items():
+        if np.isclose(multi_sum[ri], 1):
+            print('Multi-weighted coverage for %s != 1' % read_id, file=sys.stderr)
+            exit(1)
 
-    # convert to CSR format
-    t0 = time.time()
-    read_weights = read_weights.tocsr()
-    print('Convert to CSR: %ds' % (time.time()-t0))
-    sys.stdout.flush()
+    # clean up
+    del multi_reads
+    del multi_positions
+    del multi_weight
+    del multi_read_index
+    del multi_sum
+    gc.collect()
+
 
     ################################################################
     # run EM to distribute multi-mapping read weights
@@ -124,7 +130,7 @@ def main():
     # compute k-mer cut bias normalization
 
     if options.cut_bias_kmer is not None:
-        kmer_norms = compute_cut_norm(options.cut_bias_kmer, read_weights, chromosomes, chrom_lengths, options.fasta_file)
+        kmer_norms = compute_cut_norm(options.cut_bias_kmer, multi_weight_matrix, chromosomes, chrom_lengths, options.fasta_file)
 
 
     ################################################################
@@ -142,22 +148,13 @@ def main():
         print(' Outputting %s' % chromosomes[ci])
         cl = chrom_lengths[ci]
 
-        # compute chromosome coverage
-        t0 = time.time()
-        chrom_weights = read_weights[:,gi:gi+cl]
-        print('chrom_weights memory: %d, time %ds' % (sys.getsizeof(chrom_weights), time.time()-t0))
+        # compute multi-mapper chromosome coverage
+        chrom_weight_matrix = multi_weight_matrix[:,gi:gi+cl]
+        chrom_multi_coverage = np.array(chrom_weight_matrix.sum(axis=0, dtype='float32')).squeeze()
 
-        t0 = time.time()
-        chrom_coverage_matrix = chrom_weights.sum(axis=0, dtype='float32')
-        print('chrom_coverage_matrix memory: %d, time %ds' % (sys.getsizeof(chrom_coverage_matrix), time.time()-t0))
-
-        t0 = time.time()
-        chrom_coverage_array = np.array(chrom_coverage_matrix).squeeze()
-        print('chrom_coverage_array memory: %d, time %ds' % (sys.getsizeof(chrom_coverage_array), time.time()-t0))
-
-        t0 = time.time()
+        # sum with unique coverage
+        chrom_coverage_array = genome_unique_coverage[gi:gi+cl] + chrom_multi_coverage
         chrom_coverage = chrom_coverage_array.tolist()
-        print('chrom_coverage memory: %d, time %ds' % (sys.getsizeof(chrom_coverage), time.time()-t0))
 
         # normalize for cut bias
         if options.cut_bias_kmer is not None:
@@ -261,60 +258,6 @@ def genome_index(chrom_lengths, align_ci, align_pos):
         else:
             gi += chrom_lengths[ci]
     return gi
-
-
-def index_bam_reads(bam_file, assume_unique):
-    ''' Index the reads aligned in a BAM file, and determine whether
-         the query_name's and NH tags are trustworthy.
-
-    Args
-     bam_file (str):
-
-    Output
-     read_index ({str: int}): Dict mapping query_name to an int index.
-     num_reads (int): Number of aligned reads
-    '''
-
-    read_index = {}
-    read_counts = []
-
-    ri = 0
-    for align in pysam.Samfile(bam_file, 'rb'):
-        if not align.is_unmapped:
-            read_id = (align.query_name, align.is_read1)
-
-            if assume_unique:
-                num_reads += 1
-
-            else:
-                # if read name is new
-                if align.query_name not in read_index:
-                    # map it to an index
-                    read_index[read_id] = ri
-                    ri += 1
-
-                # determine the number of multimaps
-                nh_tag = 1
-                if align.has_tag('NH'):
-                    nh_tag = 1 / align.get_tag('NH')
-
-                # count the number of multimap-adjusted read alignments
-                ari = read_index[read_id]
-                if len(read_counts) <= ari:
-                    read_counts.append(0)
-                read_counts[ari] += nh_tag
-
-    # check read counts
-    for read_id in read_index:
-        if read_counts[read_index[read_id]] > 1:
-            print('Multi-weighted coverage for %s > 1' % read_id, file=sys.stderr)
-            exit(1)
-
-    # save number of reads
-    if not assume_unique:
-        num_reads = len(read_index)
-
-    return read_index, num_reads
 
 
 def initialize_kmers(k, pseudocount=1.):

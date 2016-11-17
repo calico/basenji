@@ -62,10 +62,10 @@ class RNN:
                 conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
 
                 # batch normalization
-                cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
+                # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
 
                 # batch normalization (poor test performance)
-                # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
 
                 # batch normalization (poor test performance)
                 # cinput = tf.cond(self.is_training,

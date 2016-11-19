@@ -185,8 +185,7 @@ def main():
                 targets_wig = targets_wig.clip(options.clip)
 
             # sample indexes from this batch
-            test_n = int(options.test_pct*targets_wig.shape[0])
-            test_bindexes = random.sample(range(targets_wig.shape[0]),test_n)
+            test_bindexes = [twi for twi in range(targets_wig.shape[0]) if random.random() < options.test_pct]
 
             # capture test indexes
             test_indexes += [test_marker+tbi for tbi in test_bindexes]

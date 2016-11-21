@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+from collections import OrderedDict
+import multiprocessing
 import os
 import time
 
@@ -8,6 +10,7 @@ import numpy as np
 import pysam
 
 import basenji
+from basenji_hdf5 import bigwig_batch
 
 '''
 basenji_genes.py
@@ -27,6 +30,7 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
+    parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
     (options,args) = parser.parse_args()
@@ -140,6 +144,9 @@ def main():
     if options.target_wigs_file:
         t0 = time.time()
 
+        # initialize multiprocessing pool
+        pool = multiprocessing.Pool(options.processes)
+
         # get wig files and labels
         target_wigs = OrderedDict()
         for line in open(options.target_wigs_file):
@@ -148,10 +155,10 @@ def main():
 
         # pull the target values in parallel
         bwr_params = [(wig_file, seq_segments, options.seq_length, options.pool_width) for wig_file in target_wigs.values()]
-        seg_targets = pool.starmap(bigwig_batch, bwr_params)
+        seqs_targets = pool.starmap(bigwig_batch, bwr_params)
 
         # transpose to S x L x T (making a copy?)
-        seqs_targets = np.transpose(np.array(seg_targets), axes=(1,2,0))
+        seqs_targets = np.transpose(np.array(seqs_targets), axes=(1,2,0))
 
         print('Extracting targets: %ds' % (time.time()-t0))
 

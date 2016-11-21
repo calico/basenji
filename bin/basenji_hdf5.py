@@ -459,7 +459,7 @@ def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False):
         # break up into batchable sequences (as below in segments_1hot)
         bstart = 0
         bend = bstart + seq_length
-        while bend < len(seg_values):
+        while bend <= len(seg_values):
             # extract (and pool)
             if pool_width == 1:
                 sv = seg_values[bstart:bend]

@@ -13,6 +13,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pyBigWig
+from scipy.stats import spearmanr
 import seaborn as sns
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -74,7 +75,7 @@ def main():
         test_targets = data_open['valid_out']
         test_na = None
         if 'test_na' in data_open:
-            test_na = data_open['test_na']
+            test_na = data_open['valid_na']
 
 
     #######################################################
@@ -110,9 +111,9 @@ def main():
     #######################################################
     # initialize batcher
     if job['fourier']:
-        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, test_na, dr.batch_size, job['target_pool'])
+        batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, test_na, dr.batch_size, dr.target_pool)
     else:
-        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, test_na, dr.batch_size, job['target_pool'])
+        batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, test_na, dr.batch_size, dr.target_pool)
 
     # initialize saver
     saver = tf.train.Saver()
@@ -135,120 +136,15 @@ def main():
             print('%4d  %.4f' % (ti,test_r2_list[ti]), file=r2_out)
         r2_out.close()
 
+        # if test targets are reconstructed, measure versus the truth
         if options.scent_file is not None:
-            full_targets = test_targets_full.shape[2]
-
-            # determine non-buffer region
-            buf_start = dr.batch_buffer // dr.target_pool
-            buf_end = (dr.batch_length - dr.batch_buffer) // dr.target_pool
-            buf_len = buf_end - buf_start
-
-            # uniformly sample indexes
-            ds_indexes = np.arange(0, buf_len, options.down_sample)
-
-            # filter down full test targets
-            test_targets_full_ds = test_targets_full[:,buf_start+ds_indexes,:]
-            test_na_ds = test_na[:,buf_start+ds_indexes]
-
-            # inverse transform in length batches
-            t0 = time.time()
-            test_preds_full = np.zeros((test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
-            for li in range(test_preds.shape[1]):
-                test_preds_full[:,li,:] = model.inverse_transform(test_preds[:,li,:])
-            print('PCA transform: %ds' % (time.time()-t0))
-
-            print(test_preds_full.shape)
-            print(test_targets_full_ds.shape)
-
-            # compute R2 by target
-            t0 = time.time()
-            test_r2_full = np.zeros(full_targets)
-            for ti in range(full_targets):
-                # flatten
-                # preds_ti = test_preds_full[:,:,ti].flatten()
-                # targets_ti = test_targets_full_ds[:,:,ti].flatten()
-                preds_ti = test_preds_full[np.logical_not(test_na_ds),ti]
-                targets_ti = test_targets_full_ds[np.logical_not(test_na_ds),ti]
-
-                # compute R2
-                tmean = targets_ti.mean(dtype='float64')
-                tvar = (targets_ti-tmean).var(dtype='float64')
-                pvar = (targets_ti-preds_ti).var(dtype='float64')
-                test_r2_full[ti] = 1.0 - pvar/tvar
-            print('Compute full R2: %d' % (time.time()-t0))
-
-            print('Test full R2: %7.5f' % test_r2_full.mean())
-
-            r2_out = open('%s/r2_full.txt' % options.out_dir, 'w')
-            for ti in range(len(test_r2_full)):
-                print('%4d  %.4f' % (ti,test_r2_full[ti]), file=r2_out)
-            r2_out.close()
+            compute_full_accuracy(dr, model, test_preds, test_targets_full, options.out_dir, options.down_sample)
 
         #######################################################
         # peaks AUC
         #######################################################
         if options.peaks_hdf5:
-            # use validation set to train
-            valid_seqs = data_open['valid_in']
-            valid_targets = data_open['valid_out']
-
-            # initialize batcher
-            if job['fourier']:
-                valid_targets_imag = data_open['valid_out_imag']
-                batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
-            else:
-                batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
-
-            # make predictions
-            _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True, down_sample=options.down_sample)
-
-            print(valid_preds.shape)
-
-            # max pool
-            if options.pool_width > 1:
-                valid_preds = max_pool(valid_preds, options.pool_width)
-                test_preds = max_pool(test_preds, options.pool_width)
-                print(valid_preds.shape)
-
-            # load peaks
-            peaks_open = h5py.File(options.peaks_hdf5)
-            valid_peaks = np.array(peaks_open['valid_out'])
-            test_peaks = np.array(peaks_open['test_out'])
-            peaks_open.close()
-
-            # compute target AUCs
-            target_aucs = []
-            model_coefs = []
-            for ti in range(test_peaks.shape[1]):
-                # balance positive and negative examples
-                # valid_preds_ti, valid_peaks_ti = balance(valid_preds, valid_peaks[:,ti])
-                valid_preds_ti, valid_peaks_ti = valid_preds, valid_peaks[:,ti]
-
-                # train a predictor for peak calls
-                model = LogisticRegression()
-                if options.scent_file is not None:
-                    valid_preds_ti_flat = valid_preds_ti.reshape((valid_preds_ti.shape[0],-1))
-                    model.fit(valid_preds_ti_flat, valid_peaks_ti)
-                else:
-                    model.fit(valid_preds_ti[:,:,ti], valid_peaks_ti)
-                model_coefs.append(model.coef_)
-
-                # predict peaks for test set
-                if options.scent_file is not None:
-                    test_preds_flat = test_preds.reshape((test_preds.shape[0],-1))
-                    test_peaks_preds = model.predict_proba(test_preds_flat)[:,1]
-                else:
-                    test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
-
-                # compute AUC
-                auc = roc_auc_score(test_peaks[:,ti], test_peaks_preds)
-                target_aucs.append(auc)
-                print('%d AUC: %f' % (ti,auc))
-
-            print('AUC: %f' % np.mean(target_aucs))
-
-            model_coefs = np.vstack(model_coefs)
-            np.save('%s/coefs.npy' % options.out_dir, model_coefs)
+            compute_peak_accuracy(sess, dr, data_open, options.peaks_hdf5, options.out_dir, options.down_sample, options.pool_width, options.scent_file)
 
     #######################################################
     # visualizations
@@ -265,6 +161,10 @@ def main():
         if options.track_indexes:
             track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
 
+        bed_set = 'test'
+        if options.valid:
+            bed_set = 'valid'
+
         for ti in track_indexes:
             if options.scent_file is not None:
                 test_targets_ti = test_targets_full[:,:,ti]
@@ -272,29 +172,28 @@ def main():
                 test_targets_ti = test_targets[:,:,ti]
 
             # make true targets bigwig
-            bw_out = bigwig_open('%s/tracks/t%d_true.bw' % (options.out_dir,ti), options.genome_file)
-            bigwig_write(bw_out, test_targets_ti, options.track_bed, options.genome_file)
-            bw_out.close()
+            bw_file = '%s/tracks/t%d_true.bw' % (options.out_dir,ti)
+            bigwig_write(bw_file, test_targets_ti, options.track_bed, options.genome_file, bed_set=bed_set)
 
             # make predictions bigwig
-            bw_out = bigwig_open('%s/tracks/t%d_preds.bw' % (options.out_dir,ti), options.genome_file)
-            bigwig_write(bw_out, test_preds[:,:,ti], options.track_bed, options.genome_file, dr.batch_buffer)
-            bw_out.close()
+            bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir,ti)
+            bigwig_write(bw_file, test_preds[:,:,ti], options.track_bed, options.genome_file, dr.batch_buffer, bed_set=bed_set)
 
         # make NA bigwig
-        bw_out = bigwig_open('%s/tracks/na.bw' % options.out_dir, options.genome_file)
-        bigwig_write(bw_out, test_na, options.track_bed, options.genome_file)
-        bw_out.close()
+        bw_file = '%s/tracks/na.bw' % options.out_dir
+        bigwig_write(bw_file, test_na, options.track_bed, options.genome_file, bed_set=bed_set)
 
 
     # scatter plots
     if options.scatter_indexes is not None:
         scatter_indexes = [int(ti) for ti in options.scatter_indexes.split(',')]
 
-        li = test_preds.shape[1] // 2
-
         if not os.path.isdir('%s/scatter' % options.out_dir):
             os.mkdir('%s/scatter' % options.out_dir)
+
+        '''
+        pli = test_preds.shape[1] // 2
+        tli = pli + dr.batch_buffer // dr.target_pool
 
         for ti in scatter_indexes:
             if options.scent_file is not None:
@@ -303,12 +202,26 @@ def main():
                 test_targets_ti = test_targets[:,:,ti]
 
             out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
-            jointplot(test_targets_ti[:,li], test_preds[:,li,ti], out_pdf)
+            jointplot(test_targets_ti[:,tli], test_preds[:,pli,ti], out_pdf)
 
             scatter_out = open('%s/scatter/t%d.txt' % (options.out_dir,ti), 'w')
             for si in range(test_preds.shape[0]):
-                print(test_targets_ti[si,li], test_preds[si,li,ti], file=scatter_out)
+                print(test_targets_ti[si,tli], test_preds[si,pli,ti], file=scatter_out)
             scatter_out.close()
+        '''
+
+        for pli in range(test_preds.shape[1]):
+            if pli % 50 == 0:
+                tli = pli + dr.batch_buffer // dr.target_pool
+
+                for ti in scatter_indexes:
+                    if options.scent_file is not None:
+                        test_targets_ti = test_targets_full[:,:,ti]
+                    else:
+                        test_targets_ti = test_targets[:,:,ti]
+
+                    out_pdf = '%s/scatter/t%d_l%d.pdf' % (options.out_dir,ti,pli)
+                    jointplot(test_targets_ti[:,tli], test_preds[:,pli,ti], out_pdf)
 
     data_open.close()
 
@@ -342,14 +255,27 @@ def bigwig_open(bw_file, genome_file):
     return bw_out
 
 
-def bigwig_write(bw_out, signal_ti, track_bed, genome_file, buffer=0):
+def bigwig_write(bw_file, signal_ti, track_bed, genome_file, buffer=0, bed_set='test'):
+    ''' Write a signal track to a BigWig file over the regions
+         specified by track_bed.
+
+    Args
+     bw_file:     BigWig filename
+     signal_ti:   Sequences X Length array for some target
+     track_bed:   BED file specifying sequence coordinates
+     genome_file: Chromosome lengths file
+     buffer:      Length skipped on each side of the region.
+    '''
+
+    bw_out = bigwig_open(bw_file, genome_file)
+
     si = 0
     bw_entries = []
 
     # set entries
     for line in open(track_bed):
         a = line.split()
-        if a[3] == 'test':
+        if a[3] == bed_set:
             chrom = a[0]
             start = int(a[1])
             end = int(a[2])
@@ -382,9 +308,126 @@ def bigwig_write(bw_out, signal_ti, track_bed, genome_file, buffer=0):
     bw_out.close()
 
 
+def compute_full_accuracy(dr, model, test_preds, test_targets_full, out_dir, down_sample):
+    ''' Compute accuracy on the saved full target set, as opposed to a
+         reconstructed version via dim reduction and/or fourier. '''
+
+    full_targets = test_targets_full.shape[2]
+
+    # determine non-buffer region
+    buf_start = dr.batch_buffer // dr.target_pool
+    buf_end = (dr.batch_length - dr.batch_buffer) // dr.target_pool
+    buf_len = buf_end - buf_start
+
+    # uniformly sample indexes
+    ds_indexes = np.arange(0, buf_len, options.down_sample)
+
+    # filter down full test targets
+    test_targets_full_ds = test_targets_full[:,buf_start+ds_indexes,:]
+    test_na_ds = test_na[:,buf_start+ds_indexes]
+
+    # inverse transform in length batches
+    t0 = time.time()
+    test_preds_full = np.zeros((test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
+    for li in range(test_preds.shape[1]):
+        test_preds_full[:,li,:] = model.inverse_transform(test_preds[:,li,:])
+    print('PCA transform: %ds' % (time.time()-t0))
+
+    print(test_preds_full.shape)
+    print(test_targets_full_ds.shape)
+
+    # compute R2 by target
+    t0 = time.time()
+    test_r2_full = np.zeros(full_targets)
+    for ti in range(full_targets):
+        # flatten
+        # preds_ti = test_preds_full[:,:,ti].flatten()
+        # targets_ti = test_targets_full_ds[:,:,ti].flatten()
+        preds_ti = test_preds_full[np.logical_not(test_na_ds),ti]
+        targets_ti = test_targets_full_ds[np.logical_not(test_na_ds),ti]
+
+        # compute R2
+        tmean = targets_ti.mean(dtype='float64')
+        tvar = (targets_ti-tmean).var(dtype='float64')
+        pvar = (targets_ti-preds_ti).var(dtype='float64')
+        test_r2_full[ti] = 1.0 - pvar/tvar
+    print('Compute full R2: %d' % (time.time()-t0))
+
+    print('Test full R2: %7.5f' % test_r2_full.mean())
+
+    r2_out = open('%s/r2_full.txt' % out_dir, 'w')
+    for ti in range(len(test_r2_full)):
+        print('%4d  %.4f' % (ti,test_r2_full[ti]), file=r2_out)
+    r2_out.close()
+
+
+def compute_peak_accuracy(sess, dr, data_open, peaks_hdf5, out_dir, down_sample, pool_width, scent_file):
+    # use validation set to train
+    valid_seqs = data_open['valid_in']
+    valid_targets = data_open['valid_out']
+
+    # initialize batcher
+    if job['fourier']:
+        valid_targets_imag = data_open['valid_out_imag']
+        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
+    else:
+        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
+
+    # make predictions
+    _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True, down_sample=down_sample)
+
+    print(valid_preds.shape)
+
+    # max pool
+    if pool_width > 1:
+        valid_preds = max_pool(valid_preds, pool_width)
+        test_preds = max_pool(test_preds, pool_width)
+        print(valid_preds.shape)
+
+    # load peaks
+    peaks_open = h5py.File(peaks_hdf5)
+    valid_peaks = np.array(peaks_open['valid_out'])
+    test_peaks = np.array(peaks_open['test_out'])
+    peaks_open.close()
+
+    # compute target AUCs
+    target_aucs = []
+    model_coefs = []
+    for ti in range(test_peaks.shape[1]):
+        # balance positive and negative examples
+        # valid_preds_ti, valid_peaks_ti = balance(valid_preds, valid_peaks[:,ti])
+        valid_preds_ti, valid_peaks_ti = valid_preds, valid_peaks[:,ti]
+
+        # train a predictor for peak calls
+        model = LogisticRegression()
+        if scent_file is not None:
+            valid_preds_ti_flat = valid_preds_ti.reshape((valid_preds_ti.shape[0],-1))
+            model.fit(valid_preds_ti_flat, valid_peaks_ti)
+        else:
+            model.fit(valid_preds_ti[:,:,ti], valid_peaks_ti)
+        model_coefs.append(model.coef_)
+
+        # predict peaks for test set
+        if scent_file is not None:
+            test_preds_flat = test_preds.reshape((test_preds.shape[0],-1))
+            test_peaks_preds = model.predict_proba(test_preds_flat)[:,1]
+        else:
+            test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
+
+        # compute AUC
+        auc = roc_auc_score(test_peaks[:,ti], test_peaks_preds)
+        target_aucs.append(auc)
+        print('%d AUC: %f' % (ti,auc))
+
+    print('AUC: %f' % np.mean(target_aucs))
+
+    model_coefs = np.vstack(model_coefs)
+    np.save('%s/coefs.npy' % out_dir, model_coefs)
+
+
 def jointplot(vals1, vals2, out_pdf):
     plt.figure()
-    g = sns.jointplot(vals1, vals2, alpha=0.5, color='black')
+    g = sns.jointplot(vals1, vals2, alpha=0.5, color='black', stat_func=spearmanr)
     ax = g.ax_joint
     vmin, vmax = scatter_lims(vals1, vals2)
     ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')

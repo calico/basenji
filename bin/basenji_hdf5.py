@@ -445,7 +445,7 @@ def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False):
         try:
             seg_values = np.array(wig_in.values(chrom, seg_start, seg_end), dtype='float16')
         except:
-            print("WARNING: %s doesn't see %s:%d-%d" % (wig_file,chrom,seg_start,seg_end))
+            print("WARNING: %s doesn't see %s:%d-%d. Setting to all zeros." % (wig_file,chrom,seg_start,seg_end))
             # seg_values = np.array([np.nan]*(seg_end-seg_start), dtype='float16')
             seg_values = np.zeros(seg_end-seg_start, dtype='float16')
 

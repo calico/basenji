@@ -27,6 +27,7 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
+    parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -59,7 +60,8 @@ def main():
     for chrom in chrom_tss:
         chrom_tss[chrom].sort()
 
-    print('Preparing genes: %d' % (time.time()-t0))
+    print('Preparing genes: %ds' % (time.time()-t0))
+
 
     ################################################################
     # determine segments / map transcripts
@@ -111,7 +113,7 @@ def main():
             # update
             left_i = right_i + 1
 
-    print('Mapping transcripts to segments: %d' % (time.time()-t0))
+    print('Mapping transcripts to segments: %ds' % (time.time()-t0))
 
 
     ################################################################
@@ -129,7 +131,29 @@ def main():
 
     fasta.close()
 
-    print('Extracting sequences: %d' % (time.time()-t0))
+    print('Extracting sequences: %ds' % (time.time()-t0))
+
+
+    ################################################################
+    # extract target values
+
+    if options.target_wigs_file:
+        t0 = time.time()
+
+        # get wig files and labels
+        target_wigs = OrderedDict()
+        for line in open(options.target_wigs_file):
+            a = line.split()
+            target_wigs[a[0]] = a[1]
+
+        # pull the target values in parallel
+        bwr_params = [(wig_file, seq_segments, options.seq_length, options.pool_width) for wig_file in target_wigs.values()]
+        seg_targets = pool.starmap(bigwig_batch, bwr_params)
+
+        # transpose to S x L x T (making a copy?)
+        seqs_targets = np.transpose(np.array(seg_targets), axes=(1,2,0))
+
+        print('Extracting targets: %ds' % (time.time()-t0))
 
 
     ################################################################
@@ -151,7 +175,13 @@ def main():
     hdf5_out.create_dataset('transcript_pos', data=transcript_pos)
 
     # store sequences
-    hdf5_out.create_dataset('seqs_1hot', data=seqs_1hot, dtype='bool')
+    hdf5_out.create_dataset('test_in', data=seqs_1hot, dtype='bool')
+
+    # store targets
+    if options.target_wigs_file:
+        print(seqs_1hot.shape)
+        print(seqs_targets.shape)
+        hdf5_out.create_dataset('test_out', data=seqs_targets, dtype='float16')
 
     # store segments
     seg_chrom = np.array([ss[0] for ss in seq_segments], dtype='S')

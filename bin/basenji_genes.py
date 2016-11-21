@@ -7,6 +7,7 @@ import time
 
 import h5py
 import numpy as np
+import pyBigWig
 import pysam
 
 import basenji
@@ -78,7 +79,7 @@ def main():
     merge_distance = .2*options.seq_length
 
     seq_segments = []
-    transcript_map = {}
+    transcript_map = OrderedDict()
 
     t0 = time.time()
     for chrom in chrom_tss:
@@ -141,6 +142,7 @@ def main():
     ################################################################
     # extract target values
 
+    '''
     if options.target_wigs_file:
         t0 = time.time()
 
@@ -159,6 +161,56 @@ def main():
 
         # transpose to S x L x T (making a copy?)
         seqs_targets = np.transpose(np.array(seqs_targets), axes=(1,2,0))
+
+        # convert to transcript table
+        transcript_targets = np.zeros((len(transcript_map), seqs_targets.shape[2]))
+
+        tx_i = 0
+        for transcript in transcript_map:
+            seg_i, seg_pos = transcript_map[transcript]
+            transcript_targets[tx_i,:] = seqs_targets[seg_i,seg_pos,:]
+            tx_i += 1
+
+        print('Extracting targets: %ds' % (time.time()-t0))
+    '''
+
+    # v3
+    if options.target_wigs_file:
+        t0 = time.time()
+
+        # get wig files and labels
+        target_wigs = OrderedDict()
+        for line in open(options.target_wigs_file):
+            a = line.split()
+            target_wigs[a[0]] = a[1]
+
+        # for each target
+        ti = 0
+        for wig_file in target_wigs.values():
+            print('Pulling target values for %s' % wig_file)
+
+            # open the wig file
+            wig_in = pyBigWig.open(wig_file)
+
+            # for each transcript
+            tx_i = 0
+            for transcript in transcript_map:
+                # determine segment and position
+                seg_i, seg_pos = transcript_map[transcript]
+
+                # extract segment coordinates
+                seg_chrom, seg_start, seg_end = seq_segments[seg_i]
+
+                # determine gene genomic coordinates
+                tx_start = seg_start + seg_pos*options.pool_width
+                tx_end = tx_start + options.pool_width
+
+                # pull mean value
+                transcript_targets[tx_i,ti] = wig_in.stats(seg_chrom, tx_start, tx_end)[0]
+
+                tx_i += 1
+
+            ti += 1
 
         print('Extracting targets: %ds' % (time.time()-t0))
 
@@ -182,13 +234,16 @@ def main():
     hdf5_out.create_dataset('transcript_pos', data=transcript_pos)
 
     # store sequences
-    hdf5_out.create_dataset('test_in', data=seqs_1hot, dtype='bool')
+    hdf5_out.create_dataset('seqs_1hot', data=seqs_1hot, dtype='bool')
 
     # store targets
     if options.target_wigs_file:
-        print(seqs_1hot.shape)
-        print(seqs_targets.shape)
-        hdf5_out.create_dataset('test_out', data=seqs_targets, dtype='float16')
+        # labels
+        target_labels = np.array([tl for tl in target_wigs.keys()], dtype='S')
+        hdf5_out.create_dataset('target_labels', data=target_labels)
+
+        # values
+        hdf5_out.create_dataset('transcript_targets', data=transcript_targets, dtype='float16')
 
     # store segments
     seg_chrom = np.array([ss[0] for ss in seq_segments], dtype='S')

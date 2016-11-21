@@ -5,5 +5,6 @@ import basenji.dna_io
 import basenji.genome
 import basenji.gff
 import basenji.hyper
+import basenji.plots
 import basenji.rnn
 import basenji.vcf

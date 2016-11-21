@@ -221,7 +221,8 @@ def main():
                         test_targets_ti = test_targets[:,:,ti]
 
                     out_pdf = '%s/scatter/t%d_l%d.pdf' % (options.out_dir,ti,pli)
-                    jointplot(test_targets_ti[:,tli], test_preds[:,pli,ti], out_pdf)
+                    # jointplot(test_targets_ti[:,tli], test_preds[:,pli,ti], out_pdf)
+                    basenji.plots.jointplot(np.log2(test_targets_ti[:,tli]+1), np.log2(test_preds[:,pli,ti]+1), out_pdf)
 
     data_open.close()
 
@@ -425,41 +426,12 @@ def compute_peak_accuracy(sess, dr, data_open, peaks_hdf5, out_dir, down_sample,
     np.save('%s/coefs.npy' % out_dir, model_coefs)
 
 
-def jointplot(vals1, vals2, out_pdf):
-    plt.figure()
-    g = sns.jointplot(vals1, vals2, alpha=0.5, color='black', stat_func=spearmanr)
-    ax = g.ax_joint
-    vmin, vmax = scatter_lims(vals1, vals2)
-    ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')
-    ax.set_xlim(vmin,vmax)
-    ax.set_xlabel('True')
-    ax.set_ylim(vmin,vmax)
-    ax.set_ylabel('Pred')
-    ax.grid(True, linestyle=':')
-    plt.tight_layout(w_pad=0, h_pad=0)
-    plt.savefig(out_pdf)
-    plt.close()
-
-
 def max_pool(preds, pool):
     # group by pool
     preds_pool = preds.reshape((preds.shape[0], preds.shape[1]//pool, pool, preds.shape[2]), order='C')
 
     # max
     return preds_pool.max(axis=2)
-
-
-def scatter_lims(vals1, vals2, buffer=.05):
-    vals = np.concatenate((vals1, vals2))
-    vmin = np.nanmin(vals)
-    vmax = np.nanmax(vals)
-
-    buf = .05*(vmax-vmin)
-
-    vmin -= buf
-    vmax += buf
-
-    return vmin, vmax
 
 
 ################################################################################

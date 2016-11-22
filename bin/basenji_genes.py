@@ -31,6 +31,7 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
+    parser.add_option('-c', dest='center_t', default=1/3, type='float', help='Center proportion in which TSSs are required to be [Default: %default]')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
@@ -76,7 +77,7 @@ def main():
         a = line.split()
         chrom_sizes[a[0]] = int(a[1])
 
-    merge_distance = .2*options.seq_length
+    merge_distance = options.center_t * options.seq_length
 
     seq_segments = []
     transcript_map = OrderedDict()
@@ -184,6 +185,9 @@ def main():
             a = line.split()
             target_wigs[a[0]] = a[1]
 
+        # convert to transcript table
+        transcript_targets = np.zeros((len(transcript_map), len(target_wigs)))
+
         # for each target
         ti = 0
         for wig_file in target_wigs.values():
@@ -206,7 +210,10 @@ def main():
                 tx_end = tx_start + options.pool_width
 
                 # pull mean value
-                transcript_targets[tx_i,ti] = wig_in.stats(seg_chrom, tx_start, tx_end)[0]
+                try:
+                    transcript_targets[tx_i,ti] = wig_in.stats(seg_chrom, tx_start, tx_end)[0]
+                except RuntimeError:
+                    print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros." % (wig_file,transcript,seg_chrom,seg_start,seg_end))
 
                 tx_i += 1
 

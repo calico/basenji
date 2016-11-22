@@ -97,7 +97,7 @@ def main():
     #################################################################
     # predict
 
-    print('Predicting')
+    print('Computing gene predictions')
     sys.stdout.flush()
 
     # initialize batcher
@@ -111,26 +111,7 @@ def main():
         saver.restore(sess, model_file)
 
         # predict
-        seq_preds = dr.predict(sess, batcher)
-
-    print(' Done')
-    sys.stdout.flush()
-
-
-    #################################################################
-    # convert to gene-based predictions
-
-    print('Computing gene predictions')
-    sys.stdout.flush()
-
-    # initialize target predictions
-    transcript_preds = np.zeros((len(transcript_map), seq_preds.shape[2]))
-
-    tx_i = 0
-    for transcript in transcript_map:
-        seg_i, seg_pos = transcript_map[transcript]
-        transcript_preds[tx_i,:] = seqs_preds[seg_i,seg_pos,:]
-        tx_i += 1
+        transcript_preds = dr.predict_genes(sess, batcher, transcript_map)
 
     print(' Done')
     sys.stdout.flush()

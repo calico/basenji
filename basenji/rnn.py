@@ -422,6 +422,20 @@ class RNN:
         for li in range(self.rnn_layers):
             fd[self.rnn_dropout_ph[li]] = 0
 
+        # determine non-buffer region
+        buf_start = self.batch_buffer // self.target_pool
+        buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
+        buf_len = buf_end - buf_start
+
+        # initialize prediction arrays
+        num_targets = self.num_targets
+        if target_indexes is not None:
+            num_targets = len(target_indexes)
+
+        preds = np.zeros((batcher.num_seqs, buf_len, num_targets), dtype='float16')
+
+        si = 0
+
         # get first batch
         Xb, _, _, Nb = batcher.next()
 
@@ -437,16 +451,16 @@ class RNN:
                 preds_batch = preds_batch[:,:,target_indexes]
 
             # accumulate predictions
-            preds.append(preds_batch[:Nb])
+            preds[si:si+Nb,:,:] = preds_batch[:Nb,:,:]
+
+            # update sequence index
+            si += Nb
 
             # next batch
             Xb, _, _, Nb = batcher.next()
 
         # reset batcher
         batcher.reset()
-
-        # accumulate predictions
-        preds = np.vstack(preds)
 
         return preds
 

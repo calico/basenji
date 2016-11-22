@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+from collections import OrderedDict
 import os
 import sys
 
@@ -22,7 +23,7 @@ def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <genes_hdf5_file>'
     parser = OptionParser(usage)
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
-    parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
+    parser.add_option('-o', dest='out_dir', default='genes_out', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-t', dest='target_indexes', help='Comma-separated list of target indexes to scatter plot true versus predicted values')
     (options,args) = parser.parse_args()
 
@@ -38,6 +39,9 @@ def main():
 
     #################################################################
     # reads in genes HDF5
+
+    print('Reading from gene HDF')
+    sys.stdout.flush()
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
@@ -58,11 +62,17 @@ def main():
 
     transcript_targets = genes_hdf5_in['transcript_targets']
 
-    target_labels = [tl.decode('UTF-8') for tl in genes_hdf5_in['target_labels']
+    target_labels = [tl.decode('UTF-8') for tl in genes_hdf5_in['target_labels']]
+
+    print(' Done')
+    sys.stdout.flush()
 
 
     #################################################################
     # setup model
+
+    print('Constructing model')
+    sys.stdout.flush()
 
     job = basenji.dna_io.read_job_params(params_file)
 
@@ -80,9 +90,15 @@ def main():
     if options.batch_size is not None:
         dr.batch_size = options.batch_size
 
+    print(' Done')
+    sys.stdout.flush()
+
 
     #################################################################
     # predict
+
+    print('Predicting')
+    sys.stdout.flush()
 
     # initialize batcher
     batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=dr.batch_size)
@@ -97,10 +113,15 @@ def main():
         # predict
         seq_preds = dr.predict(sess, batcher)
 
+    print(' Done')
+    sys.stdout.flush()
+
 
     #################################################################
     # convert to gene-based predictions
-    t0 = time.time()
+
+    print('Computing gene predictions')
+    sys.stdout.flush()
 
     # initialize target predictions
     transcript_preds = np.zeros((len(transcript_map), seq_preds.shape[2]))
@@ -110,6 +131,9 @@ def main():
         seg_i, seg_pos = transcript_map[transcript]
         transcript_preds[tx_i,:] = seqs_preds[seg_i,seg_pos,:]
         tx_i += 1
+
+    print(' Done')
+    sys.stdout.flush()
 
 
     #################################################################

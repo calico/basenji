@@ -210,6 +210,7 @@ def main():
             scatter_out.close()
         '''
 
+        '''
         for pli in range(test_preds.shape[1]):
             if pli % 50 == 0:
                 tli = pli + dr.batch_buffer // dr.target_pool
@@ -223,6 +224,24 @@ def main():
                     out_pdf = '%s/scatter/t%d_l%d.pdf' % (options.out_dir,ti,pli)
                     # jointplot(test_targets_ti[:,tli], test_preds[:,pli,ti], out_pdf)
                     basenji.plots.jointplot(np.log2(test_targets_ti[:,tli]+1), np.log2(test_preds[:,pli,ti]+1), out_pdf)
+        '''
+
+        for ti in scatter_indexes:
+            if options.scent_file is not None:
+                test_targets_ti = test_targets_full[:,:,ti]
+            else:
+                test_targets_ti = test_targets[:,:,ti]
+
+            # sample very 8 bins
+            print(test_targets_ti.shape)
+            print(test_preds.shape)
+            ds_indexes = np.arange(0, test_targets_ti.shape[1], 8)
+            test_targets_ti_flat = test_targets_ti[:,ds_indexes].flatten()
+            test_preds_ti_flat = test_preds[:,ds_indexes,ti].flatten()
+
+            out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
+            basenji.plots.jointplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat))
+
 
     data_open.close()
 

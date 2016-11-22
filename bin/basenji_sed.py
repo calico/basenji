@@ -13,13 +13,13 @@ import tensorflow as tf
 import basenji
 
 '''
-basenji_genes.py
+basenji_sed.py
 
-Tile a set of genes and save the result in HDF5 for Basenji processing.
+Compute SNP expression difference scores for variants in a VCF file.
 
-Notes:
- -At the moment, I'm excluding target measurements, but that could be included
-  if I want to measure accuracy on specific genes.
+Note:
+ -I'm having trouble verifying that I'm not double counting the scenario where
+  two transcripts map to the same TSS. But I should verify that.
 '''
 
 ################################################################################

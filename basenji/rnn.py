@@ -411,8 +411,6 @@ class RNN:
     def predict(self, sess, batcher, target_indexes=None):
         ''' Compute predictions on a test set. '''
 
-        preds = []
-
         # setup feed dict for dropout
         fd = {self.is_training:False}
         for li in range(self.cnn_layers):
@@ -463,6 +461,76 @@ class RNN:
         batcher.reset()
 
         return preds
+
+    def predict_genes(self, sess, batcher, transcript_map, target_indexes=None):
+        ''' Compute predictions on a test set.
+
+        In
+         sess: TensorFlow session
+         batcher: Batcher class with transcript-covering sequences
+         transcript_map: OrderedDict mapping transcript id's to (sequence index, position) tuples marking TSSs.
+         target_indexes: Optional target subset list
+
+        Out
+         transcript_preds: G (gene transcripts) X T (targets) array
+
+        Notes
+         -transcript_map is gene -> sequences, whereas sequences -> genes would be
+          more useful here.
+        '''
+
+        # setup feed dict for dropout
+        fd = {self.is_training:False}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.dcnn_layers):
+            fd[self.dcnn_dropout_ph[li]] = 0
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = 0
+
+        # initialize prediction arrays
+        num_targets = self.num_targets
+        if target_indexes is not None:
+            num_targets = len(target_indexes)
+
+        # initialize target predictions
+        transcript_preds = np.zeros((len(transcript_map), num_targets), dtype='float16')
+
+        si = 0
+
+        # get first batch
+        Xb, _, _, Nb = batcher.next()
+
+        while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+
+            # compute predictions
+            preds_batch = sess.run(self.preds_op, feed_dict=fd)
+
+            # filter for specific targets
+            if target_indexes is not None:
+                preds_batch = preds_batch[:,:,target_indexes]
+
+            # accumulate predictions into transcript data struct
+            txi = 0
+            for transcript in transcript_map:
+                tsi, tpos = transcript_map[transcript]
+                for pi in range(Nb):
+                    if si+pi == seg_i:
+                        transcript_preds[txi,:] = preds_batch[pi,tpos,:]
+                txi += 1
+
+            # update sequence index
+            si += Nb
+
+            # next batch
+            Xb, _, _, Nb = batcher.next()
+
+        # reset batcher
+        batcher.reset()
+
+        return transcript_preds
 
 
     def set_params(self, job):

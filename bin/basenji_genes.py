@@ -3,6 +3,8 @@ from optparse import OptionParser
 from collections import OrderedDict
 import multiprocessing
 import os
+import psutil
+import sys
 import time
 
 import h5py
@@ -48,8 +50,6 @@ def main():
     ################################################################
     # organize transcript TSS's by chromosome
 
-    t0 = time.time()
-
     # read transcripts
     transcripts = basenji.gff.read_genes(gtf_file, key_id='transcript_id')
 
@@ -66,8 +66,6 @@ def main():
     for chrom in chrom_tss:
         chrom_tss[chrom].sort()
 
-    print('Preparing genes: %ds' % (time.time()-t0))
-
 
     ################################################################
     # determine segments / map transcripts
@@ -82,9 +80,7 @@ def main():
     seq_segments = []
     transcript_map = OrderedDict()
 
-    t0 = time.time()
     for chrom in chrom_tss:
-        print(chrom)
         ctss = chrom_tss[chrom]
 
         left_i = 0
@@ -119,26 +115,6 @@ def main():
             # update
             left_i = right_i + 1
 
-    print('Mapping transcripts to segments: %ds' % (time.time()-t0))
-
-
-    ################################################################
-    # extract sequences
-
-    t0 = time.time()
-
-    seqs_1hot = []
-
-    for chrom, seg_start, seg_end in seq_segments:
-        seg_seq = fasta.fetch(chrom, seg_start, seg_end)
-        seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq))
-
-    seqs_1hot = np.array(seqs_1hot)
-
-    fasta.close()
-
-    print('Extracting sequences: %ds' % (time.time()-t0))
-
 
     ################################################################
     # extract target values
@@ -164,7 +140,19 @@ def main():
         # convert to array
         transcript_targets = np.transpose(np.array(transcript_targets))
 
-        print('Extracting targets: %ds' % (time.time()-t0))
+
+    ################################################################
+    # extract sequences
+
+    seqs_1hot = []
+
+    for chrom, seg_start, seg_end in seq_segments:
+        seg_seq = fasta.fetch(chrom, seg_start, seg_end)
+        seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq))
+
+    seqs_1hot = np.array(seqs_1hot)
+
+    fasta.close()
 
 
     ################################################################
@@ -209,21 +197,18 @@ def main():
     hdf5_out.close()
 
 
-
-
 ################################################################################
 def bigwig_transcripts(wig_file, transcript_map, seq_segments, pool_width=1):
     ''' Read gene target values from a bigwig
 
     Args:
       wig_file: Bigwig filename
-      segments: list of (chrom,start,end) genomic segments to read,
-                  assuming those segments are appropriate length
-      seq_length: sequence length to break them into
+      transcript_map: OrderedDict mapping transcript_id to (seq index,seq pos) tuples
+      seq_segments: list of (chrom,start,end) segment coordinates
       pool_width: average pool adjacent nucleotides of this width
 
     Returns:
-      targets: target Bigwig value matrix
+      transcript_targets:
     '''
 
     # initialize target values

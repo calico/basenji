@@ -3,6 +3,7 @@ from optparse import OptionParser
 from collections import OrderedDict
 import os
 import sys
+import subprocess
 
 import h5py
 import numpy as np
@@ -23,6 +24,7 @@ def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <genes_hdf5_file>'
     parser = OptionParser(usage)
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
+    parser.add_option('-i', dest='ignore_bed', help='Ignore genes overlapping regions in this BED file')
     parser.add_option('-o', dest='out_dir', default='genes_out', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-t', dest='target_indexes', help='Comma-separated list of target indexes to scatter plot true versus predicted values')
     (options,args) = parser.parse_args()
@@ -66,6 +68,12 @@ def main():
 
     print(' Done')
     sys.stdout.flush()
+
+    #################################################################
+    # ignore genes overlapping trained BED regions
+
+    if options.ignore_bed:
+        seqs_segments, seqs_1hot, transcript_map, transcript_targets = ignore_trained_regions(options.ignore_bed, seqs_segments, seqs_1hot, transcript_map, transcript_targets, options.out_dir)
 
 
     #################################################################
@@ -121,7 +129,7 @@ def main():
     # print and plot
 
     if options.target_indexes is None:
-        options.target_indexes = range(seq_preds.shape[2])
+        options.target_indexes = range(transcript_preds.shape[1])
     else:
         options.target_indexes = options.target_indexes.split(',')
 
@@ -144,6 +152,72 @@ def main():
     # clean up
 
     genes_hdf5_in.close()
+
+
+def ignore_trained_regions(ignore_bed, seqs_segments, seqs_1hot, transcript_map, transcript_targets, out_dir, mid_pct=0.5):
+    ''' Filter the sequence and transcript data structures to ignore the sequences
+         in a training set BED file.
+
+    In
+
+    Out
+     seqs_segments
+     seqs_1hot
+     transcript_map
+     transcript_targets
+    '''
+
+    # write segment coordinates to file
+    seqs_bed_file = '%s/seqs.bed' % out_dir
+    seqs_bed_out = open(seqs_bed_file, 'w')
+    for chrom, start, end in seqs_segments:
+        span = end-start
+        mid = (start+end)/2
+        mid_start = mid - mid_pct*span/2
+        mid_end = mid + mid_pct*span/2
+        print('%s\t%d\t%d' % (chrom,mid_start,mid_end), file=seqs_bed_out)
+    seqs_bed_out.close()
+
+    # intersect with the BED file
+    p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (seqs_bed_file,ignore_bed), shell=True, stdout=subprocess.PIPE)
+
+    # track indexes that overlap
+    seqs_keep = []
+    for line in p.stdout:
+        a = line.split()
+        seqs_keep.append(int(a[-1]) == 0)
+    seqs_keep = np.array(seqs_keep)
+
+    # update sequence data structs
+    seqs_segments = seqs_segments[seqs_keep]
+    seqs_1hot = seqs_1hot[seqs_keep]
+
+    # update transcript_map
+    transcripts_keep = []
+    transcript_map_new = OrderedDict()
+    for transcript in transcript_map:
+        tx_i, tx_pos = transcript_map[transcript]
+
+        # collect ignored transcript bools
+        transcripts_keep.append(seqs_keep[tx_i])
+
+        # keep it
+        if seqs_keep[tx_i]:
+            # update the sequence index to consider previous kept sequences
+            txn_i = seqs_keep[:tx_i].sum()
+
+            # let's say it's 0 - False, 1 - True, 2 - True, 3 - False
+            # 1 would may to 0
+            # 2 would map to 1
+            # all good!
+
+            # update the map
+            transcript_map_new[transcript] = (txn_i, tx_pos)
+
+    # update transcript_targets
+    transcript_targets = transcript_targets[np.logical_not(transcripts_ignore)]
+
+    return seqs_segments, seqs_1hot, transcript_map, transcript_targets
 
 
 ################################################################################

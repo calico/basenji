@@ -517,7 +517,7 @@ class RNN:
             for transcript in transcript_map:
                 tsi, tpos = transcript_map[transcript]
                 for pi in range(Nb):
-                    if si+pi == seg_i:
+                    if si+pi == tsi:
                         transcript_preds[txi,:] = preds_batch[pi,tpos,:]
                 txi += 1
 

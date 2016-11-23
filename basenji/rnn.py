@@ -496,6 +496,16 @@ class RNN:
         # initialize target predictions
         transcript_preds = np.zeros((len(transcript_map), num_targets), dtype='float16')
 
+        # construct an inverse map
+        sequence_transcripts = []
+        txi = 0
+        for transcript in transcript_map:
+            tsi, tpos = transcript_map[transcript]
+            while len(sequence_transcripts) <= tsi:
+                sequence_transcripts.append([])
+            sequence_transcripts[tsi].append((txi,tpos))
+            txi += 1
+
         si = 0
 
         # get first batch
@@ -513,6 +523,7 @@ class RNN:
                 preds_batch = preds_batch[:,:,target_indexes]
 
             # accumulate predictions into transcript data struct
+            '''
             txi = 0
             for transcript in transcript_map:
                 tsi, tpos = transcript_map[transcript]
@@ -520,6 +531,13 @@ class RNN:
                     if si+pi == tsi:
                         transcript_preds[txi,:] = preds_batch[pi,tpos,:]
                 txi += 1
+            '''
+
+            # for each sequence in the batch
+            for pi in range(Nb):
+                # for each transcript in the sequence
+                for txi, tpos in sequence_transcripts[si+pi]:
+                    transcript_preds[txi,:] = preds_batch[pi,tpos]
 
             # update sequence index
             si += Nb

@@ -143,81 +143,26 @@ def main():
     ################################################################
     # extract target values
 
-    '''
     if options.target_wigs_file:
         t0 = time.time()
+
+        # get wig files and labels
+        target_wigs = OrderedDict()
+        for line in open(options.target_wigs_file):
+            a = line.split()
+            target_wigs[a[0]] = a[1]
 
         # initialize multiprocessing pool
         pool = multiprocessing.Pool(options.processes)
 
-        # get wig files and labels
-        target_wigs = OrderedDict()
-        for line in open(options.target_wigs_file):
-            a = line.split()
-            target_wigs[a[0]] = a[1]
+        # bigwig_read parameters
+        bwt_params = [(wig_file, transcript_map, seq_segments, options.pool_width) for wig_file in target_wigs.values()]
 
         # pull the target values in parallel
-        bwr_params = [(wig_file, seq_segments, options.seq_length, options.pool_width) for wig_file in target_wigs.values()]
-        seqs_targets = pool.starmap(bigwig_batch, bwr_params)
+        transcript_targets = pool.starmap(bigwig_transcripts, bwt_params)
 
-        # transpose to S x L x T (making a copy?)
-        seqs_targets = np.transpose(np.array(seqs_targets), axes=(1,2,0))
-
-        # convert to transcript table
-        transcript_targets = np.zeros((len(transcript_map), seqs_targets.shape[2]))
-
-        tx_i = 0
-        for transcript in transcript_map:
-            seg_i, seg_pos = transcript_map[transcript]
-            transcript_targets[tx_i,:] = seqs_targets[seg_i,seg_pos,:]
-            tx_i += 1
-
-        print('Extracting targets: %ds' % (time.time()-t0))
-    '''
-
-    # v3
-    if options.target_wigs_file:
-        t0 = time.time()
-
-        # get wig files and labels
-        target_wigs = OrderedDict()
-        for line in open(options.target_wigs_file):
-            a = line.split()
-            target_wigs[a[0]] = a[1]
-
-        # convert to transcript table
-        transcript_targets = np.zeros((len(transcript_map), len(target_wigs)))
-
-        # for each target
-        ti = 0
-        for wig_file in target_wigs.values():
-            print('Pulling target values for %s' % wig_file)
-
-            # open the wig file
-            wig_in = pyBigWig.open(wig_file)
-
-            # for each transcript
-            tx_i = 0
-            for transcript in transcript_map:
-                # determine segment and position
-                seg_i, seg_pos = transcript_map[transcript]
-
-                # extract segment coordinates
-                seg_chrom, seg_start, seg_end = seq_segments[seg_i]
-
-                # determine gene genomic coordinates
-                tx_start = seg_start + seg_pos*options.pool_width
-                tx_end = tx_start + options.pool_width
-
-                # pull mean value
-                try:
-                    transcript_targets[tx_i,ti] = wig_in.stats(seg_chrom, tx_start, tx_end)[0]
-                except RuntimeError:
-                    print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros." % (wig_file,transcript,seg_chrom,seg_start,seg_end))
-
-                tx_i += 1
-
-            ti += 1
+        # convert to array
+        transcript_targets = np.transpose(np.array(transcript_targets))
 
         print('Extracting targets: %ds' % (time.time()-t0))
 
@@ -262,6 +207,56 @@ def main():
     hdf5_out.create_dataset('seg_end', data=seg_end)
 
     hdf5_out.close()
+
+
+
+
+################################################################################
+def bigwig_transcripts(wig_file, transcript_map, seq_segments, pool_width=1):
+    ''' Read gene target values from a bigwig
+
+    Args:
+      wig_file: Bigwig filename
+      segments: list of (chrom,start,end) genomic segments to read,
+                  assuming those segments are appropriate length
+      seq_length: sequence length to break them into
+      pool_width: average pool adjacent nucleotides of this width
+
+    Returns:
+      targets: target Bigwig value matrix
+    '''
+
+    # initialize target values
+    transcript_targets = np.zeros(len(transcript_map), dtype='float16')
+
+    # open wig
+    wig_in = pyBigWig.open(wig_file)
+
+    # for each transcript
+    tx_i = 0
+    for transcript in transcript_map:
+        # determine segment and position
+        seg_i, seg_pos = transcript_map[transcript]
+
+        # extract segment coordinates
+        seg_chrom, seg_start, seg_end = seq_segments[seg_i]
+
+        # determine gene genomic coordinates
+        tx_start = seg_start + seg_pos*pool_width
+        tx_end = tx_start + pool_width
+
+        # pull mean value
+        try:
+            transcript_targets[tx_i] = wig_in.stats(seg_chrom, tx_start, tx_end)[0]
+        except RuntimeError:
+            print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros." % (wig_file,transcript,seg_chrom,seg_start,seg_end))
+
+        tx_i += 1
+
+    # close wig file
+    wig_in.close()
+
+    return transcript_targets
 
 
 ################################################################################

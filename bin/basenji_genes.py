@@ -77,7 +77,7 @@ def main():
 
     merge_distance = options.center_t * options.seq_length
 
-    seq_segments = []
+    seq_coords = []
     transcript_map = OrderedDict()
 
     for chrom in chrom_tss:
@@ -103,10 +103,10 @@ def main():
 
             # save segment
             if seg_start >= 0 and seg_end < chrom_sizes[chrom]:
-                seq_segments.append((chrom,seg_start,seg_end))
+                seq_coords.append((chrom,seg_start,seg_end))
 
                 # annotate TSS to indexes
-                seg_index = len(seq_segments)-1
+                seg_index = len(seq_coords)-1
                 for i in range(left_i,right_i+1):
                     tx_tss, tx_id = ctss[i]
                     tx_pos = (tx_tss - seg_start) // options.pool_width
@@ -132,7 +132,7 @@ def main():
         pool = multiprocessing.Pool(options.processes)
 
         # bigwig_read parameters
-        bwt_params = [(wig_file, transcript_map, seq_segments, options.pool_width) for wig_file in target_wigs.values()]
+        bwt_params = [(wig_file, transcript_map, seq_coords, options.pool_width) for wig_file in target_wigs.values()]
 
         # pull the target values in parallel
         transcript_targets = pool.starmap(bigwig_transcripts, bwt_params)
@@ -146,9 +146,9 @@ def main():
 
     seqs_1hot = []
 
-    for chrom, seg_start, seg_end in seq_segments:
-        seg_seq = fasta.fetch(chrom, seg_start, seg_end)
-        seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq))
+    for chrom, start, end in seq_coords:
+        seq = fasta.fetch(chrom, start, end)
+        seqs_1hot.append(basenji.dna_io.dna_1hot(seq))
 
     seqs_1hot = np.array(seqs_1hot)
 
@@ -185,26 +185,26 @@ def main():
         # values
         hdf5_out.create_dataset('transcript_targets', data=transcript_targets, dtype='float16')
 
-    # store segments
-    seg_chrom = np.array([ss[0] for ss in seq_segments], dtype='S')
-    seg_start = np.array([ss[1] for ss in seq_segments])
-    seg_end = np.array([ss[2] for ss in seq_segments])
+    # store sequence coordinates
+    seq_chrom = np.array([sc[0] for sc in seq_coords], dtype='S')
+    seq_start = np.array([sc[1] for sc in seq_coords])
+    seq_end = np.array([sc[2] for sc in seq_coords])
 
-    hdf5_out.create_dataset('seg_chrom', data=seg_chrom)
-    hdf5_out.create_dataset('seg_start', data=seg_start)
-    hdf5_out.create_dataset('seg_end', data=seg_end)
+    hdf5_out.create_dataset('seq_chrom', data=seq_chrom)
+    hdf5_out.create_dataset('seq_start', data=seq_start)
+    hdf5_out.create_dataset('seq_end', data=seq_end)
 
     hdf5_out.close()
 
 
 ################################################################################
-def bigwig_transcripts(wig_file, transcript_map, seq_segments, pool_width=1):
+def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
     ''' Read gene target values from a bigwig
 
     Args:
       wig_file: Bigwig filename
       transcript_map: OrderedDict mapping transcript_id to (seq index,seq pos) tuples
-      seq_segments: list of (chrom,start,end) segment coordinates
+      seq_coords: list of (chrom,start,end) sequence coordinates
       pool_width: average pool adjacent nucleotides of this width
 
     Returns:
@@ -220,21 +220,21 @@ def bigwig_transcripts(wig_file, transcript_map, seq_segments, pool_width=1):
     # for each transcript
     tx_i = 0
     for transcript in transcript_map:
-        # determine segment and position
-        seg_i, seg_pos = transcript_map[transcript]
+        # determine sequence and position
+        seq_i, seq_pos = transcript_map[transcript]
 
-        # extract segment coordinates
-        seg_chrom, seg_start, seg_end = seq_segments[seg_i]
+        # extract sequence coordinates
+        seq_chrom, seq_start, seq_end = seq_coords[seq_i]
 
         # determine gene genomic coordinates
-        tx_start = seg_start + seg_pos*pool_width
+        tx_start = seq_start + seq_pos*pool_width
         tx_end = tx_start + pool_width
 
         # pull mean value
         try:
-            transcript_targets[tx_i] = wig_in.stats(seg_chrom, tx_start, tx_end)[0]
+            transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
         except RuntimeError:
-            print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros." % (wig_file,transcript,seg_chrom,seg_start,seg_end))
+            print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros." % (wig_file,transcript,seq_chrom,seq_start,seq_end))
 
         tx_i += 1
 

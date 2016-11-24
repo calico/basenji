@@ -47,10 +47,10 @@ def main():
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
-    seg_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seg_chrom']]
-    seg_start = np.array(genes_hdf5_in['seg_start'])
-    seg_end = np.array(genes_hdf5_in['seg_end'])
-    seqs_segments = list(zip(seg_chrom,seg_start,seg_end))
+    seq_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seq_chrom']]
+    seq_start = list(genes_hdf5_in['seq_start'])
+    seq_end = list(genes_hdf5_in['seq_end'])
+    seq_coords = list(zip(seq_chrom,seq_start,seq_end))
 
     seqs_1hot = genes_hdf5_in['seqs_1hot']
 
@@ -73,7 +73,7 @@ def main():
     # ignore genes overlapping trained BED regions
 
     if options.ignore_bed:
-        seqs_segments, seqs_1hot, transcript_map, transcript_targets = ignore_trained_regions(options.ignore_bed, seqs_segments, seqs_1hot, transcript_map, transcript_targets, options.out_dir)
+        seqs_1hot, transcript_map, transcript_targets = ignore_trained_regions(options.ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets)
 
 
     #################################################################
@@ -154,32 +154,37 @@ def main():
     genes_hdf5_in.close()
 
 
-def ignore_trained_regions(ignore_bed, seqs_segments, seqs_1hot, transcript_map, transcript_targets, out_dir, mid_pct=0.5):
+def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets, mid_pct=0.5):
     ''' Filter the sequence and transcript data structures to ignore the sequences
          in a training set BED file.
 
     In
+     ignore_bed: BED file of regions to ignore
+     seq_coords: list of (chrom,start,end) sequence coordinates
+     seqs_1hot:
+     transcript_map:
+     transcript_targets:
+     mid_pct:
 
     Out
-     seqs_segments
      seqs_1hot
      transcript_map
      transcript_targets
     '''
 
-    # write segment coordinates to file
-    seqs_bed_file = '%s/seqs.bed' % out_dir
-    seqs_bed_out = open(seqs_bed_file, 'w')
-    for chrom, start, end in seqs_segments:
+    # write sequence coordinates to file
+    seqs_bed_temp = tempfile.NamedTemporaryFile()
+    seqs_bed_out = open(seqs_bed_temp.name, 'w')
+    for chrom, start, end in seq_coords:
         span = end-start
         mid = (start+end)/2
-        mid_start = mid - mid_pct*span/2
-        mid_end = mid + mid_pct*span/2
+        mid_start = mid - mid_pct*span // 2
+        mid_end = mid + mid_pct*span // 2
         print('%s\t%d\t%d' % (chrom,mid_start,mid_end), file=seqs_bed_out)
     seqs_bed_out.close()
 
     # intersect with the BED file
-    p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (seqs_bed_file,ignore_bed), shell=True, stdout=subprocess.PIPE)
+    p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (seqs_bed_temp.name,ignore_bed), shell=True, stdout=subprocess.PIPE)
 
     # track indexes that overlap
     seqs_keep = []
@@ -189,7 +194,6 @@ def ignore_trained_regions(ignore_bed, seqs_segments, seqs_1hot, transcript_map,
     seqs_keep = np.array(seqs_keep)
 
     # update sequence data structs
-    seqs_segments = seqs_segments[seqs_keep]
     seqs_1hot = seqs_1hot[seqs_keep]
 
     # update transcript_map
@@ -217,7 +221,7 @@ def ignore_trained_regions(ignore_bed, seqs_segments, seqs_1hot, transcript_map,
     # update transcript_targets
     transcript_targets = transcript_targets[np.logical_not(transcripts_ignore)]
 
-    return seqs_segments, seqs_1hot, transcript_map, transcript_targets
+    return seqs_1hot, transcript_map, transcript_targets
 
 
 ################################################################################

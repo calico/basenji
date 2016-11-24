@@ -2,8 +2,9 @@
 from optparse import OptionParser
 from collections import OrderedDict
 import os
-import sys
 import subprocess
+import sys
+import tempfile
 
 import h5py
 import numpy as np
@@ -184,7 +185,7 @@ def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, tr
     seqs_bed_out.close()
 
     # intersect with the BED file
-    p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (seqs_bed_temp.name,ignore_bed), shell=True, stdout=subprocess.PIPE)
+    p = subprocess.Popen('bedtools intersect -c -a %s -b %s' % (seqs_bed_temp.name,ignore_bed), shell=True, stdout=subprocess.PIPE)
 
     # track indexes that overlap
     seqs_keep = []
@@ -194,7 +195,7 @@ def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, tr
     seqs_keep = np.array(seqs_keep)
 
     # update sequence data structs
-    seqs_1hot = seqs_1hot[seqs_keep]
+    seqs_1hot = seqs_1hot[seqs_keep,:,:]
 
     # update transcript_map
     transcripts_keep = []
@@ -218,8 +219,10 @@ def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, tr
             # update the map
             transcript_map_new[transcript] = (txn_i, tx_pos)
 
+    transcripts_keep = np.array(transcripts_keep)
+
     # update transcript_targets
-    transcript_targets = transcript_targets[np.logical_not(transcripts_ignore)]
+    transcript_targets = transcript_targets[transcripts_keep,:]
 
     return seqs_1hot, transcript_map, transcript_targets
 

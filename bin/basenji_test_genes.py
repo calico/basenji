@@ -132,7 +132,7 @@ def main():
     if options.target_indexes is None:
         options.target_indexes = range(transcript_preds.shape[1])
     else:
-        options.target_indexes = options.target_indexes.split(',')
+        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
 
     table_out = open('%s/table.txt' % options.out_dir, 'w')
     for ti in options.target_indexes:
@@ -141,10 +141,12 @@ def main():
         basenji.plots.jointplot(transcript_targets[:,ti], transcript_preds[:,ti], out_pdf)
 
         # print table lines
-        for tx_i in range(len(transcripts)):
+        tx_i = 0
+        for transcript in transcript_map:
             # print transcript line
-            cols = [transcripts[tx_i], transcript_targets[tx_i,ti], transcript_preds[tx_i,ti], ti, target_labels[ti]]
+            cols = (transcript, transcript_targets[tx_i,ti], transcript_preds[tx_i,ti], ti, target_labels[ti])
             print('%-20s  %.3f  %.3f  %4d  %20s' % cols, file=table_out)
+            tx_i += 1
 
     table_out.close()
 
@@ -219,6 +221,9 @@ def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, tr
             # update the map
             transcript_map_new[transcript] = (txn_i, tx_pos)
 
+    transcript_map = transcript_map_new
+
+    # convert to array
     transcripts_keep = np.array(transcripts_keep)
 
     # update transcript_targets

@@ -52,16 +52,16 @@ def main():
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
-    seg_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seg_chrom']]
-    seg_start = np.array(genes_hdf5_in['seg_start'])
-    seg_end = np.array(genes_hdf5_in['seg_end'])
-    seqs_segments = list(zip(seg_chrom,seg_start,seg_end))
+    seq_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seq_chrom']]
+    seq_start = list(genes_hdf5_in['seq_start'])
+    seq_end = list(genes_hdf5_in['seq_end'])
+    seq_coords = list(zip(seq_chrom,seq_start,seq_end))
 
     seqs_1hot = genes_hdf5_in['seqs_1hot']
 
     transcripts = [tx.decode('UTF-8') for tx in genes_hdf5_in['transcripts']]
-    transcript_index = np.array(genes_hdf5_in['transcript_index'])
-    transcript_pos = np.array(genes_hdf5_in['transcript_pos'])
+    transcript_index = list(genes_hdf5_in['transcript_index'])
+    transcript_pos = list(genes_hdf5_in['transcript_pos'])
 
     transcript_map = {}
     for ti in range(len(transcripts)):
@@ -75,7 +75,7 @@ def main():
     snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score, False)
 
     # intersect w/ segments
-    snps_segs = intersect_snps(vcf_file, seqs_segments)
+    snps_segs = intersect_snps(vcf_file, seq_coords)
 
 
     #################################################################
@@ -85,18 +85,18 @@ def main():
 
     for snp_i in range(len(snps)):
         for seg_i in snps_segs[snp_i]:
-            seg_chrom, seg_start, seg_end = seqs_segments[seg_i]
+            seq_chrom, seq_start, seq_end = seq_coords[seg_i]
 
             # determine the SNP's position in the segment
-            snp_seg_pos = snps[snp_i].pos - seg_start
+            snp_seq_pos = snps[snp_i].pos - seq_start
 
             # write reference allele
             snp_seqs_1hot.append(seqs_1hot[snp_i])
-            basenji.dna_io.hot1_set(snp_seqs_1hot[-1], snp_seg_pos, snps[snp_i].ref_allele)
+            basenji.dna_io.hot1_set(snp_seqs_1hot[-1], snp_seq_pos, snps[snp_i].ref_allele)
 
             # write alternative allele
             snp_seqs_1hot.append(seqs_1hot[snp_i])
-            basenji.dna_io.hot1_set(snp_seqs_1hot[-1], snp_seg_pos, snps[snp_i].alt_alleles[0])
+            basenji.dna_io.hot1_set(snp_seqs_1hot[-1], snp_seq_pos, snps[snp_i].alt_alleles[0])
 
     snp_seqs_1hot = np.array(snp_seqs_1hot)
 
@@ -199,16 +199,16 @@ def main():
     genes_hdf5_in.close()
 
 
-def intersect_snps(vcf_file, seqs_segments):
+def intersect_snps(vcf_file, seq_coords):
     # print segments to BED
     # hash segments to indexes
     seg_temp = tempfile.NamedTemporaryFile()
     seg_bed_file = seg_temp.name
     seg_bed_out = open(seg_bed_file, 'w')
     segment_indexes = {}
-    for si in range(len(seqs_segments)):
-        segment_indexes[seqs_segments[si]] = si
-        print('%s\t%d\t%d' % seqs_segments[si], file=seg_bed_out)
+    for si in range(len(seq_coords)):
+        segment_indexes[seq_coords[si]] = si
+        print('%s\t%d\t%d' % seq_coords[si], file=seg_bed_out)
     seg_bed_out.close()
 
     # hash SNPs to indexes

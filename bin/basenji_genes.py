@@ -165,7 +165,7 @@ def main():
     hdf5_out.create_dataset('pool_width', data=options.pool_width, dtype='int')
 
     # store transcript map
-    transcripts = sorted(list(transcript_map.keys()))
+    transcripts = list(transcript_map.keys())
     transcript_index = np.array([transcript_map[tx_id][0] for tx_id in transcripts])
     transcript_pos = np.array([transcript_map[tx_id][1] for tx_id in transcripts])
 

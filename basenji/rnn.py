@@ -537,7 +537,7 @@ class RNN:
             for pi in range(Nb):
                 # for each transcript in the sequence
                 for txi, tpos in sequence_transcripts[si+pi]:
-                    transcript_preds[txi,:] = preds_batch[pi,tpos]
+                    transcript_preds[txi,:] = preds_batch[pi,tpos,:]
 
             # update sequence index
             si += Nb

@@ -222,6 +222,9 @@ def intersect_snps(vcf_file, seq_coords):
     while line:
         a = line.split()
         snp_id = a[2]
+        if snp_id in snp_indexes:
+            print('Duplicate SNP id %s will break the script' % snp_id, file=sys.stderr)
+            exit(1)
         snp_indexes[snp_id] = si
         si += 1
         line = vcf_in.readline()

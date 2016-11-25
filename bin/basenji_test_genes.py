@@ -48,6 +48,9 @@ def main():
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
+    #######################################
+    # read in sequences and descriptions
+
     seq_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seq_chrom']]
     seq_start = list(genes_hdf5_in['seq_start'])
     seq_end = list(genes_hdf5_in['seq_end'])
@@ -55,9 +58,12 @@ def main():
 
     seqs_1hot = genes_hdf5_in['seqs_1hot']
 
+    #######################################
+    # read in transcripts and map to sequences
+
     transcripts = [tx.decode('UTF-8') for tx in genes_hdf5_in['transcripts']]
-    transcript_index = np.array(genes_hdf5_in['transcript_index'])
-    transcript_pos = np.array(genes_hdf5_in['transcript_pos'])
+    transcript_index = list(genes_hdf5_in['transcript_index'])
+    transcript_pos = list(genes_hdf5_in['transcript_pos'])
 
     transcript_map = OrderedDict()
     for ti in range(len(transcripts)):

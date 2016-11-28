@@ -615,7 +615,7 @@ class RNN:
                     pred_ends = pred_starts + self.target_pool
                     pred_values = [float(preds_batch[pi,li,ti]) for li in preds_batch.shape[1]]
 
-                    target_bigwigs[ti].addEntries(pred_chroms, list(pred_starts), ends=list(pred_ends), values=)
+                    target_bigwigs[ti].addEntries(pred_chroms, list(pred_starts), ends=list(pred_ends), values=pred_values)
 
             # update sequence index
             si += Nb

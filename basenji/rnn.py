@@ -537,7 +537,8 @@ class RNN:
             for pi in range(Nb):
                 # for each transcript in the sequence
                 for txi, tpos in sequence_transcripts[si+pi]:
-                    transcript_preds[txi,:] = preds_batch[pi,tpos,:]
+                    ppos = tpos - self.batch_buffer//self.target_pool
+                    transcript_preds[txi,:] = preds_batch[pi,ppos,:]
 
             # update sequence index
             si += Nb
@@ -547,6 +548,87 @@ class RNN:
 
         # reset batcher
         batcher.reset()
+
+        return transcript_preds
+
+     def predict_genes_bigwig(self, sess, batcher, seq_coords, out_dir, genome_file, target_indexes=None):
+        ''' Compute predictions and print to BigWig files.
+
+        In
+         sess: TensorFlow session
+         batcher: Batcher class with transcript-covering sequences
+         genome_file: Chromosome lengths file
+         out_dir: Output directory to write predictions to.
+         target_indexes: Optional target subset list
+        '''
+
+        # setup feed dict for dropout
+        fd = {self.is_training:False}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.dcnn_layers):
+            fd[self.dcnn_dropout_ph[li]] = 0
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = 0
+
+        # specify target_indexes
+        if target_indexes is None:
+            target_indexes = range(self.num_targets)
+
+        # initialize bigwig files
+        if bigwig_genome is not None:
+            target_bigwigs = []
+            for ti in target_indexes:
+                tbw_file = '%s/t%d.bw' % (out_dir,ti)
+                tbw_out = pyBigWig.open(tbw_file, 'w')
+
+                chrom_sizes = []
+                for line in open(genome_file):
+                    a = line.split()
+                    chrom_sizes.append((a[0],int(a[1])))
+                tbw_out.addHeader(chrom_sizes)
+
+                target_bigwigs.append(tbw_out)
+
+        si = 0
+
+        # get first batch
+        Xb, _, _, Nb = batcher.next()
+
+        while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+
+            # compute predictions
+            preds_batch = sess.run(self.preds_op, feed_dict=fd)
+
+            # filter for specific targets
+            preds_batch = preds_batch[:,:,target_indexes]
+
+            # print to bigwig
+            for ti in target_indexes:
+                for pi in range(Nb):
+                    seq_chrom, seq_start = seq_end = seq_coords[si+pi]
+
+                    pred_chroms = [seq_chrom]*preds_batch.shape[1]
+                    pred_starts = np.arange(self.batch_buffer, self.batch_length-self.batch_buffer, self.target_pool) + seq_start
+                    pred_ends = pred_starts + self.target_pool
+                    pred_values = [float(preds_batch[pi,li,ti]) for li in preds_batch.shape[1]]
+
+                    target_bigwigs[ti].addEntries(pred_chroms, list(pred_starts), ends=list(pred_ends), values=)
+
+            # update sequence index
+            si += Nb
+
+            # next batch
+            Xb, _, _, Nb = batcher.next()
+
+        # reset batcher
+        batcher.reset()
+
+        # close bigwig files
+        for ti in target_indexes:
+            target_bigwigs[ti].close()
 
         return transcript_preds
 

@@ -43,6 +43,7 @@ def main():
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
     parser.add_option('--log2', dest='log10to2', default=False, action='store_true', help='Transform values from log10 to log2 [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Dimension reduction hyper-parameters file')
+    parser.add_option('--mult_cov', dest='cov_multiplier', default=1, type='float', help='Coverage multiplier, useful when the read extension and pool width do not match [Default: %default]')
     parser.add_option('-n', dest='na_t', default=0.25, type='float', help='Remove sequences with an NA% greater than this threshold [Default: %default]')
     parser.add_option('--no_full', dest='no_full', default=False, action='store_true', help='Do not save full test sequence targets [Default: %default]')
     parser.add_option('-o', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
@@ -160,7 +161,7 @@ def main():
             bend = batch_end(segments, bstart, 400000)
 
             # bigwig_read parameters
-            bwr_params = [(wig_file, segments[bstart:bend], options.seq_length, options.pool_width, options.log10to2) for wig_file in target_wigs.values()]
+            bwr_params = [(wig_file, segments[bstart:bend], options.seq_length, options.pool_width, options.log10to2, options.cov_multiplier) for wig_file in target_wigs.values()]
 
             # pull the target values in parallel
             wig_targets = pool.starmap(bigwig_batch, bwr_params)
@@ -420,7 +421,7 @@ def batch_end(segments, bstart, batch_max):
 
 
 ################################################################################
-def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False):
+def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False, cov_multiplier=1):
     ''' Read a batch of segment values from a bigwig file
 
     Args:
@@ -452,7 +453,9 @@ def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False):
         # set NaN's to zero
         seg_values = np.nan_to_num(seg_values)
 
-        # convert log10 to log2
+        # transform
+        if options.cov_multiplier != 1:
+            seg_values *= options.cov_multiplier
         if log10to2:
             seg_values = np.log2(np.power(10,seg_values))
 

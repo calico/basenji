@@ -217,6 +217,9 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
     # open wig
     wig_in = pyBigWig.open(wig_file)
 
+    # TEMP: transcript bin coordinates
+    txbin_out = open('transcript_bins.txt', 'w')
+
     # for each transcript
     tx_i = 0
     for transcript in transcript_map:
@@ -230,6 +233,9 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
         tx_start = seq_start + seq_pos*pool_width
         tx_end = tx_start + pool_width
 
+        # TEMP
+        print('%s\t%s\t%d\t%d' % (transcript, seq_chrom, tx_start, tx_end), file=txbin_out)
+
         # pull mean value
         try:
             transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
@@ -237,6 +243,9 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
             print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros." % (wig_file,transcript,seq_chrom,seq_start,seq_end))
 
         tx_i += 1
+
+    # TEMP
+    txbin_out.close()
 
     # close wig file
     wig_in.close()

@@ -454,8 +454,8 @@ def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False, c
         seg_values = np.nan_to_num(seg_values)
 
         # transform
-        if options.cov_multiplier != 1:
-            seg_values *= options.cov_multiplier
+        if cov_multiplier != 1:
+            seg_values *= cov_multiplier
         if log10to2:
             seg_values = np.log2(np.power(10,seg_values))
 

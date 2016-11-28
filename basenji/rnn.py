@@ -551,7 +551,7 @@ class RNN:
 
         return transcript_preds
 
-     def predict_genes_bigwig(self, sess, batcher, seq_coords, out_dir, genome_file, target_indexes=None):
+    def predict_genes_bigwig(self, sess, batcher, seq_coords, out_dir, genome_file, target_indexes=None):
         ''' Compute predictions and print to BigWig files.
 
         In

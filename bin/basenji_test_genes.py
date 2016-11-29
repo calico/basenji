@@ -142,11 +142,11 @@ def main():
     # print and plot
 
     if options.target_indexes is None:
-        target_indexes = range(transcript_preds.shape[1])
+        options.target_indexes = range(transcript_targets.shape[1])
 
     table_out = open('%s/table.txt' % options.out_dir, 'w')
-    for tii in range(len(target_indexes)):
-        ti = target_indexes[tii]
+    for tii in range(len(options.target_indexes)):
+        ti = options.target_indexes[tii]
 
         # plot scatter
         out_pdf = '%s/t%d.pdf' % (options.out_dir, ti)

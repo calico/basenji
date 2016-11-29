@@ -617,6 +617,8 @@ class RNN:
                     pred_starts = [int(ps) for ps in pred_starts]
                     pred_ends = [int(pe) for pe in pred_ends]
 
+                    assert(len(pred_chroms)==len(pred_starts))
+
                     target_bigwigs[tii].addEntries(pred_chroms, pred_starts, pred_ends, values=pred_values)
 
             # update sequence index
@@ -631,6 +633,92 @@ class RNN:
         # close bigwig files
         for tii in range(len(target_indexes)):
             target_bigwigs[tii].close()
+
+
+    def predict_genes_coords(self, sess, batcher, transcript_map, seq_coords, target_indexes=None):
+        ''' Compute predictions on a test set.
+
+        In
+         sess: TensorFlow session
+         batcher: Batcher class with transcript-covering sequences
+         transcript_map: OrderedDict mapping transcript id's to (sequence index, position) tuples marking TSSs.
+         target_indexes: Optional target subset list
+
+        Out
+         transcript_preds: G (gene transcripts) X T (targets) array
+
+        Notes
+         -transcript_map is gene -> sequences, whereas sequences -> genes would be
+          more useful here.
+        '''
+
+        # setup feed dict for dropout
+        fd = {self.is_training:False}
+        for li in range(self.cnn_layers):
+            fd[self.cnn_dropout_ph[li]] = 0
+        for li in range(self.dcnn_layers):
+            fd[self.dcnn_dropout_ph[li]] = 0
+        for li in range(self.rnn_layers):
+            fd[self.rnn_dropout_ph[li]] = 0
+
+        # initialize prediction arrays
+        num_targets = self.num_targets
+        if target_indexes is not None:
+            num_targets = len(target_indexes)
+
+        # initialize target predictions
+        transcript_preds = np.zeros((len(transcript_map), num_targets), dtype='float16')
+
+        transcripts = list(transcript_map.keys())
+
+        # construct an inverse map
+        sequence_transcripts = []
+        txi = 0
+        for transcript in transcript_map:
+            tsi, tpos = transcript_map[transcript]
+            while len(sequence_transcripts) <= tsi:
+                sequence_transcripts.append([])
+            sequence_transcripts[tsi].append((txi,tpos))
+            txi += 1
+
+        si = 0
+
+        # get first batch
+        Xb, _, _, Nb = batcher.next()
+
+        while Xb is not None:
+            # update feed dict
+            fd[self.inputs] = Xb
+
+            # compute predictions
+            preds_batch = sess.run(self.preds_op, feed_dict=fd)
+
+            # filter for specific targets
+            if target_indexes is not None:
+                preds_batch = preds_batch[:,:,target_indexes]
+
+            # for each sequence in the batch
+            for pi in range(Nb):
+                # for each transcript in the sequence
+                for txi, tpos in sequence_transcripts[si+pi]:
+                    ppos = tpos - self.batch_buffer//self.target_pool
+                    transcript_preds[txi,:] = preds_batch[pi,ppos,:]
+
+                    bin_chrom, seq_start, _ = seq_coords[si+pi]
+                    bin_start = seq_start + self.batch_buffer + self.target_pool*ppos
+                    bin_end = bin_start + self.target_pool
+                    print('%s %s %s %s' % (transcripts[txi], bin_chrom, bin_start, bin_end))
+
+            # update sequence index
+            si += Nb
+
+            # next batch
+            Xb, _, _, Nb = batcher.next()
+
+        # reset batcher
+        batcher.reset()
+
+        return transcript_preds
 
 
     def set_params(self, job):

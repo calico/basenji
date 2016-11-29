@@ -27,7 +27,7 @@ def main():
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
     parser.add_option('-i', dest='ignore_bed', help='Ignore genes overlapping regions in this BED file')
     parser.add_option('-o', dest='out_dir', default='genes_out', help='Output directory for tables and plots [Default: %default]')
-    parser.add_option('-t', dest='target_indexes', help='Comma-separated list of target indexes to scatter plot true versus predicted values')
+    parser.add_option('-t', dest='target_indexes', default=None, help='Comma-separated list of target indexes to scatter plot true versus predicted values')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -39,6 +39,9 @@ def main():
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
+
+    if options.target_indexes is not None:
+        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
 
     #################################################################
     # reads in genes HDF5
@@ -94,10 +97,8 @@ def main():
 
     job['batch_length'] = seqs_1hot.shape[1]
     job['seq_depth'] = seqs_1hot.shape[2]
-
-    if 'num_targets' not in job:
-        print("Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.", file=sys.stderr)
-        exit(1)
+    job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
+    job['num_targets'] = transcript_targets.shape[1]
 
     # build model
     dr = basenji.rnn.RNN()
@@ -127,7 +128,11 @@ def main():
         saver.restore(sess, model_file)
 
         # predict
-        transcript_preds = dr.predict_genes(sess, batcher, transcript_map)
+        transcript_preds = dr.predict_genes(sess, batcher, transcript_map, options.target_indexes)
+
+        # dr. predict_genes_bigwig(sess, batcher, seq_coords, options.out_dir, '%s/assembly/human.hg19.ml.genome'%os.environ['HG19'], [1471])
+        # transcript_preds = dr.predict_genes_coords(sess, batcher, transcript_map, seq_coords)
+
 
     print(' Done')
     sys.stdout.flush()
@@ -137,21 +142,21 @@ def main():
     # print and plot
 
     if options.target_indexes is None:
-        options.target_indexes = range(transcript_preds.shape[1])
-    else:
-        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
+        target_indexes = range(transcript_preds.shape[1])
 
     table_out = open('%s/table.txt' % options.out_dir, 'w')
-    for ti in options.target_indexes:
+    for tii in range(len(target_indexes)):
+        ti = target_indexes[tii]
+
         # plot scatter
         out_pdf = '%s/t%d.pdf' % (options.out_dir, ti)
-        basenji.plots.jointplot(transcript_targets[:,ti], transcript_preds[:,ti], out_pdf)
+        basenji.plots.jointplot(transcript_targets[:,ti], transcript_preds[:,tii], out_pdf)
 
         # print table lines
         tx_i = 0
         for transcript in transcript_map:
             # print transcript line
-            cols = (transcript, transcript_targets[tx_i,ti], transcript_preds[tx_i,ti], ti, target_labels[ti])
+            cols = (transcript, transcript_targets[tx_i,ti], transcript_preds[tx_i,tii], ti, target_labels[ti])
             print('%-20s  %.3f  %.3f  %4d  %20s' % cols, file=table_out)
             tx_i += 1
 

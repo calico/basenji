@@ -3,6 +3,7 @@ import sys
 import time
 
 import numpy as np
+import pyBigWig
 
 from sklearn.metrics import r2_score
 import tensorflow as tf
@@ -325,7 +326,7 @@ class RNN:
             exit(1)
 
         # clip gradients
-        self.gvs = self.opt.compute_gradients(self.loss_op)
+        self.gvs = self.opt.compute_gradients(self.loss_op, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N)
         if self.grad_clip is None:
             clip_gvs =  self.gvs
         else:
@@ -576,7 +577,7 @@ class RNN:
             target_indexes = range(self.num_targets)
 
         # initialize bigwig files
-        if bigwig_genome is not None:
+        if genome_file is not None:
             target_bigwigs = []
             for ti in target_indexes:
                 tbw_file = '%s/t%d.bw' % (out_dir,ti)
@@ -602,20 +603,21 @@ class RNN:
             # compute predictions
             preds_batch = sess.run(self.preds_op, feed_dict=fd)
 
-            # filter for specific targets
-            preds_batch = preds_batch[:,:,target_indexes]
-
             # print to bigwig
-            for ti in target_indexes:
+            for tii in range(len(target_indexes)):
                 for pi in range(Nb):
-                    seq_chrom, seq_start = seq_end = seq_coords[si+pi]
+                    seq_chrom, seq_start, seq_end = seq_coords[si+pi]
 
                     pred_chroms = [seq_chrom]*preds_batch.shape[1]
                     pred_starts = np.arange(self.batch_buffer, self.batch_length-self.batch_buffer, self.target_pool) + seq_start
                     pred_ends = pred_starts + self.target_pool
-                    pred_values = [float(preds_batch[pi,li,ti]) for li in preds_batch.shape[1]]
+                    pred_values = [float(preds_batch[pi,li,target_indexes[tii]]) for li in range(preds_batch.shape[1])]
 
-                    target_bigwigs[ti].addEntries(pred_chroms, list(pred_starts), ends=list(pred_ends), values=pred_values)
+                    # convert to pybigwig-friendly
+                    pred_starts = [int(ps) for ps in pred_starts]
+                    pred_ends = [int(pe) for pe in pred_ends]
+
+                    target_bigwigs[tii].addEntries(pred_chroms, pred_starts, pred_ends, values=pred_values)
 
             # update sequence index
             si += Nb
@@ -627,10 +629,8 @@ class RNN:
         batcher.reset()
 
         # close bigwig files
-        for ti in target_indexes:
-            target_bigwigs[ti].close()
-
-        return transcript_preds
+        for tii in range(len(target_indexes)):
+            target_bigwigs[tii].close()
 
 
     def set_params(self, job):

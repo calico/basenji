@@ -8,6 +8,7 @@ import tempfile
 
 import h5py
 import numpy as np
+from scipy.stats import pearsonr, spearmanr
 import tensorflow as tf
 
 import basenji
@@ -39,9 +40,6 @@ def main():
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
-
-    if options.target_indexes is not None:
-        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
 
     #################################################################
     # reads in genes HDF5
@@ -128,7 +126,7 @@ def main():
         saver.restore(sess, model_file)
 
         # predict
-        transcript_preds = dr.predict_genes(sess, batcher, transcript_map, options.target_indexes)
+        transcript_preds = dr.predict_genes(sess, batcher, transcript_map)
 
         # dr. predict_genes_bigwig(sess, batcher, seq_coords, options.out_dir, '%s/assembly/human.hg19.ml.genome'%os.environ['HG19'], [1471])
         # transcript_preds = dr.predict_genes_coords(sess, batcher, transcript_map, seq_coords)
@@ -139,24 +137,48 @@ def main():
 
 
     #################################################################
-    # print and plot
+    # summary statistics
+
+    table_out = open('%s/summary_table.txt' % options.out_dir, 'w')
+
+    for ti in range(transcript_targets.shape[1]):
+        tt = transcript_targets[:,ti]
+        tp = transcript_preds[:,ti]
+        scor, _ = spearmanr(tt, tp)
+        pcor, _ = pearsonr(np.log2(tt+1), np.log2(tp+1))
+        cols = (ti, scor, pcor, target_labels[ti])
+        print('%-4d  %7.3f  %7.3f  %s', file=table_out)
+
+    table_out.close()
+
+
+    #################################################################
+    # gene statistics
 
     if options.target_indexes is None:
+        options.target_indexes = []
+    elif options.target_indexes == 'all':
         options.target_indexes = range(transcript_targets.shape[1])
+    else:
+        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
 
-    table_out = open('%s/table.txt' % options.out_dir, 'w')
-    for tii in range(len(options.target_indexes)):
-        ti = options.target_indexes[tii]
+    table_out = open('%s/transcript_table.txt' % options.out_dir, 'w')
+
+    for ti in options.target_indexes:
+        tti = transcript_targets[:,ti]
+        tpi = transcript_preds[:,ti]
 
         # plot scatter
         out_pdf = '%s/t%d.pdf' % (options.out_dir, ti)
-        basenji.plots.jointplot(transcript_targets[:,ti], transcript_preds[:,tii], out_pdf)
+        ttir = np.random.choice(tti, 2000)
+        ttip = np.random.choice(tpi, 2000)
+        basenji.plots.jointplot(ttir, tpir, out_pdf)
 
         # print table lines
         tx_i = 0
         for transcript in transcript_map:
             # print transcript line
-            cols = (transcript, transcript_targets[tx_i,ti], transcript_preds[tx_i,tii], ti, target_labels[ti])
+            cols = (transcript, tti[tx_i], tpi[tx_i], ti, target_labels[ti])
             print('%-20s  %.3f  %.3f  %4d  %20s' % cols, file=table_out)
             tx_i += 1
 

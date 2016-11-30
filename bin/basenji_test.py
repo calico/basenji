@@ -12,14 +12,16 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pyBigWig
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, poisson
 import seaborn as sns
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
 import basenji
+import fdr
 
 ################################################################################
 # basenji_test.py
@@ -130,6 +132,7 @@ def main():
         # print
         print('Test loss: %7.5f' % test_loss)
         print('Test R2:   %7.5f' % test_r2_list.mean())
+        sys.stdout.flush()
 
         r2_out = open('%s/r2.txt' % options.out_dir, 'w')
         for ti in range(len(test_r2_list)):
@@ -148,6 +151,8 @@ def main():
 
     #######################################################
     # visualizations
+
+    # NOTE: THESE ASSUME THERE WAS NO DOWN-SAMPLING ABOVE
 
     # print bigwig tracks for visualization
     if options.track_bed:
@@ -191,9 +196,9 @@ def main():
         if not os.path.isdir('%s/scatter' % options.out_dir):
             os.mkdir('%s/scatter' % options.out_dir)
 
-        '''
-        pli = test_preds.shape[1] // 2
-        tli = pli + dr.batch_buffer // dr.target_pool
+        # TEMP?
+        if not os.path.isdir('%s/boxplots' % options.out_dir):
+            os.mkdir('%s/boxplots' % options.out_dir)
 
         for ti in scatter_indexes:
             if options.scent_file is not None:
@@ -201,46 +206,33 @@ def main():
             else:
                 test_targets_ti = test_targets[:,:,ti]
 
-            out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
-            jointplot(test_targets_ti[:,tli], test_preds[:,pli,ti], out_pdf)
-
-            scatter_out = open('%s/scatter/t%d.txt' % (options.out_dir,ti), 'w')
-            for si in range(test_preds.shape[0]):
-                print(test_targets_ti[si,tli], test_preds[si,pli,ti], file=scatter_out)
-            scatter_out.close()
-        '''
-
-        '''
-        for pli in range(test_preds.shape[1]):
-            if pli % 50 == 0:
-                tli = pli + dr.batch_buffer // dr.target_pool
-
-                for ti in scatter_indexes:
-                    if options.scent_file is not None:
-                        test_targets_ti = test_targets_full[:,:,ti]
-                    else:
-                        test_targets_ti = test_targets[:,:,ti]
-
-                    out_pdf = '%s/scatter/t%d_l%d.pdf' % (options.out_dir,ti,pli)
-                    # jointplot(test_targets_ti[:,tli], test_preds[:,pli,ti], out_pdf)
-                    basenji.plots.jointplot(np.log2(test_targets_ti[:,tli]+1), np.log2(test_preds[:,pli,ti]+1), out_pdf)
-        '''
-
-        for ti in scatter_indexes:
-            if options.scent_file is not None:
-                test_targets_ti = test_targets_full[:,:,ti]
-            else:
-                test_targets_ti = test_targets[:,:,ti]
-
-            # sample very 8 bins
-            print(test_targets_ti.shape)
-            print(test_preds.shape)
+            # sample every 8 bins
             ds_indexes = np.arange(0, test_targets_ti.shape[1], 8)
+
+            # subset and flatten
             test_targets_ti_flat = test_targets_ti[:,ds_indexes].flatten()
             test_preds_ti_flat = test_preds[:,ds_indexes,ti].flatten()
 
+            # plot log2
             out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
-            basenji.plots.jointplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat))
+            basenji.plots.jointplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat+1), out_pdf)
+
+
+            ############################################
+            # TEMP?
+
+            # call peaks
+            test_targets_ti_lambda = np.mean(test_targets_ti_flat)
+            test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
+            test_targets_qvals = fdr.ben_hoch(test_targets_pvals)
+            test_targets_peaks = test_targets_qvals < 0.05
+
+            # boxplot
+            plt.figure()
+            df = pd.DataFrame({'Prediction':test_targets_preds_ti, 'Peak':test_targets_peaks})
+            sns.boxplot(x='peaks', y='preds', data=df)
+            plt.savefig('%s/boxplots/t%d.pdf' % (options.out_dir,ti))
+            plt.close()
 
 
     data_open.close()

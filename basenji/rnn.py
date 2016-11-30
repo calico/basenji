@@ -354,9 +354,9 @@ class RNN:
         self.step = 0
 
 
-    def drop_rate(self):
+    def drop_rate(self, drop_mult=0.5):
         ''' Drop the optimizer learning rate. '''
-        self.opt._lr *= 2/3
+        self.opt._lr *= drop_mult
 
 
     def hidden(self, sess, batcher, layers=None):

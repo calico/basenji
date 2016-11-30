@@ -25,6 +25,7 @@ def main():
     usage = 'usage: %prog [options] <data_file>'
     parser = OptionParser(usage)
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
+    parser.add_option('-l', dest='learn_rate_drop', default=False, action='store_true', help='Drop learning rate when training loss stalls [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
@@ -143,7 +144,7 @@ def main():
                 best_str = ''
                 if best_loss is None or valid_loss < best_loss:
                     best_loss = valid_loss
-                    best_str = 'best!'
+                    best_str = ', best!'
                     early_stop_i = 0
                     saver.save(sess, '%s_best.tf' % options.save_prefix)
                 else:
@@ -159,13 +160,15 @@ def main():
                     time_str = '%3.1fh' % (et/3600)
 
                 # print update
-                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str))
-                sys.stdout.flush()
+                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str), end='')
 
                 # if training stagnant
-                # if train_loss_last is not None and train_loss > train_loss_last:
-                #     print(' Dropping the learning rate.')
-                #     dr.drop_rate()
+                if options.learn_rate_drop and train_loss_last is not None and (train_loss_last - train_loss)/train_loss_last < 0.001:
+                    print(', rate drop')
+                    dr.drop_rate(2/3)
+
+                print('')
+                sys.stdout.flush()
 
         if options.summary is not None:
             train_writer.close()

@@ -8,24 +8,29 @@ from scipy.stats import spearmanr
 import seaborn as sns
 sns.set(style="ticks")
 
-def jointplot(vals1, vals2, out_pdf):
+def jointplot(vals1, vals2, out_pdf, alpha=0.5):
     plt.figure()
-    g = sns.jointplot(vals1, vals2, alpha=0.5, color='black', stat_func=spearmanr)
-    # g = sns.jointplot(vals1, vals2, color='black', kind='reg', stat_func=spearmanr)
+
+    g = sns.jointplot(vals1, vals2, alpha=alpha, color='black', stat_func=spearmanr)
+
     ax = g.ax_joint
     vmin, vmax = scatter_lims(vals1, vals2)
     ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')
+
     ax.set_xlim(vmin,vmax)
-    ax.set_xlabel('True')
+    ax.set_xlabel('Experiment')
     ax.set_ylim(vmin,vmax)
-    ax.set_ylabel('Pred')
+    ax.set_ylabel('Prediction')
+
     ax.grid(True, linestyle=':')
+
     plt.tight_layout(w_pad=0, h_pad=0)
+
     plt.savefig(out_pdf)
     plt.close()
 
 
-def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5):
+def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, x_label=None, y_label=None):
     plt.figure(figsize=(6,6))
 
     # g = sns.jointplot(vals1, vals2, alpha=0.5, color='black', stat_func=spearmanr)
@@ -35,9 +40,11 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5):
     # ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')
 
     ax.set_xlim(vmin,vmax)
-    ax.set_xlabel('True')
+    if x_label is not None:
+        ax.set_xlabel(x_label)
     ax.set_ylim(vmin,vmax)
-    ax.set_ylabel('Pred')
+    if y_label is not None:
+        ax.set_ylabel(y_label)
 
     scor, _ = spearmanr(vals1, vals2)
     lim_eps = (vmax-vmin) * .02

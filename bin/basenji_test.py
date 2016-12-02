@@ -230,7 +230,7 @@ def main():
             test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
             test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
             test_targets_peaks = test_targets_qvals < 0.05
-            test_targets_peaks_str = np.where(test_targets_peak, 'Peak', 'Background')
+            test_targets_peaks_str = np.where(test_targets_peaks, 'Peak', 'Background')
 
             # violin plot
             plt.figure()

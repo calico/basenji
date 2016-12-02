@@ -38,12 +38,12 @@ import fdr
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
     parser = OptionParser(usage)
+    parser.add_option('--ai', dest='accuracy_indexes', help='Comma-separated list of target indexes to make accuracy plotes comparing true versus predicted values')
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome length information [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
-    parser.add_option('--si', dest='scatter_indexes', help='Comma-separated list of target indexes to scatter plot true versus predicted values')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
@@ -150,7 +150,7 @@ def main():
             compute_peak_accuracy(sess, dr, data_open, options.peaks_hdf5, options.out_dir, options.down_sample, options.pool_width, options.scent_file)
 
     #######################################################
-    # visualizations
+    # BigWig tracks
 
     # NOTE: THESE ASSUME THERE WAS NO DOWN-SAMPLING ABOVE
 
@@ -189,49 +189,55 @@ def main():
         bigwig_write(bw_file, test_na, options.track_bed, options.genome_file, bed_set=bed_set)
 
 
-    # scatter plots
-    if options.scatter_indexes is not None:
-        scatter_indexes = [int(ti) for ti in options.scatter_indexes.split(',')]
+    #######################################################
+    # accuracy plots
+
+    if options.accuracy_indexes is not None:
+        accuracy_indexes = [int(ti) for ti in options.accuracy_indexes.split(',')]
 
         if not os.path.isdir('%s/scatter' % options.out_dir):
             os.mkdir('%s/scatter' % options.out_dir)
 
-        # TEMP?
-        if not os.path.isdir('%s/boxplots' % options.out_dir):
-            os.mkdir('%s/boxplots' % options.out_dir)
+        if not os.path.isdir('%s/violin' % options.out_dir):
+            os.mkdir('%s/violin' % options.out_dir)
 
-        for ti in scatter_indexes:
+        for ti in accuracy_indexes:
             if options.scent_file is not None:
                 test_targets_ti = test_targets_full[:,:,ti]
             else:
                 test_targets_ti = test_targets[:,:,ti]
 
+            ############################################
+            # scatter
+
             # sample every 8 bins
-            ds_indexes = np.arange(0, test_targets_ti.shape[1], 8)
+            ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
+            ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
 
             # subset and flatten
-            test_targets_ti_flat = test_targets_ti[:,ds_indexes].flatten()
-            test_preds_ti_flat = test_preds[:,ds_indexes,ti].flatten()
+            test_targets_ti_flat = test_targets_ti[:,ds_indexes_targets].flatten().astype('float32')
+            test_preds_ti_flat = test_preds[:,ds_indexes_preds,ti].flatten().astype('float32')
 
             # plot log2
             out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
-            basenji.plots.jointplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat+1), out_pdf)
-
+            basenji.plots.regplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat+1), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
 
             ############################################
-            # TEMP?
+            # violin
 
             # call peaks
             test_targets_ti_lambda = np.mean(test_targets_ti_flat)
             test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
-            test_targets_qvals = fdr.ben_hoch(test_targets_pvals)
+            test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
             test_targets_peaks = test_targets_qvals < 0.05
+            test_targets_peaks_str = np.where(test_targets_peak, 'Peak', 'Background')
 
-            # boxplot
+            # violin plot
             plt.figure()
-            df = pd.DataFrame({'Prediction':test_targets_preds_ti, 'Peak':test_targets_peaks})
-            sns.boxplot(x='peaks', y='preds', data=df)
-            plt.savefig('%s/boxplots/t%d.pdf' % (options.out_dir,ti))
+            df = pd.DataFrame({'log2 Prediction':np.log2(test_preds_ti_flat+1), 'Experimental coverage status':test_targets_peaks_str})
+            ax = sns.violinplot(x='Experimental coverage status', y='log2 Prediction', data=df)
+            ax.grid(True, linestyle=':')
+            plt.savefig('%s/violin/t%d.pdf' % (options.out_dir,ti))
             plt.close()
 
 

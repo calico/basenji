@@ -142,12 +142,12 @@ def main():
     table_out = open('%s/summary_table.txt' % options.out_dir, 'w')
 
     for ti in range(transcript_targets.shape[1]):
-        tt = transcript_targets[:,ti]
-        tp = transcript_preds[:,ti]
+        tti = transcript_targets[:,ti]
+        tpi = transcript_preds[:,ti]
         scor, _ = spearmanr(tt, tp)
-        pcor, _ = pearsonr(np.log2(tt+1), np.log2(tp+1))
+        pcor, _ = pearsonr(np.log2(tti+1), np.log2(tpi+1))
         cols = (ti, scor, pcor, target_labels[ti])
-        print('%-4d  %7.3f  %7.3f  %s', file=table_out)
+        print('%-4d  %7.3f  %7.3f  %s' % cols, file=table_out)
 
     table_out.close()
 
@@ -171,7 +171,7 @@ def main():
         # plot scatter
         out_pdf = '%s/t%d.pdf' % (options.out_dir, ti)
         ttir = np.random.choice(tti, 2000)
-        ttip = np.random.choice(tpi, 2000)
+        tpir = np.random.choice(tpi, 2000)
         basenji.plots.jointplot(ttir, tpir, out_pdf)
 
         # print table lines

@@ -24,6 +24,8 @@ class RNN:
         self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
         self.targets_na = tf.placeholder(tf.bool, shape=(self.batch_size, self.batch_length//self.target_pool))
 
+        print('Targets pooled by %d to length %d' % (self.target_pool, self.batch_length//self.target_pool))
+
         # dropout rates
         self.cnn_dropout_ph = []
         for li in range(self.cnn_layers):
@@ -63,17 +65,9 @@ class RNN:
                 conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
 
                 # batch normalization
-                # cinput = tf.contrib.layers.batch_norm(conv, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
-
-                # batch normalization (poor test performance)
                 cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
 
-                # batch normalization (poor test performance)
-                # cinput = tf.cond(self.is_training,
-                #             lambda: tf.contrib.layers.batch_norm(conv, is_training=True, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs),
-                #             lambda: tf.contrib.layers.batch_norm(conv, is_training=False, center=True, scale=True, activation_fn=tf.nn.relu, updates_collections=None, scope=vs, reuse=True))
-
-                # nonlinearity
+                # nonlinearity (w/o batch norm)
                 # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
 
                 # pooling
@@ -432,6 +426,7 @@ class RNN:
             num_targets = len(target_indexes)
 
         preds = np.zeros((batcher.num_seqs, buf_len, num_targets), dtype='float16')
+        print('Predicting sequences', preds.shape, flush=True)
 
         si = 0
 

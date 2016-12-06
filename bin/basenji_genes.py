@@ -247,7 +247,7 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
         try:
             transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
         except RuntimeError:
-            if chrom not in warned_chroms:
+            if seq_chrom not in warned_chroms:
                 print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,transcript,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
                 warned_chroms.add(chrom)
 

@@ -70,7 +70,7 @@ def main():
     ################################################################
     # determine segments / map transcripts
 
-    chrom_sizes = {}
+    chrom_sizes = OrderedDict()
     for line in open(options.genome_file):
         a = line.split()
         chrom_sizes[a[0]] = int(a[1])
@@ -80,40 +80,44 @@ def main():
     seq_coords = []
     transcript_map = OrderedDict()
 
-    for chrom in chrom_tss:
-        ctss = chrom_tss[chrom]
+    # ordering by options.genome_file allows for easier
+    #  bigwig output in downstream scripts.
 
-        left_i = 0
-        while left_i < len(ctss):
-            # left TSS
-            left_tss = ctss[left_i][0]
+    for chrom in chrom_sizes:
+        if chrom in chrom_tss:
+            ctss = chrom_tss[chrom]
 
-            # right TSS
-            right_i = left_i
-            while right_i+1 < len(ctss) and ctss[right_i+1][0] - left_tss < merge_distance:
-                right_i += 1
-            right_tss = ctss[right_i][0]
+            left_i = 0
+            while left_i < len(ctss):
+                # left TSS
+                left_tss = ctss[left_i][0]
 
-            # determine segment midpoint
-            seg_mid = (left_tss + right_tss) // 2
+                # right TSS
+                right_i = left_i
+                while right_i+1 < len(ctss) and ctss[right_i+1][0] - left_tss < merge_distance:
+                    right_i += 1
+                right_tss = ctss[right_i][0]
 
-            # extend
-            seg_start = seg_mid - options.seq_length//2
-            seg_end = seg_start + options.seq_length
+                # determine segment midpoint
+                seg_mid = (left_tss + right_tss) // 2
 
-            # save segment
-            if seg_start >= 0 and seg_end < chrom_sizes[chrom]:
-                seq_coords.append((chrom,seg_start,seg_end))
+                # extend
+                seg_start = seg_mid - options.seq_length//2
+                seg_end = seg_start + options.seq_length
 
-                # annotate TSS to indexes
-                seg_index = len(seq_coords)-1
-                for i in range(left_i,right_i+1):
-                    tx_tss, tx_id = ctss[i]
-                    tx_pos = (tx_tss - seg_start) // options.pool_width
-                    transcript_map[tx_id] = (seg_index,tx_pos)
+                # save segment
+                if seg_start >= 0 and seg_end < chrom_sizes[chrom]:
+                    seq_coords.append((chrom,seg_start,seg_end))
 
-            # update
-            left_i = right_i + 1
+                    # annotate TSS to indexes
+                    seg_index = len(seq_coords)-1
+                    for i in range(left_i,right_i+1):
+                        tx_tss, tx_id = ctss[i]
+                        tx_pos = (tx_tss - seg_start) // options.pool_width
+                        transcript_map[tx_id] = (seg_index,tx_pos)
+
+                # update
+                left_i = right_i + 1
 
 
     ################################################################
@@ -217,8 +221,8 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
     # open wig
     wig_in = pyBigWig.open(wig_file)
 
-    # TEMP: transcript bin coordinates
-    txbin_out = open('transcript_bins.txt', 'w')
+    # so we can warn about missing chromosomes just once
+    warned_chroms = set()
 
     # for each transcript
     tx_i = 0
@@ -233,19 +237,15 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
         tx_start = seq_start + seq_pos*pool_width
         tx_end = tx_start + pool_width
 
-        # TEMP
-        print('%s\t%s\t%d\t%d' % (transcript, seq_chrom, tx_start, tx_end), file=txbin_out)
-
         # pull mean value
         try:
             transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
         except RuntimeError:
-            print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros." % (wig_file,transcript,seq_chrom,seq_start,seq_end))
+            if chrom not in warned_chroms:
+                print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,transcript,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
+                warned_chroms.add(chrom)
 
         tx_i += 1
-
-    # TEMP
-    txbin_out.close()
 
     # close wig file
     wig_in.close()

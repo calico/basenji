@@ -3,7 +3,6 @@ from optparse import OptionParser
 from collections import OrderedDict
 import multiprocessing
 import os
-import psutil
 import sys
 import time
 
@@ -52,6 +51,9 @@ def main():
 
     # read transcripts
     transcripts = basenji.gff.read_genes(gtf_file, key_id='transcript_id')
+
+    # read transcript --> gene mapping
+    transcript_genes = basenji.gff.t2g(gtf_file)
 
     # open fasta
     fasta = pysam.Fastafile(fasta_file)
@@ -176,6 +178,10 @@ def main():
     hdf5_out.create_dataset('transcripts', data=np.array(transcripts, dtype='S'))
     hdf5_out.create_dataset('transcript_index', data=transcript_index)
     hdf5_out.create_dataset('transcript_pos', data=transcript_pos)
+
+    # store genes
+    genes = [transcript_genes[tx_id] for tx_id in transcripts]
+    hdf5_out.create_dataset('genes', data=np.array(genes, dtype='S'))
 
     # store sequences
     hdf5_out.create_dataset('seqs_1hot', data=seqs_1hot, dtype='bool')

@@ -29,6 +29,30 @@ def gtf_kv(s):
 
 
 ################################################################################
+# t2g
+#
+# Given a gtf file, return a mapping of transcript to gene id's
+################################################################################
+def t2g(gtf_file):
+    d = {}
+
+    gtf_in = open(gtf_file)
+
+    # ignore header
+    line = gtf_in.readline()
+    while line[:2] == '##':
+        line = gtf_in.readline()
+
+    while line:
+        a = line.split('\t')
+        kv = gtf_kv(a[8])
+        d[kv['transcript_id']] = kv['gene_id']
+        line = gtf_in.readline()
+
+    return d
+
+
+################################################################################
 # read_genes
 #
 # Parse a gtf file and return a set of Gene objects in a hash keyed by the

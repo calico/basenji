@@ -207,7 +207,7 @@ def main():
 
                     if tx_index == seg_i:
                         # compute distance between SNP and gene
-                        tx_gpos = seq_coords[1] + (tx_pos + 0.5)*model.target_pool
+                        tx_gpos = seq_coords[seg_i][1] + (tx_pos + 0.5)*model.target_pool
                         snp_dist = abs(tx_gpos - snp.pos)
 
                         # compute transcript pos in predictions
@@ -216,14 +216,14 @@ def main():
                         for ti in range(job['num_targets']):
                             # compute SED score
                             snp_gene_sed = (alt_preds[tx_pos_buf,ti] - ref_preds[tx_pos_buf,ti])
-                            snp_gene_ser = np.divide(alt_preds[tx_pos_buf,ti]+1, ref_preds[tx_pos_buf,ti]+1)
+                            snp_gene_ser = np.log2(alt_preds[tx_pos_buf,ti]+1) - np.log2(ref_preds[tx_pos_buf,ti]+1)
 
                             # print to table
-                            cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, target_labels[ti], ref_preds[tx_pos_buf,ti], alt_preds[tx_pos_buf,ti], snp_gene_ser, snp_gene_sed)
+                            cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], ref_preds[tx_pos_buf,ti], alt_preds[tx_pos_buf,ti], snp_gene_ser, snp_gene_sed)
                             if options.csv:
                                 print(','.join([str(c) for c in cols]), file=sed_out)
                             else:
-                                print('%-13s %s %5s %6s %6s %12s %12s %6.4f %6.4f %7.4f' % cols, file=sed_out)
+                                print('%-13s %s %5s %6s %6s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % cols, file=sed_out)
 
                 # print tracks
                 for ti in options.track_indexes:

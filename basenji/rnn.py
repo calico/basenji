@@ -448,7 +448,6 @@ class RNN:
             num_targets = len(target_indexes)
 
         preds = np.zeros((batcher.num_seqs, buf_len, num_targets), dtype='float16')
-        print('Predicting sequences', preds.shape, flush=True)
 
         si = 0
 

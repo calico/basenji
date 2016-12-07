@@ -8,6 +8,8 @@ import pyBigWig
 from sklearn.metrics import r2_score
 import tensorflow as tf
 
+from basenji.dna_io import hot1_rc
+
 class RNN:
     def __init__(self):
         pass
@@ -286,6 +288,9 @@ class RNN:
         tend = (self.batch_length - self.batch_buffer) // self.target_pool
         self.targets_op = self.targets[:,tstart:tend,:]
 
+        # work-around for specifying my own predictions
+        self.preds_adhoc = tf.placeholder(tf.float32, shape=self.preds_op.get_shape())
+
         if self.target_space == 'integer':
             # move negatives into exponential space and align positives
             #  clipping the negatives prevents overflow that TF dislikes
@@ -294,6 +299,10 @@ class RNN:
             # Poisson loss
             self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=True)
             self.loss_op = tf.reduce_mean(self.loss_op)
+
+            # work-around for computing loss from my own predictions
+            self.loss_adhoc = tf.nn.log_poisson_loss(tf.log(self.preds_adhoc), self.targets_op, compute_full_loss=True)
+            self.loss_adhoc = tf.reduce_mean(self.loss_adhoc)
 
         else:
             # clip targets
@@ -308,6 +317,9 @@ class RNN:
 
             # take the mean
             self.loss_op = tf.reduce_mean(sq_diff, name='r2_loss') + norm_stabilizer
+
+            # work-around for computing loss from my own predictions
+            self.loss_adhoc = tf.reduce_mean(tf.squared_difference(self.preds_adhoc, self.targets_op)) + norm_stabilizer
 
         # track
         tf.scalar_summary('loss', self.loss_op)
@@ -403,8 +415,18 @@ class RNN:
         return layer_reprs, preds
 
 
-    def predict(self, sess, batcher, target_indexes=None):
-        ''' Compute predictions on a test set. '''
+    def predict(self, sess, batcher, rc_avg=False, target_indexes=None):
+        ''' Compute predictions on a test set.
+
+        In
+         sess: TensorFlow session
+         batcher: Batcher class with transcript-covering sequences
+         rc_avg: Average predictions from the forward and reverse complement sequences
+         target_indexes: Optional target subset list
+
+        Out
+         preds: S (sequences) x L (unbuffered length) x T (targets) array
+        '''
 
         # setup feed dict for dropout
         fd = {self.is_training:False}
@@ -440,6 +462,15 @@ class RNN:
             # compute predictions
             preds_batch = sess.run(self.preds_op, feed_dict=fd)
 
+            if rc_avg:
+                # compute reverse complement prediction
+                fd[self.inputs] = hot1_rc(Xb)
+                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
+
+                # average with forward prediction
+                preds_batch += preds_batch_rc[:,::-1,:]
+                preds_batch /= 2
+
             # filter for specific targets
             if target_indexes is not None:
                 preds_batch = preds_batch[:,:,target_indexes]
@@ -458,21 +489,19 @@ class RNN:
 
         return preds
 
-    def predict_genes(self, sess, batcher, transcript_map, target_indexes=None):
+
+    def predict_genes(self, sess, batcher, transcript_map, rc_avg=False, target_indexes=None):
         ''' Compute predictions on a test set.
 
         In
          sess: TensorFlow session
          batcher: Batcher class with transcript-covering sequences
          transcript_map: OrderedDict mapping transcript id's to (sequence index, position) tuples marking TSSs.
+         rc_avg: Average predictions from the forward and reverse complement sequences
          target_indexes: Optional target subset list
 
         Out
          transcript_preds: G (gene transcripts) X T (targets) array
-
-        Notes
-         -transcript_map is gene -> sequences, whereas sequences -> genes would be
-          more useful here.
         '''
 
         # setup feed dict for dropout
@@ -514,6 +543,15 @@ class RNN:
             # compute predictions
             preds_batch = sess.run(self.preds_op, feed_dict=fd)
 
+            if rc_avg:
+                # compute reverse complement prediction
+                fd[self.inputs] = hot1_rc(Xb)
+                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
+
+                # average with forward prediction
+                preds_batch += preds_batch_rc[:,::-1,:]
+                preds_batch /= 2
+
             # filter for specific targets
             if target_indexes is not None:
                 preds_batch = preds_batch[:,:,target_indexes]
@@ -538,89 +576,6 @@ class RNN:
         batcher.reset()
 
         return transcript_preds
-
-
-    def predict_genes_bigwig(self, sess, batcher, seq_coords, out_dir, genome_file, target_indexes=None):
-        ''' Compute predictions and print to BigWig files. Mainly for debugging.
-
-        In
-         sess: TensorFlow session
-         batcher: Batcher class with transcript-covering sequences
-         genome_file: Chromosome lengths file
-         out_dir: Output directory to write predictions to.
-         target_indexes: Optional target subset list
-        '''
-
-        # setup feed dict for dropout
-        fd = {self.is_training:False}
-        for li in range(self.cnn_layers):
-            fd[self.cnn_dropout_ph[li]] = 0
-        for li in range(self.dcnn_layers):
-            fd[self.dcnn_dropout_ph[li]] = 0
-        for li in range(self.rnn_layers):
-            fd[self.rnn_dropout_ph[li]] = 0
-
-        # specify target_indexes
-        if target_indexes is None:
-            target_indexes = range(self.num_targets)
-
-        # initialize bigwig files
-        if genome_file is not None:
-            target_bigwigs = []
-            for ti in target_indexes:
-                tbw_file = '%s/t%d.bw' % (out_dir,ti)
-                tbw_out = pyBigWig.open(tbw_file, 'w')
-
-                chrom_sizes = []
-                for line in open(genome_file):
-                    a = line.split()
-                    chrom_sizes.append((a[0],int(a[1])))
-                tbw_out.addHeader(chrom_sizes)
-
-                target_bigwigs.append(tbw_out)
-
-        si = 0
-
-        # get first batch
-        Xb, _, _, Nb = batcher.next()
-
-        while Xb is not None:
-            # update feed dict
-            fd[self.inputs] = Xb
-
-            # compute predictions
-            preds_batch = sess.run(self.preds_op, feed_dict=fd)
-
-            # print to bigwig
-            for tii in range(len(target_indexes)):
-                for pi in range(Nb):
-                    seq_chrom, seq_start, seq_end = seq_coords[si+pi]
-
-                    pred_chroms = [seq_chrom]*preds_batch.shape[1]
-                    pred_starts = np.arange(self.batch_buffer, self.batch_length-self.batch_buffer, self.target_pool) + seq_start
-                    pred_ends = pred_starts + self.target_pool
-                    pred_values = [float(preds_batch[pi,li,target_indexes[tii]]) for li in range(preds_batch.shape[1])]
-
-                    # convert to pybigwig-friendly
-                    pred_starts = [int(ps) for ps in pred_starts]
-                    pred_ends = [int(pe) for pe in pred_ends]
-
-                    assert(len(pred_chroms)==len(pred_starts))
-
-                    target_bigwigs[tii].addEntries(pred_chroms, pred_starts, pred_ends, values=pred_values)
-
-            # update sequence index
-            si += Nb
-
-            # next batch
-            Xb, _, _, Nb = batcher.next()
-
-        # reset batcher
-        batcher.reset()
-
-        # close bigwig files
-        for tii in range(len(target_indexes)):
-            target_bigwigs[tii].close()
 
 
     def set_params(self, job):
@@ -690,8 +645,6 @@ class RNN:
         self.rnn_dropout = layer_extend(job.get('rnn_dropout', []), 0, self.rnn_layers)
         self.norm_stabilizer = layer_extend(job.get('norm_stabilizer', []), 0, self.rnn_layers)
 
-        # batch normalization?
-
         ###################################################
         # loss
         ###################################################
@@ -706,12 +659,13 @@ class RNN:
         self.save_reprs = job.get('save_reprs', False)
 
 
-    def test(self, sess, batcher, return_preds=False, down_sample=1):
+    def test(self, sess, batcher, rc_avg=False, return_preds=False, down_sample=1):
         ''' Compute model accuracy on a test set.
 
         Args:
           sess:         TensorFlow session
           batcher:      Batcher object to provide data
+          rc_avg:       Average predictions from the forward and reverse complement sequences
           return_preds: Bool indicating whether to return predictions
           down_sample:  Int specifying to consider uniformly spaced sampled positions
 
@@ -758,15 +712,22 @@ class RNN:
             # measure batch loss
             preds_batch, targets_batch, loss_batch = sess.run([self.preds_op, self.targets_op, self.loss_op], feed_dict=fd)
 
+            if rc_avg:
+                # compute reverse complement prediction
+                fd[self.inputs] = hot1_rc(Xb)
+                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
+
+                # average with forward prediction
+                preds_batch += preds_batch_rc[:,::-1,:]
+                preds_batch /= 2
+                fd[self.preds_adhoc] = preds_batch
+                loss_batch = sess.run(self.loss_adhoc, feed_dict=fd)
+
             # accumulate predictions and targets
             preds[si:si+Nb,:,:] = preds_batch[:Nb,ds_indexes,:]
             targets[si:si+Nb,:,:] = targets_batch[:Nb,ds_indexes,:]
-            # targets[si:si+Nb,:,:] = Yb[:Nb,buf_start+ds_indexes,:]
-            # targets_na[si:si+Nb,:] = NAb[:Nb,buf_start+ds_indexes]
 
             # accumulate loss
-            # avail_sum = np.logical_not(targets_na[si:si+Nb,:]).sum()
-            # batch_losses.append(loss_batch / avail_sum)
             batch_losses.append(loss_batch)
 
             # update sequence index
@@ -861,6 +822,7 @@ def layer_extend(var, default, layers):
         var.append(default)
 
     return var
+
 
 ###################################################################################################
 # TensorFlow adjustments

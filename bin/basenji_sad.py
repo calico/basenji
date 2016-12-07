@@ -35,6 +35,7 @@ def main():
     parser.add_option('-l', dest='seq_len', type='int', default=1024, help='Sequence length provided to the model [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.1, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sad', help='Output directory for tables and plots [Default: %default]')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('-t', dest='targets_file', default=None, help='File specifying target indexes and labels in table format')
     (options,args) = parser.parse_args()
@@ -120,7 +121,7 @@ def main():
             batcher = basenji.batcher.Batcher(batch_1hot, batch_size=dr.batch_size)
 
             # predict
-            batch_preds = dr.predict(sess, batcher)
+            batch_preds = dr.predict(sess, batcher, rc_avg=options.rc)
 
             ###################################################
             # collect and print SADs

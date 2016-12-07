@@ -43,6 +43,7 @@ def main():
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome length information [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
@@ -126,7 +127,7 @@ def main():
 
         # test
         t0 = time.time()
-        test_loss, test_r2_list, test_preds = dr.test(sess, batcher_test, return_preds=True, down_sample=options.down_sample)
+        test_loss, test_r2_list, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
         print('RNN test: %ds' % (time.time()-t0))
 
         # print

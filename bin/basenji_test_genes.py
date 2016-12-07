@@ -70,6 +70,11 @@ def main():
     for ti in range(len(transcripts)):
         transcript_map[transcripts[ti]] = (transcript_index[ti], transcript_pos[ti])
 
+    genes = [gid.decode('UTF-8') for gid in genes_hdf5_in['genes']]
+    t2g = {}
+    for tx_id in transcripts:
+
+
     transcript_targets = genes_hdf5_in['transcript_targets']
 
     target_labels = [tl.decode('UTF-8') for tl in genes_hdf5_in['target_labels']]

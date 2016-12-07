@@ -29,6 +29,7 @@ def main():
     parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='save_prefix', default='houndrnn')
     parser.add_option('--seed', dest='seed', type='float', default=1, help='RNG seed')
     parser.add_option('-u', dest='summary', default=None, help='TensorBoard summary directory')
@@ -138,7 +139,7 @@ def main():
                 train_loss = dr.train_epoch(sess, batcher_train, train_writer)
 
                 # validate
-                valid_loss, valid_r2_list = dr.test(sess, batcher_valid, down_sample=options.down_sample)
+                valid_loss, valid_r2_list = dr.test(sess, batcher_valid, rc_avg=options.rc, down_sample=options.down_sample)
                 valid_r2 = valid_r2_list.mean()
 
                 best_str = ''

@@ -347,8 +347,7 @@ class Pred_Stream:
             batcher = basenji.batcher.Batcher(stream_seqs_1hot, batch_size=self.model.batch_size)
 
             # predict
-            self.stream_preds = self.model.predict(self.sess, batcher)
-            # print('Acquired predictions ', self.stream_preds.shape, flush=True)
+            self.stream_preds = self.model.predict(self.sess, batcher, rc_avg=False)
 
         return self.stream_preds[i - self.stream_start]
 

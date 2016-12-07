@@ -114,6 +114,22 @@ def hot1_dna(seqs_1hot):
 
     return seqs
 
+
+def hot1_rc(seqs_1hot):
+    ''' Reverse complement a batch of one hot coded sequences '''
+
+    # reverse
+    seqs_1hot = seqs_1hot[:,::-1,:]
+
+    # swap A and T
+    seqs_1hot[:,:,[0,3]] = seqs_1hot[:,:,[3,0]]
+
+    # swap C and G
+    seqs_1hot[:,:,[1,2]] = seqs_1hot[:,:,[2,1]]
+
+    return seqs_1hot
+
+
 def hot1_set(seqs_1hot, pos, nt):
     # reset
     seqs_1hot[pos,:] = 0

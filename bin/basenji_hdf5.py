@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 from optparse import OptionParser
 from collections import OrderedDict
-import joblib
 import math
 import multiprocessing
 import os
@@ -12,6 +11,7 @@ import tempfile
 import time
 
 import h5py
+import joblib
 import numpy as np
 import pyBigWig
 import pysam

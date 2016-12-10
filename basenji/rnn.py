@@ -275,7 +275,7 @@ class RNN:
             self.preds_op = tf.reshape(tf.tile(tf.reshape(self.preds_op, (-1,self.num_targets)), (1,pool_repeat)), (self.batch_size, tlength, self.num_targets))
 
         # print variables
-        for v in tf.all_variables():
+        for v in tf.global_variables():
             print(v.name, v.get_shape())
 
 

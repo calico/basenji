@@ -120,7 +120,8 @@ def main():
             # initialize variables
             print('Initializing...')
             sys.stdout.flush()
-            sess.run(tf.initialize_all_variables())
+            # sess.run(tf.initialize_all_variables())
+            sess.run(tf.global_variables_initializer())
             print("Initialization time %f" % (time.time()-t0))
             sys.stdout.flush()
 
@@ -165,7 +166,7 @@ def main():
 
                 # if training stagnant
                 if options.learn_rate_drop and train_loss_last is not None and (train_loss_last - train_loss)/train_loss_last < 0.001:
-                    print(', rate drop')
+                    print(', rate drop', end='')
                     dr.drop_rate(2/3)
 
                 print('')

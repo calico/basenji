@@ -140,7 +140,7 @@ def main():
                 train_loss = dr.train_epoch(sess, batcher_train, train_writer)
 
                 # validate
-                valid_loss, valid_r2_list = dr.test(sess, batcher_valid, rc_avg=options.rc, down_sample=options.down_sample)
+                valid_loss, valid_r2_list, _ = dr.test(sess, batcher_valid, rc_avg=options.rc, down_sample=options.down_sample)
                 valid_r2 = valid_r2_list.mean()
 
                 best_str = ''

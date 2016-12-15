@@ -127,17 +127,18 @@ def main():
 
         # test
         t0 = time.time()
-        test_loss, test_r2_list, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
+        test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
         print('RNN test: %ds' % (time.time()-t0))
 
         # print
-        print('Test loss: %7.5f' % test_loss)
-        print('Test R2:   %7.5f' % test_r2_list.mean())
+        print('Test Loss:      %7.5f' % test_loss)
+        print('Test R2:        %7.5f' % test_r2.mean())
+        print('Test SpearmanR: %7.5f' % test_cor.mean())
         sys.stdout.flush()
 
         r2_out = open('%s/r2.txt' % options.out_dir, 'w')
         for ti in range(len(test_r2_list)):
-            print('%4d  %.4f' % (ti,test_r2_list[ti]), file=r2_out)
+            print('%4d  %.4f' % (ti, test_r2_list[ti]), file=r2_out)
         r2_out.close()
 
         # if test targets are reconstructed, measure versus the truth

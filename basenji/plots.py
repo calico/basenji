@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr
 import seaborn as sns
-sns.set(style="ticks")
 
 def jointplot(vals1, vals2, out_pdf, alpha=0.5):
     plt.figure()
@@ -34,7 +33,8 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, x_label=None, y_labe
     plt.figure(figsize=(6,6))
 
     # g = sns.jointplot(vals1, vals2, alpha=0.5, color='black', stat_func=spearmanr)
-    ax = sns.regplot(vals1, vals2, color='black', order=poly_order, scatter_kws={'s':4, 'alpha':alpha})
+    gold = sns.color_palette('husl',8)[1]
+    ax = sns.regplot(vals1, vals2, color='black', order=poly_order, scatter_kws={'c':'black', 's':4, 'alpha':alpha}, line_kws={'c':gold})
 
     vmin, vmax = scatter_lims(vals1, vals2)
     # ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')

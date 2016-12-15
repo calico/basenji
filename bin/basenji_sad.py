@@ -27,7 +27,7 @@ import basenji.vcf
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
     parser = OptionParser(usage)
-    parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
+    parser.add_option('-b', dest='batch_size', default=256, type='int', help='Batch size [Default: %default]')
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-e', dest='heatmaps', default=False, action='store_true', help='Draw score heatmaps, grouped by index SNP [Default: %default]')
     parser.add_option('-f', dest='genome_fasta', default='%s/data/genomes/hg19.fa'%os.environ['BASSETDIR'], help='Genome FASTA from which sequences will be drawn [Default: %default]')
@@ -64,9 +64,6 @@ def main():
     dr = basenji.rnn.RNN()
     dr.build(job)
     print('Model building time %f' % (time.time()-t0))
-
-    if options.batch_size is not None:
-        dr.batch_size = options.batch_size
 
     # initialize saver
     saver = tf.train.Saver()
@@ -111,7 +108,7 @@ def main():
         saver.restore(sess, model_file)
 
         # construct first batch
-        batch_1hot, batch_snps, snp_i = snps_next_batch(snps, snp_i, dr.batch_size, options.seq_len, genome_open)
+        batch_1hot, batch_snps, snp_i = snps_next_batch(snps, snp_i, options.batch_size, options.seq_len, genome_open)
 
         while len(batch_snps) > 0:
             ###################################################
@@ -170,7 +167,7 @@ def main():
             ###################################################
             # construct next batch
 
-            batch_1hot, batch_snps, snp_i = snps_next_batch(snps, snp_i, dr.batch_size, options.seq_len, genome_open)
+            batch_1hot, batch_snps, snp_i = snps_next_batch(snps, snp_i, options.batch_size, options.seq_len, genome_open)
 
 
     sad_out.close()

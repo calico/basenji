@@ -220,6 +220,7 @@ def main():
             test_preds_ti_flat = test_preds[:,ds_indexes_preds,ti].flatten().astype('float32')
 
             # plot log2
+            sns.set(font_scale=1.2, style='ticks')
             out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
             basenji.plots.regplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat+1), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
 

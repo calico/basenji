@@ -137,8 +137,8 @@ def main():
         sys.stdout.flush()
 
         r2_out = open('%s/r2.txt' % options.out_dir, 'w')
-        for ti in range(len(test_r2_list)):
-            print('%4d  %.4f' % (ti, test_r2_list[ti]), file=r2_out)
+        for ti in range(len(test_r2)):
+            print('%4d  %.4f' % (ti, test_r2[ti]), file=r2_out)
         r2_out.close()
 
         # if test targets are reconstructed, measure versus the truth

@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 import pyBigWig
-
+from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 import tensorflow as tf
 
@@ -517,10 +517,26 @@ class RNN:
         if target_indexes is not None:
             num_targets = len(target_indexes)
 
-        # initialize target predictions
-        transcript_preds = np.zeros((len(transcript_map), num_targets), dtype='float16')
+        # initialize gene target predictions
+        num_genes = len(transcript_map)
+        gene_preds = np.zeros((num_genes, num_targets), dtype='float16')
 
         # construct an inverse map
+        sequence_pos_transcripts = []
+        txi = 0
+        for transcript in transcript_map:
+            si, pos = transcript_map[transcript]
+
+            # extend sequence list
+            while len(sequence_pos_transcripts) <= si:
+                sequence_pos_transcripts.append({})
+
+            # add gene to position set
+            sequence_pos_transcripts[si].setdefault(pos,set()).add(txi)
+
+            txi += 1
+
+        '''
         sequence_transcripts = []
         txi = 0
         for transcript in transcript_map:
@@ -529,6 +545,7 @@ class RNN:
                 sequence_transcripts.append([])
             sequence_transcripts[tsi].append((txi,tpos))
             txi += 1
+        '''
 
         si = 0
 
@@ -557,6 +574,7 @@ class RNN:
 
             # for each sequence in the batch
             for pi in range(Nb):
+                '''
                 # for each transcript in the sequence
                 for txi, tpos in sequence_transcripts[si+pi]:
                     # adjust for the buffer
@@ -564,6 +582,15 @@ class RNN:
 
                     # save transcript prediction
                     transcript_preds[txi,:] = preds_batch[pi,ppos,:]
+                '''
+
+                for tpos in sequence_pos_transcripts[si+pi]:
+                    for txi in sequence_pos_transcripts[si+pi][tpos]:
+                        # adjust for the buffer
+                        ppos = tpos - self.batch_buffer//self.target_pool
+
+                        # add prediction
+                        gene_preds[txi,:] += preds_batch[pi,ppos,:]
 
             # update sequence index
             si += Nb
@@ -574,7 +601,7 @@ class RNN:
         # reset batcher
         batcher.reset()
 
-        return transcript_preds
+        return gene_preds
 
 
     def set_params(self, job):
@@ -740,6 +767,7 @@ class RNN:
 
         # compute R2 per target
         r2 = np.zeros(self.num_targets)
+        cor = np.zeros(self.num_targets)
         for ti in range(self.num_targets):
             preds_ti = preds[np.logical_not(targets_na),ti]
             targets_ti = targets[np.logical_not(targets_na),ti]
@@ -750,10 +778,14 @@ class RNN:
             pvar = (targets_ti-preds_ti).var(dtype='float64')
             r2[ti] = 1.0 - pvar/tvar
 
+            # compute Spearman correlation
+            scor, _ = spearmanr(targets_ti, preds_ti)
+            cor[ti] = scor
+
         if return_preds:
-            return np.mean(batch_losses), r2, preds
+            return np.mean(batch_losses), r2, cor, preds
         else:
-            return np.mean(batch_losses), r2
+            return np.mean(batch_losses), r2, cor
 
 
     def train_epoch(self, sess, batcher, sum_writer):

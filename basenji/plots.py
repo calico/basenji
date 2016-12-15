@@ -34,7 +34,7 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, x_label=None, y_labe
 
     # g = sns.jointplot(vals1, vals2, alpha=0.5, color='black', stat_func=spearmanr)
     gold = sns.color_palette('husl',8)[1]
-    ax = sns.regplot(vals1, vals2, color='black', order=poly_order, scatter_kws={'c':'black', 's':4, 'alpha':alpha}, line_kws={'c':gold})
+    ax = sns.regplot(vals1, vals2, color='black', order=poly_order, scatter_kws={'color':'black', 's':4, 'alpha':alpha}, line_kws={'color':gold})
 
     vmin, vmax = scatter_lims(vals1, vals2)
     # ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')

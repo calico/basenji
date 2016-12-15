@@ -138,7 +138,7 @@ def main():
 
         r2_out = open('%s/r2.txt' % options.out_dir, 'w')
         for ti in range(len(test_r2)):
-            print('%4d  %.4f' % (ti, test_r2[ti]), file=r2_out)
+            print('%4d  %.5f  %.5f' % (ti, test_r2[ti], test_cor[ti]), file=r2_out)
         r2_out.close()
 
         # if test targets are reconstructed, measure versus the truth
@@ -212,7 +212,7 @@ def main():
             ############################################
             # scatter
 
-            # sample every 8 bins
+            # sample every few bins (adjust to plot the # points I want)
             ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
             ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
 

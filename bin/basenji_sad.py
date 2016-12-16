@@ -38,6 +38,7 @@ def main():
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('-t', dest='targets_file', default=None, help='File specifying target indexes and labels in table format')
+    parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -50,6 +51,13 @@ def main():
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
 
+    if options.track_indexes is None:
+        options.track_indexes = []
+    else:
+        options.track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
+        if not os.path.isdir('%s/tracks' % options.out_dir):
+            os.mkdir('%s/tracks' % options.out_dir)
+
     #################################################################
     # setup model
 
@@ -60,10 +68,14 @@ def main():
         print("Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.", file=sys.stderr)
         exit(1)
 
+    if 'target_pool' not in job:
+        print("Must specify target pooling (target_pool) in the parameters file. I know it's annoying. Sorry", file=sys.stderr)
+        exit(1)
+
     t0 = time.time()
     dr = basenji.rnn.RNN()
     dr.build(job)
-    print('Model building time %f' % (time.time()-t0))
+    print('Model building time %f' % (time.time()-t0), flush=True)
 
     # initialize saver
     saver = tf.train.Saver()
@@ -129,14 +141,23 @@ def main():
                 ref_preds = batch_preds[pi]
                 pi += 1
 
+                # mean across length
+                ref_preds_lmean = ref_preds.mean(axis=0)
+
                 for alt_al in snp.alt_alleles:
                     # get alternate prediction (LxT)
                     alt_preds = batch_preds[pi]
                     pi += 1
 
-                    # normalize by reference and mean across length
-                    alt_sad = (alt_preds - ref_preds).mean(axis=0)
-                    sad_matrices.setdefault(snp.index_snp,[]).append(alt_sad)
+                    # mean across length
+                    alt_preds_lmean = alt_preds.mean(axis=0)
+
+                    # compare reference to alternative via mean subtraction
+                    sad = alt_preds_lmean - ref_preds_lmean
+                    sad_matrices.setdefault(snp.index_snp,[]).append(sad)
+
+                    # compare reference to alternative via mean log division
+                    sar = np.log2(alt_preds_lmean+1) - np.log2(ref_preds_lmean+1)
 
                     # label as mutation from reference
                     alt_label = '%s_%s>%s' % (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al))
@@ -146,7 +167,7 @@ def main():
                     sad_scores.setdefault(snp.index_snp,[]).append(snp.score)
 
                     # print table lines
-                    for ti in range(len(alt_sad)):
+                    for ti in range(len(sad)):
                         # set index SNP
                         snp_is = '%-13s' % '.'
                         if options.index_snp:
@@ -157,12 +178,21 @@ def main():
                         if options.score:
                             snp_score = '%5.3f' % snp.score
 
+                        # profile the max difference position
+                        max_li = 0
+                        max_sad = alt_preds[max_li,ti] - ref_preds[max_li,ti]
+                        for li in range(ref_preds.shape[0]):
+                            sad_li = alt_preds[li,ti] - ref_preds[li,ti]
+                            if abs(sad_li) > max_sad:
+                                max_li = li
+                                max_sad = sad_li
+
                         # print line
-                        cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), target_labels[ti], ref_preds[ti].mean(), alt_preds[ti].mean(), alt_sad[ti])
+                        cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), target_labels[ti], ref_preds_lmean[ti], alt_preds_lmean[ti], sad[ti], sar[ti], ref_preds[max_li,ti], alt_preds[max_li,ti], max_sad)
                         if options.csv:
                             print(','.join([str(c) for c in cols]), file=sad_out)
                         else:
-                            print('%-13s %s %5s %6s %6s %12s %6.4f %6.4f %7.4f' % cols, file=sad_out)
+                            print('%-13s %s %5s %6s %6s %12s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f' % cols, file=sad_out)
 
             ###################################################
             # construct next batch

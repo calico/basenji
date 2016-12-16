@@ -7,8 +7,12 @@ import sys
 import tempfile
 
 import h5py
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
+import seaborn as sns
 import tensorflow as tf
 
 import basenji
@@ -70,10 +74,15 @@ def main():
     for ti in range(len(transcripts)):
         transcript_map[transcripts[ti]] = (transcript_index[ti], transcript_pos[ti])
 
-    genes = [gid.decode('UTF-8') for gid in genes_hdf5_in['genes']]
-    t2g = {}
-    for tx_id in transcripts:
-
+    # map transcript indexes to gene indexes
+    gene_indexes = {}
+    gene_list = []
+    transcript_gene_indexes = []
+    for gid in genes_hdf5_in['genes']:
+        if gid not in gene_indexes:
+            gene_indexes[gid] = len(gene_indexes)
+            gene_list.append(gid)
+        transcript_gene_indexes.append(gene_indexes[gid])
 
     transcript_targets = genes_hdf5_in['transcript_targets']
 
@@ -136,25 +145,22 @@ def main():
         # dr. predict_genes_bigwig(sess, batcher, seq_coords, options.out_dir, '%s/assembly/human.hg19.ml.genome'%os.environ['HG19'], [1471])
         # transcript_preds = dr.predict_genes_coords(sess, batcher, transcript_map, seq_coords)
 
-
     print(' Done')
     sys.stdout.flush()
 
 
     #################################################################
-    # summary statistics
+    # convert to genes
 
-    table_out = open('%s/summary_table.txt' % options.out_dir, 'w')
+    gene_targets = map_transcripts_genes(transcript_targets, transcript_map, transcript_gene_indexes)
+    gene_preds = map_transcripts_genes(transcript_preds, transcript_map, transcript_gene_indexes)
 
-    for ti in range(transcript_targets.shape[1]):
-        tti = transcript_targets[:,ti]
-        tpi = transcript_preds[:,ti]
-        scor, _ = spearmanr(tt, tp)
-        pcor, _ = pearsonr(np.log2(tti+1), np.log2(tpi+1))
-        cols = (ti, scor, pcor, target_labels[ti])
-        print('%-4d  %7.3f  %7.3f  %s' % cols, file=table_out)
 
-    table_out.close()
+    #################################################################
+    # correlation statistics
+
+    cor_table(transcript_targets, transcript_preds, target_labels, '%s/transcript_cors.txt' % options.out_dir)
+    cor_table(gene_targets, gene_preds, target_labels, '%s/gene_cors.txt' % options.out_dir)
 
 
     #################################################################
@@ -167,33 +173,30 @@ def main():
     else:
         options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
 
-    table_out = open('%s/transcript_table.txt' % options.out_dir, 'w')
+    gene_table(transcript_targets, transcript_preds, list(transcript_map.keys()), target_labels, options.target_indexes, '%s/transcript'%options.out_dir)
 
-    for ti in options.target_indexes:
-        tti = transcript_targets[:,ti]
-        tpi = transcript_preds[:,ti]
-
-        # plot scatter
-        out_pdf = '%s/t%d.pdf' % (options.out_dir, ti)
-        ttir = np.random.choice(tti, 2000)
-        tpir = np.random.choice(tpi, 2000)
-        basenji.plots.jointplot(ttir, tpir, out_pdf)
-
-        # print table lines
-        tx_i = 0
-        for transcript in transcript_map:
-            # print transcript line
-            cols = (transcript, tti[tx_i], tpi[tx_i], ti, target_labels[ti])
-            print('%-20s  %.3f  %.3f  %4d  %20s' % cols, file=table_out)
-            tx_i += 1
-
-    table_out.close()
+    gene_table(gene_targets, gene_preds, gene_list, target_labels, options.target_indexes, '%s/gene'%options.out_dir)
 
 
     #################################################################
     # clean up
 
     genes_hdf5_in.close()
+
+
+def cor_table(gene_targets, gene_preds, target_labels, out_file):
+    ''' Print a table of target correlations. '''
+    table_out = open(out_file, 'w')
+
+    for ti in range(gene_targets.shape[1]):
+        gti = gene_targets[:,ti]
+        gpi = gene_preds[:,ti]
+        scor, _ = spearmanr(gti, gpi)
+        pcor, _ = pearsonr(np.log2(gti+1), np.log2(gpi+1))
+        cols = (ti, scor, pcor, target_labels[ti])
+        print('%-4d  %7.3f  %7.3f  %s' % cols, file=table_out)
+
+    table_out.close()
 
 
 def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets, mid_pct=0.5):
@@ -270,6 +273,75 @@ def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, tr
 
     return seqs_1hot, transcript_map, transcript_targets
 
+
+def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexes, out_prefix):
+    ''' Print a gene-based statistics table and scatter plot for the given target indexes. '''
+
+    num_genes = gene_targets.shape[0]
+
+    table_out = open('%s_table.txt' % out_prefix, 'w')
+
+    for ti in target_indexes:
+        gti = np.log2(gene_targets[:,ti]+1)
+        gpi = np.log2(gene_preds[:,ti]+1)
+
+        # plot scatter
+        sns.set(font_scale=1.2, style='ticks')
+        out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
+        ri = np.random.choice(range(num_genes), 2000, replace=False)
+        basenji.plots.regplot(gti[ri], gpi[ri], out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
+
+        # print table lines
+        tx_i = 0
+        for gid in gene_list:
+            # print transcript line
+            cols = (gid, gti[tx_i], gpi[tx_i], ti, target_labels[ti])
+            print('%-20s  %.3f  %.3f  %4d  %20s' % cols, file=table_out)
+            tx_i += 1
+
+    table_out.close()
+
+
+def map_transcripts_genes(transcript_targets, transcript_map, transcript_gene_indexes):
+    ''' Map a transcript X target array to a gene X target array '''
+
+    # map sequence -> pos -> genes
+    sequence_pos_genes = []
+
+    # map sequence -> pos -> targets
+    sequence_pos_targets = []
+
+    genes = set()
+    txi = 0
+    for transcript in transcript_map:
+        # transcript sits at sequence si at pos
+        si, pos = transcript_map[transcript]
+
+        # transcript to gene index
+        gi = transcript_gene_indexes[txi]
+        genes.add(gi)
+
+        # extend sequence lists to tsi
+        while len(sequence_pos_genes) <= si:
+            sequence_pos_genes.append({})
+            sequence_pos_targets.append({})
+
+        # add gene to sequence/position set
+        sequence_pos_genes[si].setdefault(pos,set()).add(gi)
+
+        # save targets to sequence/position
+        sequence_pos_targets[si][pos] = transcript_targets[txi,:]
+
+        txi += 1
+
+    # accumulate targets from sequence/positions for each gene
+    gene_targets = np.zeros((len(genes), transcript_targets.shape[1]))
+    for si in range(len(sequence_pos_genes)):
+        for pos in sequence_pos_genes[si]:
+            for gi in sequence_pos_genes[si][pos]:
+                gene_targets[gi,:] += sequence_pos_targets[si][pos]
+
+    return gene_targets
 
 ################################################################################
 # __main__

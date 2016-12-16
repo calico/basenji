@@ -22,6 +22,9 @@ from seq_logo import seq_logo
 #
 # Perform an in silico saturated mutagenesis of the given test sequences
 # using the given model.
+#
+# Note:
+#  -Currently written assuming we have targets associated with each input sequence.
 ################################################################################
 
 ################################################################################
@@ -65,7 +68,8 @@ def main():
         target_indexes = [int(ti) for ti in options.targets.split(',')]
 
     # enrich for active sequences
-    seqs, seqs_1hot, targets = enrich_activity(seqs, seqs_1hot, targets, options.activity_enrich, target_indexes)
+    if targets is not None:
+        seqs, seqs_1hot, targets = enrich_activity(seqs, seqs_1hot, targets, options.activity_enrich, target_indexes)
 
     seqs_n = seqs_1hot.shape[0]
 
@@ -77,8 +81,14 @@ def main():
 
     job['batch_length'] = seqs_1hot.shape[1]
     job['seq_depth'] = seqs_1hot.shape[2]
-    job['num_targets'] = targets.shape[2]
-    job['target_pool'] = job['batch_length'] // targets.shape[1]
+
+    if targets is None:
+        if 'num_targets' not in job or 'target_pool' not in job:
+            print('Must provide num_targets and target_pool in parameters file', file=sys.stderr)
+            exit(1)
+    else:
+        job['num_targets'] = targets.shape[2]
+        job['target_pool'] = job['batch_length'] // targets.shape[1]
 
     t0 = time.time()
     dr = basenji.rnn.RNN()
@@ -289,7 +299,10 @@ def parse_input(input_file, sample):
             seqs = seqs[sample_i]
 
         # reshape sequences for torch
-        seqs_1hot = seqs_1hot.reshape((seqs_1hot.shape[0],4,1,seqs_1hot.shape[1]/4))
+        seqs_1hot = seqs_1hot.reshape((seqs_1hot.shape[0],4,1,seqs_1hot.shape[1]//4))
+
+        # initialize targets variable
+        targets = None
 
         # write as test data to a HDF5 file
         h5f = h5py.File(model_input_hdf5, 'w')

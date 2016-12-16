@@ -15,6 +15,8 @@ import tensorflow as tf
 import basenji.dna_io
 import basenji.vcf
 
+from basenji_test import bigwig_open
+
 ################################################################################
 # basenji_sad.py
 #
@@ -144,6 +146,11 @@ def main():
                 # mean across length
                 ref_preds_lmean = ref_preds.mean(axis=0)
 
+                # print tracks
+                for ti in options.track_indexes:
+                    ref_bw_file = '%s/tracks/%s_t%d_ref.bw' % (options.out_dir, snp.rsid, ti)
+                    bigwig_write(snp, options.seq_len, ref_preds[:,ti], model, ref_bw_file, options.genome_file)
+
                 for alt_al in snp.alt_alleles:
                     # get alternate prediction (LxT)
                     alt_preds = batch_preds[pi]
@@ -194,6 +201,11 @@ def main():
                         else:
                             print('%-13s %s %5s %6s %6s %12s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f' % cols, file=sad_out)
 
+                    # print tracks
+                    for ti in options.track_indexes:
+                        alt_bw_file = '%s/tracks/%s_t%d_ref.bw' % (options.out_dir, snp.rsid, ti)
+                        bigwig_write(snp, options.seq_len, alt_preds[:,ti], model, alt_bw_file, options.genome_file)
+
             ###################################################
             # construct next batch
 
@@ -242,6 +254,23 @@ def main():
                     out_pdf = '%s/sad_%s_heat.pdf' % (options.out_dir, ii)
                 plt.savefig(out_pdf)
                 plt.close()
+
+
+def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
+    bw_open = bigwig_open(bw_file, genome_file)
+
+    seq_chrom = snp.chrom
+    seq_start = snp.pos - seq_len//2
+
+    bw_chroms = [seq_chrom]*len(preds)
+    bw_starts = [int(seq_start + model.batch_buffer + bi*model.target_pool) for bi in range(len(preds))]
+    bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
+
+    preds_list = [float(p) for p in preds]
+    bw_open.addEntries(bw_chroms, bw_start, ends=bw_ends, values=preds_list)
+
+    bw_open.close()
+
 
 
 def snps_next_batch(snps, snp_i, batch_size, seq_len, genome_open):

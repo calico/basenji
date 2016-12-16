@@ -33,6 +33,7 @@ def main():
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-e', dest='heatmaps', default=False, action='store_true', help='Draw score heatmaps, grouped by index SNP [Default: %default]')
     parser.add_option('-f', dest='genome_fasta', default='%s/data/genomes/hg19.fa'%os.environ['BASSETDIR'], help='Genome FASTA from which sequences will be drawn [Default: %default]')
+    parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-i', dest='index_snp', default=False, action='store_true', help='SNPs are labeled with their index SNP as column 6 [Default: %default]')
     parser.add_option('-l', dest='seq_len', type='int', default=1024, help='Sequence length provided to the model [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.1, type='float', help='Minimum heatmap limit [Default: %default]')
@@ -75,8 +76,8 @@ def main():
         exit(1)
 
     t0 = time.time()
-    dr = basenji.rnn.RNN()
-    dr.build(job)
+    model = basenji.rnn.RNN()
+    model.build(job)
     print('Model building time %f' % (time.time()-t0), flush=True)
 
     # initialize saver
@@ -129,10 +130,10 @@ def main():
             # predict
 
             # initialize batcher
-            batcher = basenji.batcher.Batcher(batch_1hot, batch_size=dr.batch_size)
+            batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.batch_size)
 
             # predict
-            batch_preds = dr.predict(sess, batcher, rc_avg=options.rc)
+            batch_preds = model.predict(sess, batcher, rc_avg=options.rc)
 
             ###################################################
             # collect and print SADs
@@ -203,7 +204,7 @@ def main():
 
                     # print tracks
                     for ti in options.track_indexes:
-                        alt_bw_file = '%s/tracks/%s_t%d_ref.bw' % (options.out_dir, snp.rsid, ti)
+                        alt_bw_file = '%s/tracks/%s_t%d_alt.bw' % (options.out_dir, snp.rsid, ti)
                         bigwig_write(snp, options.seq_len, alt_preds[:,ti], model, alt_bw_file, options.genome_file)
 
             ###################################################
@@ -267,7 +268,7 @@ def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
     bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
 
     preds_list = [float(p) for p in preds]
-    bw_open.addEntries(bw_chroms, bw_start, ends=bw_ends, values=preds_list)
+    bw_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=preds_list)
 
     bw_open.close()
 

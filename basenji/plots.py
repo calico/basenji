@@ -7,7 +7,7 @@ import numpy as np
 from scipy.stats import spearmanr
 import seaborn as sns
 
-def jointplot(vals1, vals2, out_pdf, alpha=0.5):
+def jointplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):
     plt.figure()
 
     g = sns.jointplot(vals1, vals2, alpha=alpha, color='black', stat_func=spearmanr)
@@ -17,9 +17,9 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5):
     ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')
 
     ax.set_xlim(vmin,vmax)
-    ax.set_xlabel('Experiment')
+    ax.set_xlabel(x_label)
     ax.set_ylim(vmin,vmax)
-    ax.set_ylabel('Prediction')
+    ax.set_ylabel(y_label)
 
     ax.grid(True, linestyle=':')
 

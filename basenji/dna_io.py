@@ -95,6 +95,11 @@ def dna_1hot_float(seq, seq_len=None):
 def hot1_dna(seqs_1hot):
     ''' Convert 1-hot coded sequences to ACGTN. '''
 
+    singleton = False
+    if seqs_1hot.ndim == 2:
+        singleton = True
+        seqs_1hot = np.expand_dims(seqs_1hot, 0)
+
     seqs = []
     for si in range(seqs_1hot.shape[0]):
         seq_list = ['A']*seqs_1hot.shape[1]
@@ -111,6 +116,9 @@ def hot1_dna(seqs_1hot):
                 seq_list[li] = 'N'
 
         seqs.append(''.join(seq_list))
+
+    if singleton:
+        seqs = seqs[0]
 
     return seqs
 

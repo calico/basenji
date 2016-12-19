@@ -8,6 +8,8 @@ import tempfile
 import time
 
 import h5py
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
@@ -35,7 +37,6 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-a', dest='activity_enrich', default=1, type='float', help='Enrich the sample for the top proportion sorted by acitvity in the target cells requested. [Default: %default]')
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
-    parser.add_option('-c', dest='cuda', default=False, action='store_true', help='Run on GPGPU [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.0005, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='heat', help='Output directory [Default: %default]')
@@ -159,7 +160,7 @@ def main():
             # plot heat map
             plot_heat(ax_heat, sat_delta[:,:,ti], options.min_limit)
 
-            plt.savefig('%s/seq%d.pdf' % (options.out_dir,si), dpi=1200)
+            plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si), dpi=1200)
             plt.close()
 
 
@@ -269,7 +270,7 @@ def parse_input(input_file, sample):
     try:
         # input_file is FASTA
 
-        # load sequences and headers
+        # read sequences and headers
         seqs = []
         seq_headers = []
         for line in open(input_file):
@@ -283,13 +284,11 @@ def parse_input(input_file, sample):
         seqs = np.array(seqs)
         seq_headers = np.array(seq_headers)
 
-        model_input_hdf5 = '%s/model_in.h5'%options.out_dir
-
-        # load sequences
-        seqs_1hot = basenji.dna_io.load_sequences(input_file, permute=False)
-        target_labels = False
-        if options.targets_file:
-            target_labels = [line.split()[1] for line in open(options.targets_file)]
+        # one hot code sequences
+        seqs_1hot = []
+        for seq in seqs:
+            seqs_1hot.append(basenji.dna_io.dna_1hot(seq))
+        seqs_1hot = np.array(seqs_1hot)
 
         # sample
         if sample:
@@ -298,23 +297,13 @@ def parse_input(input_file, sample):
             seq_headers = seq_headers[sample_i]
             seqs = seqs[sample_i]
 
-        # reshape sequences for torch
-        seqs_1hot = seqs_1hot.reshape((seqs_1hot.shape[0],4,1,seqs_1hot.shape[1]//4))
-
         # initialize targets variable
         targets = None
-
-        # write as test data to a HDF5 file
-        h5f = h5py.File(model_input_hdf5, 'w')
-        h5f.create_dataset('test_in', data=seqs_1hot)
-        h5f.close()
 
     except (UnicodeDecodeError):
         # input_file is HDF5
 
         try:
-            model_input_hdf5 = input_file
-
             # load (sampled) test data from HDF5
             hdf5_in = h5py.File(input_file, 'r')
             seqs_1hot = np.array(hdf5_in['test_in'])

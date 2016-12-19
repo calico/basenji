@@ -289,7 +289,7 @@ def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexe
         sns.set(font_scale=1.2, style='ticks')
         out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
         ri = np.random.choice(range(num_genes), 2000, replace=False)
-        basenji.plots.regplot(gti[ri], gpi[ri], out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
+        basenji.plots.regplot(gti[ri].astype('float32'), gpi[ri].astype('float32'), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
 
         # print table lines
         tx_i = 0

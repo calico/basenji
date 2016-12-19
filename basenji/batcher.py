@@ -5,6 +5,8 @@ import numpy as np
 import random
 import sys
 
+import basenji
+
 class Batcher:
     ''' Batcher
 
@@ -33,7 +35,7 @@ class Batcher:
         self.reset()
 
 
-    def next(self):
+    def next(self, rc=False):
         ''' Load the next batch from the HDF5. '''
         Xb = None
         Yb = None
@@ -68,6 +70,15 @@ class Batcher:
 
                     if self.NAf is not None:
                         NAb[i] = self.NAf[si]
+
+        # reverse complement
+        if rc:
+            if Xb is not None:
+                Xb = basenji.dna_io.hot1_rc(Xb)
+            if Yb is not None:
+                Yb = Yb[:,::-1,:]
+            if NAb is not None:
+                NAb = NAb[:,::-1,:]
 
         # update start
         self.start = stop

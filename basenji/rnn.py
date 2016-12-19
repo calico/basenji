@@ -788,7 +788,7 @@ class RNN:
             return np.mean(batch_losses), r2, cor
 
 
-    def train_epoch(self, sess, batcher, sum_writer):
+    def train_epoch(self, sess, batcher, rc=False, sum_writer=None):
         ''' Execute one training epoch '''
 
         # initialize training loss
@@ -804,7 +804,7 @@ class RNN:
             fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
 
         # get first batch
-        Xb, Yb, NAb, Nb = batcher.next()
+        Xb, Yb, NAb, Nb = batcher.next(rc)
 
         while Xb is not None and Nb == self.batch_size:
             # update feed dict
@@ -827,7 +827,7 @@ class RNN:
             train_loss.append(loss_batch)
 
             # next batch
-            Xb, Yb, NAb, Nb = batcher.next()
+            Xb, Yb, NAb, Nb = batcher.next(rc)
             self.step += 1
 
         # reset training batcher

@@ -20,8 +20,9 @@ basenji_sed.py
 Compute SNP expression difference scores for variants in a VCF file.
 
 Note:
- -I'm having trouble verifying that I'm not double counting the scenario where
-  two transcripts map to the same TSS. But I should verify that.
+ -Generating snp_seqs_1hot altogether is going to run out of memory for
+   larger VCF files. One solution is to switch to batches, like basenji_sad.py.
+   Another is a streaming interface like PredStream.
 '''
 
 ################################################################################
@@ -95,6 +96,7 @@ def main():
 
     # intersect w/ segments
     snps_segs = intersect_snps(vcf_file, seq_coords)
+    print('snps_segs', snps_segs)
 
 
     #################################################################
@@ -102,8 +104,11 @@ def main():
 
     snp_seqs_1hot = []
 
+    # for each SNP
     for snp_i in range(len(snps)):
+        # for each segment it overlaps
         for seg_i in snps_segs[snp_i]:
+            # get the segment coordinates
             seq_chrom, seq_start, seq_end = seq_coords[seg_i]
 
             # determine the SNP's position in the segment
@@ -118,6 +123,7 @@ def main():
             basenji.dna_io.hot1_set(snp_seqs_1hot[-1], snp_seq_pos, snps[snp_i].alt_alleles[0])
 
     snp_seqs_1hot = np.array(snp_seqs_1hot)
+    print('snp_seqs_1hot', snp_seqs_1hot.shape)
 
 
     #################################################################
@@ -162,7 +168,7 @@ def main():
         saver.restore(sess, model_file)
 
         # initialize prediction stream
-        seq_preds = Pred_Stream(sess, model, snp_seqs_1hot, 128)
+        seq_preds = basenji.stream.PredStream(sess, model, snp_seqs_1hot, 128)
 
         # determine prediction buffer
         pred_buffer = model.batch_buffer // model.target_pool
@@ -194,11 +200,11 @@ def main():
 
             for seg_i in snps_segs[snp_i]:
                 # get reference prediction (LxT)
-                ref_preds = seq_preds.get(pi)
+                ref_preds = seq_preds[pi]
                 pi += 1
 
                 # get alternate prediction (LxT)
-                alt_preds = seq_preds.get(pi)
+                alt_preds = seq_preds[pi]
                 pi += 1
 
                 # find genes
@@ -219,7 +225,7 @@ def main():
                             snp_gene_ser = np.log2(alt_preds[tx_pos_buf,ti]+1) - np.log2(ref_preds[tx_pos_buf,ti]+1)
 
                             # print to table
-                            cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], ref_preds[tx_pos_buf,ti], alt_preds[tx_pos_buf,ti], snp_gene_ser, snp_gene_sed)
+                            cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], ref_preds[tx_pos_buf,ti], alt_preds[tx_pos_buf,ti], snp_gene_sed, snp_gene_ser)
                             if options.csv:
                                 print(','.join([str(c) for c in cols]), file=sed_out)
                             else:
@@ -314,42 +320,6 @@ def intersect_snps(vcf_file, seq_coords):
 
     return snp_segs
 
-
-class Pred_Stream:
-    ''' Interface to acquire predictions via a buffered stream mechanism
-         rather than getting them all at once and using excessive memory. '''
-
-    def __init__(self, sess, model, seqs_1hot, stream_length):
-        self.sess = sess
-        self.model = model
-
-        self.seqs_1hot = seqs_1hot
-
-        self.stream_length = stream_length
-        self.stream_start = 0
-        self.stream_end = 0
-
-        if self.stream_length % self.model.batch_size != 0:
-            print('Make the stream length a multiple of the batch size', file=sys.stderr)
-            exit(1)
-
-
-    def get(self, i):
-        # acquire predictions, if needed
-        if i >= self.stream_end:
-            self.stream_start = self.stream_end
-            self.stream_end = min(self.stream_start + self.stream_length, self.seqs_1hot.shape[0])
-
-            # subset sequences
-            stream_seqs_1hot = self.seqs_1hot[self.stream_start:self.stream_end]
-
-            # initialize batcher
-            batcher = basenji.batcher.Batcher(stream_seqs_1hot, batch_size=self.model.batch_size)
-
-            # predict
-            self.stream_preds = self.model.predict(self.sess, batcher, rc_avg=False)
-
-        return self.stream_preds[i - self.stream_start]
 
 ################################################################################
 # __main__

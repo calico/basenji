@@ -191,7 +191,7 @@ def main():
                         max_sad = alt_preds[max_li,ti] - ref_preds[max_li,ti]
                         for li in range(ref_preds.shape[0]):
                             sad_li = alt_preds[li,ti] - ref_preds[li,ti]
-                            if abs(sad_li) > max_sad:
+                            if abs(sad_li) > abs(max_sad):
                                 max_li = li
                                 max_sad = sad_li
 

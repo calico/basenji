@@ -78,7 +78,7 @@ class Batcher:
             if Yb is not None:
                 Yb = Yb[:,::-1,:]
             if NAb is not None:
-                NAb = NAb[:,::-1,:]
+                NAb = NAb[:,::-1]
 
         # update start
         self.start = stop

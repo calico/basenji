@@ -378,7 +378,7 @@ class RNN:
         preds = []
 
         # setup feed dict for dropout
-        fd = {}
+        fd = {self.is_training:False}
         for li in range(self.cnn_layers):
             fd[self.cnn_dropout_ph[li]] = 0
         for li in range(self.dcnn_layers):

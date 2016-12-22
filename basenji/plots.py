@@ -58,8 +58,9 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, x_label=None, y_labe
     plt.close()
 
 
-def scatter_lims(vals1, vals2, buffer=.05):
-    vals = np.concatenate((vals1, vals2))
+def scatter_lims(vals1, vals2=None, buffer=.05):
+    if vals2 is not None:
+        vals = np.concatenate((vals1, vals2))
     vmin = np.nanmin(vals)
     vmax = np.nanmax(vals)
 

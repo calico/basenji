@@ -86,7 +86,7 @@ class RNN:
 
                 # save representation (not positive about this one)
                 if self.save_reprs:
-                    self.layer_reprs.append(tf.reshape(cinput, [self.batch_size, seq_length, seq_depth]))
+                    self.layer_reprs.append(cinput)
 
 
         if self.cnn_layers > 0:
@@ -132,6 +132,10 @@ class RNN:
 
                 # update size variables
                 seq_depth = self.dcnn_filters[li]
+
+                # save representation (not positive about this one)
+                if self.save_reprs:
+                    self.layer_reprs.append(dinput)
 
         # prep for RNN
         if self.cnn_layers + self.dcnn_layers > 0:
@@ -237,6 +241,8 @@ class RNN:
 
                 # save representation
                 if self.save_reprs:
+                    # cannot take gradients w.r.t. this,
+                    #  but I'm not in an RNN mindset to fix it right now
                     self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
 
                 # outputs become input to next layer
@@ -365,11 +371,74 @@ class RNN:
         self.opt._lr *= drop_mult
 
 
+    def gradients(self, sess, batcher, target_indexes=None, layers=None):
+        ''' Compute predictions on a test set.
+
+        In
+         sess: TensorFlow session
+         batcher: Batcher class with sequence(s)
+         target_indexes: Optional target subset list
+         layers: Optional layer subset list
+
+        Out
+         grads: S (sequences) x L (unbuffered length) x T (targets) array
+        '''
+
+        # initialize gradients
+        grads = []
+
+        # initialize target_indexes
+        if target_indexes is None:
+            target_indexes = np.array(range(self.num_targets))
+        elif type(target_indexes) != np.ndarray:
+            target_indexes = np.array(target_indexes)
+
+        # initialize layers
+        if layers is None:
+            layers = range(self.cnn_layers+self.dcnn_layers+self.rnn_layers)
+        elif type(layers) != list:
+            layers = [layers]
+
+        # setup feed dict for dropout
+        fd = self.set_mode('test')
+
+        # get first batch
+        Xb, _, _, Nb = batcher.next()
+
+        while Xb is not None and Nb == self.batch_size:
+            # update feed dict
+            fd[self.inputs] = Xb
+
+            # compute loss
+            loss_batch = sess.run(self.preds_op, feed_dict=fd)
+
+            # compute gradients
+            grads_op = tf.gradients(self.preds_op[:,:,target_indexes], [self.layer_reprs[li] for li in layers])
+
+            # clean up
+            grads_batch_raw = sess.run(grads_op, feed_dict=fd)
+            grads_batch = grads_batch_raw[0].astype('float16')
+            if grads_batch.shape[1] == 1:
+                grads_batch = grads_batch.squeeze(axis=1)
+            grads.append(grads_batch)
+
+            # next batch
+            Xb, _, _, Nb = batcher.next()
+
+        # reset training batcher
+        batcher.reset()
+
+        # stack into array
+        grads = np.vstack(grads)
+
+        return grads
+
+
     def hidden(self, sess, batcher, layers=None):
         ''' Compute hidden representations for a test set. '''
 
         if layers is None:
-            layers = list(range(self.cnn_layers+self.rnn_layers))
+            layers = list(range(self.cnn_layers+self.dcnn_layers+self.rnn_layers))
 
         # initialize layer representation data structure
         layer_reprs = []
@@ -377,14 +446,8 @@ class RNN:
             layer_reprs.append([])
         preds = []
 
-        # setup feed dict for dropout
-        fd = {self.is_training:False}
-        for li in range(self.cnn_layers):
-            fd[self.cnn_dropout_ph[li]] = 0
-        for li in range(self.dcnn_layers):
-            fd[self.dcnn_dropout_ph[li]] = 0
-        for li in range(self.rnn_layers):
-            fd[self.rnn_dropout_ph[li]] = 0
+        # setup feed dict
+        fd = self.set_mode('test')
 
         # get first batch
         Xb, _, _, Nb = batcher.next()
@@ -398,7 +461,14 @@ class RNN:
 
             # accumulate representations
             for li in layers:
-                layer_reprs[li].append(layer_reprs_batch[li][:Nb])
+                # squeeze (conv_2d-expanded) second dimension
+                if layer_reprs_batch[li].shape[1] == 1:
+                    layer_reprs_batch[li] = layer_reprs_batch[li].squeeze(axis=1)
+
+                # append
+                layer_reprs[li].append(layer_reprs_batch[li][:Nb].astype('float16'))
+
+            # accumualte predictions
             preds.append(preds_batch[:Nb])
 
             # next batch
@@ -410,6 +480,7 @@ class RNN:
         # accumulate representations
         for li in layers:
             layer_reprs[li] = np.vstack(layer_reprs[li])
+
         preds = np.vstack(preds)
 
         return layer_reprs, preds
@@ -428,14 +499,8 @@ class RNN:
          preds: S (sequences) x L (unbuffered length) x T (targets) array
         '''
 
-        # setup feed dict for dropout
-        fd = {self.is_training:False}
-        for li in range(self.cnn_layers):
-            fd[self.cnn_dropout_ph[li]] = 0
-        for li in range(self.dcnn_layers):
-            fd[self.dcnn_dropout_ph[li]] = 0
-        for li in range(self.rnn_layers):
-            fd[self.rnn_dropout_ph[li]] = 0
+        # setup feed dict
+        fd = self.set_mode('test')
 
         # determine non-buffer region
         buf_start = self.batch_buffer // self.target_pool
@@ -503,14 +568,8 @@ class RNN:
          transcript_preds: G (gene transcripts) X T (targets) array
         '''
 
-        # setup feed dict for dropout
-        fd = {self.is_training:False}
-        for li in range(self.cnn_layers):
-            fd[self.cnn_dropout_ph[li]] = 0
-        for li in range(self.dcnn_layers):
-            fd[self.dcnn_dropout_ph[li]] = 0
-        for li in range(self.rnn_layers):
-            fd[self.rnn_dropout_ph[li]] = 0
+        # setup feed dict
+        fd = self.set_mode('test')
 
         # initialize prediction arrays
         num_targets = self.num_targets
@@ -602,6 +661,35 @@ class RNN:
         batcher.reset()
 
         return gene_preds
+
+
+    def set_mode(self, mode):
+        ''' Construct a feed dictionary to specify the model's mode. '''
+        fd = {}
+
+        if mode in ['train', 'training']:
+            fd[self.is_training] = True
+            for li in range(self.cnn_layers):
+                fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
+            for li in range(self.dcnn_layers):
+                fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
+            for li in range(self.rnn_layers):
+                fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
+
+        elif mode in ['test', 'testing', 'evaluate']:
+            fd[self.is_training] = False
+            for li in range(self.cnn_layers):
+                fd[self.cnn_dropout_ph[li]] = 0
+            for li in range(self.dcnn_layers):
+                fd[self.dcnn_dropout_ph[li]] = 0
+            for li in range(self.rnn_layers):
+                fd[self.rnn_dropout_ph[li]] = 0
+
+        else:
+            print('Cannot recognize mode %s' % mode)
+            exit(1)
+
+        return fd
 
 
     def set_params(self, job):
@@ -717,14 +805,8 @@ class RNN:
         targets_na = np.zeros((batcher.num_seqs, len(ds_indexes)), dtype='bool')
         si = 0
 
-        # setup feed dict for dropout
-        fd = {self.is_training:False}
-        for li in range(self.cnn_layers):
-            fd[self.cnn_dropout_ph[li]] = 0
-        for li in range(self.dcnn_layers):
-            fd[self.dcnn_dropout_ph[li]] = 0
-        for li in range(self.rnn_layers):
-            fd[self.rnn_dropout_ph[li]] = 0
+        # setup feed dict
+        fd = self.set_mode('test')
 
         # get first batch
         Xb, Yb, NAb, Nb = batcher.next()
@@ -794,14 +876,8 @@ class RNN:
         # initialize training loss
         train_loss = []
 
-        # setup feed dict for dropout
-        fd = {self.is_training:True}
-        for li in range(self.cnn_layers):
-            fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
-        for li in range(self.dcnn_layers):
-            fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
-        for li in range(self.rnn_layers):
-            fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
+        # setup feed dict
+        fd = self.set_mode('train')
 
         # get first batch
         Xb, Yb, NAb, Nb = batcher.next(rc)

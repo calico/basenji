@@ -5,15 +5,17 @@ import os
 import time
 
 import h5py
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+import statsmodels
 import tensorflow as tf
 
 import basenji
-
-sns.set_style('ticks')
 
 ################################################################################
 # basenji_hidden.py
@@ -27,9 +29,10 @@ sns.set_style('ticks')
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
     parser = OptionParser(usage)
-    parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
     parser.add_option('-l', dest='layers', default=None, help='Comma-separated list of layers to plot')
+    parser.add_option('-n', dest='num_seqs', default=None, type='int', help='Number of sequences to process')
     parser.add_option('-o', dest='out_dir', default='hidden', help='Output directory [Default: %default]')
+    parser.add_option('-t', dest='target_indexes', default=None, help='Target indexes to plot')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -52,6 +55,10 @@ def main():
     test_seqs = data_open['test_in']
     test_targets = data_open['test_out']
 
+    if options.num_seqs is not None:
+        test_seqs = test_seqs[:options.num_seqs]
+        test_targets = test_targets[:options.num_seqs]
+
     #######################################################
     # model parameters and placeholders
     #######################################################
@@ -60,19 +67,23 @@ def main():
     job['batch_length'] = test_seqs.shape[1]
     job['seq_depth'] = test_seqs.shape[2]
     job['num_targets'] = test_targets.shape[2]
+    job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
+    job['save_reprs'] = True
 
     t0 = time.time()
-    dr = basenji.rnn.RNN()
-    dr.build(job)
+    model = basenji.rnn.RNN()
+    model.build(job)
 
-    if options.batch_size is None:
-        options.batch_size = dr.batch_size
+    if options.target_indexes is None:
+        options.target_indexes = range(job['num_targets'])
+    else:
+        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
 
     #######################################################
     # test
     #######################################################
     # initialize batcher
-    batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, options.batch_size)
+    batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, batch_size=model.batch_size, pool_width=model.target_pool)
 
     # initialize saver
     saver = tf.train.Saver()
@@ -82,29 +93,56 @@ def main():
         saver.restore(sess, model_file)
 
         # get layer representations
-        layer_reprs = dr.hidden(sess, batcher_test, options.layers)
+        layer_reprs, _ = model.hidden(sess, batcher_test, options.layers)
 
-        for li in range(len(layer_reprs)):
+        if options.layers is None:
+            options.layers = range(len(layer_reprs))
+
+        for li in options.layers:
             layer_repr = layer_reprs[li]
-            print(layer_repr.shape)
+            try:
+                print(layer_repr.shape)
+            except:
+                print(layer_repr)
 
             # sample one nt per sequence
-            nt_reprs = layer_repr[:,job['batch_length']//2,:]
+            ds_indexes = np.arange(0, layer_repr.shape[1], 256)
+            nt_reprs = layer_repr[:,ds_indexes,:].reshape((-1,layer_repr.shape[2]))
 
             ########################################################
             # plot raw
+            sns.set_style('ticks', font_scale=1.2)
             plt.figure()
-            sns.clustermap(nt_reprs)
+            g = sns.clustermap(nt_reprs, kwargs={'xticklabels':False, 'yticklabels':False})
+            g.ax_heatmap.set_xlabel('Representation')
+            g.ax_heatmap.set_ylabel('Sequences')
             plt.savefig('%s/l%d_reprs.pdf' % (options.out_dir,li))
             plt.close()
 
             ########################################################
-            # visualize w/ TSNE
-            model = TSNE()
-            nt_2d = model.fit_transform(nt_reprs)
+            # plot variance explained ratios
 
-            for ti in range(job['num_targets']):
-                nt_targets = test_targets[:,job['batch_length']//2,ti]
+            model_full = PCA()
+            model_full.fit_transform(nt_reprs)
+            evr = model_full.explained_variance_ratio_
+
+            plt.figure()
+            plt.scatter(range(40), evr[:40], c='black')
+            ax = plt.gca()
+            ax.set_xlabel('Principal components')
+            ax.set_ylabel('Variance explained')
+            ax.grid(True, linestyle=':')
+            plt.savefig('%s/l%d_pca.pdf' % (options.out_dir,li))
+            plt.close()
+
+            ########################################################
+            # visualize in 2D
+
+            model2 = PCA(n_components=2)
+            nt_2d = model2.fit_transform(nt_reprs)
+
+            for ti in options.target_indexes:
+                nt_targets = np.log2(test_targets[:,ds_indexes,ti].flatten()+1)
 
                 plt.figure()
                 plt.scatter(nt_2d[:,0], nt_2d[:,1], alpha=0.5, c=nt_targets, cmap='RdBu_r')
@@ -116,11 +154,13 @@ def main():
 
             ########################################################
             # plot neuron-neuron correlations
+            '''
             neuron_cors = np.corrcoef(nt_reprs.T)
             plt.figure()
             sns.clustermap(neuron_cors)
             plt.savefig('%s/l%d_cor.pdf' % (options.out_dir,li))
             plt.close()
+            '''
 
             ########################################################
             # plot neuron densities
@@ -133,15 +173,49 @@ def main():
                 print('%3d  %6.3f  %6.3f' % (ni,nu,nstd), file=neuron_stats_out)
 
                 # plot
-                plt.figure()
-                sns.distplot(nt_reprs[:,ni])
-                plt.savefig('%s/l%d_dist%d.pdf' % (options.out_dir,li,ni))
-                plt.close()
+                # plt.figure()
+                # sns.distplot(nt_reprs[:,ni])
+                # plt.savefig('%s/l%d_dist%d.pdf' % (options.out_dir,li,ni))
+                # plt.close()
 
             neuron_stats_out.close()
 
+            ########################################################
+            # plot layer norms across length
+            '''
+            layer_repr_norms = np.linalg.norm(layer_repr, axis=2)
+
+            length_vec = list(range(layer_repr_norms.shape[1]))*layer_repr_norms.shape[0]
+            length_vec = np.array(length_vec) + 0.1*np.random.randn(len(length_vec))
+            repr_norm_vec = layer_repr_norms.flatten()
+
+            out_pdf = '%s/l%d_lnorm.pdf' % (options.out_dir,li)
+            regplot(length_vec, repr_norm_vec, out_pdf, x_label='Position', y_label='Repr Norm')
+            '''
+
     data_open.close()
 
+
+def regplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):
+    plt.figure()
+
+    gold = sns.color_palette('husl',8)[1]
+    ax = sns.regplot(vals1, vals2, color='black', lowess=True, scatter_kws={'color':'black', 's':4, 'alpha':alpha}, line_kws={'color':gold})
+
+    xmin, xmax = basenji.plots.scatter_lims(vals1)
+    ymin, ymax = basenji.plots.scatter_lims(vals2)
+
+    ax.set_xlim(xmin,xmax)
+    if x_label is not None:
+        ax.set_xlabel(x_label)
+    ax.set_ylim(ymin,ymax)
+    if y_label is not None:
+        ax.set_ylabel(y_label)
+
+    ax.grid(True, linestyle=':')
+
+    plt.savefig(out_pdf)
+    plt.close()
 
 ################################################################################
 # __main__

@@ -65,9 +65,12 @@ class RNN:
 
                 # convolution
                 conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
+                print('Convolution w/ %d %dx%d filters' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li]))
 
                 # batch normalization
                 cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                print('Batch normalization')
+                print('ReLU')
 
                 # nonlinearity (w/o batch norm)
                 # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
@@ -75,10 +78,12 @@ class RNN:
                 # pooling
                 if self.cnn_pool[li] > 1:
                     cinput = tf.nn.max_pool(cinput, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME', name='pool%d'%li)
+                    print('Max pool %d' % self.cnn_pool[li])
 
                 # dropout
                 if self.cnn_dropout[li] > 0:
                     cinput = tf.nn.dropout(cinput, 1.0-self.cnn_dropout_ph[li])
+                    print('Dropout w/ probability %.3f' % self.cnn_dropout[li])
 
                 # updates size variables
                 seq_length = seq_length // self.cnn_pool[li]
@@ -122,13 +127,18 @@ class RNN:
 
                 # convolution
                 dinput = tf.nn.atrous_conv2d(dinput, kernel, rate=np.power(2,li), padding='SAME')
+                print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], np.power(2,li)))
+
 
                 # batch normalization and ReLU
-                dinput = tf.contrib.layers.batch_norm(dinput, center=True, scale=True, activation_fn=tf.nn.relu, is_training=True, updates_collections=None)
+                dinput = tf.contrib.layers.batch_norm(dinput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                print('Batch normalization')
+                print('ReLU')
 
                 # dropout
                 if self.dcnn_dropout[li] > 0:
                     dinput = tf.nn.dropout(dinput, 1.0-self.dcnn_dropout_ph[li])
+                    print('Dropout w/ probability %.3f' % self.dcnn_dropout[li])
 
                 # update size variables
                 seq_depth = self.dcnn_filters[li]
@@ -281,8 +291,8 @@ class RNN:
             self.preds_op = tf.reshape(tf.tile(tf.reshape(self.preds_op, (-1,self.num_targets)), (1,pool_repeat)), (self.batch_size, tlength, self.num_targets))
 
         # print variables
-        for v in tf.global_variables():
-            print(v.name, v.get_shape())
+        # for v in tf.global_variables():
+        #     print(v.name, v.get_shape())
 
 
         ###################################################

@@ -25,6 +25,7 @@ def main():
     usage = 'usage: %prog [options] <bam_file> <bigwig_file>'
     parser = OptionParser(usage)
     parser.add_option('-c', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
+    parser.add_option('-d', dest='duplicate_max', default=2, type='int', help='Maximum coverage at a single position, which must be addressed due to PCR duplicates [Default: %default]')
     parser.add_option('-m', dest='multi_window', default=None, type='int', help='Window size with which to model coverage in order to distribute multi-mapping read weight [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -51,7 +52,6 @@ def main():
     genome_unique_coverage = np.zeros(genome_length, dtype='uint16')
 
     # intialize sparse matrix in COO format
-    # multi_read_pos = []
     multi_reads = []
     multi_positions = []
     multi_weight = []
@@ -84,14 +84,13 @@ def main():
             # if multi
             else:
                 # if read name is new
-                if align.query_name not in multi_read_index:
+                if read_id not in multi_read_index:
                     # map it to an index
                     multi_read_index[read_id] = ri
                     ri += 1
 
                 # store alignment matrix
                 ari = multi_read_index[read_id]
-                # multi_read_pos.append((ari,gi))
                 multi_reads.append(ari)
                 multi_positions.append(gi)
                 multi_weight.append(np.float16(1/nh_tag))
@@ -106,8 +105,8 @@ def main():
     # validate that weights sum to 1
     multi_sum = multi_weight_matrix.sum(axis=1)
     for read_id, ri in multi_read_index.items():
-        if np.isclose(multi_sum[ri], 1):
-            print('Multi-weighted coverage for %s != 1' % read_id, file=sys.stderr)
+        if not np.isclose(multi_sum[ri], 1, rtol=1e-3):
+            print('Multi-weighted coverage for (%s,%s) %f != 1' % (read_id[0],read_id[1],multi_sum[ri]), file=sys.stderr)
             exit(1)
 
     # clean up
@@ -123,7 +122,47 @@ def main():
     # run EM to distribute multi-mapping read weights
 
     if options.multi_window is not None:
-        pass
+        # define multi-mapping positions
+        multi_positions = np.array(sorted(set(multi_weight_matrix.indices)))
+        multi_positions_len = len(multi_positions)
+
+        # initialize multi-mapping coverage values with pseudocount
+        multi_positions_coverage = np.zeros(multi_positions_len, dtype='float32')
+
+        for it in range(10):
+            # compute coverage estimates at all multi-mapping positions
+            for pi in range(multi_positions_len):
+                pos = multi_positions[pi]
+
+                # define window range (ignoring chromosome boundaries)
+                window_start = max(0, pos - options.multi_window/2)
+                window_end = window_start + options.multi_window
+
+                # unique coverage (+ pseudocount)
+                multi_positions_coverage[pi] = 1 + genome_unique_coverage[window_start:window_end].sum()
+
+                # multi-map coverage
+                multi_positions_coverage[pi] += multi_weight_matrix[:,window_start:window_end].sum()
+
+            # re-allocate multi-reads proportionally to coverage estimates
+            for ri in range(multi_weight_matrix.shape[0]):
+                # get read's aligning positions
+                multi_read_positions = multi_weight_matrix.getrow(ri)
+
+                # crap, I have a bunch of genomic positions, but I can't easily
+                # relate them to the multi_positions_coverage indexes.
+
+                # but if I store multi_positions_coverage as a dense array, it'll take 12 Gb
+                # and a sparse array is no better because half the genome multi-maps.
+
+                # I could do a binary search through multi_positions to find the proper index, but
+                # that's multiplying by a log(G/2) factor.
+
+                # is there a format for multi_positions that would make the searches faster?
+
+
+        # can I do this in more of a streaming online fashion where I set multi_positions_coverage initially,
+        #  but then update it everytime I process a read?
 
 
     ################################################################
@@ -135,8 +174,6 @@ def main():
 
     ################################################################
     # compute genomic coverage / normalize for cut bias / output
-
-    t0 = time.time()
 
     bigwig_out = pyBigWig.open(bigwig_file, 'w')
 
@@ -156,11 +193,6 @@ def main():
         chrom_coverage_array = genome_unique_coverage[gi:gi+cl] + chrom_multi_coverage
         chrom_coverage = chrom_coverage_array.tolist()
 
-        # normalize for cut bias
-        if options.cut_bias_kmer is not None:
-            # chrom_coverage =
-            pass
-
         # add to bigwig
         t0 = time.time()
         bigwig_out.addEntries(chromosomes[ci], 0, values=chrom_coverage, span=1, step=1)
@@ -172,9 +204,9 @@ def main():
 
         gc.collect()
 
+    t0 = time.time()
     bigwig_out.close()
-
-    print('Output BigWig: %ds' % (time.time()-t0))
+    print('Close BigWig: %ds' % (time.time()-t0))
 
 
 def compute_cut_norms(cut_bias_kmer, read_weights, chromosomes, chrom_lengths, fasta_file):

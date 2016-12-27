@@ -111,9 +111,9 @@ def main():
 
             ########################################################
             # plot raw
-            sns.set_style('ticks', font_scale=1.2)
+            sns.set(style='ticks', font_scale=1.2)
             plt.figure()
-            g = sns.clustermap(nt_reprs, kwargs={'xticklabels':False, 'yticklabels':False})
+            g = sns.clustermap(nt_reprs, xticklabels=False, yticklabels=False)
             g.ax_heatmap.set_xlabel('Representation')
             g.ax_heatmap.set_ylabel('Sequences')
             plt.savefig('%s/l%d_reprs.pdf' % (options.out_dir,li))
@@ -126,10 +126,14 @@ def main():
             model_full.fit_transform(nt_reprs)
             evr = model_full.explained_variance_ratio_
 
+            pca_n = 40
+
             plt.figure()
-            plt.scatter(range(40), evr[:40], c='black')
+            plt.scatter(range(1,pca_n+1), evr[:pca_n], c='black')
             ax = plt.gca()
+            ax.set_xlim(0, pca_n+1)
             ax.set_xlabel('Principal components')
+            ax.set_ylim(0, evr[:pca_n].max()*1.05)
             ax.set_ylabel('Variance explained')
             ax.grid(True, linestyle=':')
             plt.savefig('%s/l%d_pca.pdf' % (options.out_dir,li))
@@ -154,13 +158,17 @@ def main():
 
             ########################################################
             # plot neuron-neuron correlations
-            '''
-            neuron_cors = np.corrcoef(nt_reprs.T)
+
+            # mean-normalize representation
+            nt_reprs_norm = nt_reprs - nt_reprs.mean(axis=0)
+
+            # compute covariance matrix
+            hidden_cov = np.dot(nt_reprs_norm.T, nt_reprs_norm)
+
             plt.figure()
-            sns.clustermap(neuron_cors)
-            plt.savefig('%s/l%d_cor.pdf' % (options.out_dir,li))
+            g = sns.clustermap(hidden_cov, xticklabels=False, yticklabels=False)
+            plt.savefig('%s/l%d_cov.pdf' % (options.out_dir,li))
             plt.close()
-            '''
 
             ########################################################
             # plot neuron densities

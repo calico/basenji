@@ -169,7 +169,7 @@ def main():
                 print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str), end='')
 
                 # if training stagnant
-                if options.learn_rate_drop and undroppable_counter == 0 and (train_loss_last - train_loss)/train_loss_last < 0.0005:
+                if options.learn_rate_drop and undroppable_counter == 0 and (train_loss_last - train_loss)/train_loss_last < 0.0002:
                     print(', rate drop', end='')
                     dr.drop_rate(2/3)
                     undroppable_counter = 1

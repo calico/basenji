@@ -8,7 +8,8 @@ import time
 import numpy as np
 import pyBigWig
 import pysam
-from scipy.sparse import csr_matrix
+from scipy.ndimage.filters import gaussian_filter1d
+from scipy.sparse import csc_matrix, csr_matrix
 
 import size
 
@@ -122,47 +123,7 @@ def main():
     # run EM to distribute multi-mapping read weights
 
     if options.multi_window is not None:
-        # define multi-mapping positions
-        multi_positions = np.array(sorted(set(multi_weight_matrix.indices)))
-        multi_positions_len = len(multi_positions)
-
-        # initialize multi-mapping coverage values with pseudocount
-        multi_positions_coverage = np.zeros(multi_positions_len, dtype='float32')
-
-        for it in range(10):
-            # compute coverage estimates at all multi-mapping positions
-            for pi in range(multi_positions_len):
-                pos = multi_positions[pi]
-
-                # define window range (ignoring chromosome boundaries)
-                window_start = max(0, pos - options.multi_window/2)
-                window_end = window_start + options.multi_window
-
-                # unique coverage (+ pseudocount)
-                multi_positions_coverage[pi] = 1 + genome_unique_coverage[window_start:window_end].sum()
-
-                # multi-map coverage
-                multi_positions_coverage[pi] += multi_weight_matrix[:,window_start:window_end].sum()
-
-            # re-allocate multi-reads proportionally to coverage estimates
-            for ri in range(multi_weight_matrix.shape[0]):
-                # get read's aligning positions
-                multi_read_positions = multi_weight_matrix.getrow(ri)
-
-                # crap, I have a bunch of genomic positions, but I can't easily
-                # relate them to the multi_positions_coverage indexes.
-
-                # but if I store multi_positions_coverage as a dense array, it'll take 12 Gb
-                # and a sparse array is no better because half the genome multi-maps.
-
-                # I could do a binary search through multi_positions to find the proper index, but
-                # that's multiplying by a log(G/2) factor.
-
-                # is there a format for multi_positions that would make the searches faster?
-
-
-        # can I do this in more of a streaming online fashion where I set multi_positions_coverage initially,
-        #  but then update it everytime I process a read?
+        distribute_multi(multi_weight_matrix, genome_unique_coverage, chrom_lengths, options.multi_window, 10)
 
 
     ################################################################
@@ -175,6 +136,8 @@ def main():
     ################################################################
     # compute genomic coverage / normalize for cut bias / output
 
+    print('Outputting coverage')
+
     bigwig_out = pyBigWig.open(bigwig_file, 'w')
 
     # add header
@@ -182,7 +145,8 @@ def main():
 
     gi = 0
     for ci in range(len(chromosomes)):
-        print(' Outputting %s' % chromosomes[ci])
+        t0 = time.time()
+        print('  %s' % chromosomes[ci], end='', flush=True)
         cl = chrom_lengths[ci]
 
         # compute multi-mapper chromosome coverage
@@ -196,17 +160,19 @@ def main():
         # add to bigwig
         t0 = time.time()
         bigwig_out.addEntries(chromosomes[ci], 0, values=chrom_coverage, span=1, step=1)
-        print('pybigwig add: %ds' % (time.time()-t0))
-        sys.stdout.flush()
 
         # update genomic index
         gi += cl
 
+        # clean up temp storage
         gc.collect()
+
+        # update user
+        print(', %ds' % (time.time()-t0), flush=True)
 
     t0 = time.time()
     bigwig_out.close()
-    print('Close BigWig: %ds' % (time.time()-t0))
+    print(' Close BigWig: %ds' % (time.time()-t0))
 
 
 def compute_cut_norms(cut_bias_kmer, read_weights, chromosomes, chrom_lengths, fasta_file):
@@ -268,6 +234,145 @@ def compute_cut_norms(cut_bias_kmer, read_weights, chromosomes, chrom_lengths, f
         pass
 
     return kmer_norms
+
+def row_nzcols(m, ri):
+    ''' Return row ri's nonzero columns. '''
+    return m.indices[m.indptr[ri]:m.indptr[ri+1]]
+
+
+def distribute_multi(multi_weight_matrix, genome_unique_coverage, chrom_lengths, multi_window, max_iterations=10, converge_t=.01):
+    ''' Distribute multi-mapping read weight proportional to coverage in a local window.
+
+    In
+     multi_weight_matrix: R (reads) x G (genomic position) array of multi-mapping read weight.
+     genome_unique_coverage: G (genomic position) array of unique coverage counts.
+     multi_window: Window size used to estimate local coverage.
+     chrom_lengths ([int]): List of chromosome lengths.
+     max_iterations: Maximum iterations through the reads.
+     converge_t: Per read weight difference below which we consider convergence.
+
+    '''
+    print('Distributing %d multi-mapping reads.' % multi_weight_matrix.shape[0])
+
+    # initialize genome coverage
+    genome_coverage = np.zeros(len(genome_unique_coverage), dtype='float16')
+
+    for it in range(max_iterations):
+        print(' Iteration %d' % (it+1), end='', flush=True)
+        t_it = time.time()
+
+        # track convergence
+        iteration_change = 0
+
+        # update genome coverage estimates
+        estimate_coverage(genome_coverage, genome_unique_coverage, multi_weight_matrix, chrom_lengths)
+
+        # re-allocate multi-reads proportionally to coverage estimates
+        t_r = time.time()
+        for ri in range(multi_weight_matrix.shape[0]):
+            # update user
+            if ri % 100000 == 100000-1:
+                print('\n  processed %d reads in %ds' % (ri+1, time.time()-t_r), end='', flush=True)
+                t_r = time.time()
+
+            # get read's aligning positions
+            multi_read_positions = row_nzcols(multi_weight_matrix, ri)
+            multi_positions_len = len(multi_read_positions)
+
+            # get coverage estimates
+            multi_positions_coverage = np.array([genome_coverage[pos] for pos in multi_read_positions])
+
+            # normalize coverage as weights
+            multi_positions_weight = multi_positions_coverage / multi_positions_coverage.sum()
+
+            # re-proportion read weight
+            for pi in range(multi_positions_len):
+                # get genomic position
+                pos = multi_read_positions[pi]
+
+                # track convergence
+                iteration_change += abs(multi_positions_weight[pi] - multi_weight_matrix[ri,pos])
+
+                # set new weight
+                multi_weight_matrix[ri,pos] = multi_positions_weight[pi]
+
+        # assess coverage
+        iteration_change /= multi_weight_matrix.shape[0]
+        # print(', %.3f change per multi-read' % iteration_change, flush=True)
+        print('\n Finished in %ds with %.3f change per multi-read' % (time.time()-t_it, iteration_change), flush=True)
+        if iteration_change < converge_t:
+            break
+
+
+def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_window, chrom_lengths, max_iterations=10, converge_t=.01):
+    ''' Wondering if I can speed things up by vectorizing these operations, but still much to test.
+
+    1. start by comparing the times to make my genome_coverage estimate here with multi_weight_matrix.sum(axis=0) versus looping through the arrays myself.
+    2. then benchmark that dot product.
+    3. then benchmark the column normalization.
+    4. then determine a way to assess convergence. maybe sample 1k reads to act as my proxy?
+
+    '''
+
+    print('Distributing %d multi-mapping reads.' % multi_weight_matrix.shape[0])
+
+    # initialize genome coverage
+    genome_coverage = np.zeros(len(genome_unique_coverage), dtype='float16')
+
+    for it in range(max_iterations):
+        print(' Iteration %d' % (it+1), end='', flush=True)
+        t_it = time.time()
+
+        # track convergence
+        iteration_change = 0
+
+        # estimate genome coverage
+        genome_coverage = genome_unique_coverage + multi_weight_matrix.sum(axis=0)
+
+        # smooth estimate by chromosome
+        gi = 0
+        for clen in chrom_lengths:
+            genome_coverage[gi:gi+clen] = gaussian_filter1d(genome_coverage[gi:gi+clen].astype('float32'), sigma=25, truncate=3)
+            gi = gi+clen
+
+        # re-distribute multi-mapping reads
+        multi_weight_matrix = multi_weight_matrix.dot(genome_coverage)
+
+        # normalize
+        multi_weight_matrix /= multi_weight_matrix.mean(axis=1)
+
+        # assess coverage (not sure how to do that. maybe an approximation of the big sparse matrix?)
+        iteration_change /= multi_weight_matrix.shape[0]
+        # print(', %.3f change per multi-read' % iteration_change, flush=True)
+        print(' Finished in %ds with %.3f change per multi-read' % (time.time()-t_it, iteration_change), flush=True)
+        if iteration_change / multi_weight_matrix.shape[0] < converge_t:
+            break
+
+
+def estimate_coverage(genome_coverage, genome_unique_coverage, multi_weight_matrix, chrom_lengths):
+    ''' Estimate smoothed genomic coverage.
+
+    In
+     chrom_lengths ([int]): List of chromosome lengths.
+
+    '''
+
+    # start with unique coverage
+    np.copyto(genome_coverage, genome_unique_coverage)
+
+    # add in multi-map coverage
+    for ri in range(multi_weight_matrix.shape[0]):
+        ri_ptr, ri_ptr1 = multi_weight_matrix.indptr[ri:ri+2]
+        ci = 0
+        for pos in multi_weight_matrix.indices[ri_ptr:ri_ptr1]:
+            genome_coverage[pos] += multi_weight_matrix.data[ri_ptr+ci]
+            ci += 1
+
+    # smooth by chromosome
+    gi = 0
+    for clen in chrom_lengths:
+        genome_coverage[gi:gi+clen] = gaussian_filter1d(genome_coverage[gi:gi+clen].astype('float32'), sigma=25, truncate=3)
+        gi = gi+clen
 
 
 def genome_index(chrom_lengths, align_ci, align_pos):

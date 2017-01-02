@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
 import seaborn as sns
+from sklearn.preprocessing import scale
 import tensorflow as tf
 
 import basenji
@@ -31,8 +32,10 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
     parser.add_option('-i', dest='ignore_bed', help='Ignore genes overlapping regions in this BED file')
+    parser.add_option('-l', dest='load_preds', help='Load transcript_preds from file')
     parser.add_option('-o', dest='out_dir', default='genes_out', help='Output directory for tables and plots [Default: %default]')
-    parser.add_option('-t', dest='target_indexes', default=None, help='Comma-separated list of target indexes to scatter plot true versus predicted values')
+    parser.add_option('-s', dest='plot_scatter', default=False, action='store_true', help='Make time-consuming accuracy scatter plots [Default: %default]')
+    parser.add_option('-t', dest='target_indexes', default=None, help='File or Comma-separated list of target indexes to scatter plot true versus predicted values')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -48,8 +51,7 @@ def main():
     #################################################################
     # reads in genes HDF5
 
-    print('Reading from gene HDF')
-    sys.stdout.flush()
+    print('Reading from gene HDF', flush=True)
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
@@ -86,10 +88,26 @@ def main():
 
     transcript_targets = genes_hdf5_in['transcript_targets']
 
+    #######################################
+    # targets
+
     target_labels = [tl.decode('UTF-8') for tl in genes_hdf5_in['target_labels']]
 
-    print(' Done')
-    sys.stdout.flush()
+    if options.target_indexes is None:
+        options.target_indexes = []
+    elif options.target_indexes == 'all':
+        options.target_indexes = range(transcript_targets.shape[1])
+    elif os.path.isfile(options.target_indexes):
+        target_indexes_file = options.target_indexes
+        options.target_indexes = []
+        for line in open(target_indexes_file):
+            options.target_indexes.append(int(line.split()[0]))
+    else:
+        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
+
+    options.target_indexes = np.array(options.target_indexes)
+
+    print(' Done', flush=True)
 
 
     #################################################################
@@ -100,53 +118,61 @@ def main():
 
 
     #################################################################
-    # setup model
+    # transcript predictions
 
-    print('Constructing model')
-    sys.stdout.flush()
+    if options.load_preds is not None:
+        # load from file
+        transcript_preds = np.load(options.load_preds)
 
-    job = basenji.dna_io.read_job_params(params_file)
+    else:
 
-    job['batch_length'] = seqs_1hot.shape[1]
-    job['seq_depth'] = seqs_1hot.shape[2]
-    job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
-    job['num_targets'] = transcript_targets.shape[1]
+        #######################################################
+        # setup model
 
-    # build model
-    dr = basenji.rnn.RNN()
-    dr.build(job)
+        print('Constructing model', flush=True)
 
-    if options.batch_size is not None:
-        dr.batch_size = options.batch_size
+        job = basenji.dna_io.read_job_params(params_file)
 
-    print(' Done')
-    sys.stdout.flush()
+        job['batch_length'] = seqs_1hot.shape[1]
+        job['seq_depth'] = seqs_1hot.shape[2]
+        job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
+        job['num_targets'] = transcript_targets.shape[1]
+
+        # build model
+        dr = basenji.rnn.RNN()
+        dr.build(job)
+
+        if options.batch_size is not None:
+            dr.batch_size = options.batch_size
+
+        print(' Done', flush=True)
 
 
-    #################################################################
-    # predict
+        #######################################################
+        # predict transcripts
 
-    print('Computing gene predictions')
-    sys.stdout.flush()
+        print('Computing gene predictions', flush=True)
 
-    # initialize batcher
-    batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=dr.batch_size)
+        # initialize batcher
+        batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=dr.batch_size)
 
-    # initialie saver
-    saver = tf.train.Saver()
+        # initialie saver
+        saver = tf.train.Saver()
 
-    with tf.Session() as sess:
-        # load variables into session
-        saver.restore(sess, model_file)
+        with tf.Session() as sess:
+            # load variables into session
+            saver.restore(sess, model_file)
 
-        # predict
-        transcript_preds = dr.predict_genes(sess, batcher, transcript_map)
+            # predict
+            transcript_preds = dr.predict_genes(sess, batcher, transcript_map)
 
-        # dr. predict_genes_bigwig(sess, batcher, seq_coords, options.out_dir, '%s/assembly/human.hg19.ml.genome'%os.environ['HG19'], [1471])
-        # transcript_preds = dr.predict_genes_coords(sess, batcher, transcript_map, seq_coords)
+            # dr. predict_genes_bigwig(sess, batcher, seq_coords, options.out_dir, '%s/assembly/human.hg19.ml.genome'%os.environ['HG19'], [1471])
+            # transcript_preds = dr.predict_genes_coords(sess, batcher, transcript_map, seq_coords)
 
-    print(' Done')
-    sys.stdout.flush()
+        # save to file
+        np.save('%s/preds' % options.out_dir, transcript_preds)
+
+        print(' Done', flush=True)
 
 
     #################################################################
@@ -166,16 +192,47 @@ def main():
     #################################################################
     # gene statistics
 
-    if options.target_indexes is None:
-        options.target_indexes = []
-    elif options.target_indexes == 'all':
-        options.target_indexes = range(transcript_targets.shape[1])
-    else:
-        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
+    gene_table(transcript_targets, transcript_preds, list(transcript_map.keys()), target_labels, options.target_indexes, '%s/transcript'%options.out_dir, options.plot_scatter)
 
-    gene_table(transcript_targets, transcript_preds, list(transcript_map.keys()), target_labels, options.target_indexes, '%s/transcript'%options.out_dir)
+    gene_table(gene_targets, gene_preds, gene_list, target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
 
-    gene_table(gene_targets, gene_preds, gene_list, target_labels, options.target_indexes, '%s/gene'%options.out_dir)
+
+    #################################################################
+    # normalize predictions across targets
+
+    # normalize across datasets
+    gene_preds_sums = gene_preds.sum(axis=0, dtype='float32')
+    gene_preds_norm = gene_preds.astype('float32') / gene_preds_sums * 1e6
+
+    # take log
+    gene_preds_lognorm = np.log2(gene_preds_norm+1)
+
+    # scale gene vectors
+    gene_preds_scale = gene_preds_lognorm - gene_preds_lognorm.mean(axis=1)
+
+    #################################################################
+    # plot genes by targets clustermap
+
+    # choose a set of variable genes
+    gene_vars = gene_preds_lognorm.var(axis=1)
+    indexes_vars_sort = np.argsort(gene_vars)[::-1]
+
+    # raw values
+    sns.set(font_scale=1.2, style='ticks')
+    plt.figure()
+    g = sns.clustermap(gene_preds_lognorm[np.ix_(indexes_vars_sort[:1000],options.target_indexes)], metric='cosine', xticklabels=False, yticklabels=False)
+    g.ax_heatmap.set_xlabel('Targets')
+    g.ax_heatmap.set_ylabel('Genes')
+    plt.savefig('%s/gene_heat_raw.pdf' % options.out_dir)
+    plt.close()
+
+    # scaled values
+    plt.figure()
+    g = sns.clustermap(gene_preds_scale[np.ix_(indexes_vars_sort[:1000],options.target_indexes)], metric='euclidean', xticklabels=False, yticklabels=False)
+    g.ax_heatmap.set_xlabel('Targets')
+    g.ax_heatmap.set_ylabel('Genes')
+    plt.savefig('%s/gene_heat_scale.pdf' % options.out_dir)
+    plt.close()
 
 
     #################################################################
@@ -274,7 +331,7 @@ def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, tr
     return seqs_1hot, transcript_map, transcript_targets
 
 
-def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexes, out_prefix):
+def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexes, out_prefix, plot_scatter):
     ''' Print a gene-based statistics table and scatter plot for the given target indexes. '''
 
     num_genes = gene_targets.shape[0]
@@ -286,10 +343,11 @@ def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexe
         gpi = np.log2(gene_preds[:,ti]+1)
 
         # plot scatter
-        sns.set(font_scale=1.2, style='ticks')
-        out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
-        ri = np.random.choice(range(num_genes), 2000, replace=False)
-        basenji.plots.regplot(gti[ri].astype('float32'), gpi[ri].astype('float32'), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
+        if plot_scatter:
+            sns.set(font_scale=1.2, style='ticks')
+            out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
+            ri = np.random.choice(range(num_genes), 2000, replace=False)
+            basenji.plots.regplot(gti[ri].astype('float32'), gpi[ri].astype('float32'), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
 
         # print table lines
         tx_i = 0

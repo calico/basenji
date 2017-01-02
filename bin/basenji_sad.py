@@ -32,7 +32,7 @@ def main():
     parser.add_option('-b', dest='batch_size', default=256, type='int', help='Batch size [Default: %default]')
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-e', dest='heatmaps', default=False, action='store_true', help='Draw score heatmaps, grouped by index SNP [Default: %default]')
-    parser.add_option('-f', dest='genome_fasta', default='%s/data/genomes/hg19.fa'%os.environ['BASSETDIR'], help='Genome FASTA from which sequences will be drawn [Default: %default]')
+    parser.add_option('-f', dest='genome_fasta', default='%s/assembly/hg19.fa'%os.environ['HG19'], help='Genome FASTA from which sequences will be drawn [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-i', dest='index_snp', default=False, action='store_true', help='SNPs are labeled with their index SNP as column 6 [Default: %default]')
     parser.add_option('-l', dest='seq_len', type='int', default=1024, help='Sequence length provided to the model [Default: %default]')

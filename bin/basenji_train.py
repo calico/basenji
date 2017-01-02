@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 from optparse import OptionParser
-import sys
 import time
 
 import h5py
@@ -75,8 +74,7 @@ def main():
     t0 = time.time()
     dr = basenji.rnn.RNN()
     dr.build(job)
-    print('Model building time %f' % (time.time()-t0))
-    sys.stdout.flush()
+    print('Model building time %f' % (time.time()-t0), flush=True)
 
     # adjust for fourier
     job['fourier'] = 'train_out_imag' in data_open
@@ -95,8 +93,7 @@ def main():
     else:
         batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, train_na, dr.batch_size, dr.target_pool, shuffle=True)
         batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, valid_na, dr.batch_size, dr.target_pool)
-    print('Batcher initialized')
-    sys.stdout.flush()
+    print('Batcher initialized', flush=True)
 
 
     # checkpoints
@@ -118,17 +115,17 @@ def main():
             saver.restore(sess, options.restart)
         else:
             # initialize variables
-            print('Initializing...')
-            sys.stdout.flush()
+            print('Initializing...', flush=True)
             # sess.run(tf.initialize_all_variables())
             sess.run(tf.global_variables_initializer())
-            print("Initialization time %f" % (time.time()-t0))
-            sys.stdout.flush()
+            print("Initialization time %f" % (time.time()-t0), flush=True)
 
         train_loss = None
         best_loss = None
         early_stop_i = 0
-        undroppable_counter = 2
+        undroppable_counter = 3
+        max_drops = 8
+        num_drops = 0
 
         for epoch in range(1000):
             if early_stop_i < job['early_stop']:
@@ -166,18 +163,18 @@ def main():
                     time_str = '%3.1fh' % (et/3600)
 
                 # print update
-                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s %s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str), end='')
+                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s%s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str), end='')
 
                 # if training stagnant
-                if options.learn_rate_drop and undroppable_counter == 0 and (train_loss_last - train_loss)/train_loss_last < 0.0002:
+                if options.learn_rate_drop and num_drops < max_drops and undroppable_counter == 0 and (train_loss_last - train_loss)/train_loss_last < 0.0002:
                     print(', rate drop', end='')
                     dr.drop_rate(2/3)
                     undroppable_counter = 1
+                    num_drops += 1
                 else:
                     undroppable_counter = max(0, undroppable_counter-1)
 
-                print('')
-                sys.stdout.flush()
+                print('', flush=True)
 
         if options.summary is not None:
             train_writer.close()

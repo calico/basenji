@@ -27,7 +27,8 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-c', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
     parser.add_option('-d', dest='duplicate_max', default=2, type='int', help='Maximum coverage at a single position, which must be addressed due to PCR duplicates [Default: %default]')
-    parser.add_option('-m', dest='multi_window', default=None, type='int', help='Window size with which to model coverage in order to distribute multi-mapping read weight [Default: %default]')
+    parser.add_option('-m', dest='multi', default=False, action='store_true', help='Distribute multi-mapping reads [Default: %default]')
+    parser.add_option('-s', dest='smooth_sd', default=0, type='float', help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -100,7 +101,6 @@ def main():
     num_reads = len(multi_read_index)
 
     # convert sparse matrix
-    # multi_weight_matrix = csr_matrix((multi_read_index,multi_weight), shape=(num_reads,genome_length))
     multi_weight_matrix = csr_matrix((multi_weight,(multi_reads,multi_positions)), shape=(num_reads,genome_length))
 
     # validate that weights sum to 1
@@ -122,8 +122,8 @@ def main():
     ################################################################
     # run EM to distribute multi-mapping read weights
 
-    if options.multi_window is not None:
-        distribute_multi(multi_weight_matrix, genome_unique_coverage, chrom_lengths, options.multi_window, 10)
+    if options.multi:
+        distribute_multi(multi_weight_matrix, genome_unique_coverage, chrom_lengths, options.smooth_sd, options.duplicate_max)
 
 
     ################################################################
@@ -131,6 +131,12 @@ def main():
 
     if options.cut_bias_kmer is not None:
         kmer_norms = compute_cut_norm(options.cut_bias_kmer, multi_weight_matrix, chromosomes, chrom_lengths, options.fasta_file)
+
+    ################################################################
+    # normalize for GC content
+
+    if options.gc:
+        gc_func = normalize_gc(genome_unique_coverage, multi_weight_matrix, options.smooth_sd, options.duplicate_max)
 
 
     ################################################################
@@ -155,10 +161,19 @@ def main():
 
         # sum with unique coverage
         chrom_coverage_array = genome_unique_coverage[gi:gi+cl] + chrom_multi_coverage
+
+        # limit duplicates
+        if options.duplicate_max is not None:
+            chrom_coverage_array = np.clip(chrom_coverage_array, 0, options.duplicate_max)
+
+        # Gaussian smooth
+        if options.smooth_sd > 0:
+            chrom_coverage_array = gaussian_filter1d(chrom_coverage_array, sigma=options.smooth_sd, truncate=3)
+
+        # convert to list for pyBigWig (allegedly unnecessary now)
         chrom_coverage = chrom_coverage_array.tolist()
 
         # add to bigwig
-        t0 = time.time()
         bigwig_out.addEntries(chromosomes[ci], 0, values=chrom_coverage, span=1, step=1)
 
         # update genomic index
@@ -240,7 +255,7 @@ def row_nzcols(m, ri):
     return m.indices[m.indptr[ri]:m.indptr[ri+1]]
 
 
-def distribute_multi(multi_weight_matrix, genome_unique_coverage, chrom_lengths, multi_window, max_iterations=10, converge_t=.01):
+def distribute_multi(multi_weight_matrix, genome_unique_coverage, chrom_lengths, smooth_sd, duplicate_max, max_iterations=4, converge_t=.01):
     ''' Distribute multi-mapping read weight proportional to coverage in a local window.
 
     In
@@ -265,7 +280,7 @@ def distribute_multi(multi_weight_matrix, genome_unique_coverage, chrom_lengths,
         iteration_change = 0
 
         # update genome coverage estimates
-        estimate_coverage(genome_coverage, genome_unique_coverage, multi_weight_matrix, chrom_lengths)
+        estimate_coverage(genome_coverage, genome_unique_coverage, multi_weight_matrix, chrom_lengths, smooth_sd, duplicate_max)
 
         # re-allocate multi-reads proportionally to coverage estimates
         t_r = time.time()
@@ -349,16 +364,22 @@ def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_
             break
 
 
-def estimate_coverage(genome_coverage, genome_unique_coverage, multi_weight_matrix, chrom_lengths):
+def estimate_coverage(genome_coverage, genome_unique_coverage, multi_weight_matrix, chrom_lengths, smooth_sd=50, duplicate_max=2, pseudocount=.01):
     ''' Estimate smoothed genomic coverage.
 
     In
+     genome_coverage: G (genomic position) array of estimated coverage counts.
+     genome_unique_coverage: G (genomic position) array of unique coverage counts.
+     multi_weight_matrix: R (reads) x G (genomic position) array of multi-mapping read weight.
      chrom_lengths ([int]): List of chromosome lengths.
-
+     smooth_sd (int): Gaussian filter standard deviation.
+     duplicate_max (int): PCR duplicate position max.
+     pseudocount (int): Coverage pseudocount.
     '''
 
-    # start with unique coverage
-    np.copyto(genome_coverage, genome_unique_coverage)
+    # start with unique coverage, and add pseudocount
+    # np.copyto(genome_coverage, genome_unique_coverage)
+    genome_coverage = genome_unique_coverage + pseudocount
 
     # add in multi-map coverage
     for ri in range(multi_weight_matrix.shape[0]):
@@ -368,11 +389,16 @@ def estimate_coverage(genome_coverage, genome_unique_coverage, multi_weight_matr
             genome_coverage[pos] += multi_weight_matrix.data[ri_ptr+ci]
             ci += 1
 
+    # limit duplicates
+    if duplicate_max is not None:
+        genome_coverage = np.clip(genome_coverage, 0, duplicate_max)
+
     # smooth by chromosome
-    gi = 0
-    for clen in chrom_lengths:
-        genome_coverage[gi:gi+clen] = gaussian_filter1d(genome_coverage[gi:gi+clen].astype('float32'), sigma=25, truncate=3)
-        gi = gi+clen
+    if smooth_sd > 0:
+        gi = 0
+        for clen in chrom_lengths:
+            genome_coverage[gi:gi+clen] = gaussian_filter1d(genome_coverage[gi:gi+clen].astype('float32'), sigma=smooth_sd, truncate=3)
+            gi = gi+clen
 
 
 def genome_index(chrom_lengths, align_ci, align_pos):
@@ -410,6 +436,38 @@ def initialize_kmers(k, pseudocount=1.):
         kmer = int2kmer(k,i)
         kmer_cuts[kmer] = pseudocount
     return kmer_cuts
+
+
+def normalize_gc(genome_unique_coverage, multi_weight_matrix, fragment_sd=50, duplicate_max=2, pseudocunt=.01):
+    ''' Return a function to normalize for GC content.
+
+    In
+     genome_unique_coverage: G (genomic position) array of unique coverage counts.
+     multi_weight_matrix: R (reads) x G (genomic position) array of multi-mapping read weight.
+     fragment_sd (int): Gaussian filter standard deviation.
+     duplicate_max (int): PCR duplicate position max.
+     pseudocount (int): Coverage pseudocount.
+    '''
+
+    #######################################################
+    # choose training positions
+
+    # determine multi-mapping positions
+    multi_positions = sorted(set(multi_weight_matrix.indices))
+
+    # traverse the list and grab positions within
+    train_positions = []
+    for mi in range(1,len(multi_positions)-1):
+        mp1 = multi_positions[mi]
+        mp2 = multi_positions[mi+1]
+        train_positions += list(np.arange(mp1, mp2, 1000))[1:]
+
+    # sub-sample if necessary
+    if len(train_positions) > 100000:
+        train_positions = np.sample(train_positions, 100000)
+
+    # ???
+
 
 ################################################################################
 # __main__

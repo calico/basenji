@@ -126,22 +126,32 @@ class RNN:
                 biases = tf.Variable(tf.zeros([self.dcnn_filters[li]]), name='bias')
 
                 # convolution
-                dinput = tf.nn.atrous_conv2d(dinput, kernel, rate=np.power(2,li), padding='SAME')
+                doutput = tf.nn.atrous_conv2d(dinput, kernel, rate=np.power(2,li), padding='SAME')
                 print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], np.power(2,li)))
 
 
                 # batch normalization and ReLU
-                dinput = tf.contrib.layers.batch_norm(dinput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
                 print('Batch normalization')
                 print('ReLU')
 
                 # dropout
                 if self.dcnn_dropout[li] > 0:
-                    dinput = tf.nn.dropout(dinput, 1.0-self.dcnn_dropout_ph[li])
+                    doutput = tf.nn.dropout(doutput, 1.0-self.dcnn_dropout_ph[li])
                     print('Dropout w/ probability %.3f' % self.dcnn_dropout[li])
 
-                # update size variables
-                seq_depth = self.dcnn_filters[li]
+                if self.dense_dilate:
+                    # concat to dinput
+                    dinput = tf.concat(3, [dinput, doutput])
+
+                    # update size variables
+                    seq_depth += self.dcnn_filters[li]
+                else:
+                    # move doutput to dinput
+                    dinput = doutput
+
+                    # update size variables
+                    seq_depth = self.dcnn_filters[li]
 
                 # save representation (not positive about this one)
                 if self.save_reprs:
@@ -743,6 +753,8 @@ class RNN:
         self.dcnn_filters = np.atleast_1d(job.get('dcnn_filters', []))
         self.dcnn_filter_sizes = np.atleast_1d(job.get('dcnn_filter_sizes', []))
         self.dcnn_layers = len(self.dcnn_filters)
+        self.dense_dilate = job.get('dense_dilate',False)
+        self.dense_dilate = job.get('dense',self.dense_dilate)
 
         ###################################################
         # RNN params

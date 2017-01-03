@@ -753,8 +753,8 @@ class RNN:
         self.dcnn_filters = np.atleast_1d(job.get('dcnn_filters', []))
         self.dcnn_filter_sizes = np.atleast_1d(job.get('dcnn_filter_sizes', []))
         self.dcnn_layers = len(self.dcnn_filters)
-        self.dense_dilate = job.get('dense_dilate',False)
-        self.dense_dilate = job.get('dense',self.dense_dilate)
+        self.dense_dilate = bool(job.get('dense_dilate',False))
+        self.dense_dilate = bool(job.get('dense',self.dense_dilate))
 
         ###################################################
         # RNN params

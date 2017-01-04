@@ -248,8 +248,13 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
             transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
         except RuntimeError:
             if seq_chrom not in warned_chroms:
-                print("WARNING: %s doesn't see %s %s:%d-%d. Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,transcript,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
+                print("WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,transcript,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
                 warned_chroms.add(seq_chrom)
+
+        # check NaN
+        if np.isnan(transcript_targets[tx_i]):
+            print('WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' % (transcript, seq_chrom, seq_start, seq_end, wig_file), file=sys.stderr)
+            transcript_targets[tx_i] = 0
 
         tx_i += 1
 

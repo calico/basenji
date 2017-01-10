@@ -307,7 +307,7 @@ class GenomeCoverage:
             t_r = time.time()
             for ri in range(self.multi_weight_matrix.shape[0]):
                 # update user
-                if ri % 100000 == 100000-1:
+                if ri % 200000 == 200000-1:
                     print('\n  processed %d reads in %ds' % (ri+1, time.time()-t_r), end='', flush=True)
                     t_r = time.time()
 
@@ -324,7 +324,7 @@ class GenomeCoverage:
                 else:
                     print('Error: read %d coverage sum == %.4f' % (ri, multi_positions_coverage.sum()))
                     print(multi_positions_coverage)
-                    exit()
+                    exit(1)
 
                 # re-proportion read weight
                 for pi in range(multi_positions_len):
@@ -488,7 +488,6 @@ class GenomeCoverage:
 
         # convert to arrays
         train_gc = np.array(train_gc)
-        train_pos = np.array(train_pos)
         train_cov = np.array(train_cov)
 
         #######################################################
@@ -497,10 +496,60 @@ class GenomeCoverage:
         # polynomial regression
         self.gc_model = make_pipeline(PolynomialFeatures(3), Ridge())
         self.gc_model.fit(train_gc[:,np.newaxis], train_cov)
-        self.gc_base = np.mean(self.gc_model.predict(train_gc[:,np.newaxis]))
+
+        # determine genomic baseline
+        self.learn_gc_base()
 
         if out_pdf is not None:
             regplot(train_gc, train_cov, self.gc_model, out_pdf)
+
+
+    def learn_gc_base(self):
+        ''' Determine the genome-wide GC model baseline
+
+        In
+         self.gc_model
+
+        Out
+         self.gc_base
+        '''
+
+        # helper
+        chroms_list = list(self.chrom_lengths.keys())
+        fragment_sd3 = int(np.round(3*self.fragment_sd))
+
+        # gaussian mask
+        gauss_kernel = norm.pdf(np.arange(-fragment_sd3, fragment_sd3), loc=0, scale=self.fragment_sd)
+        gauss_invsum = 1.0 / gauss_kernel.sum()
+
+        # sample genomic positions
+        sample_every = self.genome_length / 10000
+        train_positions = list(np.arange(0, self.genome_length, sample_every))[1:]
+        train_gc = []
+
+        # fetch GC%
+        for gi in train_positions:
+            # determine chromosome and position
+            ci, pos = self.index_genome(gi)
+
+            # get sequence
+            seq_start = max(0, pos - fragment_sd3)
+            seq_end = pos + fragment_sd3
+            seq = self.fasta.fetch(chroms_list[ci], seq_start, seq_end)
+
+            # filter for clean sequences
+            if len(seq) == 2*fragment_sd3 and seq.find('N') == -1:
+
+                # compute GC%
+                seq_gc = np.array([nt in 'CG' for nt in seq], dtype='float32')
+                gauss_gc = (seq_gc * gauss_kernel).sum() * gauss_invsum
+                train_gc.append(gauss_gc)
+
+        # convert to arrays
+        train_gc = np.array(train_gc)
+
+        # compute mean prediction
+        self.gc_base = np.mean(self.gc_model.predict(train_gc[:,np.newaxis]))
 
 
     def index_genome(self, gi):

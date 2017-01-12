@@ -125,9 +125,12 @@ class RNN:
                 kernel = tf.Variable(tf.random_uniform([1, self.dcnn_filter_sizes[li], seq_depth, self.dcnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
                 biases = tf.Variable(tf.zeros([self.dcnn_filters[li]]), name='bias')
 
+                # let the last convolution layer handle the rate 1 pass
+                drate = np.power(2,li+1)
+
                 # convolution
-                doutput = tf.nn.atrous_conv2d(dinput, kernel, rate=np.power(2,li), padding='SAME')
-                print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], np.power(2,li)))
+                doutput = tf.nn.atrous_conv2d(dinput, kernel, rate=drate, padding='SAME')
+                print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], drate))
 
 
                 # batch normalization and ReLU

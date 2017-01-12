@@ -38,6 +38,7 @@ class RNN:
         self.rnn_dropout_ph = []
         for li in range(self.rnn_layers):
             self.rnn_dropout_ph.append(tf.placeholder(tf.float32))
+        self.full_dropout_ph = []
         for li in range(self.full_layers):
             self.full_dropout_ph.append(tf.placeholder(tf.float32))
 
@@ -729,7 +730,7 @@ class RNN:
                 fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
             for li in range(self.rnn_layers):
                 fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
-            for li in range(self.full_layers[li]):
+            for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = self.full_dropout[li]
 
         elif mode in ['test', 'testing', 'evaluate']:
@@ -740,7 +741,7 @@ class RNN:
                 fd[self.dcnn_dropout_ph[li]] = 0
             for li in range(self.rnn_layers):
                 fd[self.rnn_dropout_ph[li]] = 0
-            for li in range(self.full_layers[li]):
+            for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = 0
 
         else:

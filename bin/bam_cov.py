@@ -91,7 +91,7 @@ def main():
     # normalize for GC content
 
     if options.gc:
-        genome_coverage.learn_gc(fragment_sd=options.smooth_sd, out_pdf='%s/gc_model.pdf'%options.out_dir)
+        genome_coverage.learn_gc(fragment_sd=options.smooth_sd, out_dir=options.out_dir)
 
 
     ################################################################
@@ -307,7 +307,7 @@ class GenomeCoverage:
             t_r = time.time()
             for ri in range(self.multi_weight_matrix.shape[0]):
                 # update user
-                if ri % 200000 == 200000-1:
+                if ri % 500000 == 500000-1:
                     print('\n  processed %d reads in %ds' % (ri+1, time.time()-t_r), end='', flush=True)
                     t_r = time.time()
 
@@ -407,7 +407,7 @@ class GenomeCoverage:
         return coverage * np.exp(-seq_gc_norm+self.gc_base)
 
 
-    def learn_gc(self, fragment_sd=64, pseudocount=.01, out_pdf=None):
+    def learn_gc(self, fragment_sd=64, pseudocount=.01, out_dir=None):
         ''' Learn a model to normalize for GC content.
 
         In
@@ -497,11 +497,24 @@ class GenomeCoverage:
         self.gc_model = make_pipeline(PolynomialFeatures(3), Ridge())
         self.gc_model.fit(train_gc[:,np.newaxis], train_cov)
 
+        # print score
+        score = self.gc_model.score(train_gc[:,np.newaxis], train_cov)
+        print('GC model explains %.4f of variance' % score)
+
         # determine genomic baseline
         self.learn_gc_base()
 
-        if out_pdf is not None:
-            regplot(train_gc, train_cov, self.gc_model, out_pdf)
+        if out_dir is not None:
+            # plot training fit
+            regplot(train_gc, train_cov, self.gc_model, '%s/gc_model.pdf' % out_dir)
+
+            # print table
+            gc_out = open('%s/gc_table.txt' % out_dir, 'w')
+            gc_range = np.arange(0,1,.01)
+            gc_norm = self.gc_model.predict(gc_range[:,np.newaxis])
+            for i in range(len(gc_range)):
+                print(gc_range[i], gc_norm[i], file=gc_out)
+            gc_out.close()
 
 
     def learn_gc_base(self):

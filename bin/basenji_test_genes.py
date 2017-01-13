@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
 from collections import OrderedDict
+import copy
 import os
 import subprocess
 import sys
@@ -81,6 +82,7 @@ def main():
     gene_list = []
     transcript_gene_indexes = []
     for gid in genes_hdf5_in['genes']:
+        gid = gid.decode('UTF-8')
         if gid not in gene_indexes:
             gene_indexes[gid] = len(gene_indexes)
             gene_list.append(gid)
@@ -200,45 +202,69 @@ def main():
     #################################################################
     # normalize predictions across targets
 
-    # normalize across datasets
-    gene_preds_sums = gene_preds.sum(axis=0, dtype='float32')
-    gene_preds_norm = gene_preds.astype('float32') / gene_preds_sums * 1e6
+    # focus on requested targets
+    gene_preds_targets = gene_preds[:,options.target_indexes]
+    gene_targets_targets = gene_targets[:,options.target_indexes]
 
     # take log
-    gene_preds_lognorm = np.log2(gene_preds_norm+1)
+    gene_preds_log = np.log2(gene_preds_targets+1)
+    gene_targets_log = np.log2(gene_targets_targets+1)
 
-    # scale gene vectors
-    gene_preds_scale = gene_preds_lognorm - gene_preds_lognorm.mean(axis=1)
+    # identify outliers
+    gene_preds_tmean = gene_preds_log.mean(axis=0, dtype='float32')
+    gene_targets_tmean = gene_targets_log.mean(axis=0, dtype='float32')
+
+    # highlight outliers
+    gene_preds_tmmean = gene_preds_tmean.mean()
+    gene_targets_tmmean = gene_targets_tmean.mean()
+    for ti in range(len(gene_targets_tmean)):
+        if gene_targets_tmean[ti] > 2*gene_targets_tmmean or gene_targets_tmean[ti] < .5*gene_targets_tmmean:
+            print('%d outlies %.3f versus %.3f (%.4f)' % (ti, gene_targets_tmean[ti], gene_targets_tmmean, gene_targets_tmean[ti] / gene_targets_tmmean))
+
+    # quantile normalize
+    gene_preds_qn = quantile_normalize(gene_preds_log, quantile_stat='mean')
+    gene_targets_qn = quantile_normalize(gene_targets_log, quantile_stat='mean')
 
     #################################################################
     # plot genes by targets clustermap
 
-    # choose a set of variable genes
-    gene_vars = gene_preds_lognorm.var(axis=1)
-    indexes_vars_sort = np.argsort(gene_vars)[::-1]
-
-    # raw values
     sns.set(font_scale=1.2, style='ticks')
-    plt.figure()
-    g = sns.clustermap(gene_preds_lognorm[np.ix_(indexes_vars_sort[:1000],options.target_indexes)], metric='cosine', xticklabels=False, yticklabels=False)
-    g.ax_heatmap.set_xlabel('Targets')
-    g.ax_heatmap.set_ylabel('Genes')
-    plt.savefig('%s/gene_heat_raw.pdf' % options.out_dir)
-    plt.close()
+    plot_genes = 1000
 
-    # scaled values
-    plt.figure()
-    g = sns.clustermap(gene_preds_scale[np.ix_(indexes_vars_sort[:1000],options.target_indexes)], metric='euclidean', xticklabels=False, yticklabels=False)
-    g.ax_heatmap.set_xlabel('Targets')
-    g.ax_heatmap.set_ylabel('Genes')
-    plt.savefig('%s/gene_heat_scale.pdf' % options.out_dir)
-    plt.close()
+    # choose a set of variable genes
+    gene_vars = gene_preds_qn.var(axis=1)
+    indexes_var = np.argsort(gene_vars)[::-1][:plot_genes]
 
+    # choose a set of random genes
+    indexes_rand = np.random.choice(np.arange(gene_preds_qn.shape[0]), plot_genes, replace=False)
+
+    # variable gene predictions
+    clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var.pdf' % options.out_dir)
+    clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var_color.pdf' % options.out_dir, color='viridis')
+
+    # random gene predictions
+    clustermap(gene_preds_qn[indexes_rand,:], '%s/gene_heat_rand.pdf' % options.out_dir)
+
+    # variable gene targets
+    clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var.pdf' % options.out_dir)
+    clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var_color.pdf' % options.out_dir, color='viridis')
+
+    # random gene targets
+    clustermap(gene_targets_qn[indexes_rand,:], '%s/gene_theat_rand.pdf' % options.out_dir)
 
     #################################################################
     # clean up
 
     genes_hdf5_in.close()
+
+
+def clustermap(gene_values, out_pdf, color=None):
+    plt.figure()
+    g = sns.clustermap(gene_values, metric='euclidean', cmap=color, xticklabels=False, yticklabels=False)
+    g.ax_heatmap.set_xlabel('Targets')
+    g.ax_heatmap.set_ylabel('Genes')
+    plt.savefig(out_pdf)
+    plt.close()
 
 
 def cor_table(gene_targets, gene_preds, target_labels, out_file):
@@ -400,6 +426,35 @@ def map_transcripts_genes(transcript_targets, transcript_map, transcript_gene_in
                 gene_targets[gi,:] += sequence_pos_targets[si][pos]
 
     return gene_targets
+
+
+def quantile_normalize(gene_expr, quantile_stat='median'):
+    ''' Quantile normalize across targets. '''
+
+    # make a copy
+    gene_expr_qn = copy.copy(gene_expr)
+
+    # sort values within each column
+    for ti in range(gene_expr.shape[1]):
+        gene_expr_qn[:,ti].sort()
+
+    # compute the mean/median in each row
+    if quantile_stat == 'median':
+        sorted_index_stats = np.median(gene_expr_qn, axis=1)
+    elif quantile_stat == 'mean':
+        sorted_index_stats = np.mean(gene_expr_qn, axis=1)
+    else:
+        print('Unrecognized quantile statistic %s' % quantile_stat, file=sys.stderr)
+        exit()
+
+    # set new values
+    for ti in range(gene_expr.shape[1]):
+        sorted_indexes = np.argsort(gene_expr[:,ti])
+        for gi in range(gene_expr.shape[0]):
+            gene_expr_qn[sorted_indexes[gi],ti] = sorted_index_stats[gi]
+
+    return gene_expr_qn
+
 
 ################################################################################
 # __main__

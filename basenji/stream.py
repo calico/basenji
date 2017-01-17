@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import basenji
+
 class PredStream:
     ''' Interface to acquire predictions via a buffered stream mechanism
          rather than getting them all at once and using excessive memory. '''

@@ -72,7 +72,7 @@ class PredGradStream:
             batcher = basenji.batcher.Batcher(stream_seqs_1hot, batch_size=self.model.batch_size)
 
             # predict
-            self.stream_grads, self.stream_preds = self.model.gradients(self.sess, batcher, layers=0, return_preds=True)
+            self.stream_grads, self.stream_preds = self.model.gradients(self.sess, batcher, layers=[0], return_preds=True)
 
             # take first layer
             self.stream_grads = self.stream_grads[0]

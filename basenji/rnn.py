@@ -460,7 +460,7 @@ class RNN:
 
         # initialize layers
         if layers is None:
-            layers = range(self.cnn_layers+self.dcnn_layers+self.rnn_layers)
+            layers = range(1+self.cnn_layers+self.dcnn_layers+self.rnn_layers)
         elif type(layers) != list:
             layers = [layers]
 
@@ -493,7 +493,7 @@ class RNN:
 
             # compute gradients for each target individually
             for tii in range(len(target_indexes)):
-                ti = target_indexes[ti]
+                ti = target_indexes[tii]
 
                 # compute gradients
                 grads_op = tf.gradients(self.preds_op[:,:,ti], [self.layer_reprs[li] for li in layers])
@@ -529,7 +529,7 @@ class RNN:
         for lii in range(len(layers)):
             for tii in range(len(target_indexes)):
                 # stack sequences
-                layer_grads[lii][ti] = np.vstack(layer_grads[lii][ti])
+                layer_grads[lii][tii] = np.vstack(layer_grads[lii][tii])
 
             # transpose targets to back
             layer_grads[lii] = np.array(layer_grads[lii])

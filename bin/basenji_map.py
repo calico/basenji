@@ -48,9 +48,6 @@ def main():
     if options.layers is not None:
         options.layers = [int(li) for li in options.layers.split(',')]
 
-    if options.target_indexes is not None:
-        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
-
     #######################################################
     # one hot code sequence
 
@@ -84,6 +81,12 @@ def main():
     # initialize batcher
     batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=model.batch_size, pool_width=model.target_pool)
 
+    # set target indexes
+    if options.target_indexes is not None:
+        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
+    else:
+        options.target_indexes = list(range(job['num_targets']))
+
     # initialize saver
     saver = tf.train.Saver()
 
@@ -102,20 +105,27 @@ def main():
     # visualize
 
     for lii in range(len(options.layers)):
+        li = options.layers[lii]
         print('Layer %d grads' % options.layers[lii], layer_grads[lii].shape)
 
-        # plot as heatmap
-        plt.figure()
-        sns.heatmap(layer_grads[lii])
-        plt.savefig('%s/layer%d_heat.pdf' % (options.out_dir, options.layers[lii]))
-        plt.close()
+        for tii in range(len(options.target_indexes)):
+            ti = options.target_indexes[tii]
 
-        # plot norm across filters as lineplot
-        grad_norms = np.linalg.norm(layer_grads[lii], axis=2)
-        plt.figure()
-        plt.plot(range(grad_norms.shape[1]), grad_norms[0])
-        plt.savefig('%s/layer%d_norms.pdf' % (options.out_dir, options.layers[lii]))
-        plt.close()
+            layer_grads_lt = layer_grads[lii][:,:,tii]
+            print(layer_grads_lt.shape)
+
+            # plot as heatmap
+            plt.figure()
+            sns.heatmap(layer_grads_lt)
+            plt.savefig('%s/l%d_t%d_heat.pdf' % (options.out_dir, li, ti))
+            plt.close()
+
+            # plot norm across filters as lineplot
+            layer_grad_norms = np.linalg.norm(layer_grads_lt, axis=1)
+            plt.figure()
+            plt.plot(range(len(layer_grad_norms)), layer_grad_norms)
+            plt.savefig('%s/l%d_t%d_norms.pdf' % (options.out_dir, li, ti))
+            plt.close()
 
 
 ################################################################################

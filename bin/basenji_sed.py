@@ -3,7 +3,6 @@ from optparse import OptionParser
 import os
 import subprocess
 import sys
-import tempfile
 
 import h5py
 import numpy as np

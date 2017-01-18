@@ -3,6 +3,7 @@ from optparse import OptionParser
 import os
 import subprocess
 import sys
+import tempfile
 
 import numpy as np
 import pandas as pd

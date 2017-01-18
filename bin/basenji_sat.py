@@ -160,7 +160,7 @@ def main():
             # plot heat map
             plot_heat(ax_heat, sat_delta[:,:,ti], options.min_limit)
 
-            plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si), dpi=1200)
+            plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si,ti), dpi=1200)
             plt.close()
 
 

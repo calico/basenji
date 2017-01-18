@@ -23,6 +23,69 @@ def cap_allele(allele, cap=5):
     return allele
 
 
+def intersect_snps(vcf_file, seq_coords):
+    ''' Intersect a VCF file with a list of sequence coordinates.
+
+    In
+     vcf_file:
+     seq_coords: list of sequence coordinates
+
+    Out
+     snp_segs: list of list mapping SNP indexes to overlapping sequence indexes
+    '''
+    # print segments to BED
+    # hash segments to indexes
+    seg_temp = tempfile.NamedTemporaryFile()
+    seg_bed_file = seg_temp.name
+    seg_bed_out = open(seg_bed_file, 'w')
+    segment_indexes = {}
+    for si in range(len(seq_coords)):
+        segment_indexes[seq_coords[si]] = si
+        print('%s\t%d\t%d' % seq_coords[si], file=seg_bed_out)
+    seg_bed_out.close()
+
+    # hash SNPs to indexes
+    snp_indexes = {}
+    si = 0
+
+    vcf_in = open(vcf_file)
+    line = vcf_in.readline()
+    while line[0] == '#':
+        line = vcf_in.readline()
+    while line:
+        a = line.split()
+        snp_id = a[2]
+        if snp_id in snp_indexes:
+            print('Duplicate SNP id %s will break the script' % snp_id, file=sys.stderr)
+            exit(1)
+        snp_indexes[snp_id] = si
+        si += 1
+        line = vcf_in.readline()
+    vcf_in.close()
+
+    # initialize list of lists
+    snp_segs = []
+    for i in range(len(snp_indexes)):
+        snp_segs.append([])
+
+    # intersect
+    p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (vcf_file, seg_bed_file), shell=True, stdout=subprocess.PIPE)
+    for line in p.stdout:
+        line = line.decode('UTF-8')
+        a = line.split()
+        snp_id = a[2]
+        seg_chrom = a[-4]
+        seg_start = int(a[-3])
+        seg_end = int(a[-2])
+        seg_key = (seg_chrom,seg_start,seg_end)
+
+        snp_segs[snp_indexes[snp_id]].append(segment_indexes[seg_key])
+
+    p.communicate()
+
+    return snp_segs
+
+
 def snp_seq1(snp, seq_len, genome_open):
     ''' Produce a one hot coded sequences for a SNP.
 

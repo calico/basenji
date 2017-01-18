@@ -53,6 +53,9 @@ class RNN:
         self.layer_reprs = []
         self.filter_weights = []
 
+        if self.save_reprs:
+            self.layer_reprs.append(self.inputs)
+
         # reshape for convolution
         cinput = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
 
@@ -426,7 +429,7 @@ class RNN:
         self.opt._lr *= drop_mult
 
 
-    def gradients(self, sess, batcher, target_indexes=None, layers=None):
+    def gradients(self, sess, batcher, target_indexes=None, layers=None, return_preds=False):
         ''' Compute predictions on a test set.
 
         In
@@ -436,11 +439,9 @@ class RNN:
          layers: Optional layer subset list
 
         Out
-         grads: S (sequences) x L (unbuffered length) x T (targets) array
+         grads: [S (sequences) x Li (layer i shape) x T (targets) array] * (L layers)
+         preds:
         '''
-
-        # initialize gradients
-        grads = []
 
         # initialize target_indexes
         if target_indexes is None:
@@ -448,11 +449,34 @@ class RNN:
         elif type(target_indexes) != np.ndarray:
             target_indexes = np.array(target_indexes)
 
+        # initialize gradients
+        #  (I need a list for layers because the sizes are different within)
+        #  (I'm using a list for targets because I need to compute them individually)
+        layer_grads = []
+        for lii in range(len(layers)):
+            layer_grads.append([])
+            for tii in range(len(target_indexes)):
+                layer_grads[-1].append([])
+
         # initialize layers
         if layers is None:
             layers = range(self.cnn_layers+self.dcnn_layers+self.rnn_layers)
         elif type(layers) != list:
             layers = [layers]
+
+        # initialize predictions
+        preds = None
+        if return_preds:
+            # determine non-buffer region
+            buf_start = self.batch_buffer // self.target_pool
+            buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
+            buf_len = buf_end - buf_start
+
+            # initialize predictions
+            preds = np.zeros((batcher.num_seqs, buf_len, len(target_indexes)), dtype='float16')
+
+            # sequence index
+            si = 0
 
         # setup feed dict for dropout
         fd = self.set_mode('test')
@@ -460,22 +484,40 @@ class RNN:
         # get first batch
         Xb, _, _, Nb = batcher.next()
 
-        while Xb is not None and Nb == self.batch_size:
+        while Xb is not None:
             # update feed dict
             fd[self.inputs] = Xb
 
-            # compute loss
-            loss_batch = sess.run(self.preds_op, feed_dict=fd)
+            # predict
+            preds_batch = sess.run(self.preds_op, feed_dict=fd)
 
-            # compute gradients
-            grads_op = tf.gradients(self.preds_op[:,:,target_indexes], [self.layer_reprs[li] for li in layers])
+            # compute gradients for each target individually
+            for tii in range(len(target_indexes)):
+                ti = target_indexes[ti]
 
-            # clean up
-            grads_batch_raw = sess.run(grads_op, feed_dict=fd)
-            grads_batch = grads_batch_raw[0].astype('float16')
-            if grads_batch.shape[1] == 1:
-                grads_batch = grads_batch.squeeze(axis=1)
-            grads.append(grads_batch)
+                # compute gradients
+                grads_op = tf.gradients(self.preds_op[:,:,ti], [self.layer_reprs[li] for li in layers])
+                grads_batch_raw = sess.run(grads_op, feed_dict=fd)
+
+                for lii in range(len(layers)):
+                    # clean up
+                    grads_batch = grads_batch_raw[lii][:Nb].astype('float16')
+                    if grads_batch.shape[1] == 1:
+                        grads_batch = grads_batch.squeeze(axis=1)
+
+                    # save
+                    layer_grads[lii][tii].append(grads_batch)
+
+            if return_preds:
+                # filter for specific targets
+                if target_indexes is not None:
+                    preds_batch = preds_batch[:,:,target_indexes]
+
+                # accumulate predictions
+                preds[si:si+Nb,:,:] = preds_batch[:Nb,:,:]
+
+                # update sequence index
+                si += Nb
 
             # next batch
             Xb, _, _, Nb = batcher.next()
@@ -483,10 +525,26 @@ class RNN:
         # reset training batcher
         batcher.reset()
 
-        # stack into array
-        grads = np.vstack(grads)
+        # stack into arrays
+        for lii in range(len(layers)):
+            for tii in range(len(target_indexes)):
+                # stack sequences
+                layer_grads[lii][ti] = np.vstack(layer_grads[lii][ti])
 
-        return grads
+            # transpose targets to back
+            layer_grads[lii] = np.array(layer_grads[lii])
+            if layer_grads[lii].ndim == 4:
+                # length dimension
+                layer_grads[lii] = np.transpose(layer_grads[lii], [1,2,3,0])
+            else:
+                # no length dimension
+                layer_grads[lii] = np.transpose(layer_grads[lii], [1,2,0])
+
+
+        if return_preds:
+            return layer_grads, preds
+        else:
+            return layer_grads
 
 
     def hidden(self, sess, batcher, layers=None):

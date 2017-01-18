@@ -13,16 +13,16 @@ import tensorflow as tf
 
 import basenji
 
-################################################################################
-# basenji_map.py
-#
-# Visualize a sequence's prediction's gradients as a map of influence across
-# the genomic region.
-#
-# Notes:
-#  -I'm providing the sequence as a FASTA file for now, but I may want to
-#   provide a BED-style region so that I can print the output as a bigwig.
-################################################################################
+'''
+basenji_map.py
+
+Visualize a sequence's prediction's gradients as a map of influence across
+the genomic region.
+
+Notes:
+  -I'm providing the sequence as a FASTA file for now, but I may want to
+   provide a BED-style region so that I can print the output as a bigwig.
+'''
 
 ################################################################################
 # main
@@ -53,7 +53,7 @@ def main():
 
     #######################################################
     # one hot code sequence
-    #######################################################
+
     seq = ''
     for line in open(fasta_file):
         if line[0] != '>':
@@ -64,7 +64,7 @@ def main():
 
     #######################################################
     # model parameters and placeholders
-    #######################################################
+
     job = basenji.dna_io.read_job_params(params_file)
 
     job['batch_length'] = seqs_1hot.shape[1]
@@ -79,8 +79,8 @@ def main():
     model.build(job)
 
     #######################################################
-    # test
-    #######################################################
+    # acquire gradients
+
     # initialize batcher
     batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=model.batch_size, pool_width=model.target_pool)
 
@@ -92,20 +92,30 @@ def main():
         saver.restore(sess, model_file)
 
         # get layer representations
-        grads = model.gradients(sess, batcher, options.target_indexes, options.layers)
-        print('grads', grads.shape)
+        layer_grads = model.gradients(sess, batcher, options.target_indexes, options.layers)
+
+    # drop sequence dimension
+    for lii in range(len(layer_grads)):
+        layer_grads[lii] = np.squeeze(layer_grads[lii], 0)
+
+    #######################################################
+    # visualize
+
+    for lii in range(len(options.layers)):
+        print('Layer %d grads' % options.layers[lii], layer_grads[lii].shape)
 
         # plot as heatmap
         plt.figure()
-        sns.heatmap(grads[0,:,:])
-        plt.savefig('%s/heat.pdf' % options.out_dir)
+        sns.heatmap(layer_grads[lii])
+        plt.savefig('%s/layer%d_heat.pdf' % (options.out_dir, options.layers[lii]))
         plt.close()
 
         # plot norm across filters as lineplot
-        grad_norms = np.linalg.norm(grads, axis=2)
+        grad_norms = np.linalg.norm(layer_grads[lii], axis=2)
         plt.figure()
         plt.plot(range(grad_norms.shape[1]), grad_norms[0])
-        plt.savefig('%s/norms.pdf' % options.out_dir)
+        plt.savefig('%s/layer%d_norms.pdf' % (options.out_dir, options.layers[lii]))
+        plt.close()
 
 
 ################################################################################

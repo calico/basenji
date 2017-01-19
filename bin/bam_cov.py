@@ -279,6 +279,8 @@ class GenomeCoverage:
         if fasta_file is not None:
             self.fasta = pysam.Fastafile(fasta_file)
 
+        self.gc_model = None
+
 
     def distribute_multi(self, max_iterations=4, converge_t=.01):
         ''' Distribute multi-mapping read weight proportional to coverage in a local window.

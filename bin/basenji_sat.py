@@ -109,6 +109,7 @@ def main():
         for si in range(seqs_n):
             print('Mutating sequence %d / %d' % (si+1,seqs_n), flush=True)
 
+            # write sequence
             fasta_out = open('%s/seq%d.fa' % (options.out_dir,si), 'w')
             end_len = (len(seqs[si]) - options.satmut_len) // 2
             print('>seq%d\n%s' % (si,seqs[si][end_len:-end_len]), file=fasta_out)
@@ -125,7 +126,6 @@ def main():
 
             # predict
             sat_preds = dr.predict(sess, batcher_sat, target_indexes)
-            np.save('%s/preds%d.npy' % (options.out_dir,si), sat_preds)
 
             #################################################################
             # compute delta, loss, and gain matrices

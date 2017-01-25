@@ -11,11 +11,11 @@ import pysam
 
 import basenji.dna_io
 
-################################################################################
-# vcf.py
-#
-# Methods and classes to support .vcf SNP analysis.
-################################################################################
+'''
+vcf.py
+
+Methods and classes to support .vcf SNP analysis.
+'''
 
 def cap_allele(allele, cap=5):
     ''' Cap the length of an allele in the figures '''
@@ -24,12 +24,77 @@ def cap_allele(allele, cap=5):
     return allele
 
 
-def intersect_snps(vcf_file, seq_coords):
+def intersect_seqs_snps(vcf_file, seq_coords):
     ''' Intersect a VCF file with a list of sequence coordinates.
 
     In
      vcf_file:
      seq_coords: list of sequence coordinates
+
+    Out
+     seq_snps: list of list mapping segment indexes to overlapping SNP indexes
+    '''
+
+    # print segments to BED
+    # hash segments to indexes
+    seq_temp = tempfile.NamedTemporaryFile()
+    seq_bed_file = seq_temp.name
+    seq_bed_out = open(seq_bed_file, 'w')
+    seq_indexes = {}
+    for si in range(len(seq_coords)):
+        seq_indexes[seq_coords[si]] = si
+        print('%s\t%d\t%d' % seq_coords[si], file=seq_bed_out)
+    seq_bed_out.close()
+
+    # hash SNPs to indexes
+    snp_indexes = {}
+    si = 0
+
+    vcf_in = open(vcf_file)
+    line = vcf_in.readline()
+    while line[0] == '#':
+        line = vcf_in.readline()
+    while line:
+        a = line.split()
+        snp_id = a[2]
+        if snp_id in snp_indexes:
+            print('Duplicate SNP id %s will break the script' % snp_id, file=sys.stderr)
+            exit(1)
+        snp_indexes[snp_id] = si
+        si += 1
+        line = vcf_in.readline()
+    vcf_in.close()
+
+    # initialize list of lists
+    seq_snps = []
+    for i in range(len(seq_coords)):
+        seq_snps.append([])
+
+    # intersect
+    p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (vcf_file, seq_bed_file), shell=True, stdout=subprocess.PIPE)
+    for line in p.stdout:
+        line = line.decode('UTF-8')
+        a = line.split()
+        snp_id = a[2]
+        seq_chrom = a[-4]
+        seq_start = int(a[-3])
+        seq_end = int(a[-2])
+        seq_key = (seq_chrom,seq_start,seq_end)
+
+        seq_snps[seq_indexes[seq_key]].append(snp_indexes[snp_id])
+
+    p.communicate()
+
+    return seq_snps
+
+
+def intersect_snps_seqs(vcf_file, seq_coords, vision_p=1):
+    ''' Intersect a VCF file with a list of sequence coordinates.
+
+    In
+     vcf_file:
+     seq_coords: list of sequence coordinates
+     vision_p: proportion of sequences visible to center genes.
 
     Out
      snp_segs: list of list mapping SNP indexes to overlapping sequence indexes
@@ -40,9 +105,11 @@ def intersect_snps(vcf_file, seq_coords):
     seg_bed_file = seg_temp.name
     seg_bed_out = open(seg_bed_file, 'w')
     segment_indexes = {}
+
     for si in range(len(seq_coords)):
         segment_indexes[seq_coords[si]] = si
         print('%s\t%d\t%d' % seq_coords[si], file=seg_bed_out)
+
     seg_bed_out.close()
 
     # hash SNPs to indexes
@@ -74,13 +141,16 @@ def intersect_snps(vcf_file, seq_coords):
     for line in p.stdout:
         line = line.decode('UTF-8')
         a = line.split()
+        pos = int(a[1])
         snp_id = a[2]
         seg_chrom = a[-4]
         seg_start = int(a[-3])
         seg_end = int(a[-2])
         seg_key = (seg_chrom,seg_start,seg_end)
 
-        snp_segs[snp_indexes[snp_id]].append(segment_indexes[seg_key])
+        vision_buffer = (seq_end-seg_start)*(1-vision_p)//2
+        if seg_start + vision_buffer < pos < seg_end - vision_buffer:
+            snp_segs[snp_indexes[snp_id]].append(segment_indexes[seg_key])
 
     p.communicate()
 

@@ -148,7 +148,7 @@ def intersect_snps_seqs(vcf_file, seq_coords, vision_p=1):
         seg_end = int(a[-2])
         seg_key = (seg_chrom,seg_start,seg_end)
 
-        vision_buffer = (seq_end-seg_start)*(1-vision_p)//2
+        vision_buffer = (seg_end-seg_start)*(1-vision_p)//2
         if seg_start + vision_buffer < pos < seg_end - vision_buffer:
             snp_segs[snp_indexes[snp_id]].append(segment_indexes[seg_key])
 

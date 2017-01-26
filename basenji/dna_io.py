@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import sys
 
 import numpy as np
 
@@ -151,6 +152,8 @@ def hot1_set(seqs_1hot, pos, nt):
         seqs_1hot[pos,2] = 1
     elif nt == 'T':
         seqs_1hot[pos,3] = 1
+    else:
+        print('Invalid nucleotide set %s' % nt, file=sys.stderr)
 
 
 def read_job_params(job_file):

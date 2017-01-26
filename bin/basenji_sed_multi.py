@@ -63,6 +63,7 @@ def main():
     slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
 
     # collect output
+    subprocess.call('cat %s/job*/sed_table.txt > %s/sed_table.txt' % (options.out_dir, options.out_dir), shell=True)
 
 
 ################################################################################

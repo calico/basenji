@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
 import os
+import pickle
 import subprocess
 import sys
 
@@ -62,6 +63,9 @@ def main():
         options = pickle.load(options_pkl)
         options_pkl.close()
 
+        # update output directory
+        options.out_dir = '%s/job%d' % (options.out_dir, worker_num)
+
     else:
         parser.error('Must provide parameters and model files, genes HDF5 file, and QTL VCF file')
 
@@ -99,7 +103,7 @@ def main():
     snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score, False)
 
     # intersect w/ segments
-    snps_segs = basenji.vcf.intersect_snp_seqs(vcf_file, seq_coords)
+    snps_segs = basenji.vcf.intersect_snps_seqs(vcf_file, seq_coords)
 
 
     #################################################################
@@ -118,11 +122,11 @@ def main():
             snp_seq_pos = snps[snp_i].pos-1 - seq_start
 
             # write reference allele
-            snp_seqs_1hot.append(seqs_1hot[seg_i])
+            snp_seqs_1hot.append(np.copy(seqs_1hot[seg_i]))
             basenji.dna_io.hot1_set(snp_seqs_1hot[-1], snp_seq_pos, snps[snp_i].ref_allele)
 
             # write alternative allele
-            snp_seqs_1hot.append(seqs_1hot[seg_i])
+            snp_seqs_1hot.append(np.copy(seqs_1hot[seg_i]))
             basenji.dna_io.hot1_set(snp_seqs_1hot[-1], snp_seq_pos, snps[snp_i].alt_alleles[0])
 
     snp_seqs_1hot = np.array(snp_seqs_1hot)

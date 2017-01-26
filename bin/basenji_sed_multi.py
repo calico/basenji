@@ -39,7 +39,10 @@ def main():
         genes_hdf5_file = args[2]
         vcf_file = args[3]
 
-    # prep output directory
+    #######################################################
+    # prep work
+
+    # output directory
     if os.path.isdir(options.out_dir):
         shutil.rmtree(options.out_dir)
     os.mkdir(options.out_dir)
@@ -50,6 +53,7 @@ def main():
     pickle.dump(options, options_pkl)
     options_pkl.close()
 
+    #######################################################
     # launch worker threads
     jobs = []
     for pi in range(options.processes):
@@ -62,8 +66,23 @@ def main():
 
     slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
 
+    #######################################################
     # collect output
-    subprocess.call('cat %s/job*/sed_table.txt > %s/sed_table.txt' % (options.out_dir, options.out_dir), shell=True)
+
+    os.rename('%s/job0/sed_table.txt'%options.out_dir, '%s/sed_table.txt'%options.out_dir)
+    for pi in range(1, options.processes):
+        subprocess.call('tail -n +1 %s/job%d/sed_table.txt >> %s/sed_table.txt' % (options.out_dir, pi, options.out_dir), shell=True)
+
+    if options.track_indexes is not None:
+        if not os.path.isdir('%s/tracks' % options.out_dir):
+            os.mkdir('%s/tracks' % options.out_dir
+
+        for track_file in glob.glob('%s/job*/tracks/*'):
+            track_base = os.path.split(track_file)[1]
+            os.rename(track_file, '%s/tracks/%s' % (options.out_dir, track_base))
+
+    for pi in range(options.processes):
+        shutil.rmtree('%s/job%d' % (options.out_dir,pi))
 
 
 ################################################################################

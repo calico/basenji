@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import glob
 import os
 import pickle
 import shutil
@@ -75,7 +76,7 @@ def main():
 
     if options.track_indexes is not None:
         if not os.path.isdir('%s/tracks' % options.out_dir):
-            os.mkdir('%s/tracks' % options.out_dir
+            os.mkdir('%s/tracks' % options.out_dir)
 
         for track_file in glob.glob('%s/job*/tracks/*'):
             track_base = os.path.split(track_file)[1]

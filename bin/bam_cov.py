@@ -321,10 +321,11 @@ class GenomeCoverage:
                 multi_positions_coverage = np.array([genome_coverage[pos] for pos in multi_read_positions])
 
                 # normalize coverage as weights
-                if multi_positions_coverage.sum() > 0:
-                    multi_positions_weight = multi_positions_coverage / multi_positions_coverage.sum()
+                mpc_sum = multi_positions_coverage.sum(dtype='float64')
+                if mpc_sum > 0:
+                    multi_positions_weight = multi_positions_coverage / mpc_sum
                 else:
-                    print('Error: read %d coverage sum == %.4f' % (ri, multi_positions_coverage.sum()))
+                    print('Error: read %d coverage sum == %.4f' % (ri, mpc_sum))
                     print(multi_positions_coverage)
                     exit(1)
 
@@ -370,7 +371,7 @@ class GenomeCoverage:
 
         # limit duplicates
         if self.duplicate_max is not None:
-            genome_coverage = np.clip(genome_coverage, 0, self.duplicate_max)
+            np.copyto(genome_coverage, np.clip(genome_coverage, 0, self.duplicate_max))
 
         # smooth by chromosome
         if self.smooth_sd > 0:

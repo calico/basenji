@@ -802,6 +802,17 @@ class RNN:
             for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = 0
 
+        elif mode in ['test_mc', 'testing_mc', 'evaluate_mc', 'mc_test', 'mc_testing', 'mc_evaluate']:
+            fd[self.is_training] = False
+            for li in range(self.cnn_layers):
+                fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
+            for li in range(self.dcnn_layers):
+                fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
+            for li in range(self.rnn_layers):
+                fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
+            for li in range(self.full_layers):
+                fd[self.full_dropout_ph[li]] = self.full_dropout[li]
+
         else:
             print('Cannot recognize mode %s' % mode)
             exit(1)
@@ -899,13 +910,14 @@ class RNN:
         self.save_reprs = job.get('save_reprs', False)
 
 
-    def test(self, sess, batcher, rc_avg=False, return_preds=False, down_sample=1):
+    def test(self, sess, batcher, rc_avg=True, mc_n=0, return_preds=False, down_sample=1):
         ''' Compute model accuracy on a test set.
 
         Args:
           sess:         TensorFlow session
           batcher:      Batcher object to provide data
-          rc_avg:       Average predictions from the forward and reverse complement sequences
+          rc_avg:       Perform half the iterations on the rc seq and average.
+          mc_n:         Monte Carlo iterations
           return_preds: Bool indicating whether to return predictions
           down_sample:  Int specifying to consider uniformly spaced sampled positions
 
@@ -931,8 +943,18 @@ class RNN:
         targets_na = np.zeros((batcher.num_seqs, len(ds_indexes)), dtype='bool')
         si = 0
 
-        # setup feed dict
-        fd = self.set_mode('test')
+        if mc_n > 0:
+            # setup feed dict
+            fd = self.set_mode('test_mc')
+
+            # divide iterations between forward and reverse
+            mcf_n = mc_n
+            if rc_avg:
+                mcr_n = mc_n // 2
+                mcf_n = mc_n - mcr_n
+        else:
+            # setup feed dict
+            fd = self.set_mode('test')
 
         # get first batch
         Xb, Yb, NAb, Nb = batcher.next()
@@ -943,10 +965,36 @@ class RNN:
             fd[self.targets] = Yb
             fd[self.targets_na] = NAb
 
-            # measure batch loss
+            # initialize accumulator
             preds_batch, targets_batch, loss_batch = sess.run([self.preds_op, self.targets_op, self.loss_op], feed_dict=fd)
 
-            if rc_avg:
+            if mc_n > 0:
+                # accumulate predictions
+                for mi in range(1,mcf_n):
+                    preds_batch += sess.run(self.preds_op, feed_dict=fd)
+
+                if rc_avg:
+                    # construct reverse complement
+                    fd[self.inputs] = hot1_rc(Xb)
+
+                    # initialize accumulator
+                    preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
+
+                    # accumulate predictions
+                    for mi in range(1,mcr_n):
+                        preds_batch_rc += sess.run(self.preds_op, feed_dict=fd)
+
+                    # sum with forward predictions
+                    preds_batch += preds_batch_rc[:,::-1,:]
+
+                # average all predictions
+                preds_batch /= mc_n
+
+                # recompute loss
+                fd[self.preds_adhoc] = preds_batch
+                loss_batch = sess.run(self.loss_adhoc, feed_dict=fd)
+
+            elif rc_avg:
                 # compute reverse complement prediction
                 fd[self.inputs] = hot1_rc(Xb)
                 preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
@@ -954,6 +1002,8 @@ class RNN:
                 # average with forward prediction
                 preds_batch += preds_batch_rc[:,::-1,:]
                 preds_batch /= 2
+
+                # recompute loss
                 fd[self.preds_adhoc] = preds_batch
                 loss_batch = sess.run(self.loss_adhoc, feed_dict=fd)
 

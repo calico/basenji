@@ -11,11 +11,10 @@ import basenji.dna_io
 import basenji.batcher
 import basenji.rnn
 
-################################################################################
-# basenji_train.py
-#
-#
-################################################################################
+'''
+basenji_train.py
+
+'''
 
 ################################################################################
 # main
@@ -26,6 +25,7 @@ def main():
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-l', dest='learn_rate_drop', default=False, action='store_true', help='Drop learning rate when training loss stalls [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Model parameters')
+    parser.add_option('--mc', dest='mc_n', default=0, type='int', help='Monte carlo test iterations [Default: %default]')
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
@@ -141,7 +141,7 @@ def main():
                 train_loss = dr.train_epoch(sess, batcher_train, rc_epoch, train_writer)
 
                 # validate
-                valid_loss, valid_r2_list, _ = dr.test(sess, batcher_valid, rc_avg=options.rc, down_sample=options.down_sample)
+                valid_loss, valid_r2_list, _ = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc_avg=options.rc, down_sample=options.down_sample)
                 valid_r2 = valid_r2_list.mean()
 
                 best_str = ''

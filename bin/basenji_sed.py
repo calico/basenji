@@ -103,7 +103,9 @@ def main():
     snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score, False)
 
     # intersect w/ segments
-    snps_segs = basenji.vcf.intersect_snps_seqs(vcf_file, seq_coords)
+    print('Intersecting SNPs with gene sequences...', flush=True, end='')
+    snps_segs = basenji.vcf.intersect_snps_seqs(vcf_file, seq_coords, vision_p=0.5)
+    print('done', flush=True)
 
 
     #################################################################
@@ -276,7 +278,7 @@ def read_hdf5(genes_hdf5_in):
     # seqs_1hot
 
     seqs_1hot = genes_hdf5_in['seqs_1hot']
-    print(seqs_1hot.shape)
+    print('genes seqs_1hot', seqs_1hot.shape)
 
     #######################################
     # transcript_map

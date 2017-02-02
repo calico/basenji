@@ -71,9 +71,13 @@ def main():
     ################################################################
     # get wig files and labels
     target_wigs = OrderedDict()
+    target_scales = []
     for line in open(sample_wigs_file):
         a = line.split()
         target_wigs[a[0]] = a[1]
+        target_scales.append(1)
+        if len(a) > 2:
+            target_scales.append(float(a[2])
 
     if options.fourier_dim is not None and 2*options.fourier_dim >= options.seq_length/options.pool_width:
         print("Fourier transform to %d dims won't compress %d length sequences with %d pooling" % (options.fourier_dim, options.seq_length, options.pool_width), file=sys.stderr)
@@ -128,8 +132,7 @@ def main():
     ################################################################
     # bigwig read and process
     ################################################################
-    print('Reading and pre-processing bigwigs for %d segments' % len(segments))
-    sys.stdout.flush()
+    print('Reading and pre-processing bigwigs for %d segments' % len(segments), flush=True)
 
     targets_real = []
     targets_imag = []
@@ -154,8 +157,7 @@ def main():
         bstart = 0
         while bstart < len(segments):
             if update_i % 1 == 0:
-                print('Tiling from %s:%d-%d' % segments[bstart])
-                sys.stdout.flush()
+                print('Tiling from %s:%d-%d' % segments[bstart], flush=True)
 
             # determine batch end
             bend = batch_end(segments, bstart, 400000)
@@ -230,8 +232,7 @@ def main():
 
     print('%d target sequences' % targets_real.shape[0])
     if options.exclude_below is not None:
-        print('%d excluded' % (include_marker-targets_real.shape[0]))
-    sys.stdout.flush()
+        print('%d excluded' % (include_marker-targets_real.shape[0]), flush=True)
 
 
     ################################################################
@@ -282,6 +283,15 @@ def main():
         seqs_na = seqs_na[map_indexes]
 
         test_indexes = test_indexes_na
+
+    ################################################################
+    # scale
+    ################################################################
+    for ti in range(targets_real.shape[0]):
+        if target_scales[ti] != 1:
+            targets_real[ti] *= target_scales[ti]
+            if options.fourier_dim is not None:
+                targets_imag[ti] *= target_scales[ti]
 
 
     ################################################################

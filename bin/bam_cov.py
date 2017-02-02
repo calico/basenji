@@ -686,7 +686,7 @@ class GenomeCoverage:
                 exit(1)
 
 
-    def write_bigwig(self, bigwig_file):
+    def write_bigwig(self, bigwig_file, zero_eps=.003):
         ''' Compute and write out coverage to bigwig file.
 
         Go chromosome by chromosome here to facilitate printing,
@@ -735,10 +735,13 @@ class GenomeCoverage:
                 # print('  GC normalization altered mean coverage by %.3f (%d/%d)' % (post_sum/pre_sum, post_sum, pre_sum))
 
             # convert to list for pyBigWig (allegedly unnecessary now)
-            chrom_coverage = chrom_coverage_array.tolist()
+            # chrom_coverage = chrom_coverage_array.tolist()
+
+            # set small values to zero
+            chrom_coverage_array[chrom_coverage_array < zero_eps] = 0
 
             # add to bigwig
-            bigwig_out.addEntries(chroms_list[ci], 0, values=chrom_coverage, span=1, step=1)
+            bigwig_out.addEntries(chroms_list[ci], 0, values=chrom_coverage_array.astype('float16'), span=1, step=1)
 
             # update genomic index
             gi += cl
@@ -753,11 +756,6 @@ class GenomeCoverage:
         bigwig_out.close()
         print(' Close BigWig: %ds' % (time.time()-t0))
 
-
-class SparseArray:
-    def __init__(self, length):
-        self.indexes = []
-        self.values = []
 
 ################################################################################
 # __main__

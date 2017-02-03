@@ -76,14 +76,15 @@ def intersect_seqs_snps(vcf_file, seq_coords, vision_p=1):
     for line in p.stdout:
         line = line.decode('UTF-8')
         a = line.split()
+        pos = int(a[1])
         snp_id = a[2]
         seq_chrom = a[-4]
         seq_start = int(a[-3])
         seq_end = int(a[-2])
         seq_key = (seq_chrom,seq_start,seq_end)
 
-        vision_buffer = (seg_end-seg_start)*(1-vision_p)//2
-        if seg_start + vision_buffer < pos < seg_end - vision_buffer:
+        vision_buffer = (seq_end-seq_start)*(1-vision_p)//2
+        if seq_start + vision_buffer < pos < seq_end - vision_buffer:
             seqs_snps[seq_indexes[seq_key]].append(snp_indexes[snp_id])
 
     p.communicate()

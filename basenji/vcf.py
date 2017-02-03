@@ -24,15 +24,16 @@ def cap_allele(allele, cap=5):
     return allele
 
 
-def intersect_seqs_snps(vcf_file, seq_coords):
+def intersect_seqs_snps(vcf_file, seq_coords, vision_p=1):
     ''' Intersect a VCF file with a list of sequence coordinates.
 
     In
      vcf_file:
      seq_coords: list of sequence coordinates
+     vision_p: proportion of sequences visible to center genes.
 
     Out
-     seq_snps: list of list mapping segment indexes to overlapping SNP indexes
+     seqs_snps: list of list mapping segment indexes to overlapping SNP indexes
     '''
 
     # print segments to BED
@@ -66,9 +67,9 @@ def intersect_seqs_snps(vcf_file, seq_coords):
     vcf_in.close()
 
     # initialize list of lists
-    seq_snps = []
+    seqs_snps = []
     for i in range(len(seq_coords)):
-        seq_snps.append([])
+        seqs_snps.append([])
 
     # intersect
     p = subprocess.Popen('bedtools intersect -wo -a %s -b %s' % (vcf_file, seq_bed_file), shell=True, stdout=subprocess.PIPE)
@@ -81,11 +82,13 @@ def intersect_seqs_snps(vcf_file, seq_coords):
         seq_end = int(a[-2])
         seq_key = (seq_chrom,seq_start,seq_end)
 
-        seq_snps[seq_indexes[seq_key]].append(snp_indexes[snp_id])
+        vision_buffer = (seg_end-seg_start)*(1-vision_p)//2
+        if seg_start + vision_buffer < pos < seg_end - vision_buffer:
+            seqs_snps[seq_indexes[seq_key]].append(snp_indexes[snp_id])
 
     p.communicate()
 
-    return seq_snps
+    return seqs_snps
 
 
 def intersect_snps_seqs(vcf_file, seq_coords, vision_p=1):

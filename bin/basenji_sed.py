@@ -18,11 +18,6 @@ from basenji_test import bigwig_open
 basenji_sed.py
 
 Compute SNP expression difference scores for variants in a VCF file.
-
-Note:
- -Generating snp_seqs_1hot altogether is going to run out of memory for
-   larger VCF files. One solution is to switch to batches, like basenji_sad.py.
-   Another is a streaming interface like PredStream.
 '''
 
 ################################################################################
@@ -128,7 +123,7 @@ def main():
                 basenji.dna_io.hot1_set(seqs_1hot[seq_i], snp_seq_pos, snps[snp_i].ref_allele)
 
                 # append descriptive tuple to list
-                seqs_snps_list.append((seq_i,s np_seq_pos, snps[snp_i].alt_alleles[0]))
+                seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i].alt_alleles[0]))
 
 
     #################################################################
@@ -136,8 +131,8 @@ def main():
 
     job = basenji.dna_io.read_job_params(params_file)
 
-    job['batch_length'] = snp_seqs_1hot.shape[1]
-    job['seq_depth'] = snp_seqs_1hot.shape[2]
+    job['batch_length'] = seqs_1hot.shape[1]
+    job['seq_depth'] = seqs_1hot.shape[2]
     job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
 
     if transcript_targets is not None:
@@ -341,13 +336,13 @@ class PredStream:
         # acquire predictions, if needed
         if i >= self.stream_end:
             self.stream_start = self.stream_end
-            self.stream_end = min(self.stream_start + self.stream_length, len(seqs_snps_list))
+            self.stream_end = min(self.stream_start + self.stream_length, len(self.seqs_snps_list))
 
             # construct sequences
             stream_seqs_1hot = []
             for ssi in range(self.stream_start, self.stream_end):
-                seq_i, snp_pos, snp_nt = seqs_snps_list[ssi]
-                stream_seqs_1hot.append(np.copy(seqs_1hot[seq_i]))
+                seq_i, snp_pos, snp_nt = self.seqs_snps_list[ssi]
+                stream_seqs_1hot.append(np.copy(self.seqs_1hot[seq_i]))
                 if snp_pos is not None:
                     basenji.dna_io.hot1_set(stream_seqs_1hot[-1], snp_pos, snp_nt)
 

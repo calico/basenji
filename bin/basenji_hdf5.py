@@ -77,7 +77,7 @@ def main():
         target_wigs[a[0]] = a[1]
         target_scales.append(1)
         if len(a) > 2:
-            target_scales.append(float(a[2])
+            target_scales.append(float(a[2]))
 
     if options.fourier_dim is not None and 2*options.fourier_dim >= options.seq_length/options.pool_width:
         print("Fourier transform to %d dims won't compress %d length sequences with %d pooling" % (options.fourier_dim, options.seq_length, options.pool_width), file=sys.stderr)

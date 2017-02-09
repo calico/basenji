@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import gc
 import os
 import pickle
 import subprocess
@@ -248,6 +249,9 @@ def main():
 
                         ref_bw_open.close()
                         alt_bw_open.close()
+
+                # clean up
+                gc.collect()
 
 
     sed_out.close()

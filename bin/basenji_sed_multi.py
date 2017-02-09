@@ -62,7 +62,7 @@ def main():
         name = 'sed_p%d'%pi
         outf = '%s/job%d.out' % (options.out_dir,pi)
         errf = '%s/job%d.err' % (options.out_dir,pi)
-        j = slurm.Job(cmd, name, outf, errf, queue='gpu', mem=16000, time='7-0:0:0', gpu=1)
+        j = slurm.Job(cmd, name, outf, errf, queue='gpu', mem=32000, time='7-0:0:0', gpu=1)
         jobs.append(j)
 
     slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
@@ -72,7 +72,7 @@ def main():
 
     os.rename('%s/job0/sed_table.txt'%options.out_dir, '%s/sed_table.txt'%options.out_dir)
     for pi in range(1, options.processes):
-        subprocess.call('tail -n +1 %s/job%d/sed_table.txt >> %s/sed_table.txt' % (options.out_dir, pi, options.out_dir), shell=True)
+        subprocess.call('tail -n +2 %s/job%d/sed_table.txt >> %s/sed_table.txt' % (options.out_dir, pi, options.out_dir), shell=True)
 
     if options.track_indexes is not None:
         if not os.path.isdir('%s/tracks' % options.out_dir):

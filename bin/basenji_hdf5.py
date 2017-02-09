@@ -75,9 +75,10 @@ def main():
     for line in open(sample_wigs_file):
         a = line.split()
         target_wigs[a[0]] = a[1]
-        target_scales.append(1)
         if len(a) > 2:
             target_scales.append(float(a[2]))
+        else:
+            target_scales.append(1)
 
     if options.fourier_dim is not None and 2*options.fourier_dim >= options.seq_length/options.pool_width:
         print("Fourier transform to %d dims won't compress %d length sequences with %d pooling" % (options.fourier_dim, options.seq_length, options.pool_width), file=sys.stderr)
@@ -287,11 +288,11 @@ def main():
     ################################################################
     # scale
     ################################################################
-    for ti in range(targets_real.shape[0]):
+    for ti in range(targets_real.shape[2]):
         if target_scales[ti] != 1:
-            targets_real[ti] *= target_scales[ti]
+            targets_real[:,:,ti] *= target_scales[ti]
             if options.fourier_dim is not None:
-                targets_imag[ti] *= target_scales[ti]
+                targets_imag[:,:,ti] *= target_scales[ti]
 
 
     ################################################################

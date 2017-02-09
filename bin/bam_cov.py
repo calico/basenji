@@ -35,6 +35,10 @@ Notes:
   Alternatively, I could remove duplicates at an earlier stage, but I'd have to
   better understand how multi-mapping reads are handled; I'm worried it will throw
   away multi-mappers so the NH tag no longer reflects the number of alignments.
+
+ -It's probably worth trying to perform local filtering after every significant
+  read weight change, instead of a single big filter after every full parse through
+  the reads.
 '''
 
 ################################################################################
@@ -282,7 +286,7 @@ class GenomeCoverage:
         self.gc_model = None
 
 
-    def distribute_multi(self, max_iterations=4, converge_t=.01):
+    def distribute_multi(self, max_iterations=4, converge_t=.05):
         ''' Distribute multi-mapping read weight proportional to coverage in a local window.
 
         In
@@ -334,11 +338,18 @@ class GenomeCoverage:
                     # get genomic position
                     pos = multi_read_positions[pi]
 
-                    # track convergence
-                    iteration_change += abs(multi_positions_weight[pi] - self.multi_weight_matrix[ri,pos])
+                    # get previous weight
+                    prev_weight = self.multi_weight_matrix[ri,pos]
 
-                    # set new weight
-                    self.multi_weight_matrix[ri,pos] = multi_positions_weight[pi]
+                    # compute change
+                    read_pos_change = abs(multi_positions_weight[pi] - prev_weight)
+
+                    if read_pos_change > .001:
+                        # track convergence
+                        iteration_change += read_pos_change
+
+                        # set new weight
+                        self.multi_weight_matrix[ri,pos] = multi_positions_weight[pi]
 
             # assess coverage
             iteration_change /= self.multi_weight_matrix.shape[0]

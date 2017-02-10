@@ -27,6 +27,7 @@ Compute SNP expression difference scores for variants in a VCF file.
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <genes_hdf5_file> <vcf_file>'
     parser = OptionParser(usage)
+    parser.add_option('-a', dest='adjacent_positions', default=0, type='int', help='Consider adjacent positions to quantify transcript abundance [Default: %default]')
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
@@ -182,6 +183,9 @@ def main():
             sed_out = open('%s/sed_table.txt' % options.out_dir, 'w')
             print(' '.join(header_cols), file=sed_out)
 
+        # helper variable
+        adj = options.adjacent_positions
+
         # prediction index
         pi = 0
 
@@ -219,11 +223,13 @@ def main():
 
                         for ti in range(job['num_targets']):
                             # compute SED score
-                            snp_gene_sed = (alt_preds[tx_pos_buf,ti] - ref_preds[tx_pos_buf,ti])
-                            snp_gene_ser = np.log2(alt_preds[tx_pos_buf,ti]+1) - np.log2(ref_preds[tx_pos_buf,ti]+1)
+                            ap = alt_preds[tx_pos_buf-adj:tx_pos_buf+adj,ti]
+                            rp = ref_preds[tx_pos_buf-adj:tx_pos_buf+adj,ti]
+                            snp_gene_sed = (ap - rp)
+                            snp_gene_ser = np.log2(ap+1) - np.log2(rp+1)
 
                             # print to table
-                            cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], ref_preds[tx_pos_buf,ti], alt_preds[tx_pos_buf,ti], snp_gene_sed, snp_gene_ser)
+                            cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], rp, ap, snp_tx_sed, snp_tx_ser)
                             if options.csv:
                                 print(','.join([str(c) for c in cols]), file=sed_out)
                             else:

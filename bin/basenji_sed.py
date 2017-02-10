@@ -225,8 +225,8 @@ def main():
                             # compute SED score
                             ap = alt_preds[tx_pos_buf-adj:tx_pos_buf+adj,ti]
                             rp = ref_preds[tx_pos_buf-adj:tx_pos_buf+adj,ti]
-                            snp_gene_sed = (ap - rp)
-                            snp_gene_ser = np.log2(ap+1) - np.log2(rp+1)
+                            snp_tx_sed = (ap - rp)
+                            snp_tx_ser = np.log2(ap+1) - np.log2(rp+1)
 
                             # print to table
                             cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], rp, ap, snp_tx_sed, snp_tx_ser)

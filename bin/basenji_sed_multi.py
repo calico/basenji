@@ -21,6 +21,7 @@ using multiple processes.
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <genes_hdf5_file> <vcf_file>'
     parser = OptionParser(usage)
+    parser.add_option('-a', dest='all_sed', default=False, action='store_true', help='Print all variant-gene pairs, as opposed to only nonzero [Default: %default]')
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
@@ -30,6 +31,8 @@ def main():
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
+    parser.add_option('-x', dest='transcript_table', default=False, action='store_true', help='Print transcript table in addition to gene [Default: %default]')
+    parser.add_option('-w', dest='tss_width', default=1, type='int', help='Width of bins considered to quantify TSS transcription [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 4:
@@ -70,9 +73,9 @@ def main():
     #######################################################
     # collect output
 
-    os.rename('%s/job0/sed_table.txt'%options.out_dir, '%s/sed_table.txt'%options.out_dir)
-    for pi in range(1, options.processes):
-        subprocess.call('tail -n +2 %s/job%d/sed_table.txt >> %s/sed_table.txt' % (options.out_dir, pi, options.out_dir), shell=True)
+    collect_table('sed_gene.txt', options.out_dir, options.processes)
+    if options.transcript_table:
+        collect_table('sed_tx.txt', options.out_dir, options.processes)
 
     if options.track_indexes is not None:
         if not os.path.isdir('%s/tracks' % options.out_dir):
@@ -85,6 +88,11 @@ def main():
     for pi in range(options.processes):
         shutil.rmtree('%s/job%d' % (options.out_dir,pi))
 
+
+def collect_table(file_name, out_dir, num_procs):
+    os.rename('%s/job0/%s' % (out_dir, file_name), '%s/%s' % (out_dir, file_name))
+    for pi in range(1, num_procs):
+        subprocess.call('tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, file_name, pi, out_dir, file_name), shell=True)
 
 ################################################################################
 # __main__

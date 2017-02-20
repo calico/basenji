@@ -2,6 +2,7 @@
 from optparse import OptionParser
 from collections import OrderedDict
 import gc
+import itertools
 import math
 import os
 import random
@@ -53,7 +54,9 @@ def main():
     parser.add_option('-g', dest='gc', default=False, action='store_true', help='Control for local GC% [Default: %default]')
     parser.add_option('-m', dest='multi_em', default=0, type='int', help='Iterations of EM to distribute multi-mapping reads [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='bam_cov', help='Output directory [Default: %default]')
-    parser.add_option('-s', dest='smooth_sd', default=64, type='float', help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
+    parser.add_option('-r', dest='strand_corr_shift', default=False, action='store_true', help='Learn the fragment shift by fitting a strand cross correlation model [Default: %default]')
+    parser.add_option('-s', dest='smooth_sd', default=32, type='float', help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
+    parser.add_option('-t', dest='shift', default=0, type='int', help='Fragment shift [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -72,7 +75,11 @@ def main():
     chrom_lengths = OrderedDict(zip(bam_in.references, bam_in.lengths))
 
     # initialize
-    genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max, fasta_file=options.fasta_file)
+    genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max, shift=options.shift, fasta_file=options.fasta_file)
+
+    # estimate fragment shift
+    if options.strand_corr_shift:
+        genome_coverage.learn_shift(bam_file, out_dir=options.out_dir)
 
     # read alignments
     genome_coverage.read_bam(bam_file)
@@ -166,9 +173,17 @@ def compute_cut_norms(cut_bias_kmer, read_weights, chromosomes, chrom_lengths, f
 
     return kmer_norms
 
-def row_nzcols(m, ri):
+def row_nzcols_geti(m, ri):
     ''' Return row ri's nonzero columns. '''
     return m.indices[m.indptr[ri]:m.indptr[ri+1]]
+
+def row_nzcols_get(m, ri):
+    ''' Return row ri's nonzero columns. '''
+    return m.data[m.indptr[ri]:m.indptr[ri+1]]
+
+def row_nzcols_set(m, ri, v):
+    ''' Set row ri's nonzero columsn to v. '''
+    m.data[m.indptr[ri]:m.indptr[ri+1]] = v
 
 
 def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_window, chrom_lengths, max_iterations=10, converge_t=.01):
@@ -233,7 +248,7 @@ def initialize_kmers(k, pseudocount=1.):
     return kmer_cuts
 
 
-def regplot(vals1, vals2, model, out_pdf):
+def regplot_gc(vals1, vals2, model, out_pdf):
     gold = sns.color_palette('husl',8)[1]
 
     plt.figure(figsize=(6,6))
@@ -259,6 +274,29 @@ def regplot(vals1, vals2, model, out_pdf):
     plt.close()
 
 
+def regplot_shift(vals1, vals2, preds2, out_pdf):
+    gold = sns.color_palette('husl',8)[1]
+
+    plt.figure(figsize=(6,6))
+
+    # plot data and seaborn model
+    ax = sns.regplot(vals1, vals2, color='black', order=3, scatter_kws={'color':'black', 's':4, 'alpha':0.5}, line_kws={'color':gold})
+
+    # plot my model predictions
+    ax.plot(vals1, preds2)
+
+    # adjust axis
+    ymin, ymax = basenji.plots.scatter_lims(vals2)
+    ax.set_xlabel('Shift')
+    ax.set_ylim(ymin,ymax)
+    ax.set_ylabel('Covariance')
+
+    ax.grid(True, linestyle=':')
+
+    plt.savefig(out_pdf)
+    plt.close()
+
+
 class GenomeCoverage:
     '''
      chrom_lengths (OrderedDict): Mapping chromosome names to lengths.
@@ -269,15 +307,18 @@ class GenomeCoverage:
 
      smooth_sd (int): Gaussian filter standard deviation.
      duplicate_max (int): Maximum coverage per position due to PCR duplicate fear.
+     shift (int): Alignment shift to maximize cross-strand coverage correlation
     '''
 
-    def __init__(self, chrom_lengths, smooth_sd=64, duplicate_max=2, fasta_file=None):
+    def __init__(self, chrom_lengths, smooth_sd=32, duplicate_max=2, shift=0, fasta_file=None):
         self.chrom_lengths = chrom_lengths
         self.genome_length = sum(chrom_lengths.values())
         self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
+        self.active_blocks = None
 
         self.smooth_sd = smooth_sd
         self.duplicate_max = duplicate_max
+        self.shift = shift
 
         self.fasta = None
         if fasta_file is not None:
@@ -294,7 +335,8 @@ class GenomeCoverage:
          converge_t: Per read weight difference below which we consider convergence.
 
         '''
-        print('Distributing %d multi-mapping reads.' % self.multi_weight_matrix.shape[0])
+        t0 = time.time()
+        print('Distributing %d multi-mapping reads.' % self.multi_weight_matrix.shape[0], flush=True)
 
         # initialize genome coverage
         genome_coverage = np.zeros(len(self.unique_counts), dtype='float16')
@@ -307,18 +349,21 @@ class GenomeCoverage:
             iteration_change = 0
 
             # update genome coverage estimates
+            print('  Estimating genomic coverage.', end='', flush=True)
             self.estimate_coverage(genome_coverage)
+            print(' Done.', flush=True)
 
             # re-allocate multi-reads proportionally to coverage estimates
+            print('  Re-allocating multi-reads.', end='', flush=True)
             t_r = time.time()
             for ri in range(self.multi_weight_matrix.shape[0]):
                 # update user
-                if ri % 500000 == 500000-1:
+                if ri % 1000000 == 1000000-1:
                     print('\n  processed %d reads in %ds' % (ri+1, time.time()-t_r), end='', flush=True)
                     t_r = time.time()
 
                 # get read's aligning positions
-                multi_read_positions = row_nzcols(self.multi_weight_matrix, ri)
+                multi_read_positions = row_nzcols_geti(self.multi_weight_matrix, ri)
                 multi_positions_len = len(multi_read_positions)
 
                 # get coverage estimates
@@ -333,27 +378,27 @@ class GenomeCoverage:
                     print(multi_positions_coverage)
                     exit(1)
 
-                # re-proportion read weight
-                for pi in range(multi_positions_len):
-                    # get genomic position
-                    pos = multi_read_positions[pi]
+                # get previous weights
+                multi_read_prev = row_nzcols_get(self.multi_weight_matrix, ri)
 
-                    # get previous weight
-                    prev_weight = self.multi_weight_matrix[ri,pos]
+                # compute change
+                read_pos_change = np.abs(multi_read_prev - multi_positions_weight).sum()
 
-                    # compute change
-                    read_pos_change = abs(multi_positions_weight[pi] - prev_weight)
+                if read_pos_change > .001:
+                    # track convergence
+                    iteration_change += read_pos_change
 
-                    if read_pos_change > .001:
-                        # track convergence
-                        iteration_change += read_pos_change
+                    # set new weights
+                    row_nzcols_set(self.multi_weight_matrix, ri, multi_positions_weight)
 
-                        # set new weight
-                        self.multi_weight_matrix[ri,pos] = multi_positions_weight[pi]
+            print(' Done.', flush=True)
+
+            # clean up temp storage
+            gc.collect()
 
             # assess coverage
             iteration_change /= self.multi_weight_matrix.shape[0]
-            print('\n Finished in %ds with %.3f change per multi-read' % (time.time()-t_it, iteration_change), flush=True)
+            print(' Iteration completed in %ds with %.3f change per multi-read' % (time.time()-t_it, iteration_change), flush=True)
             if iteration_change < converge_t:
                 break
 
@@ -384,12 +429,25 @@ class GenomeCoverage:
         if self.duplicate_max is not None:
             np.copyto(genome_coverage, np.clip(genome_coverage, 0, self.duplicate_max))
 
+        ''' if I switch to active blocks method
+        if self.active_blocks is None:
+            # determine centromere-like empty blocks
+            print('Inferring active blocks.', flush=True)
+            self.infer_active_blocks_groupby(genome_coverage)
+        '''
+
         # smooth by chromosome
         if self.smooth_sd > 0:
             gi = 0
             for clen in lengths_list:
+                gc.collect()
                 genome_coverage[gi:gi+clen] = gaussian_filter1d(genome_coverage[gi:gi+clen].astype('float32'), sigma=self.smooth_sd, truncate=3)
-                gi = gi+clen
+                gi += clen
+
+            ''' if I switch to active blocks method
+            for gis, gie in self.active_blocks:
+                genome_coverage[gis:gie] = gaussian_filter1d(genome_coverage[gis:gie].astype('float32'), sigma=self.smooth_sd, truncate=3)
+            '''
 
 
     def gc_normalize(self, chrom, coverage):
@@ -431,6 +489,9 @@ class GenomeCoverage:
         Out
          model (sklearn object): To control for GC%.
         '''
+
+        t0 = time.time()
+        print('Fitting GC model.', flush=True, end='')
 
         # save
         self.fragment_sd = fragment_sd
@@ -493,12 +554,12 @@ class GenomeCoverage:
                 train_cov.append(np.log2(gauss_cov))
 
             elif len(seq) != 2*fragment_sd3:
-                print('WARNING: %s:%d-%d has length %d != %d' % (chroms_list[ci],seq_start,seq_end,len(seq), 2*fragment_sd3), file=sys.stderr)
+                print('WARNING: GC sequence %s:%d-%d has length %d != %d' % (chroms_list[ci],seq_start,seq_end,len(seq), 2*fragment_sd3), file=sys.stderr)
 
             else:
                 nfilter += 1
 
-        print('WARNING: %d/%d sequences removed for having Ns' % (nfilter, len(train_suggested)), file=sys.stderr)
+        print('WARNING: %d/%d GC sequences removed for having Ns' % (nfilter, len(train_suggested)), file=sys.stderr)
 
         # convert to arrays
         train_gc = np.array(train_gc)
@@ -513,14 +574,16 @@ class GenomeCoverage:
 
         # print score
         score = self.gc_model.score(train_gc[:,np.newaxis], train_cov)
-        print('GC model explains %.4f of variance' % score)
 
         # determine genomic baseline
         self.learn_gc_base()
 
+        print(' Done in %ds.' % (time.time()-t0))
+        print('GC model explains %.4f of variance.' % score, flush=True)
+
         if out_dir is not None:
             # plot training fit
-            regplot(train_gc, train_cov, self.gc_model, '%s/gc_model.pdf' % out_dir)
+            regplot_gc(train_gc, train_cov, self.gc_model, '%s/gc_model.pdf' % out_dir)
 
             # print table
             gc_out = open('%s/gc_table.txt' % out_dir, 'w')
@@ -639,8 +702,99 @@ class GenomeCoverage:
         return gi
 
 
+    def learn_shift(self, bam_file, shift_min=50, shift_max=400, out_dir=None):
+        ''' Learn the optimal fragment shift to maximize across strand correlation '''
+
+        print('Learning shift.', end='', flush=True)
+
+        # find the largest chromosome
+        chrom_max = None
+        for chrom, clen in self.chrom_lengths.items():
+            if clen > self.chrom_lengths.get(chrom_max,0):
+                chrom_max = chrom
+        chrom_length = self.chrom_lengths[chrom_max]
+
+        # initialize counts
+        counts_fwd = np.zeros(chrom_length, dtype='float32')
+        counts_rev = np.zeros(chrom_length, dtype='float32')
+
+        # initialize masks
+        multi_mask = np.zeros(chrom_length, dtype='bool')
+
+        # compute unique counts for the fwd and rev strands
+        for align in pysam.Samfile(bam_file):
+            # if aligned to max_chrom
+            if not align.is_unmapped and align.reference_name == chrom_max:
+                # determine mappability
+                multi = align.has_tag('NH') and align.get_tag('NH') > 1
+
+                if align.is_reverse:
+                    # determine alignment position
+                    ci = align.reference_end
+
+                    if multi:
+                        # record as multi-mapping
+                        multi_mask[ci] = True
+                    else:
+                        # count
+                        counts_rev[ci] += 1
+
+                else:
+                    # determine alignment position
+                    ci = align.reference_start
+
+                    if multi:
+                        # record as multi-mapping
+                        multi_mask[ci] = True
+                    else:
+                        # count
+                        counts_fwd[ci] += 1
+
+        # limit duplicates
+        if self.duplicate_max is not None:
+            np.copyto(counts_fwd, np.clip(counts_fwd, 0, self.duplicate_max))
+            np.copyto(counts_rev, np.clip(counts_rev, 0, self.duplicate_max))
+
+        # mean normalize
+        mean_count = 0.5*counts_fwd[~multi_mask].mean(dtype='float64') + 0.5*counts_rev[~multi_mask].mean(dtype='float64')
+        counts_fwd -= mean_count
+        counts_rev -= mean_count
+
+        # compute pearsonr correlations
+        telo_buf = chrom_length // 20
+        shifts = np.arange(shift_min, shift_max)
+        strand_corrs = np.zeros(len(shifts), dtype='float32')
+        for si in range(len(shifts)):
+            d = shifts[si]
+            counts_dot = np.multiply(counts_fwd[telo_buf:-telo_buf], counts_rev[telo_buf+d:-telo_buf+d])
+            counts_mask = multi_mask[telo_buf:-telo_buf] | multi_mask[telo_buf+d:-telo_buf+d]
+            strand_corrs[si] = counts_dot[~counts_mask].mean()
+
+        # polynomial regression
+        strand_corrs_smooth = gaussian_filter1d(strand_corrs, sigma=8, truncate=3)
+
+        # find max
+        self.shift = (shift_min + np.argmax(strand_corrs_smooth)) // 2
+
+        print(' Done in %ds.' % (time.time()-t0))
+        print('Shift: %d' % self.shift, flush=True)
+
+        if out_dir is not None:
+            # plot training fit
+            regplot_shift(shifts, strand_corrs, strand_corrs_smooth, '%s/shift_model.pdf' % out_dir)
+
+            # print table
+            shift_out = open('%s/shift_table.txt' % out_dir, 'w')
+            for si in range(len(shifts)):
+                print(shifts[si], strand_corrs[si], strand_corrs_smooth[si], '*'*int(2*self.shift==shifts[si]), file=shift_out)
+            shift_out.close()
+
+
     def read_bam(self, bam_file):
         ''' Read alignments from a BAM file into unique and multi data structures. '''
+
+        t0 = time.time()
+        print('Reading alignments from BAM.', flush=True, end='')
 
         # intialize sparse matrix in COO format
         multi_reads = []
@@ -656,9 +810,9 @@ class GenomeCoverage:
                 read_id = (align.query_name, align.is_read1)
 
                 # determine alignment position
-                chrom_pos = align.reference_start
+                chrom_pos = align.reference_start + self.shift
                 if align.is_reverse:
-                    chrom_pos = align.reference_end
+                    chrom_pos = align.reference_end - self.shift
 
                 # determine genome index
                 gi = self.genome_index(align.reference_id, chrom_pos)
@@ -686,8 +840,13 @@ class GenomeCoverage:
                     multi_positions.append(gi)
                     multi_weight.append(np.float16(1/nh_tag))
 
+        print(' Done in %ds.' % (time.time()-t0), flush=True)
+
         # convert sparse matrix
+        t0 = time.time()
+        print('Constructing multi-read CSR matrix.', flush=True, end='')
         self.multi_weight_matrix = csr_matrix((multi_weight,(multi_reads,multi_positions)), shape=(len(multi_read_index),self.genome_length))
+        print(' Done in %ds.' % (time.time()-t0), flush=True)
 
         # validate that weights sum to 1
         multi_sum = self.multi_weight_matrix.sum(axis=1)
@@ -695,6 +854,92 @@ class GenomeCoverage:
             if not np.isclose(multi_sum[ri], 1, rtol=1e-3):
                 print('Multi-weighted coverage for (%s,%s) %f != 1' % (read_id[0],read_id[1],multi_sum[ri]), file=sys.stderr)
                 exit(1)
+
+
+    def infer_active_blocks(self, genome_coverage, min_inactive=50000):
+        # compute inactive blocks
+        self.active_blocks = []
+        active_start = 0
+        zero_start = None
+        zero_run = 0
+
+        # compute zero booleans
+        zero_counts = (genome_coverage == 0)
+
+        i = 0
+        for zc in zero_counts:
+            # if zero count
+            if zc:
+                # if it's the first
+                if zero_start is None:
+                    # set the start
+                    zero_start = i
+
+                # increment the run counter
+                zero_run += 1
+
+            # if it's >0
+            else:
+                # if a sufficiently long zero run is ending
+                if zero_run >= min_inactive:
+                    # unless it's the first nonzero entry
+                    if active_start < zero_start:
+                        # save the previous active block
+                        self.active_blocks.append((active_start,zero_start))
+
+                    # begin a new active block
+                    active_start = i
+
+                # set active_start if it the chr starts without a zero block
+                if active_start is None:
+                    active_start = i
+
+                # refresh zero counters
+                zero_start = None
+                zero_run = 0
+
+            i += 1
+
+        # consider a final active block
+        if zero_start is None or zero_run < min_inactive:
+            self.active_blocks.append((active_start, len(genome_coverage)))
+        else:
+            self.active_blocks.append((active_start, zero_start))
+
+        blocks_out = open('active_blocks.txt', 'w')
+        for i in range(len(self.active_blocks)):
+            print(i, self.active_blocks[i][0], self.active_blocks[i][1], self.active_blocks[i][1]-self.active_blocks[i][0], file=blocks_out)
+        blocks_out.close()
+
+
+    def infer_active_blocks_groupby(self, genome_coverage, min_inactive=50000):
+        ''' Infer active genomic blocks that we'll need to consider.
+
+        The non-groupby version is inefficient. This one should improve it,
+         but it's unfinished.
+        '''
+        # compute inactive blocks
+        self.active_blocks = []
+        active_start = 0
+        zero_run = 0
+
+        # compute zero runs
+        constant_runs = [(k, sum([True for b in g])) for k,g in itertools.groupby(genome_coverage == 0)]
+
+        # # parse runs
+        gi = 0
+        for pos_count, run_len in constant_runs:
+            if pos_count == 0:
+                zero_run = run_len
+            else:
+                if zero_run > min_inactive:
+                    # unless it's the first nonzero entry
+                    if active_start < gi - zero_run:
+                        # save the previous active block
+                        self.active_blocks.append((active_start,zero_start))
+
+                    # begin a new active block
+                    active_start = i
 
 
     def write_bigwig(self, bigwig_file, zero_eps=.003):

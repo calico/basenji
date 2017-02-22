@@ -3,7 +3,6 @@ import sys
 import time
 
 import numpy as np
-import pyBigWig
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 import tensorflow as tf

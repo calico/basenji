@@ -2,6 +2,7 @@
 from optparse import OptionParser
 from collections import OrderedDict
 import gc
+import h5py
 import itertools
 import math
 import os
@@ -73,13 +74,24 @@ def main():
 
     bam_in = pysam.Samfile(bam_file, 'rb')
     chrom_lengths = OrderedDict(zip(bam_in.references, bam_in.lengths))
+    bam_in.close()
+
+    # determine single or paired
+    sp = single_or_pair(bam_file)
+
+    # tell duplicate_max to expect double coverage for pair
+    if options.duplicate_max is not None and sp == 'pair':
+        options.duplicate_max *= 2
 
     # initialize
     genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max, shift=options.shift, fasta_file=options.fasta_file)
 
     # estimate fragment shift
     if options.strand_corr_shift:
-        genome_coverage.learn_shift(bam_file, out_dir=options.out_dir)
+        if sp == 'single':
+            genome_coverage.learn_shift_single(bam_file, out_dir=options.out_dir)
+        else:
+            genome_coverage.learn_shift_pair(bam_file)
 
     # read alignments
     genome_coverage.read_bam(bam_file)
@@ -108,7 +120,7 @@ def main():
     ################################################################
     # compute genomic coverage / normalize for cut bias / output
 
-    genome_coverage.write_bigwig(bigwig_file)
+    genome_coverage.write_bigwig(bigwig_file, sp)
 
 
 def compute_cut_norms(cut_bias_kmer, read_weights, chromosomes, chrom_lengths, fasta_file):
@@ -184,6 +196,19 @@ def row_nzcols_get(m, ri):
 def row_nzcols_set(m, ri, v):
     ''' Set row ri's nonzero columsn to v. '''
     m.data[m.indptr[ri]:m.indptr[ri+1]] = v
+
+
+def single_or_pair(bam_file):
+    ''' Check the first read to guess if the BAM has single or paired end reads. '''
+    bam_in = pysam.Samfile(bam_file)
+    align = bam_in.__next__()
+    if align.is_paired:
+        sp = 'pair'
+    else:
+        sp = 'single'
+    bam_in.close()
+
+    return single
 
 
 def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_window, chrom_lengths, max_iterations=10, converge_t=.01):
@@ -336,7 +361,14 @@ class GenomeCoverage:
 
         '''
         t0 = time.time()
-        print('Distributing %d multi-mapping reads.' % self.multi_weight_matrix.shape[0], flush=True)
+        num_multi_reads = self.multi_weight_matrix.shape[0]
+        print('Distributing %d multi-mapping reads.' % num_multi_reads, flush=True)
+
+        # choose read indexes at which we'll re-estimate genome coverage
+        #  (currently, estimate_coverage takes up more time unless the # reads
+        #   is huge, but that may change if I can better optimize it.)
+        iteration_estimates = max(1, int(np.round(num_multi_reads // 20000000)))
+        restimate_indexes = np.linspace(0, num_multi_reads, iteration_estimates+1)[:-1]
 
         # initialize genome coverage
         genome_coverage = np.zeros(len(self.unique_counts), dtype='float16')
@@ -348,19 +380,20 @@ class GenomeCoverage:
             # track convergence
             iteration_change = 0
 
-            # update genome coverage estimates
-            print('  Estimating genomic coverage.', end='', flush=True)
-            self.estimate_coverage(genome_coverage)
-            print(' Done.', flush=True)
-
             # re-allocate multi-reads proportionally to coverage estimates
             print('  Re-allocating multi-reads.', end='', flush=True)
             t_r = time.time()
-            for ri in range(self.multi_weight_matrix.shape[0]):
+            for ri in range(num_multi_reads):
                 # update user
                 if ri % 1000000 == 1000000-1:
                     print('\n  processed %d reads in %ds' % (ri+1, time.time()-t_r), end='', flush=True)
                     t_r = time.time()
+
+                # update genome coverage estimates
+                if ri in restimate_indexes:
+                    print('  Estimating genomic coverage.', end='', flush=True)
+                    self.estimate_coverage(genome_coverage)
+                    print(' Done.', flush=True)
 
                 # get read's aligning positions
                 multi_read_positions = row_nzcols_geti(self.multi_weight_matrix, ri)
@@ -702,10 +735,30 @@ class GenomeCoverage:
         return gi
 
 
-    def learn_shift(self, bam_file, shift_min=50, shift_max=400, out_dir=None):
-        ''' Learn the optimal fragment shift to maximize across strand correlation '''
+    def learn_shift_pair(self, bam_file):
+        ''' Learn the optimal fragment shift from paired end fragments. '''
 
-        print('Learning shift.', end='', flush=True)
+        t0 = time.time()
+        print('Learning shift from single-end sequences.', end='', flush=True)
+
+        # read proper pair template lengths
+        template_lengths = []
+        for align in pysam.Samfile(bam_file):
+            if align.is_proper_pair and align.is_read1:
+                template_lengths.append(align.template_length)
+
+        # compute mean
+        self.shift = int(np.round(np.mean(template_lengths) / 2))
+
+        print(' Done in %ds.' % (time.time()-t0))
+        print('Shift: %d' % self.shift, flush=True)
+
+
+    def learn_shift_single(self, bam_file, shift_min=50, shift_max=350, out_dir=None):
+        ''' Learn the optimal fragment shift that maximizes across strand correlation '''
+
+        t0 = time.time()
+        print('Learning shift from single-end sequences.', end='', flush=True)
 
         # find the largest chromosome
         chrom_max = None
@@ -771,7 +824,7 @@ class GenomeCoverage:
             strand_corrs[si] = counts_dot[~counts_mask].mean()
 
         # polynomial regression
-        strand_corrs_smooth = gaussian_filter1d(strand_corrs, sigma=8, truncate=3)
+        strand_corrs_smooth = gaussian_filter1d(strand_corrs, sigma=12, truncate=3)
 
         # find max
         self.shift = (shift_min + np.argmax(strand_corrs_smooth)) // 2
@@ -809,10 +862,22 @@ class GenomeCoverage:
             if not align.is_unmapped:
                 read_id = (align.query_name, align.is_read1)
 
+                # determine shift
+                if self.shift == 0:
+                    # don't shift anyone
+                    align_shift = 0
+                else:
+                    if align.is_proper_pair:
+                        # shift proper pairs according to mate
+                        align_shift = align.template_length // 2
+                    else:
+                        # shift others by estimated amount
+                        align_shift = self.shift
+
                 # determine alignment position
-                chrom_pos = align.reference_start + self.shift
+                chrom_pos = align.reference_start + align_shift
                 if align.is_reverse:
-                    chrom_pos = align.reference_end - self.shift
+                    chrom_pos = align.reference_end - align_shift
 
                 # determine genome index
                 gi = self.genome_index(align.reference_id, chrom_pos)
@@ -942,7 +1007,7 @@ class GenomeCoverage:
                     active_start = i
 
 
-    def write_bigwig(self, bigwig_file, zero_eps=.003):
+    def write_bigwig(self, bigwig_file, single_or_pair, zero_eps=.003):
         ''' Compute and write out coverage to bigwig file.
 
         Go chromosome by chromosome here to facilitate printing,
@@ -990,8 +1055,9 @@ class GenomeCoverage:
                 post_sum = chrom_coverage_array.sum()
                 # print('  GC normalization altered mean coverage by %.3f (%d/%d)' % (post_sum/pre_sum, post_sum, pre_sum))
 
-            # convert to list for pyBigWig (allegedly unnecessary now)
-            # chrom_coverage = chrom_coverage_array.tolist()
+            # correct for double coverage in paired end data
+            if single_or_pair == 'pair':
+                chrom_coverage_array /= 2.0
 
             # set small values to zero
             chrom_coverage_array[chrom_coverage_array < zero_eps] = 0

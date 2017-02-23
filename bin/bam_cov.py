@@ -38,6 +38,10 @@ Notes:
   better understand how multi-mapping reads are handled; I'm worried it will throw
   away multi-mappers so the NH tag no longer reflects the number of alignments.
 
+ -Also worth noting that when using duplicate_max, I can use uint8 for unique_counts
+  rather than uint16 and save ~3gb. Presently, the botteneck is multi_read_index, so
+  it wouldn't make a difference.
+
  -It's probably worth trying to perform local filtering after every significant
   read weight change, instead of a single big filter after every full parse through
   the reads.
@@ -208,7 +212,7 @@ def single_or_pair(bam_file):
         sp = 'single'
     bam_in.close()
 
-    return single
+    return sp
 
 
 def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_window, chrom_lengths, max_iterations=10, converge_t=.01):
@@ -399,30 +403,33 @@ class GenomeCoverage:
                 multi_read_positions = row_nzcols_geti(self.multi_weight_matrix, ri)
                 multi_positions_len = len(multi_read_positions)
 
-                # get coverage estimates
-                multi_positions_coverage = np.array([genome_coverage[pos] for pos in multi_read_positions])
+                # handle disposed reads
+                if multi_positions_len > 0:
 
-                # normalize coverage as weights
-                mpc_sum = multi_positions_coverage.sum(dtype='float64')
-                if mpc_sum > 0:
-                    multi_positions_weight = multi_positions_coverage / mpc_sum
-                else:
-                    print('Error: read %d coverage sum == %.4f' % (ri, mpc_sum))
-                    print(multi_positions_coverage)
-                    exit(1)
+                    # get coverage estimates
+                    multi_positions_coverage = np.array([genome_coverage[pos] for pos in multi_read_positions])
 
-                # get previous weights
-                multi_read_prev = row_nzcols_get(self.multi_weight_matrix, ri)
+                    # normalize coverage as weights
+                    mpc_sum = multi_positions_coverage.sum(dtype='float64')
+                    if mpc_sum > 0:
+                        multi_positions_weight = multi_positions_coverage / mpc_sum
+                    else:
+                        print('Error: read %d coverage sum == %.4f' % (ri, mpc_sum))
+                        print(multi_positions_coverage)
+                        exit(1)
 
-                # compute change
-                read_pos_change = np.abs(multi_read_prev - multi_positions_weight).sum()
+                    # get previous weights
+                    multi_read_prev = row_nzcols_get(self.multi_weight_matrix, ri)
 
-                if read_pos_change > .001:
-                    # track convergence
-                    iteration_change += read_pos_change
+                    # compute change
+                    read_pos_change = np.abs(multi_read_prev - multi_positions_weight).sum()
 
-                    # set new weights
-                    row_nzcols_set(self.multi_weight_matrix, ri, multi_positions_weight)
+                    if read_pos_change > .001:
+                        # track convergence
+                        iteration_change += read_pos_change
+
+                        # set new weights
+                        row_nzcols_set(self.multi_weight_matrix, ri, multi_positions_weight)
 
             print(' Done.', flush=True)
 
@@ -739,13 +746,13 @@ class GenomeCoverage:
         ''' Learn the optimal fragment shift from paired end fragments. '''
 
         t0 = time.time()
-        print('Learning shift from single-end sequences.', end='', flush=True)
+        print('Learning shift from paired-end sequences.', end='', flush=True)
 
         # read proper pair template lengths
         template_lengths = []
         for align in pysam.Samfile(bam_file):
             if align.is_proper_pair and align.is_read1:
-                template_lengths.append(align.template_length)
+                template_lengths.append(abs(align.template_length))
 
         # compute mean
         self.shift = int(np.round(np.mean(template_lengths) / 2))
@@ -869,7 +876,7 @@ class GenomeCoverage:
                 else:
                     if align.is_proper_pair:
                         # shift proper pairs according to mate
-                        align_shift = align.template_length // 2
+                        align_shift = abs(align.template_length) // 2
                     else:
                         # shift others by estimated amount
                         align_shift = self.shift
@@ -915,10 +922,30 @@ class GenomeCoverage:
 
         # validate that weights sum to 1
         multi_sum = self.multi_weight_matrix.sum(axis=1)
+        warned = False
+        disposed_reads = 0
         for read_id, ri in multi_read_index.items():
             if not np.isclose(multi_sum[ri], 1, rtol=1e-3):
-                print('Multi-weighted coverage for (%s,%s) %f != 1' % (read_id[0],read_id[1],multi_sum[ri]), file=sys.stderr)
+                # warn user NH tags don't match
+                if not warned:
+                    print('Multi-weighted coverage for (%s,%s) %f != 1' % (read_id[0],read_id[1],multi_sum[ri]), file=sys.stderr)
+                    warned = True
+
+                # dispose
+                row_nzcols_set(self.multi_weight_matrix, ri, 0)
+                disposed_reads += 1
+
+        if disposed_reads > 0:
+            disposed_pct = disposed_reads / len(multi_sum)
+            print('%d (%.4f) multi-reads were disposed because of incorrect NH sums.' % (disposed_reads, disposed_pct), end='', file=sys.stderr)
+            if disposed_pct < 0.1:
+                print(' Proceeding with caution.', file=sys.stderr)
+            else:
+                print(' Something is likely awry-- exiting', file=sys.stderr)
                 exit(1)
+
+            # eliminate zeros for disposed reads
+            self.multi_weight_matrix.eliminate_zeros()
 
 
     def infer_active_blocks(self, genome_coverage, min_inactive=50000):

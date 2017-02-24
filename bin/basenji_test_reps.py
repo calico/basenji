@@ -114,30 +114,11 @@ def main():
 
 
     #######################################################
-    # determine replicates
-
-    replicate_lists = {}
-
-    # if I have a bunch of these, make a list
-    #  and loop through them below
-    rep_re = re.compile('rep\d+')
-
-    for ti in range(len(target_labels_long)):
-        rep_m = rep_re.search(target_labels_long[ti])
-
-        if rep_m:
-            rep_str = rep_m.group(1)
-            label = target_labels_long[ti].replace(rep_str,'')
-        else:
-            label = target_labels_long[ti]
-
-        replicate_lists.setdefault(label,[]).append(ti)
-
-    replicate_labels = sorted(replicate_lists.keys())
-
-
-    #######################################################
     # compute replicate correlations
+
+    # determine replicates
+    replicate_lists = infer_replicates(target_labels_long)
+    replicate_labels = sorted(replicate_lists.keys())
 
     sns.set(font_scale=1.2, style='ticks')
 
@@ -211,6 +192,34 @@ def main():
     jointplot(cor_reps, cor_preds, out_pdf, x_label='Replicates', y_label='Predictions')
 
     data_open.close()
+
+
+def infer_replicates(target_labels_long):
+    ''' Infer replicate experiments based on their long form labels.
+
+    In:
+        target_labels_long [str]: list of long form target labels
+    Out:
+        replicate_lists {exp_label -> [target indexes]}
+    '''
+    replicate_lists = {}
+
+    rep_re = []
+    rep_re.append(re.compile('rep\d+'))
+    rep_re.append(re.compile('donor\d+'))
+
+    for ti in range(len(target_labels_long)):
+        label = target_labels_long[ti]
+
+        for ri in range(len(rep_re)):
+            rep_m = rep_re[ri].search(label)
+            if rep_m:
+                rep_str = rep_m.group(0)
+                label = label.replace(rep_str,'')
+
+        replicate_lists.setdefault(label,[]).append(ti)
+
+    return replicate_lists
 
 
 def jointplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):

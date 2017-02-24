@@ -1,16 +1,24 @@
 #!/usr/bin/env python
+import sys
 
 import matplotlib
 matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
 import seaborn as sns
 
-def jointplot(vals1, vals2, out_pdf, alpha=0.5, square=False, x_label=None, y_label=None):
+def jointplot(vals1, vals2, out_pdf, alpha=0.5, square=False, cor='pearsonr', x_label=None, y_label=None):
     plt.figure()
 
-    g = sns.jointplot(vals1, vals2, color='black', space=0, stat_func=spearmanr, joint_kws={'alpha':alpha, 's':12})
+    if cor.lower() in ['spearman','spearmanr']:
+        cor_func = spearmanr
+    elif cor.lower() in ['pearson','pearsonr']:
+        cor_func = pearsonr
+    else:
+        print('Cannot recognize correlation method %s' % cor, file=sys.stderr)
+
+    g = sns.jointplot(vals1, vals2, color='black', space=0, stat_func=cor_func, joint_kws={'alpha':alpha, 's':12})
 
     ax = g.ax_joint
 
@@ -40,11 +48,11 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, square=False, x_label=None, y_la
     plt.close()
 
 
-def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, square=True, x_label=None, y_label=None, title=None):
+def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=4, cor='pearsonr', square=True, x_label=None, y_label=None, title=None):
     plt.figure(figsize=(6,6))
 
     gold = sns.color_palette('husl',8)[1]
-    ax = sns.regplot(vals1, vals2, color='black', order=poly_order, scatter_kws={'color':'black', 's':4, 'alpha':alpha}, line_kws={'color':gold})
+    ax = sns.regplot(vals1, vals2, color='black', order=poly_order, scatter_kws={'color':'black', 's':point_size, 'alpha':alpha}, line_kws={'color':gold})
 
     if square:
         vmin, vmax = scatter_lims(vals1, vals2)
@@ -58,16 +66,22 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, square=True, x_label
 
     if x_label is not None:
         ax.set_xlabel(x_label)
-    ax.set_ylim(vmin,vmax)
     if y_label is not None:
         ax.set_ylabel(y_label)
 
     if title is not None:
         plt.title(title)
 
-    scor, _ = spearmanr(vals1, vals2)
-    lim_eps = (vmax-vmin) * .02
-    ax.text(vmin+lim_eps, vmax-3*lim_eps, 'Spearman R: %.3f'%scor, horizontalalignment='left', fontsize=12)
+    if cor.lower() in ['spearman','spearmanr']:
+        scor, _ = spearmanr(vals1, vals2)
+        lim_eps = (vmax-vmin) * .02
+        ax.text(vmin+lim_eps, vmax-3*lim_eps, 'Spearman R: %.3f'%scor, horizontalalignment='left', fontsize=12)
+    elif cor.lower() in ['pearson','pearsonr']:
+        scor, _ = pearsonr(vals1, vals2)
+        lim_eps = (vmax-vmin) * .02
+        ax.text(vmin+lim_eps, vmax-3*lim_eps, 'Pearson R: %.3f'%scor, horizontalalignment='left', fontsize=12)
+    else:
+        print('Cannot recognize correlation method %s' % cor, file=sys.stderr)
 
     ax.grid(True, linestyle=':')
 

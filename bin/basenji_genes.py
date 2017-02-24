@@ -243,9 +243,11 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
         tx_start = seq_start + seq_pos*pool_width
         tx_end = tx_start + pool_width
 
-        # pull mean value
+        # pull sum (formerly mean value)
         try:
-            transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
+            # transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
+            transcript_targets[tx_i] = np.array(wig_in.values(seq_chrom, tx_start, tx_end), dtype='float32').sum()
+
         except RuntimeError:
             if seq_chrom not in warned_chroms:
                 print("WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,transcript,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)

@@ -3,13 +3,15 @@ from optparse import OptionParser
 from collections import OrderedDict
 import copy
 import os
+import pdb
 import subprocess
 import sys
 import tempfile
+import time
 
 import h5py
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
@@ -18,6 +20,7 @@ from sklearn.preprocessing import scale
 import tensorflow as tf
 
 import basenji
+from basenji_test_reps import infer_replicates
 
 '''
 basenji_test_genes.py
@@ -34,9 +37,12 @@ def main():
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
     parser.add_option('-i', dest='ignore_bed', help='Ignore genes overlapping regions in this BED file')
     parser.add_option('-l', dest='load_preds', help='Load transcript_preds from file')
+    parser.add_option('--heat', dest='plot_heat', default=False, action='store_true', help='Plot big gene-target heatmaps [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='genes_out', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-s', dest='plot_scatter', default=False, action='store_true', help='Make time-consuming accuracy scatter plots [Default: %default]')
+    parser.add_option('--rep', dest='replicate_labels_file', help='Compare replicate experiments, aided by the given file with long labels')
     parser.add_option('-t', dest='target_indexes', default=None, help='File or Comma-separated list of target indexes to scatter plot true versus predicted values')
+    parser.add_option('--table', dest='print_tables', default=False, action='store_true', help='Print big gene/transcript tables [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -52,7 +58,8 @@ def main():
     #################################################################
     # reads in genes HDF5
 
-    print('Reading from gene HDF', flush=True)
+    t0 = time.time()
+    print('Reading from gene HDF.', end='', flush=True)
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
@@ -109,7 +116,7 @@ def main():
 
     options.target_indexes = np.array(options.target_indexes)
 
-    print(' Done', flush=True)
+    print(' Done in %ds.' % (time.time()-t0), flush=True)
 
 
     #################################################################
@@ -131,7 +138,8 @@ def main():
         #######################################################
         # setup model
 
-        print('Constructing model', flush=True)
+        t0 = time.time()
+        print('Constructing model.', end='', flush=True)
 
         job = basenji.dna_io.read_job_params(params_file)
 
@@ -147,13 +155,13 @@ def main():
         if options.batch_size is not None:
             dr.batch_size = options.batch_size
 
-        print(' Done', flush=True)
+        print(' Done in %ds' % (time.time()-t), flush=True)
 
 
         #######################################################
         # predict transcripts
 
-        print('Computing gene predictions', flush=True)
+        print('Computing gene predictions.', end='', flush=True)
 
         # initialize batcher
         batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=dr.batch_size)
@@ -174,7 +182,7 @@ def main():
         # save to file
         np.save('%s/preds' % options.out_dir, transcript_preds)
 
-        print(' Done', flush=True)
+        print(' Done in %ds.' % (time.time()-t0), flush=True)
 
 
     #################################################################
@@ -187,75 +195,121 @@ def main():
     #################################################################
     # correlation statistics
 
-    cor_table(transcript_targets, transcript_preds, target_labels, '%s/transcript_cors.txt' % options.out_dir)
-    cor_table(gene_targets, gene_preds, target_labels, '%s/gene_cors.txt' % options.out_dir)
+    t0 = time.time()
+    print('Computing correlations.', end='', flush=True)
+
+    cor_table(transcript_targets, transcript_preds, target_labels, options.target_indexes, '%s/transcript_cors.txt' % options.out_dir)
+    cor_table(gene_targets, gene_preds, target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
+
+    print(' Done in %ds.' % (time.time()-t0), flush=True)
 
 
     #################################################################
     # gene statistics
 
-    gene_table(transcript_targets, transcript_preds, list(transcript_map.keys()), target_labels, options.target_indexes, '%s/transcript'%options.out_dir, options.plot_scatter)
+    if options.print_tables:
+        t0 = time.time()
+        print('Printing predictions.', end='', flush=True)
 
-    gene_table(gene_targets, gene_preds, gene_list, target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
+        gene_table(transcript_targets, transcript_preds, list(transcript_map.keys()), target_labels, options.target_indexes, '%s/transcript'%options.out_dir, options.plot_scatter)
+
+        gene_table(gene_targets, gene_preds, gene_list, target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
+
+        print(' Done in %ds.' % (time.time()-t0), flush=True)
+
+
+    #################################################################
+    # gene x target heatmaps
+
+    if options.plot_heat:
+        #########################################
+        # normalize predictions across targets
+
+        t0 = time.time()
+        print('Normalizing values across targets.', end='', flush=True)
+
+        # focus on requested targets
+        gene_preds_targets = gene_preds[:,options.target_indexes]
+        gene_targets_targets = gene_targets[:,options.target_indexes]
+
+        # take log
+        gene_preds_log = np.log2(gene_preds_targets+1)
+        gene_targets_log = np.log2(gene_targets_targets+1)
+
+        # identify outliers
+        gene_preds_tmean = gene_preds_log.mean(axis=0, dtype='float32')
+        gene_targets_tmean = gene_targets_log.mean(axis=0, dtype='float32')
+
+        # highlight outliers
+        gene_preds_tmmean = gene_preds_tmean.mean()
+        gene_targets_tmmean = gene_targets_tmean.mean()
+        for ti in range(len(gene_targets_tmean)):
+            if gene_targets_tmean[ti] > 2*gene_targets_tmmean or gene_targets_tmean[ti] < .5*gene_targets_tmmean:
+                print('%d outlies %.3f versus %.3f (%.4f)' % (ti, gene_targets_tmean[ti], gene_targets_tmmean, gene_targets_tmean[ti] / gene_targets_tmmean))
+
+        # quantile normalize
+        gene_preds_qn = quantile_normalize(gene_preds_log, quantile_stat='mean')
+        gene_targets_qn = quantile_normalize(gene_targets_log, quantile_stat='mean')
+
+        print(' Done in %ds.' % (time.time()-t0), flush=True)
+
+        #########################################
+        # plot genes by targets clustermap
+
+        t0 = time.time()
+        print('Plotting heat maps.', end='', flush=True)
+
+        sns.set(font_scale=1.2, style='ticks')
+        plot_genes = 1000
+
+        # choose a set of variable genes
+        gene_vars = gene_preds_qn.var(axis=1)
+        indexes_var = np.argsort(gene_vars)[::-1][:plot_genes]
+
+        # choose a set of random genes
+        indexes_rand = np.random.choice(np.arange(gene_preds_qn.shape[0]), plot_genes, replace=False)
+
+        # variable gene predictions
+        clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var.pdf' % options.out_dir)
+        clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var_color.pdf' % options.out_dir, color='viridis')
+
+        # random gene predictions
+        clustermap(gene_preds_qn[indexes_rand,:], '%s/gene_heat_rand.pdf' % options.out_dir)
+
+        # variable gene targets
+        clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var.pdf' % options.out_dir)
+        clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var_color.pdf' % options.out_dir, color='viridis')
+
+        # random gene targets
+        clustermap(gene_targets_qn[indexes_rand,:], '%s/gene_theat_rand.pdf' % options.out_dir)
+
+        print(' Done in %ds.' % (time.time()-t0), flush=True)
 
 
     #################################################################
-    # normalize predictions across targets
+    # analyze replicates
 
-    # focus on requested targets
-    gene_preds_targets = gene_preds[:,options.target_indexes]
-    gene_targets_targets = gene_targets[:,options.target_indexes]
+    if options.replicate_labels_file is not None:
+        # read long form labels, from which to infer replicates
+        target_labels_long = []
+        for line in open(options.replicate_labels_file):
+            a = line.split('\t')
+            a[-1] = a[-1].rstrip()
+            target_labels_long.append(a[-1])
 
-    # take log
-    gene_preds_log = np.log2(gene_preds_targets+1)
-    gene_targets_log = np.log2(gene_targets_targets+1)
+        # determine replicates
+        replicate_lists = infer_replicates(target_labels_long)
 
-    # identify outliers
-    gene_preds_tmean = gene_preds_log.mean(axis=0, dtype='float32')
-    gene_targets_tmean = gene_targets_log.mean(axis=0, dtype='float32')
+        # compute correlations
+        # replicate_correlations(replicate_lists, transcript_targets, transcript_preds, options.target_indexes, '%s/transcript_reps' % options.out_dir)
+        replicate_correlations(replicate_lists, gene_targets, gene_preds, options.target_indexes, '%s/gene_reps' % options.out_dir) # , scatter_plots=True)
 
-    # highlight outliers
-    gene_preds_tmmean = gene_preds_tmean.mean()
-    gene_targets_tmmean = gene_targets_tmean.mean()
-    for ti in range(len(gene_targets_tmean)):
-        if gene_targets_tmean[ti] > 2*gene_targets_tmmean or gene_targets_tmean[ti] < .5*gene_targets_tmmean:
-            print('%d outlies %.3f versus %.3f (%.4f)' % (ti, gene_targets_tmean[ti], gene_targets_tmmean, gene_targets_tmean[ti] / gene_targets_tmmean))
-
-    # quantile normalize
-    gene_preds_qn = quantile_normalize(gene_preds_log, quantile_stat='mean')
-    gene_targets_qn = quantile_normalize(gene_targets_log, quantile_stat='mean')
-
-    #################################################################
-    # plot genes by targets clustermap
-
-    sns.set(font_scale=1.2, style='ticks')
-    plot_genes = 1000
-
-    # choose a set of variable genes
-    gene_vars = gene_preds_qn.var(axis=1)
-    indexes_var = np.argsort(gene_vars)[::-1][:plot_genes]
-
-    # choose a set of random genes
-    indexes_rand = np.random.choice(np.arange(gene_preds_qn.shape[0]), plot_genes, replace=False)
-
-    # variable gene predictions
-    clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var.pdf' % options.out_dir)
-    clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var_color.pdf' % options.out_dir, color='viridis')
-
-    # random gene predictions
-    clustermap(gene_preds_qn[indexes_rand,:], '%s/gene_heat_rand.pdf' % options.out_dir)
-
-    # variable gene targets
-    clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var.pdf' % options.out_dir)
-    clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var_color.pdf' % options.out_dir, color='viridis')
-
-    # random gene targets
-    clustermap(gene_targets_qn[indexes_rand,:], '%s/gene_theat_rand.pdf' % options.out_dir)
 
     #################################################################
     # clean up
 
     genes_hdf5_in.close()
+
 
 
 def clustermap(gene_values, out_pdf, color=None):
@@ -267,19 +321,48 @@ def clustermap(gene_values, out_pdf, color=None):
     plt.close()
 
 
-def cor_table(gene_targets, gene_preds, target_labels, out_file):
-    ''' Print a table of target correlations. '''
-    table_out = open(out_file, 'w')
+def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file, plots=False):
+    ''' Print a table and plot the distribution of target correlations. '''
 
-    for ti in range(gene_targets.shape[1]):
-        gti = gene_targets[:,ti]
-        gpi = gene_preds[:,ti]
+    table_out = open(out_file, 'w')
+    cors = []
+
+    for ti in target_indexes:
+        # convert targets and predictions to float32
+        gti = np.array(gene_targets[:,ti], dtype='float32')
+        gpi = np.array(gene_preds[:,ti], dtype='float32')
+
+        # compute correlations
         scor, _ = spearmanr(gti, gpi)
         pcor, _ = pearsonr(np.log2(gti+1), np.log2(gpi+1))
+        cors.append(pcor)
+
+        # print
         cols = (ti, scor, pcor, target_labels[ti])
         print('%-4d  %7.3f  %7.3f  %s' % cols, file=table_out)
 
+    cors = np.array(cors)
     table_out.close()
+
+    if plots:
+        # plot correlation distribution
+        out_base = os.path.splitext(out_file)[0]
+        sns.set(style='ticks', font_scale=1.2)
+        plt.figure()
+        sns.distplot(cors)
+        ax = plt.gca()
+        ax.set_xlabel('PearsonR')
+        ax.grid(True, linestyle=':')
+        plt.savefig('%s_dist.pdf' % out_base)
+        plt.close()
+
+        # plot correlations versus target signal
+        gene_targets_log = np.log2(gene_targets[:,target_indexes]+1)
+        target_signal = gene_targets_log.sum(axis=0)
+        sns.set(style='ticks', font_scale=1.2)
+        basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='PearsonR')
+
+    return cors
 
 
 def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets, mid_pct=0.5):
@@ -365,15 +448,15 @@ def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexe
     table_out = open('%s_table.txt' % out_prefix, 'w')
 
     for ti in target_indexes:
-        gti = np.log2(gene_targets[:,ti]+1)
-        gpi = np.log2(gene_preds[:,ti]+1)
+        gti = np.log2(gene_targets[:,ti].astype('float32')+1)
+        gpi = np.log2(gene_preds[:,ti].astype('float32')+1)
 
         # plot scatter
         if plot_scatter:
             sns.set(font_scale=1.2, style='ticks')
             out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
             ri = np.random.choice(range(num_genes), 2000, replace=False)
-            basenji.plots.regplot(gti[ri].astype('float32'), gpi[ri].astype('float32'), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
+            basenji.plots.regplot(gti[ri], gpi[ri], out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
 
         # print table lines
         tx_i = 0
@@ -456,8 +539,90 @@ def quantile_normalize(gene_expr, quantile_stat='median'):
     return gene_expr_qn
 
 
+def replicate_correlations(replicate_lists, gene_targets, gene_preds, target_indexes, out_prefix, scatter_plots=False):
+    ''' Study replicate correlations. '''
+
+    # for intersections
+    target_set = set(target_indexes)
+
+    rep_cors = []
+    pred_cors = []
+
+    table_out = open('%s.txt' % out_prefix, 'w')
+    sns.set(style='ticks', font_scale=1.2)
+    num_genes = gene_targets.shape[0]
+
+    li = 0
+    replicate_labels = sorted(replicate_lists.keys())
+
+    for label in replicate_labels:
+        if len(replicate_lists[label]) > 1 and target_set & set(replicate_lists[label]):
+            ti1 = replicate_lists[label][0]
+            ti2 = replicate_lists[label][1]
+
+            # retrieve targets
+            gene_targets_rep1 = np.log2(gene_targets[:,ti1].astype('float32')+1)
+            gene_targets_rep2 = np.log2(gene_targets[:,ti2].astype('float32')+1)
+
+            # retrieve predictions
+            gene_preds_rep1 = np.log2(gene_preds[:,ti1].astype('float32')+1)
+            gene_preds_rep2 = np.log2(gene_preds[:,ti2].astype('float32')+1)
+
+            #####################################
+            # replicate
+
+            # compute replicate correlation
+            rcor, _ = pearsonr(gene_targets_rep1, gene_targets_rep2)
+            rep_cors.append(rcor)
+
+            # scatter plot rep vs rep
+            if scatter_plots:
+                out_pdf = '%s_s%d.pdf' % (out_prefix,li)
+                gene_indexes = np.random.choice(range(num_genes), 1000, replace=False)
+                basenji.plots.regplot(gene_targets_rep1[gene_indexes], gene_targets_rep2[gene_indexes], out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Replicate 2')
+
+            #####################################
+            # prediction
+
+            # compute prediction correlation
+            pcor1, _ = pearsonr(gene_targets_rep1, gene_preds_rep1)
+            pcor2, _ = pearsonr(gene_targets_rep2, gene_preds_rep2)
+            pcor = 0.5*pcor1 + 0.5*pcor2
+            pred_cors.append(pcor)
+
+            # scatter plot vs pred
+            if scatter_plots:
+                # scatter plot rep vs pred
+                out_pdf = '%s_s%d_rep1.pdf' % (out_prefix,li)
+                basenji.plots.regplot(gene_targets_rep1[gene_indexes], gene_preds_rep1[gene_indexes], out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
+
+                # scatter plot rep vs pred
+                out_pdf = '%s_s%d_rep2.pdf' % (out_prefix,li)
+                basenji.plots.regplot(gene_targets_rep2[gene_indexes], gene_preds_rep2[gene_indexes], out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
+
+            #####################################
+            # table
+
+            print('%4d  %4d  %4d  %7.4f  %7.4f  %s' % (li, ti1, ti2, rcor, pcor, label), file=table_out)
+
+            # update counter
+            li += 1
+
+    table_out.close()
+
+    #######################################################
+    # scatter plot replicate versus prediction correlation
+
+    rep_cors = np.array(rep_cors)
+    pred_cors = np.array(pred_cors)
+
+    out_pdf = '%s_scatter.pdf' % out_prefix
+    basenji.plots.jointplot(rep_cors, pred_cors, out_pdf, square=True, x_label='Replicate R', y_label='Prediction R')
+
+
 ################################################################################
 # __main__
 ################################################################################
 if __name__ == '__main__':
     main()
+    # pdb.runcall(main)

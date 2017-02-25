@@ -44,7 +44,10 @@ Notes:
 
  -It's probably worth trying to perform local filtering after every significant
   read weight change, instead of a single big filter after every full parse through
-  the reads.
+  the reads. I might be able to save by not filtering irrelevant regions, and I might
+  get faster optimization by improving the local coverage estimates quicker.
+   -Or related idea--determine the relevant multi map regions that need filtering and
+   only do those. I'd guess I can eliminate 1/3 of the genome.
 '''
 
 ################################################################################
@@ -118,7 +121,7 @@ def main():
     # normalize for GC content
 
     if options.gc:
-        genome_coverage.learn_gc(fragment_sd=options.smooth_sd, out_dir=options.out_dir)
+        genome_coverage.learn_gc(out_dir=options.out_dir)
 
 
     ################################################################
@@ -531,7 +534,7 @@ class GenomeCoverage:
         '''
 
         t0 = time.time()
-        print('Fitting GC model.', flush=True, end='')
+        print('Fitting GC model.', flush=True)
 
         # save
         self.fragment_sd = fragment_sd
@@ -550,31 +553,53 @@ class GenomeCoverage:
         # determine multi-mapping positions
         multi_positions = sorted(set(self.multi_weight_matrix.indices))
 
-        # traverse the list and grab positions within
-        train_suggested = []
-        for mi in range(1,len(multi_positions)-1):
-            mp1 = multi_positions[mi]
-            mp2 = multi_positions[mi+1]
-            train_suggested += list(np.arange(mp1, mp2, 1000))[1:]
+        # traverse the genome and count multi-mappers in bins
+        genome_starts_consider = np.arange(0, self.genome_length, 2*fragment_sd3)
+        genome_starts_multi = np.zeros(len(genome_starts_consider))
+        gsi = 0
+        mpi = 0
+        for gs in genome_starts_consider:
+            ge = gs + 2*fragment_sd3
+            while mpi < len(multi_positions) and multi_positions[mpi] < ge:
+                genome_starts_multi[gsi] += 1
+                mpi += 1
+            gsi += 1
 
-        # sub-sample if necessary
-        sample_num = 20000
-        if len(train_suggested) > sample_num:
-            train_suggested = random.sample(train_suggested, sample_num)
+        # shuffle to break genome order
+        shuffle_indexes = np.arange(len(genome_starts_consider))
+        np.random.shuffle(shuffle_indexes)
+        genome_starts_consider = genome_starts_consider[shuffle_indexes]
+        genome_starts_multi = genome_starts_multi[shuffle_indexes]
 
-        nfilter = 0
+        # sort by multi-map positions
+        trainable_indexes = np.argsort(genome_starts_multi)
+
+        # track stats
+        zero_stop = 20000
+        nonzero_stop = 10000
+        nsample = 0
+        ntier = 0
+        last_gsm = 0
 
         # compute position GC content
         train_pos = []
         train_gc = []
         train_cov = []
-        for gi in train_suggested:
+
+        for gsi in trainable_indexes:
+            gi = genome_starts_consider[gsi]
+            gsm = genome_starts_multi[gsi]
+
+            if gsm > last_gsm:
+                print(' GC training sequence accumulation: %d with %d multi-map positions.' % (ntier, last_gsm), flush=True)
+                ntier = 0
+
             # determine chromosome and position
             ci, pos = self.index_genome(gi)
 
             # get sequence
-            seq_start = max(0, pos - fragment_sd3)
-            seq_end = pos + fragment_sd3
+            seq_start = pos
+            seq_end = pos + 2*fragment_sd3
             seq = self.fasta.fetch(chroms_list[ci], seq_start, seq_end)
 
             # filter for clean sequences
@@ -593,13 +618,18 @@ class GenomeCoverage:
                 gauss_cov = (seq_cov * gauss_kernel).sum() * gauss_invsum
                 train_cov.append(np.log2(gauss_cov))
 
-            elif len(seq) != 2*fragment_sd3:
-                print('WARNING: GC sequence %s:%d-%d has length %d != %d' % (chroms_list[ci],seq_start,seq_end,len(seq), 2*fragment_sd3), file=sys.stderr)
+                # increment
+                nsample += 1
+                ntier += 1
 
-            else:
-                nfilter += 1
+            # consider stoppping
+            if nsample >= zero_stop or gsm > 0 and nsample >= nonzero_stop:
+                break
 
-        print('WARNING: %d/%d GC sequences removed for having Ns' % (nfilter, len(train_suggested)), file=sys.stderr)
+            # advance multi tracker
+            last_gsm = gsm
+
+        print(' GC training sequence accumulation: %d with %d multi-map positions.' % (ntier, last_gsm), flush=True)
 
         # convert to arrays
         train_gc = np.array(train_gc)

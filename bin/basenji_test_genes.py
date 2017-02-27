@@ -14,10 +14,13 @@ import matplotlib
 matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from scipy.stats import pearsonr, spearmanr
 import seaborn as sns
 from sklearn.preprocessing import scale
 import tensorflow as tf
+
+import stats
 
 import basenji
 from basenji_test_reps import infer_replicates
@@ -43,6 +46,7 @@ def main():
     parser.add_option('--rep', dest='replicate_labels_file', help='Compare replicate experiments, aided by the given file with long labels')
     parser.add_option('-t', dest='target_indexes', default=None, help='File or Comma-separated list of target indexes to scatter plot true versus predicted values')
     parser.add_option('--table', dest='print_tables', default=False, action='store_true', help='Print big gene/transcript tables [Default: %default]')
+    parser.add_option('-v', dest='gene_variance', default=False, action='store_true', help='Study accuracy with respect to gene variance across targets [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -195,6 +199,7 @@ def main():
     #################################################################
     # correlation statistics
 
+    '''
     t0 = time.time()
     print('Computing correlations.', end='', flush=True)
 
@@ -202,6 +207,7 @@ def main():
     cor_table(gene_targets, gene_preds, target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
 
     print(' Done in %ds.' % (time.time()-t0), flush=True)
+    '''
 
 
     #################################################################
@@ -221,38 +227,20 @@ def main():
     #################################################################
     # gene x target heatmaps
 
-    if options.plot_heat:
+    if options.plot_heat or options.gene_variance:
         #########################################
         # normalize predictions across targets
 
         t0 = time.time()
         print('Normalizing values across targets.', end='', flush=True)
 
-        # focus on requested targets
-        gene_preds_targets = gene_preds[:,options.target_indexes]
-        gene_targets_targets = gene_targets[:,options.target_indexes]
-
-        # take log
-        gene_preds_log = np.log2(gene_preds_targets+1)
-        gene_targets_log = np.log2(gene_targets_targets+1)
-
-        # identify outliers
-        gene_preds_tmean = gene_preds_log.mean(axis=0, dtype='float32')
-        gene_targets_tmean = gene_targets_log.mean(axis=0, dtype='float32')
-
-        # highlight outliers
-        gene_preds_tmmean = gene_preds_tmean.mean()
-        gene_targets_tmmean = gene_targets_tmean.mean()
-        for ti in range(len(gene_targets_tmean)):
-            if gene_targets_tmean[ti] > 2*gene_targets_tmmean or gene_targets_tmean[ti] < .5*gene_targets_tmmean:
-                print('%d outlies %.3f versus %.3f (%.4f)' % (ti, gene_targets_tmean[ti], gene_targets_tmmean, gene_targets_tmean[ti] / gene_targets_tmmean))
-
-        # quantile normalize
-        gene_preds_qn = quantile_normalize(gene_preds_log, quantile_stat='mean')
-        gene_targets_qn = quantile_normalize(gene_targets_log, quantile_stat='mean')
+        gene_targets_qn = normalize_targets(gene_targets[:,options.target_indexes])
+        gene_preds_qn = normalize_targets(gene_preds[:,options.target_indexes])
 
         print(' Done in %ds.' % (time.time()-t0), flush=True)
 
+
+    if options.plot_heat:
         #########################################
         # plot genes by targets clustermap
 
@@ -306,10 +294,15 @@ def main():
 
 
     #################################################################
+    # gene variance
+
+    if options.gene_variance:
+        variance_accuracy(gene_targets_qn, gene_preds_qn, '%s/gene'%options.out_dir)
+
+    #################################################################
     # clean up
 
     genes_hdf5_in.close()
-
 
 
 def clustermap(gene_values, out_pdf, color=None):
@@ -351,7 +344,7 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
         plt.figure()
         sns.distplot(cors)
         ax = plt.gca()
-        ax.set_xlabel('PearsonR')
+        ax.set_xlabel('Pearson R')
         ax.grid(True, linestyle=':')
         plt.savefig('%s_dist.pdf' % out_base)
         plt.close()
@@ -360,7 +353,7 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
         gene_targets_log = np.log2(gene_targets[:,target_indexes]+1)
         target_signal = gene_targets_log.sum(axis=0)
         sns.set(style='ticks', font_scale=1.2)
-        basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='PearsonR')
+        basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R')
 
     return cors
 
@@ -511,6 +504,33 @@ def map_transcripts_genes(transcript_targets, transcript_map, transcript_gene_in
     return gene_targets
 
 
+def normalize_targets(gene_values, outlier_mult=4):
+    ''' Normalize gene-target values across targets. '''
+
+    # take log
+    gene_values = np.log2(gene_values+1)
+
+    # identify outliers
+    gene_values_tmean = gene_values.mean(axis=0, dtype='float32')
+    gene_values_tmmean = gene_values_tmean.mean()
+
+    inlier_indexes = []
+    for ti in range(len(gene_values_tmean)):
+        if gene_values_tmean[ti] > outlier_mult*gene_values_tmmean or gene_values_tmean[ti] < gene_values_tmmean/outlier_mult:
+            print('%d (filtered) outlies: %.3f versus %.3f (%.4f)' % (ti, gene_values_tmean[ti], gene_values_tmmean, gene_values_tmean[ti] / gene_values_tmmean))
+        else:
+            inlier_indexes.append(ti)
+    inlier_indexes = np.array(inlier_indexes)
+
+    # filter outliers
+    # gene_values = gene_values[:,inlier_indexes]
+
+    # quantile normalize
+    gene_values_qn = quantile_normalize(gene_values, quantile_stat='mean')
+
+    return gene_values_qn
+
+
 def quantile_normalize(gene_expr, quantile_stat='median'):
     ''' Quantile normalize across targets. '''
 
@@ -618,6 +638,66 @@ def replicate_correlations(replicate_lists, gene_targets, gene_preds, target_ind
 
     out_pdf = '%s_scatter.pdf' % out_prefix
     basenji.plots.jointplot(rep_cors, pred_cors, out_pdf, square=True, x_label='Replicate R', y_label='Prediction R')
+
+
+def variance_accuracy(gene_targets, gene_preds, out_prefix):
+    ''' Compare MSE accuracy to gene mean and variance.
+
+    Assumes the targets and predictions have been normalized.
+    '''
+
+    # compute mean, var, and MSE across targets
+    gene_mse = np.zeros(gene_targets.shape[0])
+    gene_mean = np.zeros(gene_targets.shape[0])
+    gene_std = np.zeros(gene_targets.shape[0])
+    for gi in range(gene_targets.shape[0]):
+        gti = np.log2(gene_targets[gi,:]+1)
+        gpi = np.log2(gene_preds[gi,:]+1)
+
+        gene_mse[gi] = np.power(gti - gpi,2).mean()
+        gene_mean[gi] = gti.mean()
+        gene_std[gi] = gpi.std()
+
+    # filter for expression
+    expr_indexes = gene_mean > 0.1
+    gene_mse = gene_mse[expr_indexes]
+    gene_mean = gene_mean[expr_indexes]
+    gene_std = gene_std[expr_indexes]
+
+    sns.set(style='ticks', font_scale=1.2)
+
+    # plot mean vs MSE
+    out_pdf = '%s_mean.pdf' % out_prefix
+    ri = np.random.choice(np.arange(len(gene_mse)), 2000, replace=False)
+    basenji.plots.jointplot(gene_mean[ri], gene_mse[ri], out_pdf, point_size=10, cor='spearmanr', x_label='Mean across experiments', y_label='Mean squared prediction error')
+
+    # plot std vs MSE
+    out_pdf = '%s_std.pdf' % out_prefix
+    ri = np.random.choice(np.arange(len(gene_mse)), 2000, replace=False)
+    basenji.plots.jointplot(gene_std[ri], gene_mse[ri], out_pdf, point_size=10, cor='spearmanr', x_label='Std Dev across experiments', y_label='Mean squared prediction error')
+
+    # plot CV vs MSE
+    gene_cv = np.divide(gene_std, gene_mean)
+    out_pdf = '%s_cv.pdf' % out_prefix
+    ri = np.random.choice(np.arange(len(gene_mse)), 2000, replace=False)
+    basenji.plots.jointplot(gene_cv[ri], gene_mse[ri], out_pdf, point_size=10, cor='spearmanr', x_label='Coef Var across experiments', y_label='Mean squared prediction error')
+
+    # plot MSE distributions in CV bins
+    numq = 4
+    quant_indexes = stats.quantile_indexes(gene_cv, numq)
+    quant_mse = []
+    for qi in range(numq):
+        for gi in quant_indexes[qi]:
+            quant_mse.append([qi, gene_mse[gi]])
+    quant_mse = pd.DataFrame(quant_mse, columns=['Quantile','MSE'])
+
+    plt.figure(figsize=(6,6))
+    sns.boxplot(x='Quantile', y='MSE', data=quant_mse, palette=sns.cubehelix_palette(numq), showfliers=False)
+    ax = plt.gca()
+    ax.grid(True, linestyle=':')
+    ax.set_ylabel('Mean squared prediction error')
+    plt.savefig('%s_quant.pdf' % out_prefix)
+    plt.close()
 
 
 ################################################################################

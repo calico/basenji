@@ -968,7 +968,7 @@ class GenomeCoverage:
         if disposed_reads > 0:
             disposed_pct = disposed_reads / len(multi_sum)
             print('%d (%.4f) multi-reads were disposed because of incorrect NH sums.' % (disposed_reads, disposed_pct), end='', file=sys.stderr)
-            if disposed_pct < 0.1:
+            if disposed_pct < 0.15:
                 print(' Proceeding with caution.', file=sys.stderr)
             else:
                 print(' Something is likely awry-- exiting', file=sys.stderr)

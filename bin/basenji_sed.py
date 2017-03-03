@@ -372,7 +372,7 @@ def read_hdf5(genes_hdf5_in):
         tx_index, tx_pos = transcript_map[transcript]
         seq_transcripts[tx_index].append((transcript,tx_pos))
 
-    return seq_coords, seqs_1hot, seq_transcripts, transcript_genes, transcript_targets, target_labels
+    return seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, target_labels
 
 
 

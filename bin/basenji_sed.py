@@ -348,7 +348,7 @@ def read_hdf5(genes_hdf5_in):
     genes = [gid.decode('UTF-8') for gid in genes_hdf5_in['genes']]
 
     transcript_genes = {}
-    for ti in tange(len(transcripts)):
+    for ti in range(len(transcripts)):
         transcript_genes[transcripts[ti]] = genes[ti]
 
     #######################################

@@ -49,15 +49,8 @@ def main():
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
 
-    if options.track_indexes is None:
-        options.track_indexes = []
-    else:
-        options.track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
-        if not os.path.isdir('%s/tracks' % options.out_dir):
-            os.mkdir('%s/tracks' % options.out_dir)
-
     #################################################################
-    # reads in genes HDF5
+    # read in genes HDF5
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
@@ -84,6 +77,15 @@ def main():
         transcript_targets = None
         target_labels = None
 
+    # map sequences to transcripts
+    seq_transcripts = []
+    for si in range(len(seq_coords)):
+        seq_transcripts.append([])
+
+    for transcript in transcript_map:
+        tx_index, tx_pos = transcript_map[transcript]
+        seq_transcripts[tx_index].append((transcript,tx_pos))
+
 
     #################################################################
     # prep SNPs
@@ -92,8 +94,16 @@ def main():
     snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score, False)
 
     # intersect w/ segments
-    snps_segs = basenji.vcf.intersect_snps(vcf_file, seq_coords)
-    print('snps_segs', snps_segs)
+    seq_snps = basenji.vcf.intersect_seq_snps(vcf_file, seq_coords)
+
+    # filter sequences for overlaps
+    seq_mask = np.array([len(seq_snps[si]) > 0 for si in seq_snps])
+    seqs_1hot = seqs_1hot[seq_mask]
+    seq_coords = [seq_coords[si] for si in range(len(seq_coords)) if seq_mask[si]]
+    seq_transcripts = [seq_transcripts[si] for si in range(len(seq_transcripts)) if seq_mask[si]]
+
+    # transcript data structures break
+    del transcript_map
 
 
     #################################################################
@@ -104,6 +114,7 @@ def main():
     job['batch_length'] = seqs_1hot.shape[1]
     job['seq_depth'] = seqs_1hot.shape[2]
     job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
+    job['save_reprs'] = True
 
     if transcript_targets is not None:
         job['num_targets'] = transcript_targets.shape[1]
@@ -134,11 +145,11 @@ def main():
         # load variables into session
         saver.restore(sess, model_file)
 
-        # initialize prediction stream
-        seq_pg = basenji.stream.PredGradStream(sess, model, seqs_1hot, 64)
-
         # determine prediction buffer
         pred_buffer = model.batch_buffer // model.target_pool
+
+        # initialize prediction stream
+        seq_pg = basenji.stream.PredGradStream(sess, model, seqs_1hot, 16)
 
         #################################################################
         # collect and print SEDs
@@ -151,47 +162,52 @@ def main():
             sed_out = open('%s/sed_table.txt' % options.out_dir, 'w')
             print(' '.join(header_cols), file=sed_out)
 
-        pi = 0
-        for snp_i in range(len(snps)):
-            snp = snps[snp_i]
+        for soi in range(len(seq_snps)):
+            # get predictions and gradients
+            preds, grads = seq_pg[soi]
 
-            # set index SNP
-            snp_is = '%-13s' % '.'
-            if options.index_snp:
-                snp_is = '%-13s' % snp.index_snp
+            # for each overlapping SNP
+            for snp_i in seq_snps[soi]:
+                snp = snps[snp_i]
+                print(snp)
 
-            # set score
-            snp_score = '%5s' % '.'
-            if options.score:
-                snp_score = '%5.3f' % snp.score
+                # set index SNP
+                snp_is = '%-13s' % '.'
+                if options.index_snp:
+                    snp_is = '%-13s' % snp.index_snp
 
-            for seg_i in snps_segs[snp_i]:
-                preds, grads = seq_pg[pi]
+                # set score
+                snp_score = '%5s' % '.'
+                if options.score:
+                    snp_score = '%5.3f' % snp.score
+
+                # set nt indexes
+                ref_nt = basenji.vcf.cap_allele(snp.ref_allele)
+                ref_nt_i = nt_index(ref_nt)
+                alt_nt = basenji.vcf.cap_allele(snp.alt_alleles[0])
+                alt_nt_i = nt_index(alt_nt)
 
                 # find genes
-                for transcript in transcript_map:
-                    tx_index, tx_pos = transcript_map[transcript]
+                for transcript, tx_pos in sequence_transcripts[soi]:
+                    # compute distance between SNP and gene
+                    tx_gpos = seq_coords[soi][1] + (tx_pos + 0.5)*model.target_pool
+                    snp_dist = abs(tx_gpos - snp.pos)
 
-                    if tx_index == seg_i:
-                        # compute distance between SNP and gene
-                        tx_gpos = seq_coords[seg_i][1] + (tx_pos + 0.5)*model.target_pool
-                        snp_dist = abs(tx_ gpos - snp.pos)
+                    # compute transcript pos in predictions
+                    tx_pos_buf = tx_pos - pred_buffer
 
-                        # compute transcript pos in predictions
-                        tx_pos_buf = tx_pos - pred_buffer
+                    for ti in range(job['num_targets']):
+                        # compute SED score
+                        # snp_gene_sed = (alt_preds[tx_pos_buf,ti] - ref_preds[tx_pos_buf,ti])
+                        # snp_gene_ser = np.log2(alt_preds[tx_pos_buf,ti]+1) - np.log2(ref_preds[tx_pos_buf,ti]+1)
+                        snp_gene_sed = grads[tx_pos_buf,alt_nt_i,ti] - grads[tx_pos_buf,ref_nt_i,ti]
 
-                        for ti in range(job['num_targets']):
-                            # compute SED score
-                            # snp_gene_sed = (alt_preds[tx_pos_buf,ti] - ref_preds[tx_pos_buf,ti])
-                            # snp_gene_ser = np.log2(alt_preds[tx_pos_buf,ti]+1) - np.log2(ref_preds[tx_pos_buf,ti]+1)
-                            snp_gene_sed = grads[tx_pos_buf,ref_nt_i,ti] - grads[tx_pos_buf,ref_nt_i,ti]
-
-                            # print to table
-                            cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], preds[tx_pos_buf,ti], snp_gene_sed)
-                            if options.csv:
-                                print(','.join([str(c) for c in cols]), file=sed_out)
-                            else:
-                                print('%-13s %s %5s %6s %6s %12s %5d %12s %6.4f %7.4f' % cols, file=sed_out)
+                        # print to table
+                        cols = (snp.rsid, snp_is, snp_score, ref_nt, alt_nt, transcript, snp_dist, target_labels[ti], preds[tx_pos_buf,ti], snp_gene_sed)
+                        if options.csv:
+                            print(','.join([str(c) for c in cols]), file=sed_out)
+                        else:
+                            print('%-13s %s %5s %6s %6s %12s %5d %12s %6.4f %7.4f' % cols, file=sed_out)
 
     sed_out.close()
 

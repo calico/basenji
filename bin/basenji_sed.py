@@ -250,7 +250,7 @@ def main():
 
                         # print rows to transcript table
                         if options.transcript_table:
-                            for ti in range(ref_preds.shape[2]):
+                            for ti in range(ref_preds.shape[1]):
                                 if options.all_sed or not np.isclose(snp_tx_sed[ti], 0, atol=1e-4):
                                     cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
                                     if options.csv:
@@ -261,8 +261,9 @@ def main():
                     # process genes
                     for gene in gene_pos_preds:
                         # sum gene preds across positions
-                        gene_rp = np.zeros(ref_preds.shape[2])
-                        gene_ap = np.zeros(alt_preds.shape[2])
+                        print(ref_preds.shape)
+                        gene_rp = np.zeros(ref_preds.shape[1])
+                        gene_ap = np.zeros(alt_preds.shape[1])
                         for pos_i in gene_pos_preds[gene]:
                             pos_rp, pos_ap = gene_pos_preds[gene][pos_i]
                             gene_rp += pos_rp
@@ -273,9 +274,9 @@ def main():
                         snp_gene_ser = np.log2(gene_rp+1) - np.log2(gene_ap+1)
 
                         # print rows to gene table
-                        for ti in range(ref_preds.shape[2]):
+                        for ti in range(ref_preds.shape[1]):
                             if options.all_sed or not np.isclose(snp_gene_sed[ti], 0, atol=1e-4):
-                                cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene, snp_gene_dist[gene], target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti])
+                                cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene, snp_dist_gene[gene], target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti])
                                 if options.csv:
                                     print(','.join([str(c) for c in cols]), file=sed_gene_out)
                                 else:
@@ -306,9 +307,9 @@ def main():
                 gc.collect()
 
 
-    sed_tx_out.close()
     sed_gene_out.close()
-
+    if options.transcript_table:
+        sed_tx_out.close()
 
     #################################################################
     # clean up

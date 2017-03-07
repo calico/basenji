@@ -92,7 +92,7 @@ def main():
 def collect_table(file_name, out_dir, num_procs):
     os.rename('%s/job0/%s' % (out_dir, file_name), '%s/%s' % (out_dir, file_name))
     for pi in range(1, num_procs):
-        subprocess.call('tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, file_name, pi, out_dir, file_name), shell=True)
+        subprocess.call('tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, pi, file_name, out_dir, file_name), shell=True)
 
 ################################################################################
 # __main__

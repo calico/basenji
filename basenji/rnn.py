@@ -8,6 +8,7 @@ from sklearn.metrics import r2_score
 import tensorflow as tf
 
 from basenji.dna_io import hot1_rc
+import basenji.ops
 
 class RNN:
     def __init__(self):
@@ -41,6 +42,10 @@ class RNN:
         for li in range(self.full_layers):
             self.full_dropout_ph.append(tf.placeholder(tf.float32))
 
+        # basenji.ops.create_global_step()
+        # RMAX_decay = basenji.ops.adjust_max(200, 800, 1, 3, name='RMAXDECAY')
+        # DMAX_decay = basenji.ops.adjust_max(200, 600, 1, 5, name='DMAXDECAY')
+
         # training conditional
         self.is_training = tf.placeholder(tf.bool)
 
@@ -73,7 +78,9 @@ class RNN:
                 print('Convolution w/ %d %dx%d filters' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li]))
 
                 # batch normalization
-                cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                cinput = tf.contrib.layers.batch_norm(conv, fused=True, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                # cinput = tf.contrib.layers.batch_norm(conv, fused=True, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                # cinput = basenji.ops.fused_batch_norm(conv, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
                 print('Batch normalization')
                 print('ReLU')
 
@@ -140,6 +147,9 @@ class RNN:
 
                 # batch normalization and ReLU
                 doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                # doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                # doutput = basenji.ops.fused_batch_norm(doutput, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+
                 print('Batch normalization')
                 print('ReLU')
 
@@ -306,6 +316,8 @@ class RNN:
 
                 # batch normalization
                 outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                # outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                # outputs = basenji.ops.fused_batch_norm(outputs, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
                 print('Batch normalization')
                 print('ReLU')
 
@@ -412,6 +424,9 @@ class RNN:
 
         # apply gradients
         self.step_op = self.opt.apply_gradients(clip_gvs)
+
+        # batch norm helper
+        # self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
 
         ###################################################
@@ -1064,6 +1079,8 @@ class RNN:
             fd[self.targets_na] = NAb
 
             summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
+            # run_returns = sess.run([self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
+            # summary, loss_batch = run_returns[:2]
 
             # pull gradients
             # gvs_batch = sess.run([g for (g,v) in self.gvs if g is not None], feed_dict=fd)
@@ -1104,67 +1121,3 @@ def layer_extend(var, default, layers):
         var.append(default)
 
     return var
-
-
-###################################################################################################
-# TensorFlow adjustments
-###################################################################################################
-from tensorflow.python.ops import variable_scope as vs
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops.rnn import _reverse_seq
-
-################################################################################
-def bidirectional_rnn_tied(cell_fw, cell_bw, inputs, initial_state_fw=None, initial_state_bw=None, dtype=None, sequence_length=None, scope=None):
-    name = scope or "BiRNN"
-    with vs.variable_scope(name) as fw_scope:
-        # Forward direction
-        output_fw, output_state_fw = tf.nn.rnn(cell_fw, inputs, initial_state_fw, dtype, sequence_length, scope=fw_scope)
-
-    with vs.variable_scope(name, reuse=True) as bw_scope:
-        # Backward direction
-        tmp, output_state_bw = tf.nn.rnn(cell_bw, _reverse_seq(inputs, sequence_length),
-                 initial_state_bw, dtype, sequence_length, scope=bw_scope)
-
-    output_bw = _reverse_seq(tmp, sequence_length)
-
-    # Concat each of the forward/backward outputs
-    outputs = [array_ops.concat(1, [fw, bw]) for fw, bw in zip(output_fw, output_bw)]
-
-    return (outputs, output_state_fw, output_state_bw)
-
-################################################################################
-def bidirectional_rnn_rc(cell_fw, cell_bw, inputs, initial_state_fw=None, initial_state_bw=None, dtype=None, sequence_length=None, scope=None):
-    name = scope or "BiRNN"
-    with vs.variable_scope(name) as fw_scope:
-        # Forward direction
-        output_fw, output_state_fw = tf.nn.rnn(cell_fw, inputs, initial_state_fw, dtype, sequence_length, scope=fw_scope)
-
-    with vs.variable_scope(name, reuse=True) as bw_scope:
-        # Backward direction
-        tmp, output_state_bw = tf.nn.rnn(cell_bw, _reverse_complement(inputs, sequence_length),
-                 initial_state_bw, dtype, sequence_length, scope=bw_scope)
-
-    output_bw = _reverse_seq(tmp, sequence_length)
-
-    # Concat each of the forward/backward outputs
-    outputs = [array_ops.concat(1, [fw, bw]) for fw, bw in zip(output_fw, output_bw)]
-
-    return (outputs, output_state_fw, output_state_bw)
-
-################################################################################
-def _reverse_complement(input_seq, lengths):
-    """Reverse complement a list of one hot coded nucleotide Tensors.
-    Args:
-    input_seq: Sequence of seq_len tensors of dimension (batch_size, 4)
-    lengths:   A `Tensor` of dimension batch_size, containing lengths for each
-               sequence in the batch. If "None" is specified, simply reverse
-               complements the list.
-    Returns:
-    reverse complemented sequence
-    """
-    if lengths is not None:
-        print('Not yet implemented', file=sys.stderr)
-        exit(1)
-    else:
-        nt_rc = tf.constant([[0,0,0,1],[0,0,1,0],[0,1,0,0],[1,0,0,0]], dtype='float32')
-        return [tf.matmul(ris,nt_rc) for ris in reversed(input_seq)]

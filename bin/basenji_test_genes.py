@@ -159,7 +159,7 @@ def main():
         if options.batch_size is not None:
             dr.batch_size = options.batch_size
 
-        print(' Done in %ds' % (time.time()-t), flush=True)
+        print(' Done in %ds' % (time.time()-t0), flush=True)
 
 
         #######################################################

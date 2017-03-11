@@ -199,7 +199,6 @@ def main():
     #################################################################
     # correlation statistics
 
-    '''
     t0 = time.time()
     print('Computing correlations.', end='', flush=True)
 
@@ -207,7 +206,6 @@ def main():
     cor_table(gene_targets, gene_preds, target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
 
     print(' Done in %ds.' % (time.time()-t0), flush=True)
-    '''
 
 
     #################################################################

@@ -31,10 +31,8 @@ def main():
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
-    parser.add_option('-i', dest='index_snp', default=False, action='store_true', help='SNPs are labeled with their index SNP as column 6 [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=None, type='int', help='Number of processes, passed by multi script')
-    parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-x', dest='transcript_table', default=False, action='store_true', help='Print transcript table in addition to gene [Default: %default]')
@@ -83,7 +81,7 @@ def main():
 
     genes_hdf5_in = h5py.File(genes_hdf5_file)
 
-    seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, target_labels = read_hdf5(genes_hdf5_in)
+    seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, multi_seq_genes, target_labels = read_hdf5(genes_hdf5_in)
 
     #################################################################
     # filter for worker sequences
@@ -99,7 +97,7 @@ def main():
     # prep SNPs
 
     # load SNPs
-    snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score, False)
+    snps = basenji.vcf.vcf_snps(vcf_file)
 
     # intersect w/ segments
     print('Intersecting gene sequences with SNPs...', flush=True, end='')
@@ -161,7 +159,7 @@ def main():
     #################################################################
     # compute, collect, and print SEDs
 
-    header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'gene', 'tss_dist', 'target', 'ref_pred', 'alt pred', 'ser', 'sed')
+    header_cols = ('rsid', 'ref', 'alt', 'gene', 'tss_dist', 'target', 'ref_pred', 'alt pred', 'ser', 'sed')
     if options.csv:
         sed_gene_out = open('%s/sed_gene.csv' % options.out_dir, 'w')
         print(','.join(header_cols), file=sed_gene_out)
@@ -201,16 +199,6 @@ def main():
 
                 for snp_i in seqs_snps[seq_i]:
                     snp = snps[snp_i]
-
-                    # set index SNP
-                    snp_is = '%-13s' % '.'
-                    if options.index_snp:
-                        snp_is = '%-13s' % snp.index_snp
-
-                    # set score
-                    snp_score = '%5s' % '.'
-                    if options.score:
-                        snp_score = '%5.3f' % snp.score
 
                     # get alternate prediction (LxT)
                     alt_preds = seq_preds[pi]
@@ -252,14 +240,18 @@ def main():
                         if options.transcript_table:
                             for ti in range(ref_preds.shape[1]):
                                 if options.all_sed or not np.isclose(snp_tx_sed[ti], 0, atol=1e-4):
-                                    cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
+                                    cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
                                     if options.csv:
                                         print(','.join([str(c) for c in cols]), file=sed_tx_out)
                                     else:
-                                        print('%-13s %s %5s %6s %6s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % cols, file=sed_tx_out)
+                                        print('%-13s %s %5s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % cols, file=sed_tx_out)
 
                     # process genes
                     for gene in gene_pos_preds:
+                        gene_str = gene
+                        if gene in multi_seq_genes:
+                            gene_str = '%s_multi' % gene
+
                         # sum gene preds across positions
                         print(ref_preds.shape)
                         gene_rp = np.zeros(ref_preds.shape[1])
@@ -276,11 +268,11 @@ def main():
                         # print rows to gene table
                         for ti in range(ref_preds.shape[1]):
                             if options.all_sed or not np.isclose(snp_gene_sed[ti], 0, atol=1e-4):
-                                cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene, snp_dist_gene[gene], target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti])
+                                cols = [snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str, snp_dist_gene[gene], target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti]]
                                 if options.csv:
                                     print(','.join([str(c) for c in cols]), file=sed_gene_out)
                                 else:
-                                    print('%-13s %s %5s %6s %6s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % cols, file=sed_gene_out)
+                                    print('%-13s %s %5s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % tuple(cols), file=sed_gene_out)
 
                     # print tracks
                     for ti in options.track_indexes:
@@ -373,7 +365,21 @@ def read_hdf5(genes_hdf5_in):
         tx_index, tx_pos = transcript_map[transcript]
         seq_transcripts[tx_index].append((transcript,tx_pos))
 
-    return seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, target_labels
+    #######################################
+    # multi_seq_genes
+
+    gene_seqs = {}
+    for seq_i in range(len(seq_coords)):
+        for transcript, tx_pos in seq_transcripts[seq_i]:
+            gene = transcript_genes[transcript]
+            gene_seqs.setdefault(gene,set()).add(seq_i)
+
+    multi_seq_genes = set()
+    for gene in gene_seqs:
+        if len(gene_seqs) > 1:
+            multi_seq_genes.add(gene)
+
+    return seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, multi_seq_genes, target_labels
 
 
 

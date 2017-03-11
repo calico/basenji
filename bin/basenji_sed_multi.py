@@ -73,7 +73,7 @@ def main():
     #######################################################
     # collect output
 
-    collect_table('sed_gene.txt', options.out_dir, options.processes)
+    collect_table_multi('sed_gene.txt', options.out_dir, options.processes)
     if options.transcript_table:
         collect_table('sed_tx.txt', options.out_dir, options.processes)
 
@@ -93,6 +93,62 @@ def collect_table(file_name, out_dir, num_procs):
     os.rename('%s/job0/%s' % (out_dir, file_name), '%s/%s' % (out_dir, file_name))
     for pi in range(1, num_procs):
         subprocess.call('tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, pi, file_name, out_dir, file_name), shell=True)
+
+def collect_table_multi(file_name, out_dir, num_procs):
+    collect_out = open('%s/%s' % (out_dir, file_name), 'w')
+
+    header = open('%s/job0/%s' % (out_dir, file_name)).readline().rstrip()
+    print(header, file=collect_out)
+
+    multi_lines = []
+
+    for pi in range(num_procs):
+        table_in = open('%s/job%d/%s' % (out_dir, pi, file_name), 'w')
+        table_in.readline()
+
+        for line in table_in:
+            a = line.split()
+            if a[3][-6:] == '_multi':
+                multi_key = (a[0], a[3][:-6], a[5])
+                if multi_key in multi_lines:
+                    multi_lines[multi_key].add(a)
+                else:
+                    multi_lines[multi_key] = MultiLine(a)
+            else:
+                print(line, end='', file=collect_out)
+
+        table_in.close()
+
+    for multi_key in multi_lines:
+        print(multi_lines[multi_key], file=collect_out)
+
+    collect_out.close()
+
+
+class MultiLine:
+    def __init__(self, a):
+        self.rsid = a[0]
+        self.a1 = a[1]
+        self.a2 = a[2]
+        self.gene = a[3][:-6]
+        self.snp_dist_gene = int(a[4])
+        self.target = a[5]
+        self.ref_pred = [float(a[6])]
+        self.alt_pred = [float(a[7])]
+
+    def add(self, a):
+        self.snp_dist_gene = min(self.snp_dist_gene, int(a[4]))
+        self.ref_pred.append(float(a[6]))
+        self.alt_pred.append(float(a[7]))
+
+    def __str__(self):
+        ref_pred = np.sum(self.ref_pred)
+        alt_pred = np.sum(self.alt_pred)
+        sed = ref_pred - alt_pred
+        ser = np.log2(ref_pred+1) - np.log2(alt_pred+1)
+        cols = (self.rsid, self.a1, self.a2, self.gene, self.snp_dist_gene, self.target, ref_pred, alt_pred, sed, ser)
+        return '%-13s %s %5s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % tuple(cols)
+
 
 ################################################################################
 # __main__

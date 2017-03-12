@@ -12,7 +12,7 @@ import pyBigWig
 import pysam
 
 import basenji
-from basenji_hdf5 import bigwig_batch
+from basenji_hdf5_single import bigwig_batch
 
 '''
 basenji_genes.py

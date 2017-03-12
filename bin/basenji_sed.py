@@ -253,7 +253,6 @@ def main():
                             gene_str = '%s_multi' % gene
 
                         # sum gene preds across positions
-                        print(ref_preds.shape)
                         gene_rp = np.zeros(ref_preds.shape[1])
                         gene_ap = np.zeros(alt_preds.shape[1])
                         for pos_i in gene_pos_preds[gene]:

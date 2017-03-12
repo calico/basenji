@@ -103,7 +103,7 @@ def collect_table_multi(file_name, out_dir, num_procs):
     multi_lines = []
 
     for pi in range(num_procs):
-        table_in = open('%s/job%d/%s' % (out_dir, pi, file_name), 'w')
+        table_in = open('%s/job%d/%s' % (out_dir, pi, file_name))
         table_in.readline()
 
         for line in table_in:

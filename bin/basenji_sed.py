@@ -2,6 +2,7 @@
 from optparse import OptionParser
 import gc
 import os
+import pdb
 import pickle
 import subprocess
 import sys
@@ -375,7 +376,7 @@ def read_hdf5(genes_hdf5_in):
 
     multi_seq_genes = set()
     for gene in gene_seqs:
-        if len(gene_seqs) > 1:
+        if len(gene_seqs[gene]) > 1:
             multi_seq_genes.add(gene)
 
     return seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, multi_seq_genes, target_labels
@@ -433,3 +434,4 @@ class PredStream:
 ################################################################################
 if __name__ == '__main__':
     main()
+    # pdb.runcall(main)

@@ -85,10 +85,8 @@ def main():
             track_base = os.path.split(track_file)[1]
             os.rename(track_file, '%s/tracks/%s' % (options.out_dir, track_base))
 
-    ''' TEMP
     for pi in range(options.processes):
         shutil.rmtree('%s/job%d' % (options.out_dir,pi))
-    '''
 
 
 def collect_table(file_name, out_dir, num_procs):
@@ -122,34 +120,41 @@ def collect_table_multi(file_name, out_dir, num_procs):
         table_in.close()
 
     for multi_key in multi_lines:
-        print(multi_lines[multi_key], file=collect_out)
+        multi_lines[multi_key].print_lines(collect_out)
 
     collect_out.close()
 
 
 class MultiLine:
+    __slots__ = ('rsid','a1','a2','gene','snp_dist_gene','preds')
     def __init__(self, a):
         self.rsid = a[0]
         self.a1 = a[1]
         self.a2 = a[2]
         self.gene = a[3][:-6]
         self.snp_dist_gene = int(a[4])
-        self.target = a[5]
-        self.ref_pred = [float(a[6])]
-        self.alt_pred = [float(a[7])]
+        self.preds = {a[5]:([float(a[6])], [float(a[7])])}
 
     def add(self, a):
         self.snp_dist_gene = min(self.snp_dist_gene, int(a[4]))
-        self.ref_pred.append(float(a[6]))
-        self.alt_pred.append(float(a[7]))
 
-    def __str__(self):
-        ref_pred = np.sum(self.ref_pred)
-        alt_pred = np.sum(self.alt_pred)
-        sed = ref_pred - alt_pred
-        ser = np.log2(ref_pred+1) - np.log2(alt_pred+1)
-        cols = (self.rsid, self.a1, self.a2, self.gene, self.snp_dist_gene, self.target, ref_pred, alt_pred, sed, ser)
-        return '%-13s %s %5s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % tuple(cols)
+        if a[5] in self.preds:
+            ref_preds, alt_preds = self.preds[a[5]]
+            ref_preds.append(float(a[6]))
+            alt_preds.append(float(a[7]))
+
+        else:
+            self.preds = {a[5]:([float(a[6])], [float(a[7])])}
+
+    def print_lines(self, out_open):
+        for ti in self.preds:
+            ref_preds, alt_preds = self.preds[ti]
+            ref_pred = np.sum(ref_preds)
+            alt_pred = np.sum(alt_preds)
+            sed = ref_pred - alt_pred
+            ser = np.log2(ref_pred+1) - np.log2(alt_pred+1)
+            cols = (self.rsid, self.a1, self.a2, self.gene, self.snp_dist_gene, ti, ref_pred, alt_pred, sed, ser)
+            print('%-13s %s %5s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % tuple(cols), file=out_open)
 
 
 ################################################################################

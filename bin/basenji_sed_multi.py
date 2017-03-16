@@ -85,8 +85,10 @@ def main():
             track_base = os.path.split(track_file)[1]
             os.rename(track_file, '%s/tracks/%s' % (options.out_dir, track_base))
 
+    ''' TEMP
     for pi in range(options.processes):
         shutil.rmtree('%s/job%d' % (options.out_dir,pi))
+    '''
 
 
 def collect_table(file_name, out_dir, num_procs):
@@ -100,7 +102,7 @@ def collect_table_multi(file_name, out_dir, num_procs):
     header = open('%s/job0/%s' % (out_dir, file_name)).readline().rstrip()
     print(header, file=collect_out)
 
-    multi_lines = []
+    multi_lines = {}
 
     for pi in range(num_procs):
         table_in = open('%s/job%d/%s' % (out_dir, pi, file_name))

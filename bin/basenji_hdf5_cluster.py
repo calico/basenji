@@ -138,7 +138,7 @@ def main():
         j = slurm.Job(cmd, name, outf, errf, queue='general', mem=16000, time='12:0:0')
         jobs.append(j)
 
-    # slurm.multi_run(jobs)
+    slurm.multi_run(jobs)
 
     # load into targets_real, targets_imag
     for target_label in target_wigs.keys():

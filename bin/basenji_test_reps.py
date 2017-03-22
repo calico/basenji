@@ -1,17 +1,16 @@
 #!/usr/bin/env python
 from optparse import OptionParser
 import os
+import random
 import re
 
 import h5py
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import spearmanr, poisson
+from scipy.stats import pearsonr, spearmanr
 import seaborn as sns
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.metrics import roc_auc_score, r2_score
 import tensorflow as tf
 
 import basenji
@@ -31,6 +30,7 @@ def main():
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
+    parser.add_option('-p', dest='plot_pct', default=1.0, type='float', help='Proportion of plots to make [Default: %default]')
     parser.add_option('-s', dest='scatter_plots', default=False, action='store_true', help='Make scatter plots [Default: %default]')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
     (options,args) = parser.parse_args()
@@ -45,6 +45,8 @@ def main():
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
+
+    random.seed(1)
 
     #######################################################
     # load data
@@ -120,7 +122,15 @@ def main():
     replicate_lists = infer_replicates(target_labels_long)
     replicate_labels = sorted(replicate_lists.keys())
 
-    sns.set(font_scale=1.2, style='ticks')
+    reps_out = open('%s/replicates.txt' % options.out_dir, 'w')
+    for label in replicate_labels:
+        if len(replicate_lists[label]) > 1:
+            ti1 = replicate_lists[label][0]
+            ti2 = replicate_lists[label][1]
+            print(ti1, ti2, label, file=reps_out)
+    reps_out.close()
+
+    sns.set(font_scale=1.3, style='ticks')
 
     table_out = open('%s/table.txt' % options.out_dir, 'w')
 
@@ -143,33 +153,45 @@ def main():
             test_preds_rep1 = test_preds[:,ds_indexes_preds,ti1].flatten().astype('float32')
             test_preds_rep2 = test_preds[:,ds_indexes_preds,ti2].flatten().astype('float32')
 
+            # take logs
+            test_targets_rep1 = np.log2(test_targets_rep1+1)
+            test_targets_rep2 = np.log2(test_targets_rep2+1)
+            test_preds_rep1 = np.log2(test_preds_rep1+1)
+            test_preds_rep2 = np.log2(test_preds_rep2+1)
+
+            # decide whether to plot it
+            plot_label = options.scatter_plots and random.random() < options.plot_pct
 
             #####################################
             # replicate
 
             # compute replicate correlation
-            scor, _ = spearmanr(test_targets_rep1, test_targets_rep2)
-            cor_reps.append(scor)
+            #scor, _ = spearmanr(test_targets_rep1, test_targets_rep2)
+            corr, _ = pearsonr(test_targets_rep1, test_targets_rep2)
+            cor_reps.append(corr)
 
             # scatter plot rep vs rep
-            if options.scatter_plots:
+            if plot_label:
                 out_pdf = '%s/reps_s%d.pdf' % (options.out_dir,li)
-                regplot(np.log2(test_targets_rep1+1), np.log2(test_targets_rep2+1), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Replicate 2')
+                regplot(test_targets_rep1, test_targets_rep2, out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Replicate 2')
 
             #####################################
             # prediction
 
             # save prediction correlation
-            cor_preds.append((test_cor[ti1]+test_cor[ti2])/2)
+            # cor_preds.append((test_cor[ti1]+test_cor[ti2])/2)
+            corr1, _ = pearsonr(test_targets_rep1, test_preds_rep1)
+            corr2, _ = pearsonr(test_targets_rep2, test_preds_rep2)
+            cor_preds.append((corr1+corr2)/2)
 
-            if options.scatter_plots:
+            if plot_label:
                 # scatter plot rep vs pred
                 out_pdf = '%s/preds_s%d_rep1.pdf' % (options.out_dir,li)
-                regplot(np.log2(test_targets_rep1+1), np.log2(test_preds_rep1+1), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate', y_label='log2 Prediction')
+                regplot(test_targets_rep1, test_preds_rep1, out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate', y_label='log2 Prediction')
 
                 # scatter plot rep vs pred
                 out_pdf = '%s/preds_s%d_rep2.pdf' % (options.out_dir,li)
-                regplot(np.log2(test_targets_rep2+1), np.log2(test_preds_rep2+1), out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate', y_label='log2 Prediction')
+                regplot(test_targets_rep2, test_preds_rep2, out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate', y_label='log2 Prediction')
 
             #####################################
             # table
@@ -237,8 +259,8 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):
     ax.set_ylabel(y_label)
 
     lim_eps = .02 * (vmax - vmin)
-    ax.text(vmax-lim_eps, vmin+lim_eps, 'mean SpearmanR %.3f'%vals1.mean(), horizontalalignment='right', fontsize=12)
-    ax.text(vmin+lim_eps, vmax-3*lim_eps, 'mean SpearmanR %.3f'%vals2.mean(), horizontalalignment='left', fontsize=12)
+    ax.text(vmax-lim_eps, vmin+lim_eps, 'mean PearsonR %.3f'%vals1.mean(), horizontalalignment='right', fontsize=12)
+    ax.text(vmin+lim_eps, vmax-3*lim_eps, 'mean PearsonR %.3f'%vals2.mean(), horizontalalignment='left', fontsize=12)
 
     ax.grid(True, linestyle=':')
 
@@ -265,9 +287,10 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, x_label=None, y_labe
     if y_label is not None:
         ax.set_ylabel(y_label)
 
-    scor, _ = spearmanr(vals1, vals2)
+    # corr, _ = spearmanr(vals1, vals2)
+    corr, _ = pearsonr(vals1, vals2)
     lim_eps = (vmax-vmin) * .02
-    ax.text(vmin+lim_eps, vmax-3*lim_eps, 'Spearman R: %.3f'%scor, horizontalalignment='left', fontsize=12)
+    ax.text(vmin+lim_eps, vmax-3*lim_eps, 'PearsonR: %.3f'%corr, horizontalalignment='left', fontsize=12)
 
     ax.grid(True, linestyle=':')
 

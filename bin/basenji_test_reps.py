@@ -173,7 +173,7 @@ def main():
             # scatter plot rep vs rep
             if plot_label:
                 out_pdf = '%s/reps_s%d.pdf' % (options.out_dir,li)
-                regplot(test_targets_rep1, test_targets_rep2, out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Replicate 2')
+                regplot(test_targets_rep1, test_targets_rep2, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Replicate 2')
 
             #####################################
             # prediction
@@ -187,11 +187,11 @@ def main():
             if plot_label:
                 # scatter plot rep vs pred
                 out_pdf = '%s/preds_s%d_rep1.pdf' % (options.out_dir,li)
-                regplot(test_targets_rep1, test_preds_rep1, out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate', y_label='log2 Prediction')
+                regplot(test_targets_rep1, test_preds_rep1, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Prediction 1')
 
                 # scatter plot rep vs pred
                 out_pdf = '%s/preds_s%d_rep2.pdf' % (options.out_dir,li)
-                regplot(test_targets_rep2, test_preds_rep2, out_pdf, poly_order=3, alpha=0.3, x_label='log2 Replicate', y_label='log2 Prediction')
+                regplot(test_targets_rep2, test_preds_rep2, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 2', y_label='log2 Prediction 2')
 
             #####################################
             # table

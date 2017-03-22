@@ -17,7 +17,7 @@ import pyBigWig
 from scipy.stats import spearmanr, poisson
 import seaborn as sns
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
 import tensorflow as tf
 
 import basenji
@@ -38,11 +38,10 @@ import fdr
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
     parser = OptionParser(usage)
-    parser.add_option('--ai', dest='accuracy_indexes', help='Comma-separated list of target indexes to make accuracy plotes comparing true versus predicted values')
+    parser.add_option('--ai', dest='accuracy_indexes', help='Comma-separated list of target indexes to make accuracy plots comparing true versus predicted values')
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome length information [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
-    parser.add_option('-p', dest='peaks_hdf5', help='Compute AUC for sequence peak calls [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
@@ -83,7 +82,7 @@ def main():
 
     #######################################################
     # model parameters and placeholders
-    #######################################################
+
     job = basenji.dna_io.read_job_params(params_file)
 
     job['batch_length'] = test_seqs.shape[1]
@@ -111,7 +110,7 @@ def main():
 
     #######################################################
     # test
-    #######################################################
+
     # initialize batcher
     if job['fourier']:
         batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets, test_targets_imag, test_na, dr.batch_size, dr.target_pool)
@@ -134,7 +133,6 @@ def main():
         print('Test Loss:      %7.5f' % test_loss)
         print('Test R2:        %7.5f' % test_r2.mean())
         print('Test SpearmanR: %7.5f' % test_cor.mean())
-        sys.stdout.flush()
 
         r2_out = open('%s/r2.txt' % options.out_dir, 'w')
         for ti in range(len(test_r2)):
@@ -145,11 +143,44 @@ def main():
         if options.scent_file is not None:
             compute_full_accuracy(dr, model, test_preds, test_targets_full, options.out_dir, options.down_sample)
 
-        #######################################################
-        # peaks AUC
-        #######################################################
-        if options.peaks_hdf5:
-            compute_peak_accuracy(sess, dr, data_open, options.peaks_hdf5, options.out_dir, options.down_sample, options.pool_width, options.scent_file)
+    #######################################################
+    # peak call accuracy
+
+    # sample every few bins to decrease correlations
+    ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
+    ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
+
+    aurocs = []
+    auprocs = []
+
+    peaks_out = open('%s/peaks.txt' % options.out_dir, 'w')
+    for ti in range(test_targets.shape[2]):
+        if options.scent_file is not None:
+            test_targets_ti = test_targets_full[:,:,ti]
+        else:
+            test_targets_ti = test_targets[:,:,ti]
+
+        # subset and flatten
+        test_targets_ti_flat = test_targets_ti[:,ds_indexes_targets].flatten().astype('float32')
+        test_preds_ti_flat = test_preds[:,ds_indexes_preds,ti].flatten().astype('float32')
+
+        # call peaks
+        test_targets_ti_lambda = np.mean(test_targets_ti_flat)
+        test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
+        test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
+        test_targets_peaks = test_targets_qvals < 0.05
+
+        # compute prediction accuracy
+        aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
+        auprcs.append(average_precision_score(test_targets_peaks, test_preds_ti_flat))
+
+        print('%4d  %6d  %.5f  %.5f' % (ti,test_targets_peaks.sum(), aurocs[-1], auprcs[-1]), file=peaks_out)
+
+    peaks_out.close()
+
+    print('Test AUROC:     %7.5f' % np.mean(aurocs))
+    print('Test AUPRC:     %7.5f' % np.mean(auprcs))
+
 
     #######################################################
     # BigWig tracks
@@ -203,6 +234,12 @@ def main():
         if not os.path.isdir('%s/violin' % options.out_dir):
             os.mkdir('%s/violin' % options.out_dir)
 
+        if not os.path.isdir('%s/roc' % options.out_dir):
+            os.mkdir('%s/roc' % options.out_dir)
+
+        if not os.path.isdir('%s/pr' % options.out_dir):
+            os.mkdir('%s/pr' % options.out_dir)
+
         for ti in accuracy_indexes:
             if options.scent_file is not None:
                 test_targets_ti = test_targets_full[:,:,ti]
@@ -236,6 +273,7 @@ def main():
             test_targets_peaks_str = np.where(test_targets_peaks, 'Peak', 'Background')
 
             # violin plot
+            sns.set(font_scale=1.3, style='ticks')
             plt.figure()
             df = pd.DataFrame({'log2 Prediction':np.log2(test_preds_ti_flat+1), 'Experimental coverage status':test_targets_peaks_str})
             ax = sns.violinplot(x='Experimental coverage status', y='log2 Prediction', data=df)
@@ -243,22 +281,34 @@ def main():
             plt.savefig('%s/violin/t%d.pdf' % (options.out_dir,ti))
             plt.close()
 
+            # ROC
+            plt.figure()
+            fpr, tpr, _ = roc_curve(test_targets_peaks, test_preds_ti_flat)
+            auroc = roc_auc_score(test_targets_peaks, test_preds_ti_flat)
+            plt.plot([0.5,1], [0.5,1], c='black', linewidth=1, linestyle='--')
+            plt.plot(fpr, tpr)
+            ax = plt.gca()
+            ax.set_xlabel('False positive rate')
+            ax.set_ylabel('True positive rate')
+            ax.text(0.99, 0.05, 'AUROC %.3f'%auroc, horizontalalignment='right') # , fontsize=14)
+            plt.savefig('%s/roc/t%d.pdf' % (options.out_dir,ti))
+            plt.close()
+
+            # PR
+            plt.figure()
+            prec, recall, _ = precision_recall_curve(test_targets_peaks, test_preds_ti_flat)
+            auprc = average_precision_score(test_targets_peaks, test_preds_ti_flat)
+            plt.plot([0.5,1], [0.5,1], c='black', linewidth=1, linestyle='--')
+            plt.plot(recall, prec)
+            ax = plt.gca()
+            ax.set_xlabel('Recall')
+            ax.set_ylabel('Precision')
+            ax.text(0.99, 0.99, 'AUPRC %.3f'%auprc, horizontalalignment='right') # , fontsize=14)
+            plt.savefig('%s/pr/t%d.pdf' % (options.out_dir,ti))
+            plt.close()
+
 
     data_open.close()
-
-
-def balance(X, Y):
-    # determine positive and negative indexes
-    indexes_pos = [i for i in range(len(Y)) if Y[i] == 1]
-    indexes_neg = [i for i in range(len(Y)) if Y[i] == 0]
-
-    # sample down negative
-    indexes_neg_sample = random.sample(indexes_neg, len(indexes_pos))
-
-    # combine
-    indexes = sorted(indexes_pos + indexes_neg_sample)
-
-    return X[indexes], Y[indexes]
 
 
 def bigwig_open(bw_file, genome_file):
@@ -380,78 +430,6 @@ def compute_full_accuracy(dr, model, test_preds, test_targets_full, out_dir, dow
     for ti in range(len(test_r2_full)):
         print('%4d  %.4f' % (ti,test_r2_full[ti]), file=r2_out)
     r2_out.close()
-
-
-def compute_peak_accuracy(sess, dr, data_open, peaks_hdf5, out_dir, down_sample, pool_width, scent_file):
-    # use validation set to train
-    valid_seqs = data_open['valid_in']
-    valid_targets = data_open['valid_out']
-
-    # initialize batcher
-    if job['fourier']:
-        valid_targets_imag = data_open['valid_out_imag']
-        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, dr.batch_size)
-    else:
-        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, dr.batch_size)
-
-    # make predictions
-    _, _, valid_preds = dr.test(sess, batcher_valid, return_preds=True, down_sample=down_sample)
-
-    print(valid_preds.shape)
-
-    # max pool
-    if pool_width > 1:
-        valid_preds = max_pool(valid_preds, pool_width)
-        test_preds = max_pool(test_preds, pool_width)
-        print(valid_preds.shape)
-
-    # load peaks
-    peaks_open = h5py.File(peaks_hdf5)
-    valid_peaks = np.array(peaks_open['valid_out'])
-    test_peaks = np.array(peaks_open['test_out'])
-    peaks_open.close()
-
-    # compute target AUCs
-    target_aucs = []
-    model_coefs = []
-    for ti in range(test_peaks.shape[1]):
-        # balance positive and negative examples
-        # valid_preds_ti, valid_peaks_ti = balance(valid_preds, valid_peaks[:,ti])
-        valid_preds_ti, valid_peaks_ti = valid_preds, valid_peaks[:,ti]
-
-        # train a predictor for peak calls
-        model = LogisticRegression()
-        if scent_file is not None:
-            valid_preds_ti_flat = valid_preds_ti.reshape((valid_preds_ti.shape[0],-1))
-            model.fit(valid_preds_ti_flat, valid_peaks_ti)
-        else:
-            model.fit(valid_preds_ti[:,:,ti], valid_peaks_ti)
-        model_coefs.append(model.coef_)
-
-        # predict peaks for test set
-        if scent_file is not None:
-            test_preds_flat = test_preds.reshape((test_preds.shape[0],-1))
-            test_peaks_preds = model.predict_proba(test_preds_flat)[:,1]
-        else:
-            test_peaks_preds = model.predict_proba(test_preds[:,:,ti])[:,1]
-
-        # compute AUC
-        auc = roc_auc_score(test_peaks[:,ti], test_peaks_preds)
-        target_aucs.append(auc)
-        print('%d AUC: %f' % (ti,auc))
-
-    print('AUC: %f' % np.mean(target_aucs))
-
-    model_coefs = np.vstack(model_coefs)
-    np.save('%s/coefs.npy' % out_dir, model_coefs)
-
-
-def max_pool(preds, pool):
-    # group by pool
-    preds_pool = preds.reshape((preds.shape[0], preds.shape[1]//pool, pool, preds.shape[2]), order='C')
-
-    # max
-    return preds_pool.max(axis=2)
 
 
 ################################################################################

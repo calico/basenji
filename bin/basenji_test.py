@@ -151,7 +151,7 @@ def main():
     ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
 
     aurocs = []
-    auprocs = []
+    auprcs = []
 
     peaks_out = open('%s/peaks.txt' % options.out_dir, 'w')
     for ti in range(test_targets.shape[2]):
@@ -285,12 +285,13 @@ def main():
             plt.figure()
             fpr, tpr, _ = roc_curve(test_targets_peaks, test_preds_ti_flat)
             auroc = roc_auc_score(test_targets_peaks, test_preds_ti_flat)
-            plt.plot([0.5,1], [0.5,1], c='black', linewidth=1, linestyle='--')
-            plt.plot(fpr, tpr)
+            plt.plot([0,1], [0,1], c='black', linewidth=1, linestyle='--', alpha=0.7)
+            plt.plot(fpr, tpr, c='black')
             ax = plt.gca()
             ax.set_xlabel('False positive rate')
             ax.set_ylabel('True positive rate')
-            ax.text(0.99, 0.05, 'AUROC %.3f'%auroc, horizontalalignment='right') # , fontsize=14)
+            ax.text(0.99, 0.02, 'AUROC %.3f'%auroc, horizontalalignment='right') # , fontsize=14)
+            ax.grid(True, linestyle=':')
             plt.savefig('%s/roc/t%d.pdf' % (options.out_dir,ti))
             plt.close()
 
@@ -298,12 +299,13 @@ def main():
             plt.figure()
             prec, recall, _ = precision_recall_curve(test_targets_peaks, test_preds_ti_flat)
             auprc = average_precision_score(test_targets_peaks, test_preds_ti_flat)
-            plt.plot([0.5,1], [0.5,1], c='black', linewidth=1, linestyle='--')
-            plt.plot(recall, prec)
+            plt.axhline(y=test_targets_peaks.mean(), c='black', linewidth=1, linestyle='--', alpha=0.7)
+            plt.plot(recall, prec, c='black')
             ax = plt.gca()
             ax.set_xlabel('Recall')
             ax.set_ylabel('Precision')
-            ax.text(0.99, 0.99, 'AUPRC %.3f'%auprc, horizontalalignment='right') # , fontsize=14)
+            ax.text(0.99, 0.95, 'AUPRC %.3f'%auprc, horizontalalignment='right') # , fontsize=14)
+            ax.grid(True, linestyle=':')
             plt.savefig('%s/pr/t%d.pdf' % (options.out_dir,ti))
             plt.close()
 

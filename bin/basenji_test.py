@@ -9,7 +9,7 @@ import time
 import h5py
 import joblib
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -168,7 +168,7 @@ def main():
         test_targets_ti_lambda = np.mean(test_targets_ti_flat)
         test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
         test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
-        test_targets_peaks = test_targets_qvals < 0.05
+        test_targets_peaks = test_targets_qvals < 0.01
 
         # compute prediction accuracy
         aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
@@ -269,7 +269,7 @@ def main():
             test_targets_ti_lambda = np.mean(test_targets_ti_flat)
             test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
             test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
-            test_targets_peaks = test_targets_qvals < 0.05
+            test_targets_peaks = test_targets_qvals < 0.01
             test_targets_peaks_str = np.where(test_targets_peaks, 'Peak', 'Background')
 
             # violin plot

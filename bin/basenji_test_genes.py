@@ -245,8 +245,9 @@ def main():
         t0 = time.time()
         print('Plotting heat maps.', end='', flush=True)
 
-        sns.set(font_scale=1.2, style='ticks')
+        sns.set(font_scale=1.3, style='ticks')
         plot_genes = 1000
+        plot_targets = 1000
 
         # choose a set of variable genes
         gene_vars = gene_preds_qn.var(axis=1)
@@ -255,19 +256,25 @@ def main():
         # choose a set of random genes
         indexes_rand = np.random.choice(np.arange(gene_preds_qn.shape[0]), plot_genes, replace=False)
 
+        # choose a set of random targets
+        if plot_targets < 0.8*gene_preds_qn.shape[1]:
+            indexes_targets = np.random.choice(np.arange(gene_preds_qn.shape[1]), plot_targets, replace=False)
+        else:
+            indexes_targets = np.arange(gene_preds_qn.shape[1])
+
         # variable gene predictions
-        clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var.pdf' % options.out_dir)
-        clustermap(gene_preds_qn[indexes_var,:], '%s/gene_heat_var_color.pdf' % options.out_dir, color='viridis')
+        clustermap(gene_preds_qn[indexes_var,:][:,indexes_targets], '%s/gene_heat_var.pdf' % options.out_dir)
+        clustermap(gene_preds_qn[indexes_var,:][:,indexes_targets], '%s/gene_heat_var_color.pdf' % options.out_dir, color='viridis')
 
         # random gene predictions
-        clustermap(gene_preds_qn[indexes_rand,:], '%s/gene_heat_rand.pdf' % options.out_dir)
+        clustermap(gene_preds_qn[indexes_rand,:][:,indexes_targets], '%s/gene_heat_rand.pdf' % options.out_dir)
 
         # variable gene targets
-        clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var.pdf' % options.out_dir)
-        clustermap(gene_targets_qn[indexes_var,:], '%s/gene_theat_var_color.pdf' % options.out_dir, color='viridis')
+        clustermap(gene_targets_qn[indexes_var,:][:,indexes_targets], '%s/gene_theat_var.pdf' % options.out_dir)
+        clustermap(gene_targets_qn[indexes_var,:][:,indexes_targets], '%s/gene_theat_var_color.pdf' % options.out_dir, color='viridis')
 
         # random gene targets
-        clustermap(gene_targets_qn[indexes_rand,:], '%s/gene_theat_rand.pdf' % options.out_dir)
+        clustermap(gene_targets_qn[indexes_rand,:][:,indexes_targets], '%s/gene_theat_rand.pdf' % options.out_dir)
 
         print(' Done in %ds.' % (time.time()-t0), flush=True)
 
@@ -306,7 +313,7 @@ def main():
 def clustermap(gene_values, out_pdf, color=None):
     plt.figure()
     g = sns.clustermap(gene_values, metric='euclidean', cmap=color, xticklabels=False, yticklabels=False)
-    g.ax_heatmap.set_xlabel('Targets')
+    g.ax_heatmap.set_xlabel('Experiments')
     g.ax_heatmap.set_ylabel('Genes')
     plt.savefig(out_pdf)
     plt.close()
@@ -338,7 +345,7 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
     if plots:
         # plot correlation distribution
         out_base = os.path.splitext(out_file)[0]
-        sns.set(style='ticks', font_scale=1.2)
+        sns.set(style='ticks', font_scale=1.3)
         plt.figure()
         sns.distplot(cors)
         ax = plt.gca()
@@ -350,8 +357,8 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
         # plot correlations versus target signal
         gene_targets_log = np.log2(gene_targets[:,target_indexes]+1)
         target_signal = gene_targets_log.sum(axis=0)
-        sns.set(style='ticks', font_scale=1.2)
-        basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R')
+        sns.set(style='ticks', font_scale=1.3)
+        basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R', cor=None)
 
     return cors
 
@@ -444,7 +451,7 @@ def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexe
 
         # plot scatter
         if plot_scatter:
-            sns.set(font_scale=1.2, style='ticks')
+            sns.set(font_scale=1.3, style='ticks')
             out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
             ri = np.random.choice(range(num_genes), 2000, replace=False)
             basenji.plots.regplot(gti[ri], gpi[ri], out_pdf, poly_order=3, alpha=0.3, x_label='log2 Experiment', y_label='log2 Prediction')
@@ -567,7 +574,7 @@ def replicate_correlations(replicate_lists, gene_targets, gene_preds, target_ind
     pred_cors = []
 
     table_out = open('%s.txt' % out_prefix, 'w')
-    sns.set(style='ticks', font_scale=1.2)
+    sns.set(style='ticks', font_scale=1.3)
     num_genes = gene_targets.shape[0]
 
     li = 0
@@ -662,7 +669,7 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix):
     gene_mean = gene_mean[expr_indexes]
     gene_std = gene_std[expr_indexes]
 
-    sns.set(style='ticks', font_scale=1.2)
+    sns.set(style='ticks', font_scale=1.3)
 
     # plot mean vs MSE
     out_pdf = '%s_mean.pdf' % out_prefix

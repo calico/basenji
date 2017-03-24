@@ -307,6 +307,19 @@ def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
         seg_unmap_start_i = math.floor((unmap_start - seg_start) / pool_width)
         seg_unmap_end_i = math.ceil((unmap_end - seg_start) / pool_width)
 
+        # skip minor overlaps to the first
+        first_start = seg_start + seg_unmap_start_i*pool_width
+        first_end = first_start + pool_width
+        first_overlap = first_end - unmap_start
+        if first_overlap < 0.25*pool_width:
+            seg_unmap_start_i += 1
+
+        # skip minor overlaps to the last
+        last_start = seg_start + (seg_unmap_end_i-1)*pool_width
+        last_overlap = unmap_end - last_start
+        if last_overlap < 0.25*pool_width:
+            seg_unmap_end_i -= 1
+
         seqs_na[segment_indexes[seg_tup],seg_unmap_start_i:seg_unmap_end_i] = True
 
     return seqs_na

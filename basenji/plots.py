@@ -11,7 +11,9 @@ import seaborn as sns
 def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor='pearsonr', x_label=None, y_label=None):
     plt.figure()
 
-    if cor.lower() in ['spearman','spearmanr']:
+    if cor is None:
+        cor_func = None
+    elif cor.lower() in ['spearman','spearmanr']:
         cor_func = spearmanr
     elif cor.lower() in ['pearson','pearsonr']:
         cor_func = pearsonr
@@ -71,13 +73,16 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='
     if title is not None:
         plt.title(title)
 
-    corr = None
-    if cor.lower() in ['spearman','spearmanr']:
+    if cor is None:
+        corr = None
+    elif cor.lower() in ['spearman','spearmanr']:
         corr, _ = spearmanr(vals1, vals2)
         cor_label = 'Spearman'
     elif cor.lower() in ['pearson','pearsonr']:
         corr, _ = pearsonr(vals1, vals2)
         cor_label = 'Pearson'
+    else:
+        corr = None
 
     if corr is not None:
         xlim_eps = (xmax-xmin) * .02

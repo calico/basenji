@@ -18,6 +18,7 @@ def main():
     usage = 'usage: %prog [options] <wig_file> <seg_bed_file> <out_file>'
     parser = OptionParser(usage)
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
+    parser.add_option('-s', dest='stride', default=None, type='int', help='Stride to advance segments [Default: seq_length]')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -68,8 +69,8 @@ def main():
             targets.append(sv)
 
             # update
-            bstart += options.seq_length
-            bend += options.seq_length
+            bstart += options.stride
+            bend += options.stride
 
     # save to file
     np.save(out_file, targets)

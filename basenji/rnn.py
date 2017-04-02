@@ -599,6 +599,11 @@ class RNN:
                 for tii in range(len(target_indexes)):
                     layer_grads[lii][pii].append([])
 
+        # initialize layer reprs
+        layer_reprs = []
+        for lii in range(len(layers)):
+            layer_reprs.append([])
+
         # initialize predictions
         preds = None
         if return_preds:
@@ -624,7 +629,15 @@ class RNN:
             fd[self.inputs] = Xb
 
             # predict (allegedly takes zero time beyond the first sequence?)
-            preds_batch = sess.run(self.preds_op, feed_dict=fd)
+            reprs_batch_raw, preds_batch = sess.run([self.layer_reprs, self.preds_op], feed_dict=fd)
+
+            # clean up layer repr
+            reprs_batch = reprs_batch_raw[layers[lii]][:Nb].astype('float16')
+            if reprs_batch.shape[1] == 1:
+                reprs_batch = reprs_batch.squeeze(axis=1)
+
+            # save repr
+            layer_reprs[lii].append(reprs_batch)
 
             # for each target
             t0 = time.time()
@@ -640,7 +653,6 @@ class RNN:
 
                     # compute gradients
                     grads_op = tf.gradients(self.preds_op[:,pi,ti], [self.layer_reprs[li] for li in layers])
-
                     grads_batch_raw = sess.run(grads_op, feed_dict=fd)
 
                     for lii in range(len(layers)):
@@ -672,6 +684,8 @@ class RNN:
 
         # stack into arrays
         for lii in range(len(layers)):
+            layer_reprs[lii] = np.vstack(layer_reprs[lii])
+
             for pii in range(len(position_indexes)):
                 for tii in range(len(target_indexes)):
                     # stack sequences
@@ -689,9 +703,9 @@ class RNN:
                 layer_grads[lii] = np.transpose(layer_grads[lii] [2, 3, 0, 1])
 
         if return_preds:
-            return layer_grads, preds
+            return layer_grads, layer_reprs, preds
         else:
-            return layer_grads
+            return layer_grads, layer_reprs
 
 
     def hidden(self, sess, batcher, layers=None):

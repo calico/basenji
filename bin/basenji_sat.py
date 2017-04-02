@@ -407,9 +407,9 @@ def plot_weblogo(ax, seq, sat_loss_ti, min_limit):
     satmut_start = int((len(seq) - satmut_len) // 2)
     satmut_seq = seq[satmut_start:satmut_start+satmut_len]
 
-    # determine nt hieights
+    # determine nt heights
     vlim = max(min_limit, np.max(-sat_loss_ti))
-    seq_heights = 0.25 + 1.75/vlim*(-sat_loss_ti)
+    seq_heights = 0.1 + 1.9/vlim*(-sat_loss_ti)
 
     # make logo as eps
     eps_fd, eps_file = tempfile.mkstemp()

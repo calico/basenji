@@ -49,10 +49,11 @@ def main():
     parser.add_option('-n', dest='na_t', default=0.25, type='float', help='Remove sequences with an NA% greater than this threshold [Default: %default]')
     parser.add_option('-o', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
-    parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
+    parser.add_option('-s', dest='stride', type='int', help='Stride to advance segments [Default: seq_length]')
+    parser.add_option('-t', dest='test_pct_or_chr', type='str', default=0.05, help='Proportion of the data for testing [Default: %default]')
     parser.add_option('-u', dest='unmap_bed', help='Unmappable segments to set to NA')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
-    parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
+    parser.add_option('-v', dest='valid_pct_or_chr', type='str', default=0.05, help='Proportion of the data for validation [Default: %default]')
     parser.add_option('-z', dest='compression', help='h5py compression [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -64,6 +65,9 @@ def main():
         hdf5_file = args[2]
 
     random.seed(1)
+
+    if options.stride is None:
+        options.stride = options.seq_length
 
     ################################################################
     # assess bigwigs
@@ -131,12 +135,14 @@ def main():
     for target_label in target_wigs.keys():
         wig_file = target_wigs[target_label]
         npy_file = '%s/%s' % (options.cluster_dir, target_label)
-        cmd = 'bigwig_hdf5.py -l %d -w %d %s %s %s' % (options.seq_length, options.pool_width, wig_file, seg_bed_file, npy_file)
-        name = 'hdf5_%s'%target_label
-        outf = '%s/%s.out' % (options.cluster_dir, target_label)
-        errf = '%s/%s.err' % (options.cluster_dir, target_label)
-        j = slurm.Job(cmd, name, outf, errf, queue='general', mem=16000, time='12:0:0')
-        jobs.append(j)
+        if not os.path.isfile(npy_file) and not os.path.isfile('%s.npy'%npy_file):
+            print(npy_file)
+            cmd = 'echo $HOSTNAME; bigwig_hdf5.py -l %d -s %d -w %d %s %s %s' % (options.seq_length, options.stride, options.pool_width, wig_file, seg_bed_file, npy_file)
+            name = 'hdf5_%s'%target_label
+            outf = '%s/%s.out' % (options.cluster_dir, target_label)
+            errf = '%s/%s.err' % (options.cluster_dir, target_label)
+            j = slurm.Job(cmd, name, outf, errf, queue='general', mem=16000, time='12:0:0')
+            jobs.append(j)
 
     slurm.multi_run(jobs)
 
@@ -151,13 +157,11 @@ def main():
 
     print('%d target sequences' % targets_real.shape[0])
 
-    # choose test indexes here to maintain compatibility
-    test_indexes = [twi for twi in range(targets_real.shape[0]) if random.random() < options.test_pct]
 
     ################################################################
     # one hot code sequences
     ################################################################
-    seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length)
+    seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length, options.stride)
     print('%d sequences one hot coded' % seqs_1hot.shape[0])
 
 
@@ -169,16 +173,12 @@ def main():
 
         # determine mappable sequences and update test indexes
         map_indexes = []
-        test_indexes_na = []
         test_i = 0
 
         for i in range(seqs_na.shape[0]):
             # mappable
             if seqs_na[i,:].mean() < options.na_t:
                 map_indexes.append(i)
-
-                if i in test_indexes:
-                    test_indexes_na.append(test_i)
 
                 test_i += 1
 
@@ -196,23 +196,35 @@ def main():
         seqs_segments = [seqs_segments[mi] for mi in map_indexes]
         seqs_na = seqs_na[map_indexes]
 
-        test_indexes = test_indexes_na
-
 
     ################################################################
     # write to train, valid, test HDF5
     ################################################################
 
-    # sample valid indexes (we already have test)
-    valid_n = int(options.valid_pct*targets_real.shape[0])
-    nontest_indexes = set(range(targets_real.shape[0])) - set(test_indexes)
-    valid_indexes = random.sample(nontest_indexes, valid_n)
+    # choose test indexes
+    if options.test_pct_or_chr.startswith('chr'):
+        test_indexes = [si for si in range(len(seqs_segments)) if seqs_segments[si][0] == options.test_pct_or_chr]
+    else:
+        test_pct = float(options.test_pct_or_chr)
+        test_indexes = [twi for twi in range(len(seqs_segments)) if random.random() < test_pct]
+
+    # choose valid indexes
+    if options.valid_pct_or_chr.startswith('chr'):
+        # valid_indexes = np.array([seq_seg[0] == options.valid_pct_or_chr for seq_seg in seqs_segments])
+        valid_indexes = [si for si in range(len(seqs_segments)) if seqs_segments[si][0] == options.valid_pct_or_chr]
+    else:
+        valid_pct = float(options.valid_pct_or_chr)
+        valid_n = int(valid_pct*len(seqs_segments))
+        nontest_indexes = set(range(len(seqs_segments))) - set(test_indexes)
+        valid_indexes = random.sample(nontest_indexes, valid_n)
 
     # remainder is training
-    train_indexes = list(nontest_indexes - set(valid_indexes))
+    train_indexes = list(set(range(len(seqs_segments))) - set(valid_indexes) - set(test_indexes))
 
-    # training requires shuffle
+    # training may require shuffling
     random.shuffle(train_indexes)
+    random.shuffle(valid_indexes)
+    random.shuffle(test_indexes)
 
     # write to HDF5
     hdf5_out = h5py.File(hdf5_file, 'w')
@@ -424,13 +436,14 @@ def fourier_transform(targets, dim):
 
 
 ################################################################################
-def segments_1hot(fasta_file, segments, seq_length):
+def segments_1hot(fasta_file, segments, seq_length, stride):
     ''' Read and 1-hot code sequences in their segment batches.
 
     Args
      fasta_file: FASTA genome
      segments: list of (chrom,start,end) genomic segments to read
      seq_length: sequence length to break them into
+     stride: distance to advance each sequence
 
     Returns:
      seqs_1hot: You know.
@@ -460,8 +473,8 @@ def segments_1hot(fasta_file, segments, seq_length):
             seqs_segments.append((chrom,seg_start+bstart,seg_start+bend))
 
             # update
-            bstart += seq_length
-            bend += seq_length
+            bstart += stride
+            bend += stride
 
     return np.array(seqs_1hot), seqs_segments
 

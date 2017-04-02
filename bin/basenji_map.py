@@ -21,8 +21,7 @@ Visualize a sequence's prediction's gradients as a map of influence across
 the genomic region.
 
 Notes:
-  -I'm providing the sequence as a FASTA file for now, but I may want to
-   provide a BED-style region so that I can print the output as a bigwig.
+ -Gradient compute time increases as the program runs. Unclear why. Very annoying.
 '''
 
 ################################################################################
@@ -140,20 +139,19 @@ def main():
             # get layer representations
             t0 = time.time()
             print('Computing gradients.', end='', flush=True)
-            batch_grads = model.gradients_pos(sess, batcher, transcript_positions, options.target_indexes, post_pooling_layer)
+            batch_grads, batch_reprs = model.gradients_pos(sess, batcher, transcript_positions, options.target_indexes, post_pooling_layer)
             print(' Done in %ds.' % (time.time()-t0), flush=True)
 
             # only layer
+            batch_reprs = batch_reprs[0]
             batch_grads = batch_grads[0]
 
             # (B sequences) x (P pooled seq len) x (F filters) x (G gene positions) x (T targets)
             print('batch_grads', batch_grads.shape)
-
-            # sum across filters
-            batch_grads_sum = batch_grads.sum(axis=2)
+            print('batch_reprs', batch_reprs.shape)
 
             # (B sequences) x (P pooled seq len) x (G gene positions) x (T targets)
-            pooled_length = batch_grads_sum.shape[1]
+            pooled_length = batch_grads.shape[1]
 
             # write bigwigs
             t0 = time.time()
@@ -175,7 +173,8 @@ def main():
                             for tii in range(len(options.target_indexes)):
                                 ti = options.target_indexes[tii]
 
-                                # bw_file, options.genome_file, seq_coords[sbi], batch_grads_sum[bi]
+                                # dot representation and gradient
+                                batch_grads_score = np.multiply(batch_reprs[bi], batch_grads[bi,:,:,gi,tii]).sum(axis=1)
 
                                 bw_file = '%s/%s_t%d.bw' % (options.out_dir, transcript, ti)
                                 bw_open = bigwig_open(bw_file, options.genome_file)
@@ -184,8 +183,8 @@ def main():
                                 bw_chroms = [seq_chrom]*pooled_length
                                 bw_starts = [int(seq_start + li*model.target_pool) for li in range(pooled_length)]
                                 bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
+                                bw_values = [float(bgs) for bgs in batch_grads_score]
 
-                                bw_values = [float(bgs) for bgs in batch_grads_sum[bi,:,gi,tii]]
                                 bw_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=bw_values)
 
                                 bw_open.close()

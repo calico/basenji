@@ -9,7 +9,7 @@ import time
 
 import h5py
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
@@ -125,7 +125,7 @@ def main():
             batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
             # predict
-            sat_preds = dr.predict(sess, batcher_sat, target_indexes)
+            sat_preds = dr.predict(sess, batcher_sat, rc_avg=True, target_indexes=target_indexes)
 
             #################################################################
             # compute delta, loss, and gain matrices
@@ -210,7 +210,7 @@ def delta_matrix(seqs_1hot, sat_preds, satmut_len):
     si = 0
 
     # initialize
-    sat_delta = np.zeros((4,satmut_len,num_targets))
+    sat_delta = np.zeros((4,satmut_len,num_targets), dtype='float64')
 
     # jump to si's mutated sequences
     smi = seqs_n + si*3*satmut_len
@@ -234,7 +234,7 @@ def delta_matrix(seqs_1hot, sat_preds, satmut_len):
                 # sat_delta_length[ni,li,:,:] = sat_preds[smi] - sat_preds[si]
 
                 # sat_delta[ni,li,:] = sat_preds[smi,spi+li,:] - sat_preds[si,spi+li,:]
-                sat_delta[ni,li,:] = sat_preds[smi].mean(axis=0, dtype='float64') - sat_preds[si].mean(axis=0, dtype='float64')
+                sat_delta[ni,li,:] = sat_preds[smi].sum(axis=0, dtype='float64') - sat_preds[si].sum(axis=0, dtype='float64')
                 smi += 1
 
     # to study across sequence length

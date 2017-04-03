@@ -108,7 +108,7 @@ def main():
         if options.summary is None:
             train_writer = None
         else:
-            train_writer = tf.train.SummaryWriter(options.summary + '/train', sess.graph)
+            train_writer = tf.summary.FileWriter(options.summary + '/train', sess.graph)
 
         if options.restart:
             # load variables into session

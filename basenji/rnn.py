@@ -161,7 +161,7 @@ class RNN:
 
                 if self.dense_dilate:
                     # concat to dinput
-                    dinput = tf.concat(3, [dinput, doutput])
+                    dinput = tf.concat(axis=3, values=[dinput, doutput])
 
                     # update size variables
                     seq_depth += self.dcnn_filters[li]
@@ -195,7 +195,7 @@ class RNN:
 
         else:
             # move batch_length to the front as a list
-            rinput = tf.unpack(tf.transpose(rinput, [1, 0, 2]))
+            rinput = tf.unstack(tf.transpose(rinput, [1, 0, 2]))
 
             # initialize norm stabilizer
             norm_stabilizer = 0
@@ -231,14 +231,14 @@ class RNN:
 
                     # accumulate norm stablizer
                     if self.norm_stabilizer[li] > 0:
-                        output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), reduction_indices=2))
+                        output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), axis=2))
                         output_norms_diff = tf.squared_difference(output_norms[self.batch_buffer_pool:,:], output_norms[:seq_length-self.batch_buffer_pool,:])
                         norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(output_norms_diff)
 
                     # pooling
                     if self.rnn_pool[li] > 1:
                         # pack into a tensor
-                        outputs = tf.pack(outputs)
+                        outputs = tf.stack(outputs)
 
                         # transpose batch to the front
                         outputs = tf.transpose(outputs, [1, 0, 2])
@@ -273,7 +273,7 @@ class RNN:
                         outputs = tf.transpose(outputs, [1, 0, 2])
 
                         # unpack into a list
-                        outputs = tf.unpack(outputs)
+                        outputs = tf.unstack(outputs)
 
                         # update batch buffer to reflect pooling
                         pool_preds = self.batch_length // seq_length
@@ -286,13 +286,13 @@ class RNN:
                     if self.save_reprs:
                         # cannot take gradients w.r.t. this,
                         #  but I'm not in an RNN mindset to fix it right now
-                        self.layer_reprs.append(tf.transpose(tf.pack(outputs), [1, 0, 2]))
+                        self.layer_reprs.append(tf.transpose(tf.stack(outputs), [1, 0, 2]))
 
                     # outputs become input to next layer
                     rinput = outputs
 
             # move batch_length back to the middle as a tensor
-            outputs = tf.pack(tf.transpose(outputs, [1, 0, 2]))
+            outputs = tf.stack(tf.transpose(outputs, [1, 0, 2]))
 
 
         ###################################################
@@ -370,7 +370,7 @@ class RNN:
         if self.target_space == 'integer':
             # move negatives into exponential space and align positives
             #  clipping the negatives prevents overflow that TF dislikes
-            self.preds_op = tf.select(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
+            self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
 
             # Poisson loss
             self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=True)
@@ -398,7 +398,7 @@ class RNN:
             self.loss_adhoc = tf.reduce_mean(tf.squared_difference(self.preds_adhoc, self.targets_op)) + norm_stabilizer
 
         # track
-        tf.scalar_summary('loss', self.loss_op)
+        tf.summary.scalar('loss', self.loss_op)
 
         # define optimization
         if self.optimization == 'adam':
@@ -433,7 +433,7 @@ class RNN:
         ###################################################
         # summary
         ###################################################
-        self.merged_summary = tf.merge_all_summaries()
+        self.merged_summary = tf.summary.merge_all()
 
         # initialize steps
         self.step = 0

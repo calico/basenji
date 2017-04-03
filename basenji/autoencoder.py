@@ -86,7 +86,7 @@ class AE:
         x = self.mu
         if self.variational:
             epsilon = tf.random_normal(tf.shape(logvar), stddev=1, dtype=tf.float32, name='epsilon')
-            x += tf.scalar_mul(self.train, tf.mul(self.std, epsilon))
+            x += tf.scalar_mul(self.train, tf.multiply(self.std, epsilon))
 
         ###################################
         # decoder
@@ -123,18 +123,18 @@ class AE:
         # loss
         ###################################
         # L2 loss
-        self.loss = tf.reduce_mean(tf.squared_difference(self.y, self.preds), reduction_indices=1)
+        self.loss = tf.reduce_mean(tf.squared_difference(self.y, self.preds), axis=1)
 
         # KL divergence
         if self.variational:
-            kld = -0.5 * tf.reduce_sum(1 + logvar - tf.square(self.mu) - tf.exp(logvar), reduction_indices=1)
+            kld = -0.5 * tf.reduce_sum(1 + logvar - tf.square(self.mu) - tf.exp(logvar), axis=1)
             self.loss += kld
 
         # finalize
         self.loss = tf.reduce_mean(self.loss)
 
         # print variables
-        for v in tf.all_variables():
+        for v in tf.global_variables():
             print(v.name, v.get_shape())
 
         ###################################

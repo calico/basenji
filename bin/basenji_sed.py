@@ -160,7 +160,7 @@ def main():
     #################################################################
     # compute, collect, and print SEDs
 
-    header_cols = ('rsid', 'ref', 'alt', 'gene', 'tss_dist', 'target', 'ref_pred', 'alt pred', 'ser', 'sed')
+    header_cols = ('rsid', 'ref', 'alt', 'gene', 'tss_dist', 'target', 'ref_pred', 'alt pred', 'sed', 'ser')
     if options.csv:
         sed_gene_out = open('%s/sed_gene.csv' % options.out_dir, 'w')
         print(','.join(header_cols), file=sed_gene_out)

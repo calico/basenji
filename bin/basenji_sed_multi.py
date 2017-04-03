@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import gc
 import glob
 import os
 import pickle
 import shutil
 import subprocess
+
+import numpy as np
 
 import slurm
 
@@ -103,13 +106,15 @@ def collect_table_multi(file_name, out_dir, num_procs):
     multi_lines = {}
 
     for pi in range(num_procs):
+        print('Reading job%d' % pi, flush=True)
+
         table_in = open('%s/job%d/%s' % (out_dir, pi, file_name))
         table_in.readline()
 
         for line in table_in:
             a = line.split()
             if a[3][-6:] == '_multi':
-                multi_key = (a[0], a[3][:-6], a[5])
+                multi_key = (a[0], a[3][:-6])
                 if multi_key in multi_lines:
                     multi_lines[multi_key].add(a)
                 else:
@@ -118,6 +123,7 @@ def collect_table_multi(file_name, out_dir, num_procs):
                 print(line, end='', file=collect_out)
 
         table_in.close()
+        gc.collect()
 
     for multi_key in multi_lines:
         multi_lines[multi_key].print_lines(collect_out)

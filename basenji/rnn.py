@@ -7,6 +7,7 @@ import numpy as np
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 import tensorflow as tf
+from tensorflow.contrib.framework.python.ops import create_global_step
 
 from basenji.dna_io import hot1_rc
 import basenji.ops
@@ -43,9 +44,9 @@ class RNN:
         for li in range(self.full_layers):
             self.full_dropout_ph.append(tf.placeholder(tf.float32))
 
-        # basenji.ops.create_global_step()
-        # RMAX_decay = basenji.ops.adjust_max(200, 800, 1, 3, name='RMAXDECAY')
-        # DMAX_decay = basenji.ops.adjust_max(200, 600, 1, 5, name='DMAXDECAY')
+        create_global_step()
+        RMAX_decay = basenji.ops.adjust_max(2000, 10000, 1, 3, name='RMAXDECAY')
+        DMAX_decay = basenji.ops.adjust_max(2000, 10000, 1, 5, name='DMAXDECAY')
 
         # training conditional
         self.is_training = tf.placeholder(tf.bool)
@@ -79,8 +80,8 @@ class RNN:
                 print('Convolution w/ %d %dx%d filters' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li]))
 
                 # batch normalization
-                cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                # cinput = tf.contrib.layers.batch_norm(conv, fused=True, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                # cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                cinput = basenji.ops.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}, updates_collections=None)
                 # cinput = basenji.ops.fused_batch_norm(conv, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
                 print('Batch normalization')
                 print('ReLU')
@@ -145,10 +146,9 @@ class RNN:
                 doutput = tf.nn.atrous_conv2d(dinput, kernel, rate=drate, padding='SAME')
                 print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], drate))
 
-
                 # batch normalization and ReLU
-                doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                # doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                # doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                doutput = basenji.ops.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}, updates_collections=None)
                 # doutput = basenji.ops.fused_batch_norm(doutput, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
 
                 print('Batch normalization')
@@ -161,7 +161,7 @@ class RNN:
 
                 if self.dense_dilate:
                     # concat to dinput
-                    dinput = tf.concat(axis=3, values=[dinput, doutput])
+                    dinput = tf.concat(values=[dinput, doutput], axis=3)
 
                     # update size variables
                     seq_depth += self.dcnn_filters[li]
@@ -316,8 +316,8 @@ class RNN:
                 print('Linear transformation %dx%d' % (seq_depth, self.full_units[li]))
 
                 # batch normalization
-                outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                # outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                # outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                outputs = basenji.ops.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}, updates_collections=None)
                 # outputs = basenji.ops.fused_batch_norm(outputs, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
                 print('Batch normalization')
                 print('ReLU')
@@ -330,6 +330,7 @@ class RNN:
                 # update
                 seq_depth = self.full_units[li]
 
+
         ###################################################
         # final layer
         ###################################################
@@ -341,6 +342,7 @@ class RNN:
 
             self.preds_op = tf.matmul(outputs, final_weights) + final_biases
             print('Linear transform %dx%d' % (seq_depth, self.num_targets))
+
 
         # expand length back out
         self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets))
@@ -373,11 +375,13 @@ class RNN:
             self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
 
             # Poisson loss
-            self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=True)
+            # self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=False)
+            self.loss_op = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_op), compute_full_loss=True)
             self.loss_op = tf.reduce_mean(self.loss_op)
 
             # work-around for computing loss from my own predictions
-            self.loss_adhoc = tf.nn.log_poisson_loss(tf.log(self.preds_adhoc), self.targets_op, compute_full_loss=True)
+            # self.loss_adhoc = tf.nn.log_poisson_loss(tf.log(self.preds_adhoc), self.targets_op, compute_full_loss=False)
+            self.loss_adhoc = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_adhoc), compute_full_loss=True)
             self.loss_adhoc = tf.reduce_mean(self.loss_adhoc)
 
         else:
@@ -1226,6 +1230,7 @@ class RNN:
             fd[self.targets_na] = NAb
 
             summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
+            # summary, loss_batch = sess.run([self.merged_summary, self.loss_op], feed_dict=fd)
             # run_returns = sess.run([self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
             # summary, loss_batch = run_returns[:2]
 

@@ -47,8 +47,7 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor
     if x_label is not None:
         ax.set_xlabel(x_label)
 
-    ax.grid(True, linestyle=':')
-
+    # ax.grid(True, linestyle=':')
     # plt.tight_layout(w_pad=0, h_pad=0)
 
     plt.savefig(out_pdf)

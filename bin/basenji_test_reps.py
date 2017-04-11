@@ -245,7 +245,7 @@ def infer_replicates(target_labels_long):
 
 
 def jointplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):
-    plt.figure()
+    plt.figure((3,3))
 
     g = sns.jointplot(vals1, vals2, alpha=alpha, color='black', stat_func=None)
 
@@ -259,12 +259,11 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):
     ax.set_ylabel(y_label)
 
     lim_eps = .02 * (vmax - vmin)
-    ax.text(vmax-lim_eps, vmin+lim_eps, 'mean PearsonR %.3f'%vals1.mean(), horizontalalignment='right', fontsize=12)
-    ax.text(vmin+lim_eps, vmax-3*lim_eps, 'mean PearsonR %.3f'%vals2.mean(), horizontalalignment='left', fontsize=12)
+    ax.text(vmax-lim_eps, vmin+lim_eps, 'mean PearsonR %.3f'%vals1.mean(), horizontalalignment='right', fontsize=8)
+    ax.text(vmin+lim_eps, vmax-3*lim_eps, 'mean PearsonR %.3f'%vals2.mean(), horizontalalignment='left', fontsize=8)
 
-    ax.grid(True, linestyle=':')
-
-    plt.tight_layout(w_pad=0, h_pad=0)
+    # ax.grid(True, linestyle=':')
+    # plt.tight_layout(w_pad=0, h_pad=0)
 
     plt.savefig(out_pdf)
     plt.close()

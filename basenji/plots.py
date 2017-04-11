@@ -8,8 +8,13 @@ import numpy as np
 from scipy.stats import spearmanr, pearsonr
 import seaborn as sns
 
-def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor='pearsonr', x_label=None, y_label=None):
-    plt.figure()
+def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor='pearsonr', x_label=None, y_label=None, figsize=(6,6), sample=None):
+
+    if sample is not None and sample < len(vals1):
+        vals1 = np.random.choice(vals1, sample, replace=False)
+        vals2 = np.random.choice(vals2, sample, replace=False)
+
+    plt.figure(figsize=figsize)
 
     if cor is None:
         cor_func = None
@@ -50,7 +55,12 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor
     plt.close()
 
 
-def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='pearsonr', square=True, x_label=None, y_label=None, title=None, figsize=(6,6)):
+def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='pearsonr', square=True, x_label=None, y_label=None, title=None, figsize=(6,6), sample=None):
+
+    if sample is not None and sample < len(vals1):
+        vals1 = np.random.choice(vals1, sample, replace=False)
+        vals2 = np.random.choice(vals2, sample, replace=False)
+
     plt.figure(figsize=figsize)
 
     gold = sns.color_palette('husl',8)[1]
@@ -90,7 +100,8 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='
 
         ax.text(xmin+xlim_eps, ymax-3*ylim_eps, '%s R: %.3f'%(cor_label,corr), horizontalalignment='left', fontsize=12)
 
-    ax.grid(True, linestyle=':')
+    # ax.grid(True, linestyle=':')
+    sns.despine()
 
     # plt.tight_layout(w_pad=0, h_pad=0)
 

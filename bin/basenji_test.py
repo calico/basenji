@@ -260,7 +260,7 @@ def main():
             # plot log2
             sns.set(font_scale=1.2, style='ticks')
             out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir,ti)
-            basenji.plots.regplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat+1), out_pdf, poly_order=1, alpha=0.3, point_size=5, sample=500, figsize=(3,3), x_label='log2 Experiment', y_label='log2 Prediction')
+            basenji.plots.regplot(np.log2(test_targets_ti_flat+1), np.log2(test_preds_ti_flat+1), out_pdf, poly_order=1, alpha=0.3, sample=500, figsize=(6,6), x_label='log2 Experiment', y_label='log2 Prediction', table=True)
 
             ############################################
             # violin

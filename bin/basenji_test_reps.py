@@ -211,7 +211,7 @@ def main():
     # scatter plot replicate versus prediction correlation
 
     out_pdf = '%s/correlation.pdf' % options.out_dir
-    jointplot(cor_reps, cor_preds, out_pdf, x_label='Replicates', y_label='Predictions')
+    jointplot(cor_reps, cor_preds, out_pdf, x_label='Replicates', y_label='Predictions', table=True)
 
     data_open.close()
 
@@ -244,8 +244,16 @@ def infer_replicates(target_labels_long):
     return replicate_lists
 
 
-def jointplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):
-    plt.figure((3,3))
+def jointplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None, table=False):
+
+    if table:
+        out_txt = '%s.txt' % out_pdf[:-4]
+        out_open = open(out_txt, 'w')
+        for i in range(len(vals1)):
+            print(vals1[i], vals2[i], file=out_open)
+        out_open.close()
+
+    plt.figure()
 
     g = sns.jointplot(vals1, vals2, alpha=alpha, color='black', stat_func=None)
 

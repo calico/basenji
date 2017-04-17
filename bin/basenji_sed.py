@@ -160,7 +160,7 @@ def main():
     #################################################################
     # compute, collect, and print SEDs
 
-    header_cols = ('rsid', 'ref', 'alt', 'gene', 'tss_dist', 'target', 'ref_pred', 'alt pred', 'ser', 'sed')
+    header_cols = ('rsid', 'ref', 'alt', 'gene', 'tss_dist', 'target', 'ref_pred', 'alt_pred', 'sed', 'ser')
     if options.csv:
         sed_gene_out = open('%s/sed_gene.csv' % options.out_dir, 'w')
         print(','.join(header_cols), file=sed_gene_out)
@@ -262,8 +262,8 @@ def main():
                             gene_ap += pos_ap
 
                         # compute SED scores
-                        snp_gene_sed = gene_rp - gene_ap
-                        snp_gene_ser = np.log2(gene_rp+1) - np.log2(gene_ap+1)
+                        snp_gene_sed = gene_ap - gene_rp
+                        snp_gene_ser = np.log2(gene_ap+1) - np.log2(gene_rp+1)
 
                         # print rows to gene table
                         for ti in range(ref_preds.shape[1]):

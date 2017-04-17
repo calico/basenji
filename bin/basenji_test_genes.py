@@ -310,7 +310,10 @@ def main():
     genes_hdf5_in.close()
 
 
-def clustermap(gene_values, out_pdf, color=None):
+def clustermap(gene_values, out_pdf, color=None, table=False):
+    if table:
+        np.save(out_pdf[:-4], gene_values)
+
     plt.figure()
     g = sns.clustermap(gene_values, metric='euclidean', cmap=color, xticklabels=False, yticklabels=False)
     g.ax_heatmap.set_xlabel('Experiments')
@@ -358,7 +361,7 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
         gene_targets_log = np.log2(gene_targets[:,target_indexes]+1)
         target_signal = gene_targets_log.sum(axis=0)
         sns.set(style='ticks', font_scale=1.3)
-        basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R', cor=None)
+        basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R', cor=None, table=True)
 
     return cors
 
@@ -696,7 +699,9 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix):
             quant_mse.append([qi, gene_mse[gi]])
     quant_mse = pd.DataFrame(quant_mse, columns=['Quantile','MSE'])
 
-    plt.figure(figsize=(6,6))
+    quant_mse.to_csv('%s_quant.txt' % out_prefix, sep='\t')
+
+    plt.figure()
     sns.boxplot(x='Quantile', y='MSE', data=quant_mse, palette=sns.cubehelix_palette(numq), showfliers=False)
     ax = plt.gca()
     ax.grid(True, linestyle=':')

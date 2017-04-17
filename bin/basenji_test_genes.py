@@ -264,7 +264,7 @@ def main():
 
         # variable gene predictions
         clustermap(gene_preds_qn[indexes_var,:][:,indexes_targets], '%s/gene_heat_var.pdf' % options.out_dir)
-        clustermap(gene_preds_qn[indexes_var,:][:,indexes_targets], '%s/gene_heat_var_color.pdf' % options.out_dir, color='viridis')
+        clustermap(gene_preds_qn[indexes_var,:][:,indexes_targets], '%s/gene_heat_var_color.pdf' % options.out_dir, color='viridis', table=True)
 
         # random gene predictions
         clustermap(gene_preds_qn[indexes_rand,:][:,indexes_targets], '%s/gene_heat_rand.pdf' % options.out_dir)
@@ -349,18 +349,18 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
         # plot correlation distribution
         out_base = os.path.splitext(out_file)[0]
         sns.set(style='ticks', font_scale=1.3)
-        plt.figure()
-        sns.distplot(cors)
-        ax = plt.gca()
-        ax.set_xlabel('Pearson R')
-        ax.grid(True, linestyle=':')
-        plt.savefig('%s_dist.pdf' % out_base)
-        plt.close()
+        # plt.figure()
+        # print('cors', type(cors), cors.shape, cors[:5])
+        # sns.distplot(cors)
+        # ax = plt.gca()
+        # ax.set_xlabel('Pearson R')
+        # ax.grid(True, linestyle=':')
+        # plt.savefig('%s_dist.pdf' % out_base)
+        # plt.close()
 
         # plot correlations versus target signal
         gene_targets_log = np.log2(gene_targets[:,target_indexes]+1)
         target_signal = gene_targets_log.sum(axis=0)
-        sns.set(style='ticks', font_scale=1.3)
         basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R', cor=None, table=True)
 
     return cors

@@ -18,8 +18,9 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor
         out_open.close()
 
     if sample is not None and sample < len(vals1):
-        vals1 = np.random.choice(vals1, sample, replace=False)
-        vals2 = np.random.choice(vals2, sample, replace=False)
+        indexes = np.random.choice(np.arange(0,len(vals1)), sample, replace=False)
+        vals1 = vals1[indexes]
+        vals2 = vals2[indexes]
 
     plt.figure(figsize=figsize)
 
@@ -71,8 +72,9 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='
         out_open.close()
 
     if sample is not None and sample < len(vals1):
-        vals1 = np.random.choice(vals1, sample, replace=False)
-        vals2 = np.random.choice(vals2, sample, replace=False)
+        indexes = np.random.choice(np.arange(0,len(vals1)), sample, replace=False)
+        vals1 = vals1[indexes]
+        vals2 = vals2[indexes]
 
     plt.figure(figsize=figsize)
 

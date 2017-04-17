@@ -44,9 +44,12 @@ class RNN:
         for li in range(self.full_layers):
             self.full_dropout_ph.append(tf.placeholder(tf.float32))
 
-        create_global_step()
-        RMAX_decay = basenji.ops.adjust_max(2000, 10000, 1, 3, name='RMAXDECAY')
-        DMAX_decay = basenji.ops.adjust_max(2000, 10000, 1, 5, name='DMAXDECAY')
+        if self.batch_renorm:
+            create_global_step()
+            RMAX_decay = basenji.ops.adjust_max(6000, 60000, 1, 3, name='RMAXDECAY')
+            DMAX_decay = basenji.ops.adjust_max(6000, 60000, 0, 5, name='DMAXDECAY')
+            # RMAX_decay = tf.convert_to_tensor(1, dtype=tf.float32)
+            # DMAX_decay = tf.convert_to_tensor(0, dtype=tf.float32)
 
         # training conditional
         self.is_training = tf.placeholder(tf.bool)
@@ -80,8 +83,10 @@ class RNN:
                 print('Convolution w/ %d %dx%d filters' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li]))
 
                 # batch normalization
-                # cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                cinput = basenji.ops.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}, updates_collections=None)
+                if not self.batch_renorm:
+                    cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                else:
+                    cinput = basenji.ops.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 # cinput = basenji.ops.fused_batch_norm(conv, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
                 print('Batch normalization')
                 print('ReLU')
@@ -147,8 +152,10 @@ class RNN:
                 print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], drate))
 
                 # batch normalization and ReLU
-                # doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                doutput = basenji.ops.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}, updates_collections=None)
+                if not self.batch_renorm:
+                    doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                else:
+                    doutput = basenji.ops.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 # doutput = basenji.ops.fused_batch_norm(doutput, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
 
                 print('Batch normalization')
@@ -316,8 +323,10 @@ class RNN:
                 print('Linear transformation %dx%d' % (seq_depth, self.full_units[li]))
 
                 # batch normalization
-                # outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                outputs = basenji.ops.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}, updates_collections=None)
+                if not self.batch_renorm:
+                    outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                else:
+                    outputs = basenji.ops.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 # outputs = basenji.ops.fused_batch_norm(outputs, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
                 print('Batch normalization')
                 print('ReLU')
@@ -431,7 +440,8 @@ class RNN:
         self.step_op = self.opt.apply_gradients(clip_gvs)
 
         # batch norm helper
-        # self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        if self.batch_renorm:
+            self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
 
         ###################################################
@@ -1060,6 +1070,8 @@ class RNN:
         self.rnn_dropout = layer_extend(job.get('rnn_dropout', []), 0, self.rnn_layers)
         self.full_dropout = layer_extend(job.get('full_dropout', []), 0, self.full_layers)
         self.norm_stabilizer = layer_extend(job.get('norm_stabilizer', []), 0, self.rnn_layers)
+        self.batch_renorm = bool(job.get('batch_renorm', False))
+        self.batch_renorm = bool(job.get('renorm', self.batch_renorm))
 
         ###################################################
         # loss
@@ -1229,10 +1241,11 @@ class RNN:
             fd[self.targets] = Yb
             fd[self.targets_na] = NAb
 
-            summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
-            # summary, loss_batch = sess.run([self.merged_summary, self.loss_op], feed_dict=fd)
-            # run_returns = sess.run([self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
-            # summary, loss_batch = run_returns[:2]
+            if not self.batch_renorm:
+                summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
+            else:
+                run_returns = sess.run([self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
+                summary, loss_batch = run_returns[:2]
 
             # pull gradients
             # gvs_batch = sess.run([g for (g,v) in self.gvs if g is not None], feed_dict=fd)

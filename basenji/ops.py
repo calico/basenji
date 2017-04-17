@@ -31,11 +31,12 @@ import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import add_arg_scope
 from tensorflow.contrib.framework.python.ops import variables
 from tensorflow.contrib.layers.python.layers import utils
+from tensorflow.contrib.layers.python.layers.layers import _build_variable_getter, _add_variable_to_collections
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.layers import base
-from tensorflow.python.layers import utils
+from tensorflow.python.layers import utils as lutils
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import init_ops
 from tensorflow.python.ops import math_ops
@@ -673,7 +674,7 @@ class BatchNormalization(base._Layer):  # pylint: disable=protected-access
     scale, offset = self.gamma, self.beta
 
     # Determine a boolean value for `training`: could be True, False, or None.
-    training_value = utils.constant_value(training)
+    training_value = lutils.constant_value(training)
     if training_value is not False:
       # Some of the computations here are not necessary when training==False
       # but not a constant. However, this makes the code simpler.
@@ -823,8 +824,8 @@ def batch_normalization(inputs,
 
 # Aliases
 
-BatchNorm = BatchNormalization
-batch_norm = batch_normalization
+# BatchNorm = BatchNormalization
+# batch_norm = batch_normalization
 
 
 def _smart_select(pred, fn_then, fn_else):
@@ -845,7 +846,7 @@ def _smart_select(pred, fn_then, fn_else):
   Returns:
     A `Tensor` whose value is fn_then() or fn_else() based on the value of pred.
   """
-  pred_value = utils.constant_value(pred)
+  pred_value = lutils.constant_value(pred)
   if pred_value:
     return fn_then()
   elif pred_value is False:

@@ -16,6 +16,8 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 
+from deeplift.visualization import viz_sequence
+
 import basenji.dna_io
 from seq_logo import seq_logo
 
@@ -37,8 +39,10 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-a', dest='activity_enrich', default=1, type='float', help='Enrich the sample for the top proportion sorted by acitvity in the target cells requested. [Default: %default]')
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
+    parser.add_option('-f', dest='figure_width', default=20, type='float', help='Figure width [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.005, type='float', help='Minimum heatmap limit [Default: %default]')
+    parser.add_option('-n', dest='load_sat_npy', default=False, action='store_true', help='Load the predictions from .npy files [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='heat', help='Output directory [Default: %default]')
     parser.add_option('-r', dest='rng_seed', default=1, type='float', help='Random number generator seed [Default: %default]')
     parser.add_option('-s', dest='sample', default=None, type='int', help='Sample sequences from the test set [Default:%default]')
@@ -118,14 +122,19 @@ def main():
             #################################################################
             # predict modifications
 
-            # supplement with saturated mutagenesis
-            sat_seqs_1hot = satmut_seqs(seqs_1hot[si:si+1], options.satmut_len)
+            if options.load_sat_npy:
+                sat_preds = np.load('%s/seq%d_preds.npy' % (options.out_dir,si))
 
-            # initialize batcher
-            batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
+            else:
+                # supplement with saturated mutagenesis
+                sat_seqs_1hot = satmut_seqs(seqs_1hot[si:si+1], options.satmut_len)
 
-            # predict
-            sat_preds = dr.predict(sess, batcher_sat, rc_avg=True, target_indexes=target_indexes)
+                # initialize batcher
+                batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
+
+                # predict
+                sat_preds = dr.predict(sess, batcher_sat, rc_avg=True, target_indexes=target_indexes)
+                np.save('%s/seq%d_preds.npy' % (options.out_dir,si), sat_preds)
 
             #################################################################
             # compute delta, loss, and gain matrices
@@ -144,7 +153,7 @@ def main():
                 # setup plot
                 sns.set(style='white', font_scale=1)
                 spp = subplot_params(sat_delta.shape[1])
-                plt.figure(figsize=(20,4))
+                plt.figure(figsize=(options.figure_width,4))
                 ax_pred = plt.subplot2grid((4,spp['heat_cols']), (0,spp['pred_start']), colspan=spp['pred_span'])
                 ax_logo = plt.subplot2grid((4,spp['heat_cols']), (1,spp['logo_start']), colspan=spp['logo_span'])
                 ax_sad = plt.subplot2grid((4,spp['heat_cols']), (2,spp['sad_start']), colspan=spp['sad_span'])
@@ -154,7 +163,13 @@ def main():
                 plot_predictions(ax_pred, sat_preds[0,:,ti], options.satmut_len, dr.batch_length, dr.batch_buffer)
 
                 # plot sequence weblogo
-                plot_weblogo(ax_logo, seqs[si], sat_loss[:,ti], options.min_limit)
+                # plot_weblogo(ax_logo, seqs[si], sat_loss[:,ti], options.min_limit)
+
+                # plot sequence logo w/ DeepLIFT
+                # sat_delta_ti_pos = sat_delta[:,:,ti].clip(0,None)
+                sat_loss_4l = expand_4l(sat_loss[:,ti], seqs_1hot[si])
+                st_freq = choose_subtick_frequency(options.satmut_len)
+                viz_sequence.plot_weights_given_ax(ax=ax_logo, array=-sat_loss_4l, height_padding_factor=0.2, length_padding=.01*options.satmut_len, subticks_frequency=st_freq, highlight={})
 
                 # plot SAD
                 plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])
@@ -164,6 +179,21 @@ def main():
 
                 plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si,ti), dpi=1200)
                 plt.close()
+
+
+def choose_subtick_frequency(satmut_len):
+    ''' Choose the sequence visualization subtick frequency
+         as a function of the satmut sequence length. '''
+    st_freq = 1
+    if satmut_len > 200:
+        st_freq = 20
+    elif satmut_len > 100:
+        st_freq = 10
+    elif satmut_len > 50:
+        st_freq = 5
+    elif satmut_len > 25:
+        st_freq = 2
+    return st_freq
 
 
 def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
@@ -184,6 +214,40 @@ def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
     targets = targets[enrich_indexes]
 
     return seqs, seqs_1hot, targets
+
+
+def expand_4l(sat_loss_ti, seqs_1hot_si, pseudo_pct=0.01):
+    ''' Expand
+
+    In:
+        sat_loss_ti (l array): Sat mut loss scores for a single sequence and target.
+        seqs_1hot_si (Lx4 array): One-hot coding for a single sequence.
+        pseudo_pct (float): % of the max to add as a pseudocount.
+
+    Out:
+        sat_loss_4l (lx4 array): Score-hot coding?
+
+    '''
+
+    # determine satmut length
+    satmut_len = sat_loss_ti.shape[0]
+
+    # jump to satmut region in one hot coded sequence
+    ssi = int((seqs_1hot_si.shape[0] - satmut_len) // 2)
+
+    # filter sequence for satmut region
+    seqs_1hot_sm = seqs_1hot_si[ssi:ssi+satmut_len,:]
+
+    # determine loss pseduocount
+    pseudo_loss = pseudo_pct * sat_loss_ti.min()
+
+    # tile loss scores to align
+    sat_loss_tile = np.tile(sat_loss_ti, (4,1)).T + pseudo_loss
+
+    # element-wise multiple
+    sat_loss_4l = np.multiply(seqs_1hot_sm, sat_loss_tile)
+
+    return sat_loss_4l
 
 
 def delta_matrix(seqs_1hot, sat_preds, satmut_len):

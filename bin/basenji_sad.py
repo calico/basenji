@@ -95,7 +95,7 @@ def main():
     if options.targets_file is None:
         target_labels = ['t%d' % ti for ti in range(job['num_targets'])]
     else:
-        target_labels = [line.split()[0] for line in open(options.targets_file)]
+        target_labels = [line.rstrip().split('\t')[-1] for line in open(options.targets_file)]
 
     header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'target', 'ref_pred', 'alt pred', 'sad')
     if options.csv:
@@ -189,18 +189,22 @@ def main():
                         # profile the max difference position
                         max_li = 0
                         max_sad = alt_preds[max_li,ti] - ref_preds[max_li,ti]
+                        max_sar = np.log2(alt_preds[max_li,ti]) - np.log2(ref_preds[max_li,ti])
                         for li in range(ref_preds.shape[0]):
                             sad_li = alt_preds[li,ti] - ref_preds[li,ti]
-                            if abs(sad_li) > abs(max_sad):
+                            sar_li = np.log2(alt_preds[li,ti]) - np.log2(ref_preds[li,ti])
+                            # if abs(sad_li) > abs(max_sad):
+                            if abs(sar_li) > abs(max_sar):
                                 max_li = li
                                 max_sad = sad_li
+                                max_sar = sar_li
 
                         # print line
-                        cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), target_labels[ti], ref_preds_lmean[ti], alt_preds_lmean[ti], sad[ti], sar[ti], ref_preds[max_li,ti], alt_preds[max_li,ti], max_sad)
+                        cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), ref_preds_lmean[ti], alt_preds_lmean[ti], sad[ti], sar[ti], ref_preds[max_li,ti], alt_preds[max_li,ti], max_sad, max_sar, ti, target_labels[ti])
                         if options.csv:
                             print(','.join([str(c) for c in cols]), file=sad_out)
                         else:
-                            print('%-13s %s %5s %6s %6s %12s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f' % cols, file=sad_out)
+                            print('%-13s %s %5s %6s %6s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %5d %s' % cols, file=sad_out)
 
                     # print tracks
                     for ti in options.track_indexes:

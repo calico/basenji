@@ -31,6 +31,7 @@ def main():
     parser.add_option('-i', dest='index_snp', default=False, action='store_true', help='SNPs are labeled with their index SNP as column 6 [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=2, type='int', help='Number of parallel processes to run [Default: %default]')
+    parser.add_option('-q', dest='queue', default='p100', help='SLURM queue on which to run the jobs [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
@@ -64,11 +65,11 @@ def main():
     # launch worker threads
     jobs = []
     for pi in range(options.processes):
-        cmd = 'source activate py3_gpu; basenji_sed.py %s %s %d' % (options_pkl_file, ' '.join(args), pi)
+        cmd = 'source activate py3_gpu_tf1; basenji_sed.py %s %s %d' % (options_pkl_file, ' '.join(args), pi)
         name = 'sed_p%d'%pi
         outf = '%s/job%d.out' % (options.out_dir,pi)
         errf = '%s/job%d.err' % (options.out_dir,pi)
-        j = slurm.Job(cmd, name, outf, errf, queue='gpu', mem=32000, time='7-0:0:0', gpu=1)
+        j = slurm.Job(cmd, name, outf, errf, queue=options.queue, mem=32000, time='7-0:0:0', gpu=1)
         jobs.append(j)
 
     slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)

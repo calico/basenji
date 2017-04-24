@@ -34,6 +34,7 @@ def main():
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=None, type='int', help='Number of processes, passed by multi script')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-x', dest='transcript_table', default=False, action='store_true', help='Print transcript table in addition to gene [Default: %default]')
@@ -124,6 +125,7 @@ def main():
 
                 # update primary sequence to use major allele
                 basenji.dna_io.hot1_set(seqs_1hot[seq_i], snp_seq_pos, snps[snp_i].ref_allele)
+                assert(basenji.dna_io.hot1_get(seqs_1hot[seq_i], snp_seq_pos) ==  snps[snp_i].ref_allele)
 
                 # append descriptive tuple to list
                 seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i].alt_alleles[0]))
@@ -187,7 +189,7 @@ def main():
         saver.restore(sess, model_file)
 
         # initialize prediction stream
-        seq_preds = PredStream(sess, model, seqs_1hot, seqs_snps_list, 128)
+        seq_preds = PredStream(sess, model, seqs_1hot, seqs_snps_list, 128, options.rc)
 
         # prediction index
         pi = 0
@@ -230,8 +232,8 @@ def main():
                             gene_pos_preds.setdefault(gene,{})[tx_pos_i] = (ref_preds[tx_pos_i,:],alt_preds[tx_pos_i,:])
 
                         # accumulate transcript predictions by (possibly) summing adjacent positions
-                        ap = alt_preds[tx_pos_buf-adj:tx_pos_buf+adj,:].sum(axis=0)
-                        rp = ref_preds[tx_pos_buf-adj:tx_pos_buf+adj,:].sum(axis=0)
+                        ap = alt_preds[tx_pos_buf-adj:tx_pos_buf+adj+1,:].sum(axis=0)
+                        rp = ref_preds[tx_pos_buf-adj:tx_pos_buf+adj+1,:].sum(axis=0)
 
                         # compute SED scores
                         snp_tx_sed = ap - rp
@@ -278,8 +280,10 @@ def main():
                     for ti in options.track_indexes:
                         ref_bw_file = '%s/tracks/%s_%s_t%d_ref.bw' % (options.out_dir, snp.rsid, seq_i, ti)
                         alt_bw_file = '%s/tracks/%s_%s_t%d_alt.bw' % (options.out_dir, snp.rsid, seq_i, ti)
+                        diff_bw_file = '%s/tracks/%s_%s_t%d_diff.bw' % (options.out_dir, snp.rsid, seq_i, ti)
                         ref_bw_open = bigwig_open(ref_bw_file, options.genome_file)
                         alt_bw_open = bigwig_open(alt_bw_file, options.genome_file)
+                        diff_bw_open = bigwig_open(diff_bw_file, options.genome_file)
 
                         seq_chrom, seq_start, seq_end = seq_coords[seq_i]
                         bw_chroms = [seq_chrom]*ref_preds.shape[0]
@@ -292,8 +296,12 @@ def main():
                         alt_values = [float(p) for p in alt_preds[:,ti]]
                         alt_bw_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=alt_values)
 
+                        diff_values = [alt_values[vi] - ref_values[vi] for vi in range(len(ref_values))]
+                        diff_bw_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=diff_values)
+
                         ref_bw_open.close()
                         alt_bw_open.close()
+                        diff_bw_open.close()
 
                 # clean up
                 gc.collect()
@@ -321,7 +329,7 @@ def read_hdf5(genes_hdf5_in):
     #######################################
     # seqs_1hot
 
-    seqs_1hot = genes_hdf5_in['seqs_1hot']
+    seqs_1hot = np.array(genes_hdf5_in['seqs_1hot'])
     print('genes seqs_1hot', seqs_1hot.shape)
 
     #######################################
@@ -385,9 +393,17 @@ def read_hdf5(genes_hdf5_in):
 
 class PredStream:
     ''' Interface to acquire predictions via a buffered stream mechanism
-         rather than getting them all at once and using excessive memory. '''
+         rather than getting them all at once and using excessive memory.
 
-    def __init__(self, sess, model, seqs_1hot, seqs_snps_list, stream_length):
+    Attrs
+     sess: TF session to predict within
+     model: TF model to predict with
+     seqs_1hot (Nx4XL array): one hot coded gene sequences
+    ...
+
+    '''
+
+    def __init__(self, sess, model, seqs_1hot, seqs_snps_list, stream_length, rc):
         self.sess = sess
         self.model = model
 
@@ -402,6 +418,8 @@ class PredStream:
         if self.stream_length % self.model.batch_size != 0:
             print('Make the stream length a multiple of the batch size', file=sys.stderr)
             exit(1)
+
+        self.rc = rc
 
 
     def __getitem__(self, i):
@@ -424,7 +442,7 @@ class PredStream:
             batcher = basenji.batcher.Batcher(stream_seqs_1hot, batch_size=self.model.batch_size)
 
             # predict
-            self.stream_preds = self.model.predict(self.sess, batcher, rc_avg=False)
+            self.stream_preds = self.model.predict(self.sess, batcher, rc_avg=self.rc)
 
         return self.stream_preds[i - self.stream_start]
 

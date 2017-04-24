@@ -21,15 +21,15 @@ from deeplift.visualization import viz_sequence
 import basenji.dna_io
 from seq_logo import seq_logo
 
-################################################################################
-# basenji_sat.py
-#
-# Perform an in silico saturated mutagenesis of the given test sequences
-# using the given model.
-#
-# Note:
-#  -Currently written assuming we have targets associated with each input sequence.
-################################################################################
+'''
+basenji_sat.py
+
+Perform an in silico saturated mutagenesis of the given test sequences
+using the given model.
+
+Note:
+ -Currently written assuming we have targets associated with each input sequence.
+'''
 
 ################################################################################
 # main

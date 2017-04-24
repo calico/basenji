@@ -124,6 +124,26 @@ def hot1_dna(seqs_1hot):
     return seqs
 
 
+def hot1_get(seqs_1hot, pos):
+    ''' hot1_get
+
+    Return the nucleotide corresponding to the one hot coding
+    of position "pos" in the Lx4 array seqs_1hot.
+    '''
+
+    if seqs_1hot[pos,0] == 1:
+        nt = 'A'
+    elif seqs_1hot[pos,1] == 1:
+        nt = 'C'
+    elif seqs_1hot[pos,2] == 1:
+        nt = 'G'
+    elif seqs_1hot[pos,3] == 1:
+        nt = 'T'
+    else:
+        nt = 'N'
+    return nt
+
+
 def hot1_rc(seqs_1hot):
     ''' Reverse complement a batch of one hot coded sequences '''
 
@@ -140,6 +160,12 @@ def hot1_rc(seqs_1hot):
 
 
 def hot1_set(seqs_1hot, pos, nt):
+    ''' hot1_set
+
+    Set position "pos" in the Lx4 array "seqs_1hot"
+    to nucleotide "nt".
+    '''
+
     # reset
     seqs_1hot[pos,:] = 0
 

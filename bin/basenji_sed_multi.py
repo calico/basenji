@@ -32,6 +32,7 @@ def main():
     parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=2, type='int', help='Number of parallel processes to run [Default: %default]')
     parser.add_option('-q', dest='queue', default='p100', help='SLURM queue on which to run the jobs [Default: %default]')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
@@ -69,7 +70,7 @@ def main():
         name = 'sed_p%d'%pi
         outf = '%s/job%d.out' % (options.out_dir,pi)
         errf = '%s/job%d.err' % (options.out_dir,pi)
-        j = slurm.Job(cmd, name, outf, errf, queue=options.queue, mem=32000, time='7-0:0:0', gpu=1)
+        j = slurm.Job(cmd, name, outf, errf, queue=options.queue, mem=16000, time='4:0:0', gpu=1)
         jobs.append(j)
 
     slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
@@ -147,19 +148,20 @@ class MultiLine:
 
         if a[5] in self.preds:
             ref_preds, alt_preds = self.preds[a[5]]
+            
             ref_preds.append(float(a[6]))
             alt_preds.append(float(a[7]))
 
         else:
-            self.preds = {a[5]:([float(a[6])], [float(a[7])])}
+            self.preds[a[5]] = ([float(a[6])], [float(a[7])])
 
     def print_lines(self, out_open):
         for ti in self.preds:
             ref_preds, alt_preds = self.preds[ti]
             ref_pred = np.sum(ref_preds)
             alt_pred = np.sum(alt_preds)
-            sed = ref_pred - alt_pred
-            ser = np.log2(ref_pred+1) - np.log2(alt_pred+1)
+            sed = alt_pred - ref_pred
+            ser = np.log2(alt_pred+1) - np.log2(ref_pred+1)
             cols = (self.rsid, self.a1, self.a2, self.gene, self.snp_dist_gene, ti, ref_pred, alt_pred, sed, ser)
             print('%-13s %s %5s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % tuple(cols), file=out_open)
 

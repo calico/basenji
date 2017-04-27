@@ -327,41 +327,49 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
 
     table_out = open(out_file, 'w')
     cors = []
+    cors_nz = []
 
     for ti in target_indexes:
         # convert targets and predictions to float32
         gti = np.array(gene_targets[:,ti], dtype='float32')
         gpi = np.array(gene_preds[:,ti], dtype='float32')
 
+        # log transform
+        gti = np.log2(gti+1)
+        gpi = np.log2(gpi+1)
+
         # compute correlations
         scor, _ = spearmanr(gti, gpi)
-        pcor, _ = pearsonr(np.log2(gti+1), np.log2(gpi+1))
+        pcor, _ = pearsonr(gti, gpi)
         cors.append(pcor)
 
+        # compute non-zero correlations
+        nzi = (gti > 0)
+        scor_nz, _ = spearmanr(gti[nzi], gpi[nzi])
+        pcor_nz, _ = pearsonr(gti[nzi], gpi[nzi])
+        cors_nz.append(pcor_nz)
+
         # print
-        cols = (ti, scor, pcor, target_labels[ti])
-        print('%-4d  %7.3f  %7.3f  %s' % cols, file=table_out)
+        cols = (ti, scor, pcor, scor_nz, pcor_nz, target_labels[ti])
+        print('%-4d  %7.3f  %7.3f  %7.3f  %7.3f  %s' % cols, file=table_out)
 
     cors = np.array(cors)
+    cors_nz = np.array(cors_nz)
     table_out.close()
 
     if plots:
         # plot correlation distribution
         out_base = os.path.splitext(out_file)[0]
         sns.set(style='ticks', font_scale=1.3)
-        # plt.figure()
-        # print('cors', type(cors), cors.shape, cors[:5])
-        # sns.distplot(cors)
-        # ax = plt.gca()
-        # ax.set_xlabel('Pearson R')
-        # ax.grid(True, linestyle=':')
-        # plt.savefig('%s_dist.pdf' % out_base)
-        # plt.close()
 
         # plot correlations versus target signal
         gene_targets_log = np.log2(gene_targets[:,target_indexes]+1)
         target_signal = gene_targets_log.sum(axis=0)
         basenji.plots.jointplot(target_signal, cors, '%s_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R', cor=None, table=True)
+
+        # plot nonzero correlations versus target signal
+        basenji.plots.jointplot(target_signal, cors_nz, '%s_nz_sig.pdf'%out_base, x_label='Aligned TSS reads', y_label='Pearson R', cor=None, table=True)
+
 
     return cors
 

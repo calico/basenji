@@ -665,6 +665,7 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix):
     # compute mean, var, and MSE across targets
     gene_mse = np.zeros(gene_targets.shape[0])
     gene_mean = np.zeros(gene_targets.shape[0])
+    gene_max = np.zeros(gene_targets.shape[0])
     gene_std = np.zeros(gene_targets.shape[0])
     for gi in range(gene_targets.shape[0]):
         gti = np.log2(gene_targets[gi,:]+1)
@@ -672,13 +673,15 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix):
 
         gene_mse[gi] = np.power(gti - gpi,2).mean()
         gene_mean[gi] = gti.mean()
+        gene_max[gi] = gti.max()
         gene_std[gi] = gpi.std()
 
     # filter for expression
-    expr_indexes = gene_mean > 0.1
+    expr_indexes = (gene_mean > 0.1) & (gene_max > 3)
     gene_mse = gene_mse[expr_indexes]
     gene_mean = gene_mean[expr_indexes]
     gene_std = gene_std[expr_indexes]
+    print('%d "expressed genes" considered in variance plots' % expr_indexes.sum())
 
     sns.set(style='ticks', font_scale=1.3)
 

@@ -35,7 +35,6 @@ def main():
     parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=None, type='int', help='Number of processes, passed by multi script')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
-    parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-x', dest='transcript_table', default=False, action='store_true', help='Print transcript table in addition to gene [Default: %default]')
     parser.add_option('-w', dest='tss_width', default=1, type='int', help='Width of bins considered to quantify TSS transcription [Default: %default]')
@@ -140,7 +139,7 @@ def main():
     job['seq_depth'] = seqs_1hot.shape[2]
     job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
 
-    if transcript_targets is not None:
+    if 'num_targets' not in job and transcript_targets is not None:
         job['num_targets'] = transcript_targets.shape[1]
 
     if 'num_targets' not in job:

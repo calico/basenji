@@ -656,7 +656,7 @@ def replicate_correlations(replicate_lists, gene_targets, gene_preds, target_ind
     basenji.plots.jointplot(rep_cors, pred_cors, out_pdf, square=True, x_label='Replicate R', y_label='Prediction R')
 
 
-def variance_accuracy(gene_targets, gene_preds, out_prefix):
+def variance_accuracy(gene_targets, gene_preds, out_prefix, log=False):
     ''' Compare MSE accuracy to gene mean and variance.
 
     Assumes the targets and predictions have been normalized.
@@ -668,8 +668,12 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix):
     gene_max = np.zeros(gene_targets.shape[0])
     gene_std = np.zeros(gene_targets.shape[0])
     for gi in range(gene_targets.shape[0]):
-        gti = np.log2(gene_targets[gi,:]+1)
-        gpi = np.log2(gene_preds[gi,:]+1)
+        if log:
+            gti = np.log2(gene_targets[gi,:]+1)
+            gpi = np.log2(gene_preds[gi,:]+1)
+        else:
+            gti = gene_targets[gi,:]
+            gpi = gene_preds[gi,:]
 
         gene_mse[gi] = np.power(gti - gpi,2).mean()
         gene_mean[gi] = gti.mean()

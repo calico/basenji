@@ -167,9 +167,7 @@ def main():
 
                 # plot sequence logo w/ DeepLIFT
                 # sat_delta_ti_pos = sat_delta[:,:,ti].clip(0,None)
-                sat_loss_4l = expand_4l(sat_loss[:,ti], seqs_1hot[si])
-                st_freq = choose_subtick_frequency(options.satmut_len)
-                viz_sequence.plot_weights_given_ax(ax=ax_logo, array=-sat_loss_4l, height_padding_factor=0.2, length_padding=.01*options.satmut_len, subticks_frequency=st_freq, highlight={})
+                plot_seqlogo(ax_logo, seqs_1hot[si], sat_loss[:,ti], sat_gain[:,ti])
 
                 # plot SAD
                 plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])
@@ -177,23 +175,9 @@ def main():
                 # plot heat map
                 plot_heat(ax_heat, sat_delta[:,:,ti], options.min_limit)
 
-                plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si,ti), dpi=1200)
+                plt.tight_layout()
+                plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si,ti), dpi=600)
                 plt.close()
-
-
-def choose_subtick_frequency(satmut_len):
-    ''' Choose the sequence visualization subtick frequency
-         as a function of the satmut sequence length. '''
-    st_freq = 1
-    if satmut_len > 200:
-        st_freq = 20
-    elif satmut_len > 100:
-        st_freq = 10
-    elif satmut_len > 50:
-        st_freq = 5
-    elif satmut_len > 25:
-        st_freq = 2
-    return st_freq
 
 
 def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
@@ -216,12 +200,12 @@ def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
     return seqs, seqs_1hot, targets
 
 
-def expand_4l(sat_loss_ti, seqs_1hot_si, pseudo_pct=0.01):
+def expand_4l(sat_lg_ti, seq_1hot, pseudo_pct=0.01):
     ''' Expand
 
     In:
-        sat_loss_ti (l array): Sat mut loss scores for a single sequence and target.
-        seqs_1hot_si (Lx4 array): One-hot coding for a single sequence.
+        sat_lg_ti (l array): Sat mut loss/gain scores for a single sequence and target.
+        seq_1hot (Lx4 array): One-hot coding for a single sequence.
         pseudo_pct (float): % of the max to add as a pseudocount.
 
     Out:
@@ -230,24 +214,25 @@ def expand_4l(sat_loss_ti, seqs_1hot_si, pseudo_pct=0.01):
     '''
 
     # determine satmut length
-    satmut_len = sat_loss_ti.shape[0]
+    satmut_len = sat_lg_ti.shape[0]
 
     # jump to satmut region in one hot coded sequence
-    ssi = int((seqs_1hot_si.shape[0] - satmut_len) // 2)
+    ssi = int((seq_1hot.shape[0] - satmut_len) // 2)
 
     # filter sequence for satmut region
-    seqs_1hot_sm = seqs_1hot_si[ssi:ssi+satmut_len,:]
+    seq_1hot_sm = seq_1hot[ssi:ssi+satmut_len,:]
 
-    # determine loss pseduocount
-    pseudo_loss = pseudo_pct * sat_loss_ti.min()
+    # determine loss/gain pseduocount
+    max_val = np.abs(sat_lg_ti).max()
+    pseudo_lg = pseudo_pct * max_val
 
     # tile loss scores to align
-    sat_loss_tile = np.tile(sat_loss_ti, (4,1)).T + pseudo_loss
+    sat_lg_tile = np.tile(sat_lg_ti, (4,1)).T + pseudo_lg
 
     # element-wise multiple
-    sat_loss_4l = np.multiply(seqs_1hot_sm, sat_loss_tile)
+    sat_lg_4l = np.multiply(seq_1hot_sm, sat_lg_tile)
 
-    return sat_loss_4l
+    return sat_lg_4l
 
 
 def delta_matrix(seqs_1hot, sat_preds, satmut_len):
@@ -453,6 +438,30 @@ def plot_sad(ax, sat_loss_ti, sat_gain_ti):
     ax.set_xlim(0, len(sat_loss_ti))
     ax.legend()
     # ax_sad.grid(True, linestyle=':')
+
+    ax.xaxis.set_ticks([])
+    for axis in ['top','bottom','left','right']:
+        ax.spines[axis].set_linewidth(0.5)
+
+
+def plot_seqlogo(ax, seq_1hot, sat_loss_ti, sat_gain_ti):
+    ''' Plot a sequence logo for the loss/gain scores.
+
+    Args:
+        ax (Axis): matplotlib axis to plot to.
+        seq_1hot (Lx4 array): One-hot coding of a sequence.
+        sat_loss_ti (L_sm array): Minimum mutation delta across satmut length.
+        sat_gain_ti (L_sm array): Maximum mutation delta across satmut length.
+    '''
+
+    satmut_len = len(sat_loss_ti)
+
+    sat_loss_4l = expand_4l(sat_loss_ti, seq_1hot)
+    sat_gain_4l = expand_4l(sat_gain_ti, seq_1hot)
+
+    # viz_sequence.plot_weights_given_ax(ax=ax, array=-sat_loss_4l, height_padding_factor=0.2, length_padding=.01*satmut_len, subticks_frequency=st_freq, highlight={})
+
+    basenji.visualization.plot_weights_given_ax(ax=ax, array=-sat_loss_4l, highlight={})
     for axis in ['top','bottom','left','right']:
         ax.spines[axis].set_linewidth(0.5)
 

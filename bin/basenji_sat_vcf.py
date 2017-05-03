@@ -32,6 +32,7 @@ def main():
     parser.add_option('-f', dest='figure_width', default=20, type='float', help='Figure width [Default: %default]')
     parser.add_option('--f1', dest='genome1_fasta', default='%s/assembly/hg19.fa'%os.environ['HG19'], help='Genome FASTA which which major allele sequences will be drawn')
     parser.add_option('--f2', dest='genome2_fasta', default=None, help='Genome FASTA which which minor allele sequences will be drawn')
+    parser.add_option('-g', dest='gain', default=False, action='store_true', help='Draw nucleotides proportional to the gain score [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.005, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-n', dest='load_sat_npy', default=False, action='store_true', help='Load the predictions from .npy files [Default: %default]')
@@ -146,15 +147,20 @@ def main():
                 sns.set(style='white', font_scale=1)
                 spp = basenji_sat.subplot_params(sat_delta.shape[1])
                 plt.figure(figsize=(options.figure_width,4))
-                ax_logo = plt.subplot2grid((4,spp['heat_cols']), (1,spp['logo_start']), colspan=spp['logo_span'])
-                ax_sad = plt.subplot2grid((4,spp['heat_cols']), (2,spp['sad_start']), colspan=spp['sad_span'])
-                ax_heat = plt.subplot2grid((4,spp['heat_cols']), (3,0), colspan=spp['heat_cols'])
+                ax_logo = plt.subplot2grid((3,spp['heat_cols']), (0,spp['logo_start']), colspan=spp['logo_span'])
+                ax_sad = plt.subplot2grid((3,spp['heat_cols']), (1,spp['sad_start']), colspan=spp['sad_span'])
+                ax_heat = plt.subplot2grid((3,spp['heat_cols']), (2,0), colspan=spp['heat_cols'])
 
                 # plot sequence logo w/ DeepLIFT
+                if options.gain:
+                    basenji_sat.plot_seqlogo(ax_logo, seqs_1hot[si], -sat_gain[:,ti], -sat_loss[:,ti])
+                else:
+                    basenji_sat.plot_seqlogo(ax_logo, seqs_1hot[si], sat_loss[:,ti], sat_gain[:,ti])
+
                 # sat_delta_ti_pos = sat_delta[:,:,ti].clip(0,None)
-                sat_loss_4l = basenji_sat.expand_4l(sat_loss[:,ti], seqs_1hot[si])
-                st_freq = basenji_sat.choose_subtick_frequency(options.satmut_len)
-                viz_sequence.plot_weights_given_ax(ax=ax_logo, array=-sat_loss_4l, height_padding_factor=0.2, length_padding=.01*options.satmut_len, subticks_frequency=st_freq, highlight={})
+                # sat_loss_4l = basenji_sat.expand_4l(sat_loss[:,ti], seqs_1hot[si])
+                # st_freq = basenji_sat.choose_subtick_frequency(options.satmut_len)
+                # viz_sequence.plot_weights_given_ax(ax=ax_logo, array=-sat_loss_4l, height_padding_factor=0.2, length_padding=.01*options.satmut_len, subticks_frequency=st_freq, highlight={})
 
                 # plot SAD
                 basenji_sat.plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])

@@ -271,7 +271,7 @@ def main():
 
         # variable gene targets
         clustermap(gene_targets_qn[indexes_var,:][:,indexes_targets], '%s/gene_theat_var.pdf' % options.out_dir)
-        clustermap(gene_targets_qn[indexes_var,:][:,indexes_targets], '%s/gene_theat_var_color.pdf' % options.out_dir, color='viridis')
+        clustermap(gene_targets_qn[indexes_var,:][:,indexes_targets], '%s/gene_theat_var_color.pdf' % options.out_dir, color='viridis', table=True)
 
         # random gene targets
         clustermap(gene_targets_qn[indexes_rand,:][:,indexes_targets], '%s/gene_theat_rand.pdf' % options.out_dir)
@@ -311,6 +311,8 @@ def main():
 
 
 def clustermap(gene_values, out_pdf, color=None, table=False):
+    ''' Generate a clustered heatmap using seaborn. '''
+
     if table:
         np.save(out_pdf[:-4], gene_values)
 

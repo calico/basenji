@@ -11,14 +11,14 @@ import sys
 import time
 
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
 import pyBigWig
 import pysam
 from scipy.ndimage.filters import gaussian_filter1d
 from scipy.stats import norm
-from scipy.sparse import csc_matrix, csr_matrix
+from scipy.sparse import csr_matrix
 import seaborn as sns
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import PolynomialFeatures
@@ -114,8 +114,10 @@ def main():
     ################################################################
     # compute k-mer cut bias normalization
 
+    # unfinished.
+
     if options.cut_bias_kmer is not None:
-        kmer_norms = compute_cut_norm(options.cut_bias_kmer, multi_weight_matrix, chromosomes, chrom_lengths, options.fasta_file)
+        kmer_norms = compute_cut_norms(options.cut_bias_kmer, multi_weight_matrix, chromosomes, chrom_lengths, options.fasta_file)
 
     ################################################################
     # normalize for GC content
@@ -132,6 +134,8 @@ def main():
 
 def compute_cut_norms(cut_bias_kmer, read_weights, chromosomes, chrom_lengths, fasta_file):
     ''' Compute cut bias normalizations.
+
+        UNFINISHED!
 
     Args:
      cut_bias_kmer

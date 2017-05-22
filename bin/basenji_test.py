@@ -170,9 +170,14 @@ def main():
         test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
         test_targets_peaks = test_targets_qvals < 0.01
 
-        # compute prediction accuracy
-        aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
-        auprcs.append(average_precision_score(test_targets_peaks, test_preds_ti_flat))
+        if test_targets_peaks.sum() == 0:
+            aurocs.append(0.5)
+            auprcs.append(0)
+
+        else:
+            # compute prediction accuracy
+            aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
+            auprcs.append(average_precision_score(test_targets_peaks, test_preds_ti_flat))
 
         print('%4d  %6d  %.5f  %.5f' % (ti,test_targets_peaks.sum(), aurocs[-1], auprcs[-1]), file=peaks_out)
 

@@ -54,7 +54,7 @@ def main():
         model_file = args[2]
         genes_hdf5_file = args[3]
         vcf_file = args[4]
-        worker_num = int(args[5])
+        worker_index = int(args[5])
 
          # load options
         options_pkl = open(options_pkl_file, 'rb')
@@ -62,7 +62,7 @@ def main():
         options_pkl.close()
 
         # update output directory
-        options.out_dir = '%s/job%d' % (options.out_dir, worker_num)
+        options.out_dir = '%s/job%d' % (options.out_dir, worker_index)
 
     else:
         parser.error('Must provide parameters and model files, genes HDF5 file, and QTL VCF file')
@@ -80,18 +80,11 @@ def main():
     #################################################################
     # reads in genes HDF5
 
-    genes_hdf5_in = h5py.File(genes_hdf5_file)
+    gene_seqs = basenji.genes.GeneSeqs(genes_hdf5_file)
 
-    seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, multi_seq_genes, target_labels = read_hdf5(genes_hdf5_in)
-
-    #################################################################
     # filter for worker sequences
-
     if options.processes is not None:
-        seq_mask = np.array([si % options.processes == worker_num for si in range(seqs_1hot.shape[0])])
-        seqs_1hot = seqs_1hot[seq_mask,:,:]
-        seq_coords = [seq_coords[si] for si in range(len(seq_coords)) if seq_mask[si]]
-        seq_transcripts = [seq_transcripts[si] for si in range(len(seq_transcripts)) if seq_mask[si]]
+        gene_seqs.worker(worker_index, options.processes)
 
 
     #################################################################
@@ -102,7 +95,7 @@ def main():
 
     # intersect w/ segments
     print('Intersecting gene sequences with SNPs...', flush=True, end='')
-    seqs_snps = basenji.vcf.intersect_seqs_snps(vcf_file, seq_coords, vision_p=0.5)
+    seqs_snps = basenji.vcf.intersect_seqs_snps(vcf_file, gene_seqs.seq_coords, vision_p=0.5)
     print('done', flush=True)
 
 
@@ -110,8 +103,8 @@ def main():
     # determine SNP sequences to be needed
 
     seqs_snps_list = []
-    for seq_i in range(seqs_1hot.shape[0]):
-        seq_chrom, seq_start, seq_end = seq_coords[seq_i]
+    for seq_i in range(gene_seqs.num_seqs):
+        seq_chrom, seq_start, seq_end = gene_seqs.seq_coords[seq_i]
 
         if seqs_snps[seq_i]:
             # add major allele
@@ -123,8 +116,8 @@ def main():
                 snp_seq_pos = snps[snp_i].pos-1 - seq_start
 
                 # update primary sequence to use major allele
-                basenji.dna_io.hot1_set(seqs_1hot[seq_i], snp_seq_pos, snps[snp_i].ref_allele)
-                assert(basenji.dna_io.hot1_get(seqs_1hot[seq_i], snp_seq_pos) ==  snps[snp_i].ref_allele)
+                basenji.dna_io.hot1_set(gene_seqs.seqs_1hot[seq_i], snp_seq_pos, snps[snp_i].ref_allele)
+                assert(basenji.dna_io.hot1_get(gene_seqs.seqs_1hot[seq_i], snp_seq_pos) ==  snps[snp_i].ref_allele)
 
                 # append descriptive tuple to list
                 seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i].alt_alleles[0]))
@@ -135,12 +128,12 @@ def main():
 
     job = basenji.dna_io.read_job_params(params_file)
 
-    job['batch_length'] = seqs_1hot.shape[1]
-    job['seq_depth'] = seqs_1hot.shape[2]
-    job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
+    job['batch_length'] = gene_seqs.seq_length
+    job['seq_depth'] = gene_seqs.seq_depth
+    job['target_pool'] = gene_seqs.pool_width
 
-    if 'num_targets' not in job and transcript_targets is not None:
-        job['num_targets'] = transcript_targets.shape[1]
+    if 'num_targets' not in job and gene_seqs.num_targets is not None:
+        job['num_targets'] = gene_seqs.num_targets
 
     if 'num_targets' not in job:
         print("Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.", file=sys.stderr)
@@ -149,13 +142,6 @@ def main():
     # build model
     model = basenji.rnn.RNN()
     model.build(job)
-
-    # label targets
-    if target_labels is None:
-        if options.targets_file is None:
-            target_labels = ['t%d' % ti for ti in range(job['num_targets'])]
-        else:
-            target_labels = [line.split()[0] for line in open(options.targets_file)]
 
 
     #################################################################
@@ -188,12 +174,12 @@ def main():
         saver.restore(sess, model_file)
 
         # initialize prediction stream
-        seq_preds = PredStream(sess, model, seqs_1hot, seqs_snps_list, 128, options.rc)
+        seq_preds = PredStream(sess, model, gene_seqs.seqs_1hot, seqs_snps_list, 128, options.rc)
 
         # prediction index
         pi = 0
 
-        for seq_i in range(seqs_1hot.shape[0]):
+        for seq_i in range(gene_seqs.num_seqs):
             if seqs_snps[seq_i]:
                 # get reference prediction (LxT)
                 ref_preds = seq_preds[pi]
@@ -211,12 +197,12 @@ def main():
                     snp_dist_gene = {}
 
                     # process transcripts
-                    for transcript, tx_pos in seq_transcripts[seq_i]:
+                    for transcript, tx_pos in gene_seqs.seq_transcripts[seq_i]:
                         # get gene id
-                        gene = transcript_genes[transcript]
+                        gene = gene_seq.transcript_genes[transcript]
 
                         # compute distance between SNP and TSS
-                        tx_gpos = seq_coords[seq_i][1] + (tx_pos + 0.5)*model.target_pool
+                        tx_gpos = gene_seqs.seq_coords[seq_i][1] + (tx_pos + 0.5)*model.target_pool
                         snp_dist = abs(tx_gpos - snp.pos)
                         if gene in snp_dist_gene:
                             snp_dist_gene[gene] = min(snp_dist_gene[gene], snp_dist)
@@ -242,7 +228,7 @@ def main():
                         if options.transcript_table:
                             for ti in range(ref_preds.shape[1]):
                                 if options.all_sed or not np.isclose(snp_tx_sed[ti], 0, atol=1e-4):
-                                    cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
+                                    cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, gene_seqs.target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
                                     if options.csv:
                                         print(','.join([str(c) for c in cols]), file=sed_tx_out)
                                     else:
@@ -251,7 +237,7 @@ def main():
                     # process genes
                     for gene in gene_pos_preds:
                         gene_str = gene
-                        if gene in multi_seq_genes:
+                        if gene in gene_seqs.multi_seq_genes:
                             gene_str = '%s_multi' % gene
 
                         # sum gene preds across positions
@@ -269,7 +255,7 @@ def main():
                         # print rows to gene table
                         for ti in range(ref_preds.shape[1]):
                             if options.all_sed or not np.isclose(snp_gene_sed[ti], 0, atol=1e-4):
-                                cols = [snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str, snp_dist_gene[gene], target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti]]
+                                cols = [snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str, snp_dist_gene[gene], gene_seqs.target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti]]
                                 if options.csv:
                                     print(','.join([str(c) for c in cols]), file=sed_gene_out)
                                 else:
@@ -284,7 +270,7 @@ def main():
                         alt_bw_open = bigwig_open(alt_bw_file, options.genome_file)
                         diff_bw_open = bigwig_open(diff_bw_file, options.genome_file)
 
-                        seq_chrom, seq_start, seq_end = seq_coords[seq_i]
+                        seq_chrom, seq_start, seq_end = gene_seqs.seq_coords[seq_i]
                         bw_chroms = [seq_chrom]*ref_preds.shape[0]
                         bw_starts = [int(seq_start + model.batch_buffer + bi*model.target_pool) for bi in range(ref_preds.shape[0])]
                         bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
@@ -309,84 +295,6 @@ def main():
     sed_gene_out.close()
     if options.transcript_table:
         sed_tx_out.close()
-
-    #################################################################
-    # clean up
-
-    genes_hdf5_in.close()
-
-
-def read_hdf5(genes_hdf5_in):
-    #######################################
-    # seq_coords
-
-    seq_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seq_chrom']]
-    seq_start = list(genes_hdf5_in['seq_start'])
-    seq_end = list(genes_hdf5_in['seq_end'])
-    seq_coords = list(zip(seq_chrom,seq_start,seq_end))
-
-    #######################################
-    # seqs_1hot
-
-    seqs_1hot = np.array(genes_hdf5_in['seqs_1hot'])
-    print('genes seqs_1hot', seqs_1hot.shape)
-
-    #######################################
-    # transcript_map
-
-    transcripts = [tx.decode('UTF-8') for tx in genes_hdf5_in['transcripts']]
-    transcript_index = list(genes_hdf5_in['transcript_index'])
-    transcript_pos = list(genes_hdf5_in['transcript_pos'])
-
-    transcript_map = {}
-    for ti in range(len(transcripts)):
-        transcript_map[transcripts[ti]] = (transcript_index[ti], transcript_pos[ti])
-
-    #######################################
-    # transcript_genes
-
-    genes = [gid.decode('UTF-8') for gid in genes_hdf5_in['genes']]
-
-    transcript_genes = {}
-    for ti in range(len(transcripts)):
-        transcript_genes[transcripts[ti]] = genes[ti]
-
-    #######################################
-    # transcript_targets / target_labels
-
-    if 'transcript_targets' in genes_hdf5_in:
-        transcript_targets = genes_hdf5_in['transcript_targets']
-        target_labels = [tl.decode('UTF-8') for tl in genes_hdf5_in['target_labels']]
-    else:
-        transcript_targets = None
-        target_labels = None
-
-    #######################################
-    # seq_transcripts
-
-    seq_transcripts = []
-    for si in range(len(seq_coords)):
-        seq_transcripts.append([])
-
-    for transcript in transcript_map:
-        tx_index, tx_pos = transcript_map[transcript]
-        seq_transcripts[tx_index].append((transcript,tx_pos))
-
-    #######################################
-    # multi_seq_genes
-
-    gene_seqs = {}
-    for seq_i in range(len(seq_coords)):
-        for transcript, tx_pos in seq_transcripts[seq_i]:
-            gene = transcript_genes[transcript]
-            gene_seqs.setdefault(gene,set()).add(seq_i)
-
-    multi_seq_genes = set()
-    for gene in gene_seqs:
-        if len(gene_seqs[gene]) > 1:
-            multi_seq_genes.add(gene)
-
-    return seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, multi_seq_genes, target_labels
 
 
 

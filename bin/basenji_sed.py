@@ -80,11 +80,11 @@ def main():
     #################################################################
     # reads in genes HDF5
 
-    gene_seqs = basenji.genes.GeneSeqs(genes_hdf5_file)
+    gene_data = basenji.genes.GeneData(genes_hdf5_file)
 
     # filter for worker sequences
     if options.processes is not None:
-        gene_seqs.worker(worker_index, options.processes)
+        gene_data.worker(worker_index, options.processes)
 
 
     #################################################################
@@ -95,7 +95,7 @@ def main():
 
     # intersect w/ segments
     print('Intersecting gene sequences with SNPs...', flush=True, end='')
-    seqs_snps = basenji.vcf.intersect_seqs_snps(vcf_file, gene_seqs.seq_coords, vision_p=0.5)
+    seqs_snps = basenji.vcf.intersect_seqs_snps(vcf_file, gene_data.seq_coords, vision_p=0.5)
     print('done', flush=True)
 
 
@@ -103,8 +103,8 @@ def main():
     # determine SNP sequences to be needed
 
     seqs_snps_list = []
-    for seq_i in range(gene_seqs.num_seqs):
-        seq_chrom, seq_start, seq_end = gene_seqs.seq_coords[seq_i]
+    for seq_i in range(gene_data.num_seqs):
+        seq_chrom, seq_start, seq_end = gene_data.seq_coords[seq_i]
 
         if seqs_snps[seq_i]:
             # add major allele
@@ -116,8 +116,8 @@ def main():
                 snp_seq_pos = snps[snp_i].pos-1 - seq_start
 
                 # update primary sequence to use major allele
-                basenji.dna_io.hot1_set(gene_seqs.seqs_1hot[seq_i], snp_seq_pos, snps[snp_i].ref_allele)
-                assert(basenji.dna_io.hot1_get(gene_seqs.seqs_1hot[seq_i], snp_seq_pos) ==  snps[snp_i].ref_allele)
+                basenji.dna_io.hot1_set(gene_data.seqs_1hot[seq_i], snp_seq_pos, snps[snp_i].ref_allele)
+                assert(basenji.dna_io.hot1_get(gene_data.seqs_1hot[seq_i], snp_seq_pos) ==  snps[snp_i].ref_allele)
 
                 # append descriptive tuple to list
                 seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i].alt_alleles[0]))
@@ -128,12 +128,12 @@ def main():
 
     job = basenji.dna_io.read_job_params(params_file)
 
-    job['batch_length'] = gene_seqs.seq_length
-    job['seq_depth'] = gene_seqs.seq_depth
-    job['target_pool'] = gene_seqs.pool_width
+    job['batch_length'] = gene_data.seq_length
+    job['seq_depth'] = gene_data.seq_depth
+    job['target_pool'] = gene_data.pool_width
 
-    if 'num_targets' not in job and gene_seqs.num_targets is not None:
-        job['num_targets'] = gene_seqs.num_targets
+    if 'num_targets' not in job and gene_data.num_targets is not None:
+        job['num_targets'] = gene_data.num_targets
 
     if 'num_targets' not in job:
         print("Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.", file=sys.stderr)
@@ -174,12 +174,12 @@ def main():
         saver.restore(sess, model_file)
 
         # initialize prediction stream
-        seq_preds = PredStream(sess, model, gene_seqs.seqs_1hot, seqs_snps_list, 128, options.rc)
+        seq_preds = PredStream(sess, model, gene_data.seqs_1hot, seqs_snps_list, 128, options.rc)
 
         # prediction index
         pi = 0
 
-        for seq_i in range(gene_seqs.num_seqs):
+        for seq_i in range(gene_data.num_seqs):
             if seqs_snps[seq_i]:
                 # get reference prediction (LxT)
                 ref_preds = seq_preds[pi]
@@ -197,12 +197,12 @@ def main():
                     snp_dist_gene = {}
 
                     # process transcripts
-                    for transcript, tx_pos in gene_seqs.seq_transcripts[seq_i]:
+                    for transcript, tx_pos in gene_data.seq_transcripts[seq_i]:
                         # get gene id
-                        gene = gene_seq.transcript_genes[transcript]
+                        gene = gene_data.transcript_genes[transcript]
 
                         # compute distance between SNP and TSS
-                        tx_gpos = gene_seqs.seq_coords[seq_i][1] + (tx_pos + 0.5)*model.target_pool
+                        tx_gpos = gene_data.seq_coords[seq_i][1] + (tx_pos + 0.5)*model.target_pool
                         snp_dist = abs(tx_gpos - snp.pos)
                         if gene in snp_dist_gene:
                             snp_dist_gene[gene] = min(snp_dist_gene[gene], snp_dist)
@@ -228,7 +228,7 @@ def main():
                         if options.transcript_table:
                             for ti in range(ref_preds.shape[1]):
                                 if options.all_sed or not np.isclose(snp_tx_sed[ti], 0, atol=1e-4):
-                                    cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, gene_seqs.target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
+                                    cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, gene_data.target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
                                     if options.csv:
                                         print(','.join([str(c) for c in cols]), file=sed_tx_out)
                                     else:
@@ -237,7 +237,7 @@ def main():
                     # process genes
                     for gene in gene_pos_preds:
                         gene_str = gene
-                        if gene in gene_seqs.multi_seq_genes:
+                        if gene in gene_data.multi_seq_genes:
                             gene_str = '%s_multi' % gene
 
                         # sum gene preds across positions
@@ -255,7 +255,7 @@ def main():
                         # print rows to gene table
                         for ti in range(ref_preds.shape[1]):
                             if options.all_sed or not np.isclose(snp_gene_sed[ti], 0, atol=1e-4):
-                                cols = [snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str, snp_dist_gene[gene], gene_seqs.target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti]]
+                                cols = [snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str, snp_dist_gene[gene], gene_data.target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti]]
                                 if options.csv:
                                     print(','.join([str(c) for c in cols]), file=sed_gene_out)
                                 else:
@@ -270,7 +270,7 @@ def main():
                         alt_bw_open = bigwig_open(alt_bw_file, options.genome_file)
                         diff_bw_open = bigwig_open(diff_bw_file, options.genome_file)
 
-                        seq_chrom, seq_start, seq_end = gene_seqs.seq_coords[seq_i]
+                        seq_chrom, seq_start, seq_end = gene_data.seq_coords[seq_i]
                         bw_chroms = [seq_chrom]*ref_preds.shape[0]
                         bw_starts = [int(seq_start + model.batch_buffer + bi*model.target_pool) for bi in range(ref_preds.shape[0])]
                         bw_ends = [int(bws + model.target_pool) for bws in bw_starts]

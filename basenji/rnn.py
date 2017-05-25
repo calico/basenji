@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import gc
 import sys
 import time
@@ -197,15 +198,15 @@ class RNN:
         # recurrent layers
         ###################################################
 
+        # initialize norm stabilizer
+        norm_stabilizer = 0
+
         if self.rnn_layers == 0:
             outputs = rinput
 
         else:
             # move batch_length to the front as a list
             rinput = tf.unstack(tf.transpose(rinput, [1, 0, 2]))
-
-            # initialize norm stabilizer
-            norm_stabilizer = 0
 
             for li in range(self.rnn_layers):
                 with tf.variable_scope('rnn%d' % li) as vs:
@@ -356,9 +357,6 @@ class RNN:
         # expand length back out
         self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets))
 
-        # clip predictions
-        if self.target_space == 'positive':
-            self.preds_op = tf.nn.relu(self.preds_op)
 
         # repeat if pooling
         # pool_repeat = pool_preds // self.target_pool
@@ -378,37 +376,67 @@ class RNN:
         # work-around for specifying my own predictions
         self.preds_adhoc = tf.placeholder(tf.float32, shape=self.preds_op.get_shape())
 
-        if self.target_space == 'integer':
-            # move negatives into exponential space and align positives
-            #  clipping the negatives prevents overflow that TF dislikes
+        # choose link
+        if self.link in ['identity','linear']:
+            pass
+
+        elif self.link == 'relu':
+            self.preds_op = tf.relu(self.preds_op)
+
+        elif self.link == 'exp':
+            self.preds_op = tf.exp(tf.clip_by_value(self.preds_op,-50,50))
+
+        elif self.link == 'exp_linear':
             self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
 
-            # Poisson loss
-            # self.loss_op = tf.nn.log_poisson_loss(tf.log(self.preds_op), self.targets_op, compute_full_loss=False)
-            self.loss_op = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_op), compute_full_loss=True)
-            self.loss_op = tf.reduce_mean(self.loss_op)
+        # choose loss
+        if self.loss == 'gaussian':
+            self.loss_op = tf.squared_difference(self.preds_op, self.targets_op)
+            self.loss_adhoc = tf.squared_difference(self.preds_adhoc, self.targets_op))
 
-            # work-around for computing loss from my own predictions
-            # self.loss_adhoc = tf.nn.log_poisson_loss(tf.log(self.preds_adhoc), self.targets_op, compute_full_loss=False)
+        elif self.loss == 'poisson':
+            self.loss_op = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_op), compute_full_loss=True)
             self.loss_adhoc = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_adhoc), compute_full_loss=True)
-            self.loss_adhoc = tf.reduce_mean(self.loss_adhoc)
+
+        elif self.loss == 'negative_binomial':
+            # define overdispersion alphas
+            self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
+            self.alphas = tf.exp(tf.clip_by_value(self.alphas,-50,50))
+
+            # expand
+            alphas_expand = tf.tile(self.alphas, [self.batch_size*seq_length])
+            alphas_expand = tf.reshape(alphas_expand, (self.batch_size, seq_length, self.num_targets))
+
+            # construct loss
+            loss1 = self.targets_op * tf.log(self.preds_op)
+            loss2 = (alphas_expand * self.targets_op + 1) / alphas_expand
+            loss3 = tf.log(alphas_expand * self.preds_op + 1)
+            self.loss_op = -loss1 + loss2*loss3
+
+            # adhoc
+            loss1 = self.targets_op * tf.log(self.preds_adhoc)
+            loss3 = tf.log(alphas_expand * self.preds_adhoc + 1)
+            self.loss_adhoc = -loss1 + loss2*loss3
+
+        elif self.loss == 'gamma':
+            # jchan document
+            self.loss_op = self.targets_op / self.preds_op + tf.log(self.preds_op)
+            self.loss_adhoc = self.targets_op / self.preds_adhoc + tf.log(self.preds_adhoc)
 
         else:
-            # clip targets
-            if self.target_space == 'positive':
-                self.targets_op = tf.nn.relu(self.targets_op)
+            print('Cannot identify loss function %s' % self.loss)
+            exit(1)
 
-            # take square difference
-            sq_diff = tf.squared_difference(self.preds_op, self.targets_op)
+        # set NaN's to zero
+        # self.loss_op = tf.boolean_mask(self.loss_op, tf.logical_not(self.targets_na[:,tstart:tend]))
 
-            # set NaN's to zero
-            # sq_diff = tf.boolean_mask(sq_diff, tf.logical_not(self.targets_na[:,tstart:tend]))
+        # all lossses must be reduced
+        self.loss_op = tf.reduce_mean(self.loss_op, name='loss')
+        self.loss_adhoc = tf.reduce_mean(self.loss_adhoc, name='loss_adhoc')
 
-            # take the mean
-            self.loss_op = tf.reduce_mean(sq_diff, name='r2_loss') + norm_stabilizer
-
-            # work-around for computing loss from my own predictions
-            self.loss_adhoc = tf.reduce_mean(tf.squared_difference(self.preds_adhoc, self.targets_op)) + norm_stabilizer
+        # add extraneous terms
+        self.loss_op += norm_stabilizer
+        self.loss_adhoc += norm_stabilizer
 
         # track
         tf.summary.scalar('loss', self.loss_op)
@@ -1076,10 +1104,9 @@ class RNN:
         ###################################################
         # loss
         ###################################################
-        self.target_space = job.get('target_space', 'real')
-        if self.target_space not in ['real', 'positive', 'integer']:
-            print('target_space: %s invalid. Must be one of real, positive, or integer' % self.target_space, file=sys.stderr)
-            exit(1)
+        self.link = job.get('link', 'exp_linear')
+        self.loss = job.get('loss', 'poisson')
+
 
         ###################################################
         # other

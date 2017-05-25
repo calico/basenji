@@ -1,4 +1,5 @@
 **/*~
+basenji/*.pyc
 build/
 dist/
 basenji.egg-info/

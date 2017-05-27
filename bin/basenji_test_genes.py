@@ -42,6 +42,7 @@ def main():
     parser.add_option('-l', dest='load_preds', help='Load transcript_preds from file')
     parser.add_option('--heat', dest='plot_heat', default=False, action='store_true', help='Plot big gene-target heatmaps [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='genes_out', help='Output directory for tables and plots [Default: %default]')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='plot_scatter', default=False, action='store_true', help='Make time-consuming accuracy scatter plots [Default: %default]')
     parser.add_option('--rep', dest='replicate_labels_file', help='Compare replicate experiments, aided by the given file with long labels')
     parser.add_option('-t', dest='target_indexes', default=None, help='File or Comma-separated list of target indexes to scatter plot true versus predicted values')
@@ -60,74 +61,30 @@ def main():
         os.mkdir(options.out_dir)
 
     #################################################################
-    # reads in genes HDF5
+    # read in genes and targets
 
-    t0 = time.time()
-    print('Reading from gene HDF.', end='', flush=True)
+    gene_data = basenji.genes.GeneData(genes_hdf5_file)
 
-    genes_hdf5_in = h5py.File(genes_hdf5_file)
-
-    #######################################
-    # read in sequences and descriptions
-
-    seq_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seq_chrom']]
-    seq_start = list(genes_hdf5_in['seq_start'])
-    seq_end = list(genes_hdf5_in['seq_end'])
-    seq_coords = list(zip(seq_chrom,seq_start,seq_end))
-
-    seqs_1hot = genes_hdf5_in['seqs_1hot']
-
-    #######################################
-    # read in transcripts and map to sequences
-
-    transcripts = [tx.decode('UTF-8') for tx in genes_hdf5_in['transcripts']]
-    transcript_index = list(genes_hdf5_in['transcript_index'])
-    transcript_pos = list(genes_hdf5_in['transcript_pos'])
-
-    transcript_map = OrderedDict()
-    for ti in range(len(transcripts)):
-        transcript_map[transcripts[ti]] = (transcript_index[ti], transcript_pos[ti])
-
-    # map transcript indexes to gene indexes
-    gene_indexes = {}
-    gene_list = []
-    transcript_gene_indexes = []
-    for gid in genes_hdf5_in['genes']:
-        gid = gid.decode('UTF-8')
-        if gid not in gene_indexes:
-            gene_indexes[gid] = len(gene_indexes)
-            gene_list.append(gid)
-        transcript_gene_indexes.append(gene_indexes[gid])
-
-    transcript_targets = genes_hdf5_in['transcript_targets']
-
-    #######################################
-    # targets
-
-    target_labels = [tl.decode('UTF-8') for tl in genes_hdf5_in['target_labels']]
-
+    # all targets
     if options.target_indexes is None:
-        options.target_indexes = []
-    elif options.target_indexes == 'all':
         options.target_indexes = range(transcript_targets.shape[1])
+
+    # file targets
     elif os.path.isfile(options.target_indexes):
         target_indexes_file = options.target_indexes
         options.target_indexes = []
         for line in open(target_indexes_file):
             options.target_indexes.append(int(line.split()[0]))
+
+    # comma-separated targets
     else:
         options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
 
     options.target_indexes = np.array(options.target_indexes)
 
-    print(' Done in %ds.' % (time.time()-t0), flush=True)
-
-
-    #################################################################
-    # ignore genes overlapping trained BED regions
-
-    if options.ignore_bed:
-        seqs_1hot, transcript_map, transcript_targets = ignore_trained_regions(options.ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets)
+    # not doing it this way anymore
+    # if options.ignore_bed:
+    #     seqs_1hot, transcript_map, transcript_targets = ignore_trained_regions(options.ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets)
 
 
     #################################################################
@@ -147,10 +104,10 @@ def main():
 
         job = basenji.dna_io.read_job_params(params_file)
 
-        job['batch_length'] = seqs_1hot.shape[1]
-        job['seq_depth'] = seqs_1hot.shape[2]
-        job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
-        job['num_targets'] = transcript_targets.shape[1]
+        job['batch_length'] = gene_data.seq_length
+        job['seq_depth'] = gene_data.seq_depth
+        job['target_pool'] = gene_data.pool_width
+        job['num_targets'] = gene_data.num_targets
 
         # build model
         dr = basenji.rnn.RNN()
@@ -168,7 +125,7 @@ def main():
         print('Computing gene predictions.', end='', flush=True)
 
         # initialize batcher
-        batcher = basenji.batcher.Batcher(seqs_1hot, batch_size=dr.batch_size)
+        batcher = basenji.batcher.Batcher(gene_data.seqs_1hot, batch_size=dr.batch_size)
 
         # initialie saver
         saver = tf.train.Saver()
@@ -178,10 +135,7 @@ def main():
             saver.restore(sess, model_file)
 
             # predict
-            transcript_preds = dr.predict_genes(sess, batcher, transcript_map)
-
-            # dr. predict_genes_bigwig(sess, batcher, seq_coords, options.out_dir, '%s/assembly/human.hg19.ml.genome'%os.environ['HG19'], [1471])
-            # transcript_preds = dr.predict_genes_coords(sess, batcher, transcript_map, seq_coords)
+            transcript_preds = dr.predict_genes(sess, batcher, gene_data.transcript_map, rc_avg=options.rc)
 
         # save to file
         np.save('%s/preds' % options.out_dir, transcript_preds)
@@ -192,8 +146,8 @@ def main():
     #################################################################
     # convert to genes
 
-    gene_targets = map_transcripts_genes(transcript_targets, transcript_map, transcript_gene_indexes)
-    gene_preds = map_transcripts_genes(transcript_preds, transcript_map, transcript_gene_indexes)
+    gene_targets = map_transcripts_genes(gene_data.transcript_targets, gene_data.transcript_map, gene_data.transcript_gene_indexes)
+    gene_preds = map_transcripts_genes(transcript_preds, gene_data.transcript_map, gene_data.transcript_gene_indexes)
 
 
     #################################################################
@@ -202,8 +156,8 @@ def main():
     t0 = time.time()
     print('Computing correlations.', end='', flush=True)
 
-    cor_table(transcript_targets, transcript_preds, target_labels, options.target_indexes, '%s/transcript_cors.txt' % options.out_dir)
-    cor_table(gene_targets, gene_preds, target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
+    cor_table(gene_data.transcript_targets, transcript_preds, gene_data.target_labels, options.target_indexes, '%s/transcript_cors.txt' % options.out_dir)
+    cor_table(gene_targets, gene_preds, gene_data.target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
 
     print(' Done in %ds.' % (time.time()-t0), flush=True)
 
@@ -215,9 +169,9 @@ def main():
         t0 = time.time()
         print('Printing predictions.', end='', flush=True)
 
-        gene_table(transcript_targets, transcript_preds, list(transcript_map.keys()), target_labels, options.target_indexes, '%s/transcript'%options.out_dir, options.plot_scatter)
+        gene_table(gene_data.transcript_targets, transcript_preds, gene_data.transcript_map.keys(), gene_data.target_labels, options.target_indexes, '%s/transcript'%options.out_dir, options.plot_scatter)
 
-        gene_table(gene_targets, gene_preds, gene_list, target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
+        gene_table(gene_targets, gene_preds, set(gene_data.genes), gene_data.target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
 
         print(' Done in %ds.' % (time.time()-t0), flush=True)
 
@@ -294,7 +248,7 @@ def main():
         replicate_lists = infer_replicates(target_labels_long)
 
         # compute correlations
-        # replicate_correlations(replicate_lists, transcript_targets, transcript_preds, options.target_indexes, '%s/transcript_reps' % options.out_dir)
+        # replicate_correlations(replicate_lists, gene_data.transcript_targets, transcript_preds, options.target_indexes, '%s/transcript_reps' % options.out_dir)
         replicate_correlations(replicate_lists, gene_targets, gene_preds, options.target_indexes, '%s/gene_reps' % options.out_dir) # , scatter_plots=True)
 
 
@@ -303,11 +257,6 @@ def main():
 
     if options.gene_variance:
         variance_accuracy(gene_targets_qn, gene_preds_qn, '%s/gene'%options.out_dir)
-
-    #################################################################
-    # clean up
-
-    genes_hdf5_in.close()
 
 
 def clustermap(gene_values, out_pdf, color=None, table=False):
@@ -375,83 +324,82 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
 
     return cors
 
+# def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets, mid_pct=0.5):
+#     ''' Filter the sequence and transcript data structures to ignore the sequences
+#          in a training set BED file.
 
-def ignore_trained_regions(ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets, mid_pct=0.5):
-    ''' Filter the sequence and transcript data structures to ignore the sequences
-         in a training set BED file.
+#     In
+#      ignore_bed: BED file of regions to ignore
+#      seq_coords: list of (chrom,start,end) sequence coordinates
+#      seqs_1hot:
+#      transcript_map:
+#      transcript_targets:
+#      mid_pct:
 
-    In
-     ignore_bed: BED file of regions to ignore
-     seq_coords: list of (chrom,start,end) sequence coordinates
-     seqs_1hot:
-     transcript_map:
-     transcript_targets:
-     mid_pct:
+#     Out
+#      seqs_1hot
+#      transcript_map
+#      transcript_targets
+#     '''
 
-    Out
-     seqs_1hot
-     transcript_map
-     transcript_targets
-    '''
+#     # write sequence coordinates to file
+#     seqs_bed_temp = tempfile.NamedTemporaryFile()
+#     seqs_bed_out = open(seqs_bed_temp.name, 'w')
+#     for chrom, start, end in seq_coords:
+#         span = end-start
+#         mid = (start+end)/2
+#         mid_start = mid - mid_pct*span // 2
+#         mid_end = mid + mid_pct*span // 2
+#         print('%s\t%d\t%d' % (chrom,mid_start,mid_end), file=seqs_bed_out)
+#     seqs_bed_out.close()
 
-    # write sequence coordinates to file
-    seqs_bed_temp = tempfile.NamedTemporaryFile()
-    seqs_bed_out = open(seqs_bed_temp.name, 'w')
-    for chrom, start, end in seq_coords:
-        span = end-start
-        mid = (start+end)/2
-        mid_start = mid - mid_pct*span // 2
-        mid_end = mid + mid_pct*span // 2
-        print('%s\t%d\t%d' % (chrom,mid_start,mid_end), file=seqs_bed_out)
-    seqs_bed_out.close()
+#     # intersect with the BED file
+#     p = subprocess.Popen('bedtools intersect -c -a %s -b %s' % (seqs_bed_temp.name,ignore_bed), shell=True, stdout=subprocess.PIPE)
 
-    # intersect with the BED file
-    p = subprocess.Popen('bedtools intersect -c -a %s -b %s' % (seqs_bed_temp.name,ignore_bed), shell=True, stdout=subprocess.PIPE)
+#     # track indexes that overlap
+#     seqs_keep = []
+#     for line in p.stdout:
+#         a = line.split()
+#         seqs_keep.append(int(a[-1]) == 0)
+#     seqs_keep = np.array(seqs_keep)
 
-    # track indexes that overlap
-    seqs_keep = []
-    for line in p.stdout:
-        a = line.split()
-        seqs_keep.append(int(a[-1]) == 0)
-    seqs_keep = np.array(seqs_keep)
+#     # update sequence data structs
+#     seqs_1hot = seqs_1hot[seqs_keep,:,:]
 
-    # update sequence data structs
-    seqs_1hot = seqs_1hot[seqs_keep,:,:]
+#     # update transcript_map
+#     transcripts_keep = []
+#     transcript_map_new = OrderedDict()
+#     for transcript in transcript_map:
+#         tx_i, tx_pos = transcript_map[transcript]
 
-    # update transcript_map
-    transcripts_keep = []
-    transcript_map_new = OrderedDict()
-    for transcript in transcript_map:
-        tx_i, tx_pos = transcript_map[transcript]
+#         # collect ignored transcript bools
+#         transcripts_keep.append(seqs_keep[tx_i])
 
-        # collect ignored transcript bools
-        transcripts_keep.append(seqs_keep[tx_i])
+#         # keep it
+#         if seqs_keep[tx_i]:
+#             # update the sequence index to consider previous kept sequences
+#             txn_i = seqs_keep[:tx_i].sum()
 
-        # keep it
-        if seqs_keep[tx_i]:
-            # update the sequence index to consider previous kept sequences
-            txn_i = seqs_keep[:tx_i].sum()
+#             # let's say it's 0 - False, 1 - True, 2 - True, 3 - False
+#             # 1 would may to 0
+#             # 2 would map to 1
+#             # all good!
 
-            # let's say it's 0 - False, 1 - True, 2 - True, 3 - False
-            # 1 would may to 0
-            # 2 would map to 1
-            # all good!
+#             # update the map
+#             transcript_map_new[transcript] = (txn_i, tx_pos)
 
-            # update the map
-            transcript_map_new[transcript] = (txn_i, tx_pos)
+#     transcript_map = transcript_map_new
 
-    transcript_map = transcript_map_new
+#     # convert to array
+#     transcripts_keep = np.array(transcripts_keep)
 
-    # convert to array
-    transcripts_keep = np.array(transcripts_keep)
+#     # update transcript_targets
+#     transcript_targets = transcript_targets[transcripts_keep,:]
 
-    # update transcript_targets
-    transcript_targets = transcript_targets[transcripts_keep,:]
-
-    return seqs_1hot, transcript_map, transcript_targets
+#     return seqs_1hot, transcript_map, transcript_targets
 
 
-def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexes, out_prefix, plot_scatter):
+def gene_table(gene_targets, gene_preds, gene_iter, target_labels, target_indexes, out_prefix, plot_scatter):
     ''' Print a gene-based statistics table and scatter plot for the given target indexes. '''
 
     num_genes = gene_targets.shape[0]
@@ -471,7 +419,7 @@ def gene_table(gene_targets, gene_preds, gene_list, target_labels, target_indexe
 
         # print table lines
         tx_i = 0
-        for gid in gene_list:
+        for gid in gene_iter:
             # print transcript line
             cols = (gid, gti[tx_i], gpi[tx_i], ti, target_labels[ti])
             print('%-20s  %.3f  %.3f  %4d  %20s' % cols, file=table_out)

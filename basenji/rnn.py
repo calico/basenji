@@ -392,7 +392,7 @@ class RNN:
         # choose loss
         if self.loss == 'gaussian':
             self.loss_op = tf.squared_difference(self.preds_op, self.targets_op)
-            self.loss_adhoc = tf.squared_difference(self.preds_adhoc, self.targets_op))
+            self.loss_adhoc = tf.squared_difference(self.preds_adhoc, self.targets_op)
 
         elif self.loss == 'poisson':
             self.loss_op = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_op), compute_full_loss=True)
@@ -849,7 +849,7 @@ class RNN:
 
                 # average with forward prediction
                 preds_batch += preds_batch_rc[:,::-1,:]
-                preds_batch /= 2
+                preds_batch /= 2.
 
             # filter for specific targets
             if target_indexes is not None:
@@ -941,7 +941,7 @@ class RNN:
 
                 # average with forward prediction
                 preds_batch += preds_batch_rc[:,::-1,:]
-                preds_batch /= 2
+                preds_batch /= 2.
 
             # filter for specific targets
             if target_indexes is not None:
@@ -1205,7 +1205,7 @@ class RNN:
 
                 # average with forward prediction
                 preds_batch += preds_batch_rc[:,::-1,:]
-                preds_batch /= 2
+                preds_batch /= 2.
 
                 # recompute loss
                 fd[self.preds_adhoc] = preds_batch

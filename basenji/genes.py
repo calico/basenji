@@ -1,9 +1,12 @@
 #!/usr/bin/env python
+import sys
 
 import h5py
 import numpy as np
+import pandas as pd
 
-import hail
+if sys.version[0] == '2':
+    import hail
 
 import basenji.dna_io
 
@@ -61,6 +64,14 @@ class GeneData:
         for ti in range(len(self.transcripts)):
             self.transcript_genes[self.transcripts[ti]] = self.genes[ti]
 
+        # map transcript indexes to gene indexes
+        gene_indexes = {}
+        self.transcript_gene_indexes = []
+        for gid in self.genes:
+            if gid not in gene_indexes:
+                gene_indexes[gid] = len(gene_indexes)
+            self.transcript_gene_indexes.append(gene_indexes[gid])
+
 
         # determine genes split across sequences
         gene_seqs = {}
@@ -95,6 +106,31 @@ class GeneData:
         for si in range(self.num_seqs):
             chrom, start, end = self.seq_coords[si]
             yield GeneSeq(chrom, start, end, self.seqs_1hot[si,:,:], self.seq_transcripts[si])
+
+
+    def subset_transcripts(self, transcripts):
+        ''' Limit the sequences to a subset containing the given transcripts. '''
+
+        seq_mask = np.zeros(self.num_seqs, dtype='bool')
+        for si in range(self.num_seqs):
+            # check this sequence's transcripts for matches
+            seq_si_mask = [tx_id in transcripts for tx_id, tx_pos in self.seq_transcripts[si]]
+
+            # if some transcripts match
+            if np.sum(seq_si_mask) > 0:
+                # keep the sequence
+                seq_mask[si] = True
+
+                # filter the transcript list
+                self.seq_transcripts[si] = [self.seq_transcripts[si][sti] for sti in range(len(seq_si_mask)) if seq_si_mask[sti]]
+
+        # filter the sequence data structures
+        self.seq_coords = [self.seq_coords[si] for si in range(self.num_seqs) if seq_mask[si]]
+        self.seqs_1hot = self.seqs_1hot[seq_mask,:,:]
+        self.seq_transcripts = [self.seq_transcripts[si] for si in range(self.num_seqs) if seq_mask[si]]
+        self.num_seqs = len(self.seq_coords)
+
+        # transcript_map will point to the wrong sequences
 
 
     def worker(self, wi, worker_num):
@@ -148,7 +184,7 @@ class GeneSeq:
         ''' Return sample gene predictions for this sequence. '''
 
         # get sample labels
-        samples2 = [sample[:-4] for sample in df.columns[4:]]
+        samples2 = [sample[:-4] for sample in self.variants_df.columns[4:]]
         samples = [samples2[i] for i in range(len(samples2)) if i%2==0]
 
         # construct a DataFrame with columns sample_label / gene / target / prediction
@@ -158,7 +194,7 @@ class GeneSeq:
         col_pred = []
 
         # for each sample
-        for ii in range(self.sample_haplotype1):
+        for ii in range(len(self.sample_haplotype1)):
             # get haplotype indexes
             hi1 = self.sample_haplotype1[ii]
             hi2 = self.sample_haplotype2[ii]
@@ -194,8 +230,8 @@ class GeneSeq:
         # map samples to them
         haplotype_indexes = {}
         self.haplotype_genotypes = []
-        self.sample_haplotype1 = np.zeros(N)
-        self.sample_haplotype2 = np.zeros(N)
+        self.sample_haplotype1 = np.zeros(N, dtype='int')
+        self.sample_haplotype2 = np.zeros(N, dtype='int')
 
         for ii in range(N):
             # form hashable genotype tuple for allele 1

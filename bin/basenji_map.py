@@ -50,9 +50,7 @@ def main():
     #################################################################
     # reads in genes HDF5
 
-    genes_hdf5_in = h5py.File(genes_hdf5_file)
-
-    seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, target_labels = read_hdf5(genes_hdf5_in)
+    gene_data = basenji.genes.GeneData(genes_hdf5_file)
 
     # subset transcripts
     transcripts_subset = set()
@@ -60,38 +58,17 @@ def main():
         for line in open(options.transcript_list):
             transcripts_subset.add(line.rstrip())
 
-        seq_mask = np.zeros(seqs_1hot.shape[0], dtype='bool')
-        for si in range(len(seq_mask)):
-            # check this sequence's transcripts for matches
-            seq_si_mask = [tx_id in transcripts_subset for tx_id, tx_pos in seq_transcripts[si]]
-
-            # if some transcripts match
-            if np.sum(seq_si_mask) > 0:
-                # keep the sequence
-                seq_mask[si] = True
-
-                # filter the transcript list
-                seq_transcripts[si] = [seq_transcripts[si][sti] for sti in range(len(seq_si_mask)) if seq_si_mask[sti]]
-
-        # filter the sequence data structures
-        seq_coords = [seq_coords[si] for si in range(len(seq_coords)) if seq_mask[si]]
-        seqs_1hot = seqs_1hot[seq_mask,:,:]
-        seq_transcripts = [seq_transcripts[si] for si in range(len(seq_transcripts)) if seq_mask[si]]
-
-        # unused
-        # transcript_targets
-        # transcript_genes
-
-        print('Filtered to %d sequences' % seqs_1hot.shape[0])
+        gene_data.subset_transcripts(transcripts_subset)
+        print('Filtered to %d sequences' % gene_data.num_seqs)
 
     #######################################################
     # model parameters and placeholders
 
     job = basenji.dna_io.read_job_params(params_file)
 
-    job['batch_length'] = seqs_1hot.shape[1]
-    job['seq_depth'] = seqs_1hot.shape[2]
-    job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
+    job['batch_length'] = gene_data.seq_length
+    job['seq_depth'] = gene_data.seq_depth
+    job['target_pool'] = gene_data.pool_width
     job['save_reprs'] = True
 
     if 'num_targets' not in job:
@@ -122,17 +99,17 @@ def main():
         saver.restore(sess, model_file)
 
         si = 0
-        while si < seqs_1hot.shape[0]:
+        while si < gene_data.num_seqs:
             # initialize batcher
             # batcher = basenji.batcher.Batcher(seqs_1hot[si:si+model.batch_size], batch_size=model.batch_size, pool_width=model.target_pool)
-            batcher = basenji.batcher.Batcher(seqs_1hot[si:si+1], batch_size=model.batch_size, pool_width=model.target_pool)
+            batcher = basenji.batcher.Batcher(gene_data.seqs_1hot[si:si+1], batch_size=model.batch_size, pool_width=model.target_pool)
 
             # determine transcript positions
             transcript_positions = set()
             # for bi in range(model.batch_size):   # TEMP
             for bi in range(1):
-                if si+bi < len(seq_transcripts):
-                    for transcript, tx_pos in seq_transcripts[si+bi]:
+                if si+bi < len(gene_data.seq_transcripts):
+                    for transcript, tx_pos in gene_data.seq_transcripts[si+bi]:
                         transcript_positions.add(tx_pos)
             transcript_positions = sorted(list(transcript_positions))
 
@@ -159,9 +136,9 @@ def main():
             # for bi in range(model.batch_size):   # TEMP
             for bi in range(1):
                 sbi = si+bi
-                if sbi < len(seq_transcripts):
+                if sbi < gene_data.num_seqs:
                     positions_written = set()
-                    for transcript, tx_pos in seq_transcripts[sbi]:
+                    for transcript, tx_pos in gene_data.seq_transcripts[sbi]:
                         # has this transcript position been written?
                         if tx_pos not in positions_written:
                             # which gene position is this tx_pos?
@@ -179,7 +156,7 @@ def main():
                                 bw_file = '%s/%s_t%d.bw' % (options.out_dir, transcript, ti)
                                 bw_open = bigwig_open(bw_file, options.genome_file)
 
-                                seq_chrom, seq_start, seq_end = seq_coords[sbi]
+                                seq_chrom, seq_start, seq_end = gene_data.seq_coords[sbi]
                                 bw_chroms = [seq_chrom]*pooled_length
                                 bw_starts = [int(seq_start + li*model.target_pool) for li in range(pooled_length)]
                                 bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
@@ -197,64 +174,6 @@ def main():
             # si += model.batch_size
             si += 1
 
-
-def read_hdf5(genes_hdf5_in):
-    #######################################
-    # seq_coords
-
-    seq_chrom = [chrom.decode('UTF-8') for chrom in genes_hdf5_in['seq_chrom']]
-    seq_start = list(genes_hdf5_in['seq_start'])
-    seq_end = list(genes_hdf5_in['seq_end'])
-    seq_coords = list(zip(seq_chrom,seq_start,seq_end))
-
-    #######################################
-    # seqs_1hot
-
-    seqs_1hot = genes_hdf5_in['seqs_1hot']
-    print('genes seqs_1hot', seqs_1hot.shape)
-
-    #######################################
-    # transcript_map
-
-    transcripts = [tx.decode('UTF-8') for tx in genes_hdf5_in['transcripts']]
-    transcript_index = list(genes_hdf5_in['transcript_index'])
-    transcript_pos = list(genes_hdf5_in['transcript_pos'])
-
-    transcript_map = {}
-    for ti in range(len(transcripts)):
-        transcript_map[transcripts[ti]] = (transcript_index[ti], transcript_pos[ti])
-
-    #######################################
-    # transcript_genes
-
-    genes = [gid.decode('UTF-8') for gid in genes_hdf5_in['genes']]
-
-    transcript_genes = {}
-    for ti in range(len(transcripts)):
-        transcript_genes[transcripts[ti]] = genes[ti]
-
-    #######################################
-    # transcript_targets / target_labels
-
-    if 'transcript_targets' in genes_hdf5_in:
-        transcript_targets = genes_hdf5_in['transcript_targets']
-        target_labels = [tl.decode('UTF-8') for tl in genes_hdf5_in['target_labels']]
-    else:
-        transcript_targets = None
-        target_labels = None
-
-    #######################################
-    # seq_transcripts
-
-    seq_transcripts = []
-    for si in range(len(seq_coords)):
-        seq_transcripts.append([])
-
-    for transcript in transcript_map:
-        tx_index, tx_pos = transcript_map[transcript]
-        seq_transcripts[tx_index].append((transcript,tx_pos))
-
-    return seq_coords, seqs_1hot, seq_transcripts, transcript_targets, transcript_genes, target_labels
 
 ################################################################################
 # __main__

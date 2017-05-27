@@ -99,7 +99,7 @@ def main():
             # 1-hot code haplotypes
             haps_1hot = gene_seq.haplotypes_1hot()
 
-            # initialize batcher
+            # initialize batchers
             batcher = basenji.batcher.Batcher(haps_1hot, batch_size=model.batch_size)
 
             # predict

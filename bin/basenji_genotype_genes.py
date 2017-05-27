@@ -2,6 +2,7 @@
 from __future__ import print_function
 from optparse import OptionParser
 import os
+import time
 
 import hail
 import tensorflow as tf
@@ -106,6 +107,21 @@ def main():
 
             # map haplotype predictions to sample transcript predictions
             sample_preds = gene_seq.gene_preds(haps_preds)
+
+            # Returning a DataFrame here isn't going to work; it'll just be
+            # too large. Instead, I should probably fill in a matrix of
+            # individuals...
+
+            # Well, idk. I'm not going to keep the whole damn thing in memory,
+            # right? I can spit it out as we go. So the primary reason not to
+            # use a DataFrame is that it will write the same damn gene name
+            # over and over again.
+
+            # Maybe save the results as an HDF5, with gene_preds, transcript_preds, and sample and target information.
+
+
+            # write?
+            # sample_preds.to_csv('%s/transcript_preds.txt'%options.out_dir, sep='\t', index=False)
 
             # map transcript predictions to gene predictions
             # sample_gene_preds = ''

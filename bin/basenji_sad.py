@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import pickle
 import os
 import sys
 import time
 
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
 import pysam
@@ -38,18 +39,37 @@ def main():
     parser.add_option('-l', dest='seq_len', type='int', default=1024, help='Sequence length provided to the model [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.1, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sad', help='Output directory for tables and plots [Default: %default]')
+    parser.add_option('-p', dest='processes', default=None, type='int', help='Number of processes, passed by multi script')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('-t', dest='targets_file', default=None, help='File specifying target indexes and labels in table format')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     (options,args) = parser.parse_args()
 
-    if len(args) != 3:
-        parser.error('Must provide parameters and model files and QTL VCF file')
-    else:
+    if len(args) == 3:
+        # single worker
         params_file = args[0]
         model_file = args[1]
         vcf_file = args[2]
+
+    elif len(args) == 5:
+        # multi worker
+        options_pkl_file = args[0]
+        params_file = args[1]
+        model_file = args[2]
+        vcf_file = args[3]
+        worker_index = int(args[4])
+
+        # load options
+        options_pkl = open(options_pkl_file, 'rb')
+        options = pickle.load(options_pkl)
+        options_pkl.close()
+
+        # update output directory
+        options.out_dir = '%s/job%d' % (options.out_dir, worker_index)
+
+    else:
+        parser.error('Must provide parameters and model files and QTL VCF file')
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
@@ -87,6 +107,10 @@ def main():
     # load SNPs
 
     snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score)
+
+    # filter for worker SNPs
+    if options.processes is not None:
+        snps = [snps[si] for si in range(len(snps)) if si % options.processes == worker_index]
 
 
     #################################################################

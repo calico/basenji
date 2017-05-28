@@ -56,7 +56,7 @@ def main():
         vcf_file = args[4]
         worker_index = int(args[5])
 
-         # load options
+        # load options
         options_pkl = open(options_pkl_file, 'rb')
         options = pickle.load(options_pkl)
         options_pkl.close()

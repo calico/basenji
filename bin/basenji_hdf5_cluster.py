@@ -141,7 +141,7 @@ def main():
             name = 'hdf5_%s'%target_label
             outf = '%s/%s.out' % (options.cluster_dir, target_label)
             errf = '%s/%s.err' % (options.cluster_dir, target_label)
-            j = slurm.Job(cmd, name, outf, errf, queue='general', mem=16000, time='12:0:0')
+            j = slurm.Job(cmd, name, outf, errf, queue='flash', mem=16000, time='4:0:0')
             jobs.append(j)
 
     slurm.multi_run(jobs)

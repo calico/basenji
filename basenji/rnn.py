@@ -402,6 +402,31 @@ class RNN:
             # define overdispersion alphas
             self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
             self.alphas = tf.exp(tf.clip_by_value(self.alphas,-50,50))
+            k = 1. / self.alphas
+
+            # expand k
+            k_expand = tf.tile(k, [self.batch_size*seq_length])
+            k_expand = tf.reshape(k_expand, (self.batch_size, seq_length, self.num_targets))
+
+            # expand lgamma(k)
+            lgk_expand = tf.tile(tf.lgamma(k), [self.batch_size*seq_length])
+            lgk_expand = tf.reshape(lgk_expand, (self.batch_size, seq_length, self.num_targets))
+
+            # construct loss
+            loss1 = self.targets_op * tf.log(self.preds_op / (self.preds_op + k_expand))
+            loss2 = k_expand * tf.log(k_expand / (self.preds_op + k_expand))
+            loss3 = tf.lgamma(self.targets_op + k_expand) - lgk_expand
+            self.loss_op = -(loss1 + loss2 + loss3)
+
+            # adhoc
+            loss1 = self.targets_op * tf.log(self.preds_adhoc / (self.preds_adhoc + k_expand))
+            loss2 = k_expand * tf.log(k_expand / (self.preds_adhoc + k_expand))
+            self.loss_adhoc = -(loss1 + loss2 + loss3)
+
+        elif self.loss == 'negative_binomial_hilbe':
+            # define overdispersion alphas
+            self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
+            self.alphas = tf.exp(tf.clip_by_value(self.alphas,-50,50))
 
             # expand
             alphas_expand = tf.tile(self.alphas, [self.batch_size*seq_length])

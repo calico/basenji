@@ -200,7 +200,7 @@ def main():
         print('Plotting heat maps.', end='', flush=True)
 
         sns.set(font_scale=1.3, style='ticks')
-        plot_genes = 1000
+        plot_genes = 2000
         plot_targets = 1000
 
         # choose a set of variable genes

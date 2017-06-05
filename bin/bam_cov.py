@@ -54,7 +54,7 @@ Notes:
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <bam_file> <bigwig_file>'
+    usage = 'usage: %prog [options] <bam_file> <output_file>'
     parser = OptionParser(usage)
     parser.add_option('-c', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
     parser.add_option('-d', dest='duplicate_max', default=2, type='int', help='Maximum coverage at a single position, which must be addressed due to PCR duplicates [Default: %default]')
@@ -68,10 +68,10 @@ def main():
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
-        parser.error('Must provide input BAM file and output BigWig filename')
+        parser.error('Must provide input BAM file and output HDF5/BigWig filename')
     else:
         bam_file = args[0]
-        bigwig_file = args[1]
+        output_file = args[1]
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
@@ -79,7 +79,7 @@ def main():
     ################################################################
     # initialize genome coverage
 
-    bam_in = pysam.Samfile(bam_file, 'rb')
+    bam_in = pysam.AlignmentFile(bam_file)
     chrom_lengths = OrderedDict(zip(bam_in.references, bam_in.lengths))
     bam_in.close()
 
@@ -129,7 +129,7 @@ def main():
     ################################################################
     # compute genomic coverage / normalize for cut bias / output
 
-    genome_coverage.write_bigwig(bigwig_file, sp)
+    genome_coverage.write(output_file, sp)
 
 
 def compute_cut_norms(cut_bias_kmer, read_weights, chromosomes, chrom_lengths, fasta_file):
@@ -211,7 +211,7 @@ def row_nzcols_set(m, ri, v):
 
 def single_or_pair(bam_file):
     ''' Check the first read to guess if the BAM has single or paired end reads. '''
-    bam_in = pysam.Samfile(bam_file)
+    bam_in = pysam.AlignmentFile(bam_file)
     align = bam_in.__next__()
     if align.is_paired:
         sp = 'pair'
@@ -784,7 +784,7 @@ class GenomeCoverage:
 
         # read proper pair template lengths
         template_lengths = []
-        for align in pysam.Samfile(bam_file):
+        for align in pysam.AlignmentFile(bam_file):
             if align.is_proper_pair and align.is_read1:
                 template_lengths.append(abs(align.template_length))
 
@@ -816,7 +816,7 @@ class GenomeCoverage:
         multi_mask = np.zeros(chrom_length, dtype='bool')
 
         # compute unique counts for the fwd and rev strands
-        for align in pysam.Samfile(bam_file):
+        for align in pysam.AlignmentFile(bam_file):
             # if aligned to max_chrom
             if not align.is_unmapped and align.reference_name == chrom_max:
                 # determine mappability
@@ -899,7 +899,7 @@ class GenomeCoverage:
         multi_read_index = {}
 
         ri = 0
-        for align in pysam.Samfile(bam_file, 'rb'):
+        for align in pysam.AlignmentFile(bam_file):
             if not align.is_unmapped:
                 read_id = (align.query_name, align.is_read1)
 
@@ -1068,22 +1068,28 @@ class GenomeCoverage:
                     active_start = i
 
 
-    def write_bigwig(self, bigwig_file, single_or_pair, zero_eps=.003):
+    def write(self, output_file, single_or_pair, zero_eps=.003):
         ''' Compute and write out coverage to bigwig file.
 
         Go chromosome by chromosome here to facilitate printing,
         and save memory.
 
         In:
-         bigwig_file: BigWig filename.
+         output_file (str): HDF5 or BigWig filename.
+         single_or_pair (bool): Specifies whether to correct for paired end double coverage.
         '''
 
-        print('Outputting coverage')
+        # choose bigwig or h5
+        if os.path.splitext(output_file)[1] == 'bw':
+            print('Outputting coverage to BigWig')
+            bigwig = True
+            cov_out = pyBigWig.open(output_file, 'w')
+            cov_out.addHeader(list(self.chrom_lengths.items()))
 
-        bigwig_out = pyBigWig.open(bigwig_file, 'w')
-
-        # add header
-        bigwig_out.addHeader(list(self.chrom_lengths.items()))
+        else:
+            print('Outputting coverage to HDF5')
+            bigwig = False
+            cov_out = h5py.File(output_file, 'w')
 
         chroms_list = list(self.chrom_lengths.keys())
         lengths_list = list(self.chrom_lengths.values())
@@ -1124,7 +1130,10 @@ class GenomeCoverage:
             chrom_coverage_array[chrom_coverage_array < zero_eps] = 0
 
             # add to bigwig
-            bigwig_out.addEntries(chroms_list[ci], 0, values=chrom_coverage_array.astype('float16'), span=1, step=1)
+            if bigwig:
+                cov_out.addEntries(chroms_list[ci], 0, values=chrom_coverage_array.astype('float16'), span=1, step=1)
+            else:
+                cov_out.create_dataset(chroms_list[ci], data=chrom_coverage_array, dtype='float16', compression='gzip', shuffle=True)
 
             # update genomic index
             gi += cl
@@ -1136,8 +1145,8 @@ class GenomeCoverage:
             print(', %ds' % (time.time()-t0), flush=True)
 
         t0 = time.time()
-        bigwig_out.close()
-        print(' Close BigWig: %ds' % (time.time()-t0))
+        cov_out.close()
+        print(' Close output file: %ds' % (time.time()-t0))
 
 
 ################################################################################

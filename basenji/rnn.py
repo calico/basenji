@@ -212,11 +212,15 @@ class RNN:
                 with tf.variable_scope('rnn%d' % li) as vs:
                     # determine cell
                     if self.cell == 'rnn':
-                        cell = tf.nn.rnn_cell.BasicRNNCell(self.rnn_units[li], activation=self.activation)
+                        fwd_cell = tf.contrib.rnn.BasicRNNCell(self.rnn_units[li], activation=self.activation)
+                        rev_cell = tf.contrib.rnn.BasicRNNCell(self.rnn_units[li], activation=self.activation)
                     elif self.cell == 'gru':
                         cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li], activation=self.activation)
                     elif self.cell == 'lstm':
-                        cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True), activation=self.activation)
+                        fwd_cell = tf.contrib.rnn.LayerNormBasicLSTMCell(self.rnn_units[li], dropout_keep_prob=self.rnn_dropout[li])
+                        rev_cell = tf.contrib.rnn.LayerNormBasicLSTMCell(self.rnn_units[li], dropout_keep_prob=self.rnn_dropout[li])
+
+                        # cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True), activation=self.activation)
                     elif self.cell == 'block':
                         cell = tf.contrib.rnn.LSTMBlockCell(self.rnn_units[li])
                     else:
@@ -224,15 +228,18 @@ class RNN:
                         exit(1)
 
                     # dropout
-                    if li < len(self.rnn_dropout) and self.rnn_dropout[li] > 0:
-                        cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=(1-self.rnn_dropout_ph[li]))
+                    # if li < len(self.rnn_dropout) and self.rnn_dropout[li] > 0:
+                    #     fwd_cell = tf.contrib.rnn.DropoutWrapper(fwd_cell, output_keep_prob=(1-self.rnn_dropout_ph[li]))
+                    #     rev_cell = tf.contrib.rnn.DropoutWrapper(rev_cell, output_keep_prob=(1-self.rnn_dropout_ph[li]))
 
                     # run bidirectional
+                    outputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(fwd_cell, rev_cell, rinput, dtype='float32')
+                    '''
                     if self.cnn_layers == 0 and li == 0:
-                        # outputs, _, _ = tf.nn.bidirectional_rnn(cell, cell, rinput, dtype=tf.float32)
                         outputs, _, _ = bidirectional_rnn_rc(cell, cell, rinput, dtype=tf.float32)
                     else:
                         outputs, _, _ = bidirectional_rnn_tied(cell, cell, rinput, dtype=tf.float32)
+                    '''
 
                     # update depth
                     seq_depth = 2*self.rnn_units[li]
@@ -402,6 +409,7 @@ class RNN:
             # define overdispersion alphas
             self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
             self.alphas = tf.exp(tf.clip_by_value(self.alphas,-50,50))
+            tf.summary.histogram('alphas', self.alphas)
             k = 1. / self.alphas
 
             # expand k

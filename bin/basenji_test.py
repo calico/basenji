@@ -91,7 +91,7 @@ def main():
     job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
     t0 = time.time()
-    dr = basenji.rnn.RNN()
+    dr = basenji.seqnn.SeqNN()
     dr.build(job)
     print('Model building time %ds' % (time.time()-t0))
 
@@ -127,7 +127,7 @@ def main():
         # test
         t0 = time.time()
         test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
-        print('RNN test: %ds' % (time.time()-t0))
+        print('SeqNN test: %ds' % (time.time()-t0))
 
         # print
         print('Test Loss:      %7.5f' % test_loss)

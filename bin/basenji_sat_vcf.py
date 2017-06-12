@@ -85,7 +85,7 @@ def main():
         exit(1)
 
     # build model
-    dr = basenji.rnn.RNN()
+    dr = basenji.seqnn.SeqNN()
     dr.build(job)
 
     # initialize saver

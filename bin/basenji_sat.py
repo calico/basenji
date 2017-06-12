@@ -96,7 +96,7 @@ def main():
         job['target_pool'] = job['batch_length'] // targets.shape[1]
 
     t0 = time.time()
-    dr = basenji.rnn.RNN()
+    dr = basenji.seqnn.SeqNN()
     dr.build(job)
     print('Model building time %f' % (time.time()-t0), flush=True)
 

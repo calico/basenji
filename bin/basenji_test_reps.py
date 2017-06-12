@@ -84,7 +84,7 @@ def main():
     job['num_targets'] = test_targets.shape[2]
     job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
-    dr = basenji.rnn.RNN()
+    dr = basenji.seqnn.SeqNN()
     dr.build(job)
 
     # adjust for fourier

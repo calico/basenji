@@ -71,7 +71,7 @@ def main():
     job['save_reprs'] = True
 
     t0 = time.time()
-    model = basenji.rnn.RNN()
+    model = basenji.seqnn.SeqNN()
     model.build(job)
 
     if options.target_indexes is None:

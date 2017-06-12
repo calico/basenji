@@ -90,7 +90,7 @@ def main():
     job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
     t0 = time.time()
-    dr = basenji.rnn.RNN()
+    dr = basenji.seqnn.SeqNN()
     dr.build(job)
     print('Model building time %ds' % (time.time()-t0))
 

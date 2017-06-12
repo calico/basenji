@@ -72,7 +72,7 @@ def main():
         print("Must specify number of targets (num_targets) and target pooling (target_pool) in the parameters file. I know, it's annoying. Sorry.", file=sys.stderr)
         exit(1)
 
-    model = basenji.rnn.RNN()
+    model = basenji.seqnn.SeqNN()
     model.build(job)
 
     #######################################################

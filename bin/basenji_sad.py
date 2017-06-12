@@ -96,7 +96,7 @@ def main():
         exit(1)
 
     t0 = time.time()
-    model = basenji.rnn.RNN()
+    model = basenji.seqnn.SeqNN()
     model.build(job)
     print('Model building time %f' % (time.time()-t0), flush=True)
 

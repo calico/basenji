@@ -110,7 +110,7 @@ def main():
         job['num_targets'] = gene_data.num_targets
 
         # build model
-        dr = basenji.rnn.RNN()
+        dr = basenji.seqnn.SeqNN()
         dr.build(job)
 
         if options.batch_size is not None:

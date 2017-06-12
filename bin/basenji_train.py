@@ -9,7 +9,7 @@ import tensorflow as tf
 
 import basenji.dna_io
 import basenji.batcher
-import basenji.rnn
+import basenji.seqnet
 
 '''
 basenji_train.py
@@ -29,7 +29,7 @@ def main():
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
-    parser.add_option('-s', dest='save_prefix', default='houndrnn')
+    parser.add_option('-s', dest='save_prefix', default='houndnn')
     parser.add_option('--seed', dest='seed', type='float', default=1, help='RNG seed')
     parser.add_option('-u', dest='summary', default=None, help='TensorBoard summary directory')
     (options,args) = parser.parse_args()
@@ -72,7 +72,7 @@ def main():
     job['rate_drop'] = job.get('rate_drop', 3)
 
     t0 = time.time()
-    dr = basenji.rnn.RNN()
+    dr = basenji.seqnet.SeqNet()
     dr.build(job)
     print('Model building time %f' % (time.time()-t0), flush=True)
 

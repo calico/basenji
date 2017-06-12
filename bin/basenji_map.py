@@ -76,7 +76,7 @@ def main():
         exit(1)
 
     # build model
-    model = basenji.rnn.RNN()
+    model = basenji.seqnn.SeqNN()
     model.build(job)
 
     # determine final pooling layer

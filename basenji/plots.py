@@ -63,7 +63,7 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor
     plt.close()
 
 
-def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='pearsonr', square=True, x_label=None, y_label=None, title=None, figsize=(6,6), sample=None, table=False):
+def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='pearsonr', print_sig=False, square=True, x_label=None, y_label=None, title=None, figsize=(6,6), sample=None, table=False):
 
     if table:
         out_txt = '%s.txt' % out_pdf[:-4]
@@ -102,19 +102,25 @@ def regplot(vals1, vals2, out_pdf, poly_order=1, alpha=0.5, point_size=10, cor='
     if cor is None:
         corr = None
     elif cor.lower() in ['spearman','spearmanr']:
-        corr, _ = spearmanr(vals1, vals2)
-        cor_label = 'Spearman'
+        corr, csig = spearmanr(vals1, vals2)
+        corr_str = 'SpearmanR: %.3f' % corr
     elif cor.lower() in ['pearson','pearsonr']:
-        corr, _ = pearsonr(vals1, vals2)
-        cor_label = 'Pearson'
+        corr, csig = pearsonr(vals1, vals2)
+        corr_str = 'PearsonR: %.3f' % corr
     else:
         corr = None
 
-    if corr is not None:
-        xlim_eps = (xmax-xmin) * .02
-        ylim_eps = (ymax-ymin) * .02
+    if print_sig:
+        if csig > .001:
+            corr_str += '\n p %.3f' % csig
+        else:
+            corr_str += '\n p %.1e' % csig
 
-        ax.text(xmin+xlim_eps, ymax-3*ylim_eps, '%s R: %.3f'%(cor_label,corr), horizontalalignment='left', fontsize=12)
+    if corr is not None:
+        xlim_eps = (xmax-xmin) * .03
+        ylim_eps = (ymax-ymin) * .05
+
+        ax.text(xmin+xlim_eps, ymax-3*ylim_eps, corr_str, horizontalalignment='left', fontsize=12)
 
     # ax.grid(True, linestyle=':')
     sns.despine()

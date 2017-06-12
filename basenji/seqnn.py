@@ -13,7 +13,7 @@ from tensorflow.contrib.framework.python.ops import create_global_step
 from basenji.dna_io import hot1_rc
 import basenji.ops
 
-class RNN:
+class SeqNN:
     def __init__(self):
         pass
 
@@ -354,15 +354,18 @@ class RNN:
 
         with tf.variable_scope('final'):
             # linear transform
-            final_weights = tf.get_variable(name='weights', shape=[seq_depth, self.num_targets], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
-            final_biases = tf.Variable(tf.zeros(self.num_targets), name='bias')
+            final_weights = tf.get_variable(name='weights', shape=[seq_depth, self.num_targets*self.target_classes], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
+            final_biases = tf.Variable(tf.zeros(self.num_targets*self.target_classes), name='bias')
 
             self.preds_op = tf.matmul(outputs, final_weights) + final_biases
-            print('Linear transform %dx%d' % (seq_depth, self.num_targets))
+            print('Linear transform %dx%dx%d' % (seq_depth, self.num_targets, self.target_classes))
 
 
         # expand length back out
-        self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets))
+        if self.target_classes == 1:
+            self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets))
+        else:
+            self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets, self.target_classes))
 
 
         # repeat if pooling
@@ -395,6 +398,10 @@ class RNN:
 
         elif self.link == 'exp_linear':
             self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
+
+        elif self.link == 'softmax':
+            # performed in the loss function
+            pass
 
         # choose loss
         if self.loss == 'gaussian':
@@ -455,6 +462,10 @@ class RNN:
             # jchan document
             self.loss_op = self.targets_op / self.preds_op + tf.log(self.preds_op)
             self.loss_adhoc = self.targets_op / self.preds_adhoc + tf.log(self.preds_adhoc)
+
+        elif self.loss == 'cross_entropy':
+            self.loss_op = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=(self.targets_op-1), logits=self.preds_op)
+            self.loss_adhoc = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=(self.targets_op-1), logits=self.preds_adhoc)
 
         else:
             print('Cannot identify loss function %s' % self.loss)
@@ -1064,6 +1075,7 @@ class RNN:
         ###################################################
         self.seq_depth = job.get('seq_depth', 4)
         self.num_targets = job['num_targets']
+        self.target_classes = job.get('target_classes', 1)
         self.target_pool = job.get('target_pool', 1)
 
         ###################################################

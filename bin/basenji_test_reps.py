@@ -139,7 +139,8 @@ def main():
     ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
 
     cor_reps = []
-    cor_preds = []
+    cor_wpreds = []
+    cor_cpreds = []
 
     li = 0
     for label in replicate_labels:
@@ -176,27 +177,44 @@ def main():
                 regplot(test_targets_rep1, test_targets_rep2, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Replicate 2')
 
             #####################################
-            # prediction
+            # prediction, within replicate
 
             # save prediction correlation
             # cor_preds.append((test_cor[ti1]+test_cor[ti2])/2)
-            corr1, _ = pearsonr(test_targets_rep1, test_preds_rep1)
-            corr2, _ = pearsonr(test_targets_rep2, test_preds_rep2)
-            cor_preds.append((corr1+corr2)/2)
+            wcorr1, _ = pearsonr(test_targets_rep1, test_preds_rep1)
+            wcorr2, _ = pearsonr(test_targets_rep2, test_preds_rep2)
+            cor_wpreds.append((wcorr1+wcorr2)/2)
 
             if plot_label:
                 # scatter plot rep vs pred
-                out_pdf = '%s/preds_s%d_rep1.pdf' % (options.out_dir,li)
+                out_pdf = '%s/preds_s%d_wrep1.pdf' % (options.out_dir,li)
                 regplot(test_targets_rep1, test_preds_rep1, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Prediction 1')
 
                 # scatter plot rep vs pred
-                out_pdf = '%s/preds_s%d_rep2.pdf' % (options.out_dir,li)
+                out_pdf = '%s/preds_s%d_wrep2.pdf' % (options.out_dir,li)
                 regplot(test_targets_rep2, test_preds_rep2, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 2', y_label='log2 Prediction 2')
+
+            #####################################
+            # prediction, cross replicate
+
+            # save prediction correlation
+            ccorr1, _ = pearsonr(test_targets_rep1, test_preds_rep2)
+            ccorr2, _ = pearsonr(test_targets_rep2, test_preds_rep1)
+            cor_cpreds.append((ccorr1+ccorr2)/2)
+
+            if plot_label:
+                # scatter plot rep vs pred
+                out_pdf = '%s/preds_s%d_crep1.pdf' % (options.out_dir,li)
+                regplot(test_targets_rep1, test_preds_rep2, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 1', y_label='log2 Prediction 1')
+
+                # scatter plot rep vs pred
+                out_pdf = '%s/preds_s%d_crep2.pdf' % (options.out_dir,li)
+                regplot(test_targets_rep2, test_preds_rep1, out_pdf, poly_order=1, alpha=0.3, x_label='log2 Replicate 2', y_label='log2 Prediction 2')
 
             #####################################
             # table
 
-            print('%4d  %4d  %4d  %7.4f  %7.4f  %s' % (li, ti1, ti2, cor_reps[-1], cor_preds[-1], label), file=table_out)
+            print('%4d  %4d  %4d  %7.4f  %7.4f  %7.4f  %s' % (li, ti1, ti2, cor_reps[-1], cor_wpreds[-1], cor_cpreds[-1], label), file=table_out)
 
             # update counter
             li += 1
@@ -204,14 +222,18 @@ def main():
     table_out.close()
 
     cor_reps = np.array(cor_reps)
-    cor_preds = np.array(cor_preds)
+    cor_wpreds = np.array(cor_wpreds)
+    cor_cpreds = np.array(cor_cpreds)
 
 
     #######################################################
     # scatter plot replicate versus prediction correlation
 
-    out_pdf = '%s/correlation.pdf' % options.out_dir
-    jointplot(cor_reps, cor_preds, out_pdf, x_label='Replicates', y_label='Predictions', table=True)
+    out_pdf = '%s/correlation_within.pdf' % options.out_dir
+    jointplot(cor_reps, cor_wpreds, out_pdf, x_label='Replicates', y_label='Predictions', table=True)
+
+    out_pdf = '%s/correlation_cross.pdf' % options.out_dir
+    jointplot(cor_reps, cor_cpreds, out_pdf, x_label='Replicates', y_label='Predictions', table=True)
 
     data_open.close()
 

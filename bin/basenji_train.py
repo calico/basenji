@@ -9,7 +9,7 @@ import tensorflow as tf
 
 import basenji.dna_io
 import basenji.batcher
-import basenji.seqnet
+import basenji.seqnn
 
 '''
 basenji_train.py
@@ -72,7 +72,7 @@ def main():
     job['rate_drop'] = job.get('rate_drop', 3)
 
     t0 = time.time()
-    dr = basenji.seqnet.SeqNet()
+    dr = basenji.seqnn.SeqNN()
     dr.build(job)
     print('Model building time %f' % (time.time()-t0), flush=True)
 

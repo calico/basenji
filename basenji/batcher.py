@@ -54,7 +54,12 @@ class Batcher:
             # initialize
             Xb = np.zeros((self.batch_size, self.seq_len, self.seq_depth), dtype='float32')
             if self.Yf is not None:
-                Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype='float32')
+                if self.Yf.dtype == np.uint8:
+                    ytype = 'int32'
+                else:
+                    ytype = 'float32'
+
+                Yb = np.zeros((self.batch_size, self.seq_len//self.pool_width, self.num_targets), dtype=ytype)
                 NAb = np.zeros((self.batch_size, self.seq_len//self.pool_width), dtype='bool')
 
             # copy data

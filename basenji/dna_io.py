@@ -190,28 +190,29 @@ def read_job_params(job_file):
 
     if job_file is not None:
         for line in open(job_file):
-            param, val = line.split()
+            if line.strip():
+                param, val = line.split()
 
-            # require a decimal for floats
-            try:
-                if val.find('e') != -1:
-                    val = float(val)
-                elif val.find('.') == -1:
-                    val = int(val)
+                # require a decimal for floats
+                try:
+                    if val.find('e') != -1:
+                        val = float(val)
+                    elif val.find('.') == -1:
+                        val = int(val)
+                    else:
+                        val = float(val)
+                except ValueError:
+                    pass
+
+                if param in job:
+                    # change to a list
+                    if type(job[param]) != list:
+                        job[param] = [job[param]]
+
+                    # append new value
+                    job[param].append(val)
                 else:
-                    val = float(val)
-            except ValueError:
-                pass
-
-            if param in job:
-                # change to a list
-                if type(job[param]) != list:
-                    job[param] = [job[param]]
-
-                # append new value
-                job[param].append(val)
-            else:
-                job[param] = val
+                    job[param] = val
 
         print(job)
 

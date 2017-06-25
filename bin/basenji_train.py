@@ -9,7 +9,7 @@ import tensorflow as tf
 
 import basenji.dna_io
 import basenji.batcher
-import basenji.seqnet
+import basenji.seqnn
 
 '''
 basenji_train.py
@@ -72,7 +72,7 @@ def main():
     job['rate_drop'] = job.get('rate_drop', 3)
 
     t0 = time.time()
-    dr = basenji.seqnet.SeqNet()
+    dr = basenji.seqnn.SeqNN()
     dr.build(job)
     print('Model building time %f' % (time.time()-t0), flush=True)
 
@@ -141,8 +141,9 @@ def main():
                 train_loss = dr.train_epoch(sess, batcher_train, rc_epoch, train_writer)
 
                 # validate
-                valid_loss, valid_r2_list, _ = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc_avg=options.rc, down_sample=options.down_sample)
-                valid_r2 = valid_r2_list.mean()
+                valid_acc = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc_avg=options.rc, down_sample=options.down_sample)
+                valid_loss = valid_acc.loss
+                valid_r2 = valid_acc.r2().mean()
 
                 best_str = ''
                 if best_loss is None or valid_loss < best_loss:

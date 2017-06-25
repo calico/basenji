@@ -1,4 +1,5 @@
-__all__ = ['autoencoder', 'batcher', 'dna_io', 'genes', 'genome', 'gff', 'hyper', 'ops', 'seqnn', 'stream', 'vcf', 'visualization']
+__all__ = ['accuracy', 'autoencoder', 'batcher', 'dna_io', 'genes', 'genome', 'gff', 'hyper', 'ops', 'seqnn', 'stream', 'vcf', 'visualization']
+import basenji.accuracy
 import basenji.autoencoder
 import basenji.batcher
 import basenji.dna_io

@@ -79,6 +79,7 @@ def main():
         if 'test_na' in data_open:
             test_na = data_open['valid_na']
 
+    target_labels = [tl.decode('UTF-8') for tl in data_open['target_labels']]
 
     #######################################################
     # model parameters and placeholders
@@ -126,18 +127,26 @@ def main():
 
         # test
         t0 = time.time()
-        test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
+        # test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
+        test_acc = dr.test(sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
+        test_preds = test_acc.preds
         print('SeqNN test: %ds' % (time.time()-t0))
 
+        # compute stats
+        test_r2 = test_acc.r2()
+        test_log_r2 = test_acc.r2(log=True)
+        test_cor = test_acc.spearmanr()
+
         # print
-        print('Test Loss:      %7.5f' % test_loss)
+        print('Test Loss:      %7.5f' % test_acc.loss)
         print('Test R2:        %7.5f' % test_r2.mean())
+        print('Test log R2:    %7.5f' % test_log_r2.mean())
         print('Test SpearmanR: %7.5f' % test_cor.mean())
 
-        r2_out = open('%s/r2.txt' % options.out_dir, 'w')
+        acc_out = open('%s/acc.txt' % options.out_dir, 'w')
         for ti in range(len(test_r2)):
-            print('%4d  %.5f  %.5f' % (ti, test_r2[ti], test_cor[ti]), file=r2_out)
-        r2_out.close()
+            print('%4d  %7.5f  %.5f  %.5f  %.5f  %s' % (ti, test_acc.target_losses[ti], test_r2[ti], test_log_r2[ti], test_cor[ti], target_labels[ti]), file=acc_out)
+        acc_out.close()
 
         # if test targets are reconstructed, measure versus the truth
         if options.scent_file is not None:
@@ -437,10 +446,10 @@ def compute_full_accuracy(dr, model, test_preds, test_targets_full, out_dir, dow
 
     print('Test full R2: %7.5f' % test_r2_full.mean())
 
-    r2_out = open('%s/r2_full.txt' % out_dir, 'w')
+    acc_out = open('%s/acc_full.txt' % out_dir, 'w')
     for ti in range(len(test_r2_full)):
-        print('%4d  %.4f' % (ti,test_r2_full[ti]), file=r2_out)
-    r2_out.close()
+        print('%4d  %.4f' % (ti,test_r2_full[ti]), file=acc_out)
+    acc_out.close()
 
 
 ################################################################################

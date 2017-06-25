@@ -112,8 +112,8 @@ def main():
         saver.restore(sess, model_file)
 
         # test
-        test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
-
+        test_acc = dr.test(sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
+        test_preds = test_acc.preds
 
     #######################################################
     # compute replicate correlations

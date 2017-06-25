@@ -5,8 +5,6 @@ import sys
 import time
 
 import numpy as np
-from scipy.stats import spearmanr
-from sklearn.metrics import r2_score
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import create_global_step
 
@@ -17,7 +15,6 @@ class SeqNN:
     def __init__(self):
         pass
 
-
     def build(self, job):
         ###################################################
         # model parameters and placeholders
@@ -26,7 +23,10 @@ class SeqNN:
 
         # batches
         self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth))
-        self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
+        if self.target_classes == 1:
+            self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
+        else:
+            self.targets = tf.placeholder(tf.int32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
         self.targets_na = tf.placeholder(tf.bool, shape=(self.batch_size, self.batch_length//self.target_pool))
 
         print('Targets pooled by %d to length %d' % (self.target_pool, self.batch_length//self.target_pool))
@@ -49,8 +49,6 @@ class SeqNN:
             create_global_step()
             RMAX_decay = basenji.ops.adjust_max(6000, 60000, 1, 3, name='RMAXDECAY')
             DMAX_decay = basenji.ops.adjust_max(6000, 60000, 0, 5, name='DMAXDECAY')
-            # RMAX_decay = tf.convert_to_tensor(1, dtype=tf.float32)
-            # DMAX_decay = tf.convert_to_tensor(0, dtype=tf.float32)
 
         # training conditional
         self.is_training = tf.placeholder(tf.bool)
@@ -74,30 +72,25 @@ class SeqNN:
                 # convolution params
                 stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
                 kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
-                biases = tf.Variable(tf.zeros([self.cnn_filters[li]]), name='bias')
 
                 # maintain a pointer to the weights
                 self.filter_weights.append(kernel)
 
                 # convolution
-                conv = tf.nn.conv2d(cinput, kernel, [1, 1, 1, 1], padding='SAME')
-                print('Convolution w/ %d %dx%d filters' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li]))
+                conv = tf.nn.conv2d(cinput, kernel, [1, 1, self.cnn_strides[li], 1], padding='SAME')
+                print('Convolution w/ %d %dx%d filters strided by %d' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li], self.cnn_strides[li]))
 
                 # batch normalization
                 if not self.batch_renorm:
                     cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
                 else:
-                    cinput = basenji.ops.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
-                # cinput = basenji.ops.fused_batch_norm(conv, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                    cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 print('Batch normalization')
                 print('ReLU')
 
-                # nonlinearity (w/o batch norm)
-                # cinput = tf.nn.relu(tf.nn.bias_add(conv, biases), name='conv%d'%li)
-
                 # pooling
                 if self.cnn_pool[li] > 1:
-                    cinput = tf.nn.max_pool(cinput, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME', name='pool%d'%li)
+                    cinput = tf.nn.max_pool(cinput, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME')
                     print('Max pool %d' % self.cnn_pool[li])
 
                 # dropout
@@ -113,14 +106,9 @@ class SeqNN:
                 if self.save_reprs:
                     self.layer_reprs.append(cinput)
 
-
         if self.cnn_layers > 0:
-            # reshape for RNN
-            # dinput = tf.reshape(cinput, [self.batch_size, seq_length, seq_depth])
-
             # pass to dilated CNN
             dinput = cinput
-
         else:
             # pass input along (assuming it's actually heading towards RNN layers)
             dinput = self.inputs
@@ -143,7 +131,6 @@ class SeqNN:
                 # convolution params
                 stdev = 1./np.sqrt(self.dcnn_filters[li]*seq_depth)
                 kernel = tf.Variable(tf.random_uniform([1, self.dcnn_filter_sizes[li], seq_depth, self.dcnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
-                biases = tf.Variable(tf.zeros([self.dcnn_filters[li]]), name='bias')
 
                 # let the last convolution layer handle the rate 1 pass
                 drate = np.power(2,li+1)
@@ -156,9 +143,7 @@ class SeqNN:
                 if not self.batch_renorm:
                     doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
                 else:
-                    doutput = basenji.ops.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
-                # doutput = basenji.ops.fused_batch_norm(doutput, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
-
+                    doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 print('Batch normalization')
                 print('ReLU')
 
@@ -334,8 +319,7 @@ class SeqNN:
                 if not self.batch_renorm:
                     outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
                 else:
-                    outputs = basenji.ops.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
-                # outputs = basenji.ops.fused_batch_norm(outputs, renorm=True, RMAX=RMAX_decay, DMAX=DMAX_decay, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training)
+                    outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 print('Batch normalization')
                 print('ReLU')
 
@@ -367,6 +351,7 @@ class SeqNN:
         else:
             self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets, self.target_classes))
 
+        self.preds_op = tf.check_numerics(self.preds_op, 'Invalid predictions', name='preds_check')
 
         # repeat if pooling
         # pool_repeat = pool_preds // self.target_pool
@@ -474,13 +459,36 @@ class SeqNN:
         # set NaN's to zero
         # self.loss_op = tf.boolean_mask(self.loss_op, tf.logical_not(self.targets_na[:,tstart:tend]))
 
-        # all lossses must be reduced
+        self.loss_op = tf.check_numerics(self.loss_op, 'Invalid loss', name='loss_check')
+
+        # reduce lossses by batch and position
+        self.loss_op = tf.reduce_mean(self.loss_op, axis=[0,1], name='target_loss')
+        self.loss_adhoc = tf.reduce_mean(self.loss_adhoc, axis=[0,1], name='target_loss_adhoc')
+        tf.summary.histogram('target_loss', self.loss_op)
+        for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
+            tf.summary.scalar('loss_t%d'%ti, self.loss_op[ti])
+        self.target_losses = self.loss_op
+        self.target_losses_adhoc = self.loss_adhoc
+
+        # define target sigmas
+        self.target_sigmas = tf.get_variable('target_sigmas', shape=[self.num_targets], initializer=tf.constant_initializer(2), dtype=tf.float32)
+        self.target_sigmas = tf.nn.softplus(tf.clip_by_value(self.target_sigmas,-50,50))
+        tf.summary.histogram('target_sigmas', self.target_sigmas)
+        for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
+            tf.summary.scalar('sigma_t%d'%ti, self.target_sigmas[ti])
+        # self.target_sigmas = tf.ones(self.num_targets) / 2.
+
+        # dot losses target sigmas
+        self.loss_op = self.loss_op / (2*self.target_sigmas)
+        self.loss_adhoc = self.loss_adhoc / (2*self.target_sigmas)
+
+        # fully reduce
         self.loss_op = tf.reduce_mean(self.loss_op, name='loss')
         self.loss_adhoc = tf.reduce_mean(self.loss_adhoc, name='loss_adhoc')
 
         # add extraneous terms
-        self.loss_op += norm_stabilizer
-        self.loss_adhoc += norm_stabilizer
+        self.loss_op += norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_adhoc += norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
 
         # track
         tf.summary.scalar('loss', self.loss_op)
@@ -1102,6 +1110,7 @@ class SeqNN:
         self.cnn_filter_sizes = np.atleast_1d(job.get('cnn_filter_sizes', []))
         self.cnn_layers = len(self.cnn_filters)
         self.cnn_pool = layer_extend(job.get('cnn_pool', []), 1, self.cnn_layers)
+        self.cnn_strides = layer_extend(job.get('cnn_strides', []), 1, self.cnn_layers)
 
         ###################################################
         # dilated CNN params
@@ -1159,7 +1168,7 @@ class SeqNN:
         self.save_reprs = job.get('save_reprs', False)
 
 
-    def test(self, sess, batcher, rc_avg=True, mc_n=0, return_preds=False, down_sample=1):
+    def test(self, sess, batcher, rc_avg=True, mc_n=0, down_sample=1):
         ''' Compute model accuracy on a test set.
 
         Args:
@@ -1167,16 +1176,14 @@ class SeqNN:
           batcher:      Batcher object to provide data
           rc_avg:       Perform half the iterations on the rc seq and average.
           mc_n:         Monte Carlo iterations
-          return_preds: Bool indicating whether to return predictions
           down_sample:  Int specifying to consider uniformly spaced sampled positions
 
         Returns:
-          mean_loss:    Mean loss across targets
-          mean_r2:      Mean R^2 across targets
-          preds:        Predictions
+          acc:          Accuracy object
         '''
 
         batch_losses = []
+        batch_target_losses = []
 
         # determine non-buffer region
         buf_start = self.batch_buffer // self.target_pool
@@ -1215,7 +1222,7 @@ class SeqNN:
             fd[self.targets_na] = NAb
 
             # initialize accumulator
-            preds_batch, targets_batch, loss_batch = sess.run([self.preds_op, self.targets_op, self.loss_op], feed_dict=fd)
+            preds_batch, targets_batch, loss_batch, target_losses_batch = sess.run([self.preds_op, self.targets_op, self.loss_op, self.target_losses], feed_dict=fd)
 
             if mc_n > 0:
                 # accumulate predictions
@@ -1241,7 +1248,7 @@ class SeqNN:
 
                 # recompute loss
                 fd[self.preds_adhoc] = preds_batch
-                loss_batch = sess.run(self.loss_adhoc, feed_dict=fd)
+                loss_batch, target_losses_batch = sess.run([self.loss_adhoc, self.target_losses_adhoc], feed_dict=fd)
 
             elif rc_avg:
                 # compute reverse complement prediction
@@ -1254,14 +1261,23 @@ class SeqNN:
 
                 # recompute loss
                 fd[self.preds_adhoc] = preds_batch
-                loss_batch = sess.run(self.loss_adhoc, feed_dict=fd)
+                loss_batch, target_losses_batch = sess.run([self.loss_adhoc, self.target_losses_adhoc], feed_dict=fd)
 
             # accumulate predictions and targets
-            preds[si:si+Nb,:,:] = preds_batch[:Nb,ds_indexes,:]
-            targets[si:si+Nb,:,:] = targets_batch[:Nb,ds_indexes,:]
+            if preds_batch.ndim == 3:
+                preds[si:si+Nb,:,:] = preds_batch[:Nb,ds_indexes,:]
+                targets[si:si+Nb,:,:] = targets_batch[:Nb,ds_indexes,:]
+            else:
+                for qi in range(preds_batch.shape[3]):
+                    # TEMP
+                    self.quantile_means = np.geomspace(0.1, 256, 16)
+                    preds[si:si+Nb,:,:] = np.dot(preds_batch[:Nb,ds_indexes,:,:], self.quantile_means)
+                    # targets[si:si+Nb,:,:] = np.dot(targets_batch[:Nb,ds_indexes,:,:], self.quantile_means)
+                    targets[si:si+Nb,:,:] = self.quantile_means[targets_batch[:Nb,ds_indexes,:]-1]
 
             # accumulate loss
             batch_losses.append(loss_batch)
+            batch_target_losses.append(target_losses_batch)
 
             # update sequence index
             si += Nb
@@ -1272,27 +1288,14 @@ class SeqNN:
         # reset batcher
         batcher.reset()
 
-        # compute R2 per target
-        r2 = np.zeros(self.num_targets)
-        cor = np.zeros(self.num_targets)
-        for ti in range(self.num_targets):
-            preds_ti = preds[np.logical_not(targets_na),ti]
-            targets_ti = targets[np.logical_not(targets_na),ti]
+        # mean across batches
+        batch_losses = np.mean(batch_losses)
+        batch_target_losses = np.array(batch_target_losses).mean(axis=0)
 
-            # compute R2
-            tmean = targets_ti.mean(dtype='float64')
-            tvar = (targets_ti-tmean).var(dtype='float64')
-            pvar = (targets_ti-preds_ti).var(dtype='float64')
-            r2[ti] = 1.0 - pvar/tvar
+        # instantiate accuracy object
+        acc = basenji.accuracy.Accuracy(targets, preds, targets_na, batch_losses, batch_target_losses)
 
-            # compute Spearman correlation
-            scor, _ = spearmanr(targets_ti, preds_ti)
-            cor[ti] = scor
-
-        if return_preds:
-            return np.mean(batch_losses), r2, cor, preds
-        else:
-            return np.mean(batch_losses), r2, cor
+        return acc
 
 
     def train_epoch(self, sess, batcher, rc=False, sum_writer=None):

@@ -417,8 +417,12 @@ class SeqNN:
         elif self.loss == 'negative_binomial':
             # define overdispersion alphas
             self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
-            self.alphas = tf.exp(tf.clip_by_value(self.alphas,-50,50))
+            self.alphas = tf.softplus(tf.clip_by_value(self.alphas,-50,50))
             tf.summary.histogram('alphas', self.alphas)
+            for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
+                tf.summary.scalar('alpha_t%d'%ti, self.alphas[ti])
+
+            # compute w/ inverse
             k = 1. / self.alphas
 
             # expand k
@@ -488,24 +492,26 @@ class SeqNN:
         self.target_losses_adhoc = self.loss_adhoc
 
         # define target sigmas
+        '''
         self.target_sigmas = tf.get_variable('target_sigmas', shape=[self.num_targets], initializer=tf.constant_initializer(2), dtype=tf.float32)
         self.target_sigmas = tf.nn.softplus(tf.clip_by_value(self.target_sigmas,-50,50))
         tf.summary.histogram('target_sigmas', self.target_sigmas)
         for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
             tf.summary.scalar('sigma_t%d'%ti, self.target_sigmas[ti])
         # self.target_sigmas = tf.ones(self.num_targets) / 2.
+        '''
 
         # dot losses target sigmas
-        self.loss_op = self.loss_op / (2*self.target_sigmas)
-        self.loss_adhoc = self.loss_adhoc / (2*self.target_sigmas)
+        # self.loss_op = self.loss_op / (2*self.target_sigmas)
+        # self.loss_adhoc = self.loss_adhoc / (2*self.target_sigmas)
 
         # fully reduce
         self.loss_op = tf.reduce_mean(self.loss_op, name='loss')
         self.loss_adhoc = tf.reduce_mean(self.loss_adhoc, name='loss_adhoc')
 
         # add extraneous terms
-        self.loss_op += weights_regularizers + norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
-        self.loss_adhoc += weights_regularizers + norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_op += weights_regularizers + norm_stabilizer # + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_adhoc += weights_regularizers + norm_stabilizer # + tf.reduce_mean(tf.log(self.target_sigmas))
 
         # track
         tf.summary.scalar('loss', self.loss_op)

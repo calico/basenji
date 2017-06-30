@@ -58,6 +58,8 @@ class SeqNN:
         ###################################################
         seq_length = self.batch_length
         seq_depth = self.seq_depth
+
+        weights_regularizers = 0
         self.layer_reprs = []
         self.filter_weights = []
 
@@ -72,6 +74,10 @@ class SeqNN:
                 # convolution params
                 stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
                 kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
+
+                # regularize
+                if self.cnn_l2[li] > 0:
+                    weights_regularizers += self.cnn_l2[li]*tf.reduce_mean(tf.nn.l2_loss(kernel))
 
                 # maintain a pointer to the weights
                 self.filter_weights.append(kernel)
@@ -131,6 +137,10 @@ class SeqNN:
                 # convolution params
                 stdev = 1./np.sqrt(self.dcnn_filters[li]*seq_depth)
                 kernel = tf.Variable(tf.random_uniform([1, self.dcnn_filter_sizes[li], seq_depth, self.dcnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
+
+                # regularize
+                if self.dcnn_l2[li] > 0:
+                    weights_regularizers += self.dcnn_l2[li]*tf.reduce_mean(tf.nn.l2_loss(kernel))
 
                 # let the last convolution layer handle the rate 1 pass
                 drate = np.power(2,li+1)
@@ -312,6 +322,10 @@ class SeqNN:
                 full_weights = tf.get_variable(name='weights', shape=[seq_depth, self.full_units[li]], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
                 full_biases = tf.Variable(tf.zeros(self.full_units), name='bias')
 
+                # regularize
+                if self.full_l2[li] > 0:
+                    weights_regularizers += self.full_l2[li]*tf.reduce_mean(tf.nn.l2_loss(full_weights))
+
                 outputs = tf.matmul(outputs, full_weights) + full_biases
                 print('Linear transformation %dx%d' % (seq_depth, self.full_units[li]))
 
@@ -340,6 +354,9 @@ class SeqNN:
             # linear transform
             final_weights = tf.get_variable(name='weights', shape=[seq_depth, self.num_targets*self.target_classes], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
             final_biases = tf.Variable(tf.zeros(self.num_targets*self.target_classes), name='bias')
+
+            if self.final_l1 > 0:
+                weights_regularizers += self.final_l1*tf.reduce_mean(tf.abs(final_weights))
 
             self.preds_op = tf.matmul(outputs, final_weights) + final_biases
             print('Linear transform %dx%dx%d' % (seq_depth, self.num_targets, self.target_classes))
@@ -385,8 +402,8 @@ class SeqNN:
             self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
 
         elif self.link == 'softmax':
-            # performed in the loss function
-            pass
+            # performed in the loss function, but saving probabilities
+            self.preds_prob = tf.nn.softmax(self.preds_op)
 
         # choose loss
         if self.loss == 'gaussian':
@@ -487,8 +504,8 @@ class SeqNN:
         self.loss_adhoc = tf.reduce_mean(self.loss_adhoc, name='loss_adhoc')
 
         # add extraneous terms
-        self.loss_op += norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
-        self.loss_adhoc += norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_op += weights_regularizers + norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_adhoc += weights_regularizers + norm_stabilizer + tf.reduce_mean(tf.log(self.target_sigmas))
 
         # track
         tf.summary.scalar('loss', self.loss_op)
@@ -496,6 +513,10 @@ class SeqNN:
         # define optimization
         if self.optimization == 'adam':
             self.opt = tf.train.AdamOptimizer(self.learning_rate, beta1=self.adam_beta1, beta2=self.adam_beta2, epsilon=self.adam_eps)
+        elif self.optimization == 'rmsprop':
+            self.opt = tf.train.RMSPropOptimizer(self.learning_rate, decay=self.decay, momentum=self.momentum)
+        elif self.optimization in ['sgd','momentum']:
+            self.opt = tf.train.MomentumOptimizer(self.learning_rate, momentum=self.momentum)
         else:
             print('Cannot recognize optimization algorithm %s' % self.optimization)
             exit(1)
@@ -505,8 +526,6 @@ class SeqNN:
         if self.grad_clip is None:
             clip_gvs =  self.gvs
         else:
-            # self.gvs = [(tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v) for g, v in self.gvs]
-
             # batch norm introduces these None values that we have to dodge
             clip_gvs = []
             for i in range(len(self.gvs)):
@@ -1100,6 +1119,8 @@ class SeqNN:
         self.adam_beta1 = job.get('adam_beta1', 0.9)
         self.adam_beta2 = job.get('adam_beta2', 0.999)
         self.adam_eps = job.get('adam_eps', 1e-8)
+        self.momentum = job.get('momentum', 0)
+        self.decay = job.get('decay', 0.9)
         self.optimization = job.get('optimization', 'adam').lower()
         self.grad_clip = job.get('grad_clip', None)
 
@@ -1151,6 +1172,14 @@ class SeqNN:
         self.dcnn_dropout = layer_extend(job.get('dcnn_dropout', []), 0, self.dcnn_layers)
         self.rnn_dropout = layer_extend(job.get('rnn_dropout', []), 0, self.rnn_layers)
         self.full_dropout = layer_extend(job.get('full_dropout', []), 0, self.full_layers)
+
+        self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0, self.cnn_layers)
+        self.dcnn_l2 = layer_extend(job.get('dcnn_l2', []), 0, self.dcnn_layers)
+        self.rnn_l2 = layer_extend(job.get('rnn_l2', []), 0, self.rnn_layers)
+        self.full_l2 = layer_extend(job.get('full_l2', []), 0, self.full_layers)
+
+        self.final_l1 = job.get('final_l1', 0)
+
         self.norm_stabilizer = layer_extend(job.get('norm_stabilizer', []), 0, self.rnn_layers)
         self.batch_renorm = bool(job.get('batch_renorm', False))
         self.batch_renorm = bool(job.get('renorm', self.batch_renorm))
@@ -1269,10 +1298,17 @@ class SeqNN:
                 targets[si:si+Nb,:,:] = targets_batch[:Nb,ds_indexes,:]
             else:
                 for qi in range(preds_batch.shape[3]):
-                    # TEMP
+                    # TEMP, ideally this will be in the HDF5 and set previously
                     self.quantile_means = np.geomspace(0.1, 256, 16)
-                    preds[si:si+Nb,:,:] = np.dot(preds_batch[:Nb,ds_indexes,:,:], self.quantile_means)
-                    # targets[si:si+Nb,:,:] = np.dot(targets_batch[:Nb,ds_indexes,:,:], self.quantile_means)
+
+                    # softmax
+                    preds_batch_norm = np.expand_dims(np.sum(np.exp(preds_batch[:Nb,ds_indexes,:,:]),axis=3),axis=3)
+                    pred_probs_batch = np.exp(preds_batch[:Nb,ds_indexes,:,:]) / preds_batch_norm
+
+                    # expectation over quantile medians
+                    preds[si:si+Nb,:,:] = np.dot(pred_probs_batch, self.quantile_means)
+
+                    # compare to quantile median
                     targets[si:si+Nb,:,:] = self.quantile_means[targets_batch[:Nb,ds_indexes,:]-1]
 
             # accumulate loss

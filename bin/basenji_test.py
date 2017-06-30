@@ -148,6 +148,9 @@ def main():
             print('%4d  %7.5f  %.5f  %.5f  %.5f  %s' % (ti, test_acc.target_losses[ti], test_r2[ti], test_log_r2[ti], test_cor[ti], target_labels[ti]), file=acc_out)
         acc_out.close()
 
+        # clean up
+        del test_acc
+
         # if test targets are reconstructed, measure versus the truth
         if options.scent_file is not None:
             compute_full_accuracy(dr, model, test_preds, test_targets_full, options.out_dir, options.down_sample)

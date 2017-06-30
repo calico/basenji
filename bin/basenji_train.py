@@ -144,6 +144,7 @@ def main():
                 valid_acc = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc_avg=options.rc, down_sample=options.down_sample)
                 valid_loss = valid_acc.loss
                 valid_r2 = valid_acc.r2().mean()
+                del valid_acc
 
                 best_str = ''
                 if best_loss is None or valid_loss < best_loss:

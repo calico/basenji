@@ -417,7 +417,7 @@ class SeqNN:
         elif self.loss == 'negative_binomial':
             # define overdispersion alphas
             self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
-            self.alphas = tf.softplus(tf.clip_by_value(self.alphas,-50,50))
+            self.alphas = tf.nn.softplus(tf.clip_by_value(self.alphas,-50,50))
             tf.summary.histogram('alphas', self.alphas)
             for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
                 tf.summary.scalar('alpha_t%d'%ti, self.alphas[ti])

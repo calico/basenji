@@ -3,4 +3,6 @@ basenji/*.pyc
 build/
 dist/
 basenji.egg-info/
-basenji/__pycache__/
+*/__pycache__/
+.DS_Store
+*/.DS_Store

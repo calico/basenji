@@ -14,7 +14,6 @@ import seaborn as sns
 import tensorflow as tf
 
 import basenji
-import fdr
 
 ################################################################################
 # basenji_test_reps.py

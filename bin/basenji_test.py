@@ -21,7 +21,6 @@ from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, av
 import tensorflow as tf
 
 import basenji
-import fdr
 
 ################################################################################
 # basenji_test.py
@@ -179,7 +178,7 @@ def main():
         # call peaks
         test_targets_ti_lambda = np.mean(test_targets_ti_flat)
         test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
-        test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
+        test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
         test_targets_peaks = test_targets_qvals < 0.01
 
         if test_targets_peaks.sum() == 0:
@@ -289,7 +288,7 @@ def main():
             # call peaks
             test_targets_ti_lambda = np.mean(test_targets_ti_flat)
             test_targets_pvals = 1 - poisson.cdf(np.round(test_targets_ti_flat)-1, mu=test_targets_ti_lambda)
-            test_targets_qvals = np.array(fdr.ben_hoch(test_targets_pvals))
+            test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
             test_targets_peaks = test_targets_qvals < 0.01
             test_targets_peaks_str = np.where(test_targets_peaks, 'Peak', 'Background')
 
@@ -332,6 +331,28 @@ def main():
 
 
     data_open.close()
+
+
+def ben_hoch(p_values):
+    ''' Convert the given p-values to q-values using Benjamini-Hochberg FDR. '''
+    m = len(p_values)
+
+    # attach original indexes to p-values
+    p_k = [(p_values[k],k) for k in range(m)]
+
+    # sort by p-value
+    p_k.sort()
+
+    # compute q-value and attach original index to front
+    k_q = [(p_k[i][1],p_k[i][0]*m//(i+1)) for i in range(m)]
+
+    # re-sort by original index
+    k_q.sort()
+
+    # drop original indexes
+    q_values = [k_q[k][1] for k in range(m)]
+
+    return q_values
 
 
 def bigwig_open(bw_file, genome_file):

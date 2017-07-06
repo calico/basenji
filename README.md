@@ -4,7 +4,7 @@
 #### Sequential regulatory activity predictions with deep convolutional neural networks.
 
 Basenji provides researchers with tools to:
-1. Train deep convolutional neural networks to predict regulatory activity along potentially very long DNA sequences
+1. Train deep convolutional neural networks to predict regulatory activity along very long chromosome-scale DNA sequences
 2. Score variants according to their predicted influence on regulatory activity across the sequence and/or for specific genes.
 3. Annotate the distal regulatory elements that influence gene activity.
 4. Annotate the specific nucleotides that drive regulatory element function.
@@ -12,16 +12,17 @@ Basenji provides researchers with tools to:
 ---------------------------------------------------------------------------------------------------
 ### Basset successor
 
-I'll contain to maintain the predecessor to this package--[Basset](https://github.com/davek44/Basset). However, this package offers numerous improvements and generalizations to that method. I'll be using this codebase for all of my ongoing work.
+This codebase offers numerous improvements and generalizations to its predecessor [Basset](https://github.com/davek44/Basset), and I'll be using it for all of my ongoing work. Here are the salient changes.
 
-1. Basenji is built on TensorFlow, while Basset was written in Torch. TensorFlow offers myriad benefits, including distributed computing and a strong developer community.
-2. Basenji makes predictions in bins across the sequences you provide. You could replicate Basset by simply providing smaller sequences and binning the target for the entire sequence.
-3. Basenji intends to predict quantitative signal using regression loss functions, rather than binary signal using classification loss functions. But the classification mode is still present.
+1. Basenji makes predictions in bins across the sequences you provide. You could replicate Basset's peak classification by simply providing smaller sequences and binning the target for the entire sequence.
+2. Basenji intends to predict quantitative signal using regression loss functions, rather than binary signal using classification loss functions.
+3. Basenji is built on [TensorFlow](https://www.tensorflow.org/), which offers myriad benefits, including distributed computing and a large and adaptive developer community.
+
 
 ---------------------------------------------------------------------------------------------------
 ### Installation
 
-Basenji has a variety of scientific computing dependencies. I highly recommend the [Anaconda distribution](https://www.continuum.io/downloads). The only library missing is pysam, which you can install through Anaconda or manually from [here](https://code.google.com/p/pysam/). If you don't want to use Anaconda, check out the full list of dependencies [here](docs/requirements.md).
+Basenji has a variety of scientific computing dependencies, which you can see within the setup.py file. I highly recommend the [Anaconda python distribution](https://www.continuum.io/downloads), which contains most of them.
 
 Once you have the dependencies, run
 ```
@@ -36,7 +37,7 @@ To verify the install, launch python and run
 ---------------------------------------------------------------------------------------------------
 ### Documentation
 
-Basenji is under active development, so don't hesitate to ask for clarifications or additional features, documentation, or tutorials.
+At this stage, Basenji is something in between personal research code and an accessible software for wide use. The primary challenge is uncertainty what the best role for this type of toolkit is going to be in functional genomics and statistical genetics. Thus, Basenji is under active development, and I encourage anyone to get in touch to relate your experience and request clarifications or additional features, documentation, or tutorials.
 
 - [File specifications](docs/file_specs.md)
   - [BED](docs/file_specs.md#bed)

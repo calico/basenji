@@ -11,8 +11,6 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 
-from deeplift.visualization import viz_sequence
-
 import basenji
 import basenji_sat
 
@@ -160,7 +158,6 @@ def main():
                 # sat_delta_ti_pos = sat_delta[:,:,ti].clip(0,None)
                 # sat_loss_4l = basenji_sat.expand_4l(sat_loss[:,ti], seqs_1hot[si])
                 # st_freq = basenji_sat.choose_subtick_frequency(options.satmut_len)
-                # viz_sequence.plot_weights_given_ax(ax=ax_logo, array=-sat_loss_4l, height_padding_factor=0.2, length_padding=.01*options.satmut_len, subticks_frequency=st_freq, highlight={})
 
                 # plot SAD
                 basenji_sat.plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])

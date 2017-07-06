@@ -16,8 +16,6 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 
-from deeplift.visualization import viz_sequence
-
 import basenji.dna_io
 from seq_logo import seq_logo
 
@@ -458,8 +456,6 @@ def plot_seqlogo(ax, seq_1hot, sat_loss_ti, sat_gain_ti):
 
     sat_loss_4l = expand_4l(sat_loss_ti, seq_1hot)
     sat_gain_4l = expand_4l(sat_gain_ti, seq_1hot)
-
-    # viz_sequence.plot_weights_given_ax(ax=ax, array=-sat_loss_4l, height_padding_factor=0.2, length_padding=.01*satmut_len, subticks_frequency=st_freq, highlight={})
 
     basenji.visualization.plot_weights_given_ax(ax=ax, array=-sat_loss_4l, highlight={})
     for axis in ['top','bottom','left','right']:

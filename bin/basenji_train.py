@@ -20,11 +20,10 @@ basenji_train.py
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <data_file>'
+    usage = 'usage: %prog [options] <params_file> <data_file>'
     parser = OptionParser(usage)
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-l', dest='learn_rate_drop', default=False, action='store_true', help='Drop learning rate when training loss stalls [Default: %default]')
-    parser.add_option('-m', dest='params_file', help='Model parameters')
     parser.add_option('--mc', dest='mc_n', default=0, type='int', help='Monte carlo test iterations [Default: %default]')
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
     parser.add_option('-r', dest='restart', help='Restart training this model')
@@ -34,10 +33,11 @@ def main():
     parser.add_option('-u', dest='summary', default=None, help='TensorBoard summary directory')
     (options,args) = parser.parse_args()
 
-    if len(args) != 1:
-    	parser.error('Must provide data file')
+    if len(args) != 2:
+    	parser.error('Must provide parameters and data files')
     else:
-    	data_file = args[0]
+        params_file = args[0]
+    	data_file = args[1]
 
     np.random.seed(options.seed)
 
@@ -62,7 +62,7 @@ def main():
     #######################################################
     # model parameters and placeholders
     #######################################################
-    job = basenji.dna_io.read_job_params(options.params_file)
+    job = basenji.dna_io.read_job_params(params_file)
 
     job['batch_length'] = train_seqs.shape[1]
     job['seq_depth'] = train_seqs.shape[2]

@@ -3,8 +3,8 @@ from optparse import OptionParser
 import copy, os, pdb, random, shutil, subprocess, time
 
 import h5py
-# import matplotlib
-# matplotlib.use('TkAgg')
+import matplotlib
+matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd

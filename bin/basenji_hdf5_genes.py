@@ -12,10 +12,9 @@ import pyBigWig
 import pysam
 
 import basenji
-from basenji_hdf5_single import bigwig_batch
 
 '''
-basenji_genes.py
+basenji_hdf5_genes.py
 
 Tile a set of genes and save the result in HDF5 for Basenji processing.
 

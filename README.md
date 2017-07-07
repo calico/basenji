@@ -37,27 +37,27 @@ To verify the install, launch python and run
 ---------------------------------------------------------------------------------------------------
 ### Documentation
 
-At this stage, Basenji is something in between personal research code and an accessible software for wide use. The primary challenge is uncertainty what the best role for this type of toolkit is going to be in functional genomics and statistical genetics. Thus, Basenji is under active development, and I encourage anyone to get in touch to relate your experience and request clarifications or additional features, documentation, or tutorials.
+At this stage, Basenji is something in between personal research code and accessible software for wide use. The primary challenge is uncertainty what the best role for this type of toolkit is going to be in functional genomics and statistical genetics. The computational requirements don't make it easy either. Thus, this package is under active development, and I encourage anyone to get in touch to relate your experience and request clarifications or additional features, documentation, or tutorials.
 
-- [File specifications](docs/file_specs.md)
-  - [BED](docs/file_specs.md#bed)
-  - [Table](docs/file_specs.md#table)
-  - [HDF5](docs/file_specs.md#hdf5)
-  - [Model](docs/file_specs.md#model)
 - [Preprocess](docs/preprocess.md)
-  - [preprocess_features.py](docs/preprocess.md#preprocess_features.py)
-  - [seq_hdf5.py](docs/preprocess.md#seq_hdf.py)
-  - [basset_sample.py](docs/preprocess.md#basset_sample.py)
-- [Learning](docs/learning.md)
-  - [basset_train.lua](docs/learning.md#train)
-  - [basset_test.lua](docs/learning.md#test)
-  - [basset_predict.lua](docs/learning.md#predict)
-- [Visualization](docs/visualization.md)
-  - [basset_motifs.py](docs/visualization.md#motifs)
-  - [basset_motifs_infl.py](docs/visualization.md#infl)
-  - [basset_sat.py](docs/visualization.md#sat)
-  - [basset_sat_vcf.py](docs/visualization.md#sat_vcf)
-  - [basset_sad.py](docs/visualization.md#sad)
+  - [bam_cov.py](docs/preprocess.md#bam_cov.py)
+  - [basenji_hdf5_single.py](docs/preprocess.md#basenji_single.py)
+  - [basenji_hdf5_cluster.py](docs/preprocess.md#basenji_cluster.py)
+  - [basenji_genes.py](docs/preprocess.md#basenji_genes.py)
+- [Train](docs/train.md)
+  - [basenji_train.py](docs/train.md#train)
+- [Accuracy](docs/accuracy.md)
+  - [basenji_test.py](docs/accuracy.md#test)
+  - [basenji_test_genes.py](docs/accuracy.md#test_genes)
+  - [basenji_predict.py](docs/accuracy.md#predict)
+- [Regulatory element analysis](docs/regulatory.md)
+  - [basenji_motifs.py](docs/regulatory.md#motifs)
+  - [basenji_sat.py](docs/regulatory.md#sat)
+  - [basenji_map.py](docs/regulatory.md#map)
+- [Variant analysis](docs/variants.md)
+  - [basenji_sad.py](docs/variants.md#sad)
+  - [basenji_sed.py](docs/variants.md#sed)
+  - [basenji_sat_vcf.py](docs/variants.md#sat_vcf)
 
 ---------------------------------------------------------------------------------------------------
 ### Tutorials
@@ -65,9 +65,7 @@ At this stage, Basenji is something in between personal research code and an acc
 These are a work in progress, so forgive incompleteness for the moment. If there's a task that you're interested in that I haven't included, feel free to post it as an Issue at the top.
 
 - Preprocess
-  - [Prepare the ENCODE and Epigenomics Roadmap compendium from scratch.](tutorials/prepare_compendium.ipynb)
-  - [Prepare new dataset(s) by adding to a compendium.](tutorials/new_data_many.ipynb)
-  - [Prepare new dataset(s) in isolation.](tutorials/new_data_iso.ipynb)
+  - [Preprocess new datasets for training.](tutorials/preprocess.ipynb)
 - Train
   - [Train a model.](tutorials/train.md)
 - Test

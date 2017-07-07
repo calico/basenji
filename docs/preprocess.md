@@ -4,6 +4,7 @@
 ## Preprocess
 
 <a name="bam_cov.py"/>
+
 ### bam_cov.py
 
 Transform BAM alignments to a normalized BigWig (or HDF5-stored) coverage track.
@@ -28,6 +29,7 @@ Combine a set of coverage tracks stored as BigWig or HDF5 into a single file for
 
 --------------------------------------------------------------------------------
 <a name="basenji_hdf5_cluster.py"/>
+
 ### basenji_hdf5_cluster.py
 
 Combine a set of coverage tracks stored as BigWig or HDF5 into a single file for training and testing, parallelizing over samples on our SLURM cluster.

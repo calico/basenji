@@ -4,6 +4,7 @@
 ## Regulatory element analysis
 
 <a name="motifs"/>
+
 ### basenji_motifs.py
 
 Perform motif analysis on sequences recognized by the first convolution layer filters.
@@ -16,6 +17,7 @@ Perform motif analysis on sequences recognized by the first convolution layer fi
 
 --------------------------------------------------------------------------------
 <a name="sat"/>
+
 ### basenji_sat.py
 
 Perform an in silico saturated mutagenesis of the given test sequences.
@@ -28,6 +30,7 @@ Perform an in silico saturated mutagenesis of the given test sequences.
 
 --------------------------------------------------------------------------------
 <a name="map"/>
+
 ### basenji_map.py
 
 Visualize a sequence's prediction's gradients as a map of influence across the genomic region.

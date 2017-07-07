@@ -43,7 +43,7 @@ At this stage, Basenji is something in between personal research code and access
   - [bam_cov.py](docs/preprocess.md#bam_cov)
   - [basenji_hdf5_single.py](docs/preprocess.md#hdf5_single)
   - [basenji_hdf5_cluster.py](docs/preprocess.md#hdf5_cluster)
-  - [basenji_genes.py](docs/preprocess.md#basenji_genes.py)
+  - [basenji_hdf5_genes.py](docs/preprocess.md#hdf5_genes)
 - [Train](docs/train.md)
   - [basenji_train.py](docs/train.md#train)
 - [Accuracy](docs/accuracy.md)

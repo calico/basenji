@@ -3,7 +3,7 @@
 --------------------------------------------------------------------------------
 ## Preprocess
 
-<a name="bam_cov.py"/>
+<a name="bam_cov"/>
 
 ### bam_cov.py
 
@@ -16,7 +16,8 @@ Transform BAM alignments to a normalized BigWig (or HDF5-stored) coverage track.
 | hdf5_file | HDF5 | Output HDF5 file with train_in/train_out, test_in/test_out and many other keys. |
 
 --------------------------------------------------------------------------------
-<a name="basenji_hdf5_single.py"/>
+<a name="hdf5_single"/>
+
 ### basenji_hdf5_single.py
 
 Combine a set of coverage tracks stored as BigWig or HDF5 into a single file for training and testing, parallelizing over samples per-segment using multiprocessing on a single machine.
@@ -28,7 +29,7 @@ Combine a set of coverage tracks stored as BigWig or HDF5 into a single file for
 | hdf5_file | HDF5 | Output HDF5 file with train_in/train_out, test_in/test_out and many other keys. |
 
 --------------------------------------------------------------------------------
-<a name="basenji_hdf5_cluster.py"/>
+<a name="hdf5_cluster"/>
 
 ### basenji_hdf5_cluster.py
 
@@ -41,8 +42,9 @@ Combine a set of coverage tracks stored as BigWig or HDF5 into a single file for
 | hdf5_file | HDF5 | Output HDF5 file with train_in/train_out, test_in/test_out and many other keys. |
 
 --------------------------------------------------------------------------------
-<a name="basenji_genes.py"/>
-### basenji_genes.py
+<a name="hdf5_genes"/>
+
+### basenji_hdf5_genes.py
 
 Tile a set of genes and save the result in HDF5 for Basenji processing.
 

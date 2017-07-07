@@ -4,6 +4,7 @@
 ## Accuracy
 
 <a name="test"/>
+
 ### basenji_test.py
 
 Compute accuracy statistics for a trained model on a held out test set.
@@ -16,6 +17,7 @@ Compute accuracy statistics for a trained model on a held out test set.
 
 --------------------------------------------------------------------------------
 <a name="test_genes"/>
+
 ### basenji_test_genes.py
 
 Compute accuracy statistics for a trained model at gene TSSs.

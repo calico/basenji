@@ -4,6 +4,7 @@
 ## Variant analysis
 
 <a name="sad"/>
+
 ### basenji_sad.py
 
 Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
@@ -16,6 +17,7 @@ Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
 
 --------------------------------------------------------------------------------
 <a name="sed"/>
+
 ### basenji_sed.py
 
 Compute SNP expression difference (SED) scores for SNPs in a VCF file.
@@ -29,6 +31,7 @@ Compute SNP expression difference (SED) scores for SNPs in a VCF file.
 
 --------------------------------------------------------------------------------
 <a name="sat_vcf"/>
+
 ### basenji_sat_vcf.py
 
 Perform an in silico saturated mutagenesis of the sequences surrounding SNPS in a VCF file.

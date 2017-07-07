@@ -1,52 +1,28 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
-#
+# Copyright 2017 Calico LLC
+
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
+
+#     https://www.apache.org/licenses/LICENSE-2.0
+
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
-"""Contains convenience wrappers for typical Neural Network TensorFlow layers.
+# =========================================================================
 
-   Additionally it maintains a collection with update_ops that need to be
-   updated after the ops have been computed, for exmaple to update moving means
-   and moving variances of batch_norm.
-
-   Ops that have different behavior during training or eval have an is_training
-   parameter. Additionally Ops that contain variables.variable have a trainable
-   parameter, which control if the ops variables are trainable or not.
-"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
 
-from tensorflow.contrib.framework.python.ops import add_arg_scope
-from tensorflow.contrib.framework.python.ops import variables
-from tensorflow.contrib.layers.python.layers import utils
-from tensorflow.contrib.layers.python.layers.layers import _build_variable_getter, _add_variable_to_collections
-from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.framework import tensor_shape
-from tensorflow.python.layers import base
-from tensorflow.python.layers import utils as lutils
 from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import init_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops.rnn import _reverse_seq
-from tensorflow.python.training import moving_averages
-
-DATA_FORMAT_NCHW = 'NCHW'
-DATA_FORMAT_NHWC = 'NHWC'
 
 ################################################################################
 # shiyemin code - https://github.com/tensorflow/tensorflow/issues/7476

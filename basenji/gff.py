@@ -1,11 +1,20 @@
-#!/usr/bin/env python
+# Copyright 2017 Calico LLC
 
-################################################################################
-# gtf_kv
-#
-# Convert the last gtf section of key/value pairs into a dict.
-################################################################################
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     https://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =========================================================================
+
 def gtf_kv(s):
+    ''' Convert the last gtf section of key/value pairs into a dict. '''
     d = {}
 
     a = s.split(';')
@@ -28,12 +37,8 @@ def gtf_kv(s):
     return d
 
 
-################################################################################
-# t2g
-#
-# Given a gtf file, return a mapping of transcript to gene id's
-################################################################################
 def t2g(gtf_file):
+    ''' Given a gtf file, return a mapping of transcript to gene id's. '''
     d = {}
 
     gtf_in = open(gtf_file)
@@ -52,15 +57,8 @@ def t2g(gtf_file):
     return d
 
 
-################################################################################
-# read_genes
-#
-# Parse a gtf file and return a set of Gene objects in a hash keyed by the
-# id given.
-#
-# Note: assumes exons only.
-################################################################################
 def read_genes(gtf_file, key_id='transcript_id', sort=True):
+    ''' Parse a gtf file and return a set of Gene objects in a hash keyed by the id given.'''
     genes = {}
 
     gtf_in = open(gtf_file)

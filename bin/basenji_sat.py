@@ -472,7 +472,7 @@ def plot_seqlogo(ax, seq_1hot, sat_loss_ti, sat_gain_ti):
     sat_loss_4l = expand_4l(sat_loss_ti, seq_1hot)
     sat_gain_4l = expand_4l(sat_gain_ti, seq_1hot)
 
-    basenji.visualization.plot_weights_given_ax(ax=ax, array=-sat_loss_4l, highlight={})
+    basenji.plots.plot_weights_given_ax(ax=ax, array=-sat_loss_4l, highlight={})
     for axis in ['top','bottom','left','right']:
         ax.spines[axis].set_linewidth(0.5)
 

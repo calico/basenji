@@ -40,16 +40,15 @@ To verify the install, launch python and run
 At this stage, Basenji is something in between personal research code and accessible software for wide use. The primary challenge is uncertainty what the best role for this type of toolkit is going to be in functional genomics and statistical genetics. The computational requirements don't make it easy either. Thus, this package is under active development, and I encourage anyone to get in touch to relate your experience and request clarifications or additional features, documentation, or tutorials.
 
 - [Preprocess](docs/preprocess.md)
-  - [bam_cov.py](docs/preprocess.md#bam_cov.py)
-  - [basenji_hdf5_single.py](docs/preprocess.md#basenji_single.py)
-  - [basenji_hdf5_cluster.py](docs/preprocess.md#basenji_cluster.py)
+  - [bam_cov.py](docs/preprocess.md#bam_cov)
+  - [basenji_hdf5_single.py](docs/preprocess.md#hdf5_single)
+  - [basenji_hdf5_cluster.py](docs/preprocess.md#hdf5_cluster)
   - [basenji_genes.py](docs/preprocess.md#basenji_genes.py)
 - [Train](docs/train.md)
   - [basenji_train.py](docs/train.md#train)
 - [Accuracy](docs/accuracy.md)
   - [basenji_test.py](docs/accuracy.md#test)
   - [basenji_test_genes.py](docs/accuracy.md#test_genes)
-  - [basenji_predict.py](docs/accuracy.md#predict)
 - [Regulatory element analysis](docs/regulatory.md)
   - [basenji_motifs.py](docs/regulatory.md#motifs)
   - [basenji_sat.py](docs/regulatory.md#sat)
@@ -71,6 +70,5 @@ These are a work in progress, so forgive incompleteness for the moment. If there
 - Test
   - [Test a trained model.](tutorials/test.ipynb)
 - Visualization
-  - [Study the motifs learned by the model.](tutorials/motifs.ipynb)
   - [Execute an in silico saturated mutagenesis](tutorials/sat_mut.ipynb)
-  - [Compute SNP Accessibility Difference profiles.](tutorials/sad.ipynb)
+  - [Compute SNP Activity Difference (SAD) and Expression Difference (SED) scores.](tutorials/sad.ipynb)

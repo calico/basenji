@@ -19,7 +19,7 @@ from basenji_test import bigwig_open
 '''
 basenji_sed.py
 
-Compute SNP expression difference scores for variants in a VCF file.
+Compute SNP expression difference (SED) scores for SNPs in a VCF file.
 '''
 
 ################################################################################

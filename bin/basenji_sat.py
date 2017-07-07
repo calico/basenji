@@ -52,7 +52,7 @@ def main():
     else:
         params_file = args[0]
         model_file = args[1]
-        test_file = args[2]
+        input_file = args[2]
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
@@ -62,7 +62,7 @@ def main():
     #################################################################
     # parse input file
     #################################################################
-    seqs, seqs_1hot, targets = parse_input(test_file, options.sample)
+    seqs, seqs_1hot, targets = parse_input(input_file, options.sample)
 
     # decide which targets to obtain
     if options.targets == '-1':

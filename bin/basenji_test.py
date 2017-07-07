@@ -22,20 +22,22 @@ import tensorflow as tf
 
 import basenji
 
-################################################################################
-# basenji_test.py
-#
-# Notes
-#  -This probably needs work for the pooled large sequence version. I tried to
-#   update the "full" comparison, but it's not tested. The notion of peak calls
-#   will need to completely change; we probably want to predict in each bin.
-################################################################################
+'''
+basenji_test.py
+
+Test the accuracy of a trained model.
+
+Notes
+ -This probably needs work for the pooled large sequence version. I tried to
+  update the "full" comparison, but it's not tested. The notion of peak calls
+  will need to completely change; we probably want to predict in each bin.
+'''
 
 ################################################################################
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
+    usage = 'usage: %prog [options] <params_file> <model_file> <test_hdf5_file>'
     parser = OptionParser(usage)
     parser.add_option('--ai', dest='accuracy_indexes', help='Comma-separated list of target indexes to make accuracy plots comparing true versus predicted values')
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
@@ -54,7 +56,7 @@ def main():
     else:
         params_file = args[0]
         model_file = args[1]
-        data_file = args[2]
+        test_hdf5_file = args[2]
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
@@ -62,7 +64,7 @@ def main():
     #######################################################
     # load data
     #######################################################
-    data_open = h5py.File(data_file)
+    data_open = h5py.File(test_hdf5_file)
 
     if not options.valid:
         test_seqs = data_open['test_in']

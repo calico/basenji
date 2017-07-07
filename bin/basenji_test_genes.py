@@ -28,7 +28,7 @@ from basenji_test_reps import infer_replicates
 '''
 basenji_test_genes.py
 
-Compare predicted to measured CAGE gene expression estimates.
+Compute accuracy statistics for a trained model at gene TSSs.
 '''
 
 ################################################################################

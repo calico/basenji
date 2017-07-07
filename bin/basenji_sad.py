@@ -8,9 +8,10 @@ import time
 import matplotlib
 matplotlib.use('PDF')
 import matplotlib.pyplot as plt
+import seaborn as sns
+
 import numpy as np
 import pysam
-import seaborn as sns
 import tensorflow as tf
 
 import basenji.dna_io
@@ -18,11 +19,11 @@ import basenji.vcf
 
 from basenji_test import bigwig_open
 
-################################################################################
-# basenji_sad.py
-#
-# Compute SNP Accessibility Difference (SAD) scores for SNPs in a VCF file.
-################################################################################
+'''
+basenji_sad.py
+
+Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
+'''
 
 ################################################################################
 # main

@@ -15,12 +15,12 @@ import tensorflow as tf
 
 import basenji
 
-################################################################################
-# basset_motifs.py
-#
-# Collect statistics and make plots to explore the first convolution layer
-# of the given model using the given sequences.
-################################################################################
+'''
+basenji_motifs.py
+
+Collect statistics and make plots to explore the first convolution layer
+of the given model using the given sequences.
+'''
 
 weblogo_opts = '-X NO -Y NO --errorbars NO --fineprint ""'
 weblogo_opts += ' -C "#CB2026" A A'

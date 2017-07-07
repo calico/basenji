@@ -2,7 +2,6 @@
 from optparse import OptionParser
 from collections import OrderedDict
 import math
-import multiprocessing
 import os
 import random
 import subprocess
@@ -137,7 +136,13 @@ def main():
         npy_file = '%s/%s' % (options.cluster_dir, target_label)
         if not os.path.isfile(npy_file) and not os.path.isfile('%s.npy'%npy_file):
             print(npy_file)
-            cmd = 'echo $HOSTNAME; bigwig_hdf5.py -l %d -s %d -w %d %s %s %s' % (options.seq_length, options.stride, options.pool_width, wig_file, seg_bed_file, npy_file)
+
+            if os.path.splitext(wig_file)[1] == 'h5'::
+                script = 'seqs_hdf5.py'
+            else:
+                script = 'bigwig_hdf5.py'
+
+            cmd = 'echo $HOSTNAME; %s -l %d -s %d -w %d %s %s %s' % (script, options.seq_length, options.stride, options.pool_width, wig_file, seg_bed_file, npy_file)
             name = 'hdf5_%s'%target_label
             outf = '%s/%s.out' % (options.cluster_dir, target_label)
             errf = '%s/%s.err' % (options.cluster_dir, target_label)

@@ -24,11 +24,6 @@ basenji_hdf5.py
 
 Tile the genome and project the full functional profile to latent space
 using a given model. Save the result in HDF5 for Basenji learning.
-
-To Do:
- -If unmappable regions are cutting my data, I could squeeze a little more out
-   by allowing them to sit at the edges of sequences where I'm not making
-   predictions anyway.
 '''
 
 ################################################################################
@@ -40,20 +35,20 @@ def main():
     parser.add_option('-d', dest='sample_pct', default=1.0, type='float', help='Down-sample the segments')
     parser.add_option('-f', dest='fourier_dim', default=None, type='int', help='Fourier transform dimension [Default: %default]')
     parser.add_option('-g', dest='gaps_file', help='Genome assembly gaps BED [Default: %default]')
-    parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
+    parser.add_option('-l', dest='seq_length', default=131072, type='int', help='Sequence length [Default: %default]')
     parser.add_option('--log2', dest='log10to2', default=False, action='store_true', help='Transform values from log10 to log2 [Default: %default]')
     parser.add_option('-m', dest='params_file', help='Dimension reduction hyper-parameters file')
-    parser.add_option('--mult_cov', dest='cov_multiplier', default=1, type='float', help='Coverage multiplier, useful when the read extension and pool width do not match [Default: %default]')
     parser.add_option('-n', dest='na_t', default=0.25, type='float', help='Remove sequences with an NA% greater than this threshold [Default: %default]')
     parser.add_option('--no_full', dest='no_full', default=False, action='store_true', help='Do not save full test sequence targets [Default: %default]')
     parser.add_option('-o', dest='out_bed_file', help='Output the train/valid/test sequences as a BED file')
-    parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
-    parser.add_option('-t', dest='test_pct', type='float', default=0.01, help='Proportion of the data for testing [Default: %default]')
+    parser.add_option('-s', dest='stride', default=None, type='int', help='Stride to advance segments [Default: seq_length]')
+    parser.add_option('--scent', dest='scent_file', help='Dimension reduction model file')
+    parser.add_option('-t', dest='test_pct_or_chr', type='str', default=0.05, help='Proportion of the data for testing [Default: %default]')
     parser.add_option('-u', dest='unmap_bed', help='Unmappable segments to set to NA')
-    parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
-    parser.add_option('-x', dest='exclude_below', type='float', help='Exclude segments where the max across length and targets is below')
-    parser.add_option('-v', dest='valid_pct', type='float', default=0.02, help='Proportion of the data for validation [Default: %default]')
+    parser.add_option('-w', dest='pool_width', type='int', default=128, help='Average pooling width [Default: %default]')
+    parser.add_option('--w5', dest='w5', default=False, action='store_true', help='Coverage files are w5 rather than BigWig [Default: %default]')
+    parser.add_option('-v', dest='valid_pct_or_chr', type='str', default=0.05, help='Proportion of the data for validation [Default: %default]')
     parser.add_option('-z', dest='compression', help='h5py compression [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -71,14 +66,9 @@ def main():
     ################################################################
     # get wig files and labels
     target_wigs = OrderedDict()
-    target_scales = []
     for line in open(sample_wigs_file):
         a = line.split()
         target_wigs[a[0]] = a[1]
-        if len(a) > 2:
-            target_scales.append(float(a[2]))
-        else:
-            target_scales.append(1)
 
     if options.fourier_dim is not None and 2*options.fourier_dim >= options.seq_length/options.pool_width:
         print("Fourier transform to %d dims won't compress %d length sequences with %d pooling" % (options.fourier_dim, options.seq_length, options.pool_width), file=sys.stderr)
@@ -115,6 +105,13 @@ def main():
 
 
     ################################################################
+    # one hot code sequences
+    ################################################################
+    seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length, options.stride)
+    print('%d sequences one hot coded' % seqs_1hot.shape[0])
+
+
+    ################################################################
     # load model
     ################################################################
     if options.params_file:
@@ -146,6 +143,7 @@ def main():
     test_marker = 0
 
     update_i = 0
+    ssi = 0
 
     # initialize multiprocessing pool
     pool = multiprocessing.Pool(options.processes)
@@ -164,32 +162,28 @@ def main():
             bend = batch_end(segments, bstart, 400000)
 
             # bigwig_read parameters
-            bwr_params = [(wig_file, segments[bstart:bend], options.seq_length, options.pool_width, options.log10to2, options.cov_multiplier) for wig_file in target_wigs.values()]
+            bwr_params = [(wig_file, segments[bstart:bend], options.seq_length, options.pool_width, options.stride, options.log10to2, options.cov_multiplier) for wig_file in target_wigs.values()]
 
             # pull the target values in parallel
-            wig_targets = pool.starmap(bigwig_batch, bwr_params)
+            if options.w5:
+                wig_targets = pool.starmap(w5_batch, bwr_params)
+            else:
+                wig_targets = pool.starmap(bigwig_batch, bwr_params)
 
             # transpose to S x L x T (making a copy?)
             targets_wig = np.transpose(np.array(wig_targets), axes=(1,2,0))
-
-            # exclude max values below a threshold
-            if options.exclude_below is not None:
-                # capture included indexes
-                include_bindexes = exclude_below(targets_wig, options.exclude_below)
-                include_indexes += [include_marker+ibi for ibi in include_bindexes]
-
-                # update inclusion marker
-                include_marker += targets_wig.shape[0]
-
-                # filter targets_wig
-                targets_wig = targets_wig[include_bindexes]
 
             # clip
             if options.clip is not None:
                 targets_wig = targets_wig.clip(options.clip)
 
             # sample indexes from this batch
-            test_bindexes = [twi for twi in range(targets_wig.shape[0]) if random.random() < options.test_pct]
+            if options.test_pct_or_chr.startswith('chr'):
+                test_bindexes = [twi for twi in range(targets_wig.shape[0]) if seqs_segments[ssi+twi] == options.test_pct_or_chr]
+            else:
+                test_pct = float(options.test_pct_or_chr)
+                test_bindexes = [twi for twi in range(targets_wig.shape[0]) if random.random() < test_pct]
+
 
             # capture test indexes
             test_indexes += [test_marker+tbi for tbi in test_bindexes]
@@ -218,6 +212,9 @@ def main():
             targets_real.append(targets_rfour)
             targets_imag.append(targets_ifour)
 
+            # update seqs_segments index
+            ssi += targets_wig.shape[0]
+
             # update batch
             bstart = bend
             update_i += 1
@@ -232,20 +229,6 @@ def main():
         targets_test = np.vstack(targets_test)
 
     print('%d target sequences' % targets_real.shape[0])
-    if options.exclude_below is not None:
-        print('%d excluded' % (include_marker-targets_real.shape[0]), flush=True)
-
-
-    ################################################################
-    # one hot code sequences
-    ################################################################
-    seqs_1hot, seqs_segments = segments_1hot(fasta_file, segments, options.seq_length)
-    print('%d sequences one hot coded' % seqs_1hot.shape[0])
-
-    if options.exclude_below is not None:
-        seqs_1hot = seqs_1hot[include_indexes]
-        seqs_segments = [seqs_segments[ii] for ii in include_indexes]
-        print('%d sequences included' % seqs_1hot.shape[0])
 
 
     ################################################################
@@ -285,30 +268,29 @@ def main():
 
         test_indexes = test_indexes_na
 
-    ################################################################
-    # scale
-    ################################################################
-    for ti in range(targets_real.shape[2]):
-        if target_scales[ti] != 1:
-            targets_real[:,:,ti] *= target_scales[ti]
-            if options.fourier_dim is not None:
-                targets_imag[:,:,ti] *= target_scales[ti]
-
 
     ################################################################
     # write to train, valid, test HDF5
     ################################################################
 
-    # sample valid indexes (we already have test)
-    valid_n = int(options.valid_pct*targets_real.shape[0])
-    nontest_indexes = set(range(targets_real.shape[0])) - set(test_indexes)
-    valid_indexes = random.sample(nontest_indexes, valid_n)
+    if options.valid_pct_or_chr.startswith('chr'):
+        # sample valid chromosome
+        valid_indexes = [si for si in range(len(seqs_segments)) if seqs_segments[si][0] == options.valid_pct_or_chr]
+
+    else:
+        # sample valid indexes (we already have test)
+        valid_pct = float(options.valid_pct_or_chr)
+        valid_n = int(options.valid_pct*targets_real.shape[0])
+        nontest_indexes = set(range(targets_real.shape[0])) - set(test_indexes)
+        valid_indexes = random.sample(nontest_indexes, valid_n)
 
     # remainder is training
-    train_indexes = list(nontest_indexes - set(valid_indexes))
+    train_indexes = list(set(range(len(seqs_segments))) - set(valid_indexes) - set(test_indexes))
 
-    # training requires shuffle
+    # training may requires shuffle
     random.shuffle(train_indexes)
+    random.shuffle(valid_indexes)
+    random.shuffle(test_indexes)
 
     # write to HDF5
     hdf5_out = h5py.File(hdf5_file, 'w')
@@ -432,7 +414,7 @@ def batch_end(segments, bstart, batch_max):
 
 
 ################################################################################
-def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False, cov_multiplier=1):
+def bigwig_batch(wig_file, segments, seq_length, pool_width=1, stride=None, log10to2=False, cov_multiplier=1):
     ''' Read a batch of segment values from a bigwig file
 
     Args:
@@ -441,10 +423,15 @@ def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False, c
                   assuming those segments are appropriate length
       seq_length: sequence length to break them into
       pool_width: average pool adjacent nucleotides of this width
+      stride: advance the sequences by this amount.
 
     Returns:
       targets: target Bigwig value matrix
     '''
+
+    # set stride
+    if stride is None:
+        stride = seq_length
 
     # initialize target values
     targets = []
@@ -484,26 +471,10 @@ def bigwig_batch(wig_file, segments, seq_length, pool_width=1, log10to2=False, c
             targets.append(sv)
 
             # update
-            bstart += seq_length
-            bend += seq_length
+            bstart += stride
+            bend += stride
 
     return targets
-
-
-################################################################################
-def exclude_below(targets_wig, x):
-    ''' Filter for segments overlapping the given BED
-
-    Args
-     targets_wig: SxLxT array of target values
-     x: threshold below which we ignore
-
-    Returns:
-     include_indexes: indexes above the threshold
-    '''
-    targets_max = targets_wig.max(axis=1).max(axis=1)
-    return [i for i in range(targets_max.shape[0]) if targets_max[i] >= x]
-
 
 
 ################################################################################
@@ -612,7 +583,7 @@ def latent_transform(sess, model, job, targets_wig):
 
 
 ################################################################################
-def segments_1hot(fasta_file, segments, seq_length):
+def segments_1hot(fasta_file, segments, seq_length, stride):
     ''' Read and 1-hot code sequences in their segment batches.
 
     Args
@@ -648,10 +619,72 @@ def segments_1hot(fasta_file, segments, seq_length):
             seqs_segments.append((chrom,seg_start+bstart,seg_start+bend))
 
             # update
-            bstart += seq_length
-            bend += seq_length
+            bstart += stride
+            bend += stride
 
     return np.array(seqs_1hot), seqs_segments
+
+
+################################################################################
+def w5_batch(w5_file, segments, seq_length, pool_width=1, stride=None, log10to2=False, cov_multiplier=1):
+    ''' Read a batch of segment values from a bigwig file
+
+    Args:
+      wig_file: Bigwig filename
+      segments: list of (chrom,start,end) genomic segments to read,
+                  assuming those segments are appropriate length
+      seq_length: sequence length to break them into
+      pool_width: average pool adjacent nucleotides of this width
+      stride: advance the sequences by this amount.
+
+    Returns:
+      targets: target Bigwig value matrix
+    '''
+
+    # set stride
+    if stride is None:
+        stride = seq_length
+
+    # initialize target values
+    targets = []
+
+    # open wig h5
+    w5_in = h5py.File(w5_file)
+
+    for chrom, seg_start, seg_end in segments:
+        if chrom in w5_in:
+            seg_values = w5_in[chrom][seg_start:seg_end]
+        else:
+            print("WARNING: %s doesn't see %s:%d-%d. Setting to all zeros." % (w5_file,seg_chrom,seg_start,seg_end))
+            seg_values = np.zeros(seg_end-seg_start, dtype='float16')
+
+        # set NaN's to zero
+        seg_values = np.nan_to_num(seg_values)
+
+        # transform
+        if cov_multiplier != 1:
+            seg_values *= cov_multiplier
+        if log10to2:
+            seg_values = np.log2(np.power(10,seg_values))
+
+        # break up into batchable sequences (as below in segments_1hot)
+        bstart = 0
+        bend = bstart + seq_length
+        while bend <= len(seg_values):
+            # extract (and pool)
+            if pool_width == 1:
+                sv = seg_values[bstart:bend]
+            else:
+                sv = seg_values[bstart:bend].reshape((seq_length//pool_width, pool_width)).sum(axis=1)
+
+            # append
+            targets.append(sv)
+
+            # update
+            bstart += stride
+            bend += stride
+
+    return targets
 
 
 ################################################################################

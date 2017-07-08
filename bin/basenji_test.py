@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # Copyright 2017 Calico LLC
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -60,6 +60,7 @@ def main():
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
+    parser.add_option('--save', dest='save', default=False, action='store_true')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
@@ -145,6 +146,11 @@ def main():
         t0 = time.time()
         # test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
         test_acc = dr.test(sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
+
+        if options.save:
+            np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
+            np.save('%s/targets.npy' % options.out_dir, test_acc.targets)
+
         test_preds = test_acc.preds
         print('SeqNN test: %ds' % (time.time()-t0))
 

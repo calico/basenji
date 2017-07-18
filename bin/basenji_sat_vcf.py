@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # Copyright 2017 Calico LLC
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -169,10 +169,6 @@ def main():
                     basenji_sat.plot_seqlogo(ax_logo, seqs_1hot[si], -sat_gain[:,ti], -sat_loss[:,ti])
                 else:
                     basenji_sat.plot_seqlogo(ax_logo, seqs_1hot[si], sat_loss[:,ti], sat_gain[:,ti])
-
-                # sat_delta_ti_pos = sat_delta[:,:,ti].clip(0,None)
-                # sat_loss_4l = basenji_sat.expand_4l(sat_loss[:,ti], seqs_1hot[si])
-                # st_freq = basenji_sat.choose_subtick_frequency(options.satmut_len)
 
                 # plot SAD
                 basenji_sat.plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])

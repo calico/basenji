@@ -1,11 +1,11 @@
 # Copyright 2017 Calico LLC
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,6 +24,10 @@ import seaborn as sns
 
 import numpy as np
 from scipy.stats import spearmanr, pearsonr
+
+
+################################################################################
+# scatter plots
 
 def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor='pearsonr', x_label=None, y_label=None, figsize=(6,6), sample=None, table=False):
 
@@ -167,32 +171,16 @@ def scatter_lims(vals1, vals2=None, buffer=.05):
 
 
 ################################################################################
-# Nucleotide plotting
+# nucleotides
 
 # Thanks to Anshul Kundaje, Avanti Shrikumar
 # https://github.com/kundajelab/deeplift/tree/master/deeplift/visualization
 
 def plot_a(ax, base, left_edge, height, color):
     a_polygon_coords = [
-        np.array([
-           [0.0, 0.0],
-           [0.5, 1.0],
-           [0.5, 0.8],
-           [0.2, 0.0],
-        ]),
-        np.array([
-           [1.0, 0.0],
-           [0.5, 1.0],
-           [0.5, 0.8],
-           [0.8, 0.0],
-        ]),
-        np.array([
-           [0.225, 0.45],
-           [0.775, 0.45],
-           [0.85, 0.3],
-           [0.15, 0.3],
-        ])
-    ]
+        np.array([[0.0, 0.0],[0.5, 1.0],[0.5, 0.8],[0.2, 0.0]]),
+        np.array([[1.0, 0.0],[0.5, 1.0],[0.5, 0.8],[0.8, 0.0]]),
+        np.array([[0.225, 0.45],[0.775, 0.45],[0.85, 0.3],[0.15, 0.3]])]
     for polygon_coords in a_polygon_coords:
         ax.add_patch(matplotlib.patches.Polygon((np.array([1,height])[None,:]*polygon_coords
                                                  + np.array([left_edge,base])[None,:]),
@@ -227,137 +215,51 @@ def plot_t(ax, base, left_edge, height, color):
 
 
 ################################################################################
-# Sequence plotting
+# sequences
 
 default_colors = {0:'red', 1:'blue', 2:'orange', 3:'green'}
 default_plot_funcs = {0:plot_a, 1:plot_c, 2:plot_g, 3:plot_t}
 
-def plot_weights_given_ax(ax, array, highlight, height_padding_factor=0.1, colors=default_colors, plot_funcs=default_plot_funcs):
+def seqlogo(seq_scores, ax=None):
+    if ax is None:
+        ax = plt.gca()
 
-    # change to Lx4
-    if len(array.shape)==3:
-        array = np.squeeze(array)
-    assert len(array.shape)==2, array.shape
-    if (array.shape[0]==4 and array.shape[1] != 4):
-        array = array.transpose(1,0)
-    assert array.shape[1]==4
+    colors = ['red', 'blue', 'orange', 'green']
+    plot_funcs = [plot_a, plot_c, plot_g, plot_t]
 
-    max_pos_height = 0.0
-    min_neg_height = 0.0
-    heights_at_positions = []
-    depths_at_positions = []
+    seq_len = seq_scores.shape[0]
+    seq_depth = seq_scores.shape[1]
 
-    for i in range(array.shape[0]):
-        #sort from smallest to highest magnitude
-        acgt_vals = sorted(enumerate(array[i,:]), key=lambda x: abs(x[1]))
+    max_height = 0
 
-        positive_height_so_far = 0.0
-        negative_height_so_far = 0.0
+    for li in range(seq_len):
+        # sort nucleotides by score
+        pos_scores = sorted([(seq_scores[li,ni],ni) for ni in range(seq_depth)])
 
-        for letter in acgt_vals:
-            plot_func = plot_funcs[letter[0]]
-            color = colors[letter[0]]
-            if (letter[1] > 0):
-                height_so_far = positive_height_so_far
-                positive_height_so_far += letter[1]
-            else:
-                height_so_far = negative_height_so_far
-                negative_height_so_far += letter[1]
-            # plot_func(ax=ax, base=height_so_far, left_edge=i, height=letter[1], color=color)
-            if letter[1] != 0:
-                plot_func(ax=ax, base=height_so_far, left_edge=i, height=letter[1], color=color)
+        # maintain current height
+        current_height = 0
 
-        max_pos_height = max(max_pos_height, positive_height_so_far)
-        min_neg_height = min(min_neg_height, negative_height_so_far)
-        heights_at_positions.append(positive_height_so_far)
-        depths_at_positions.append(negative_height_so_far)
+        # for each nucleotide
+        for di in range(seq_depth):
+            score, ni = pos_scores[di]
 
-    #now highlight any desired positions; the key of
-    #the highlight dict should be the color
-    for color in highlight:
-        for start_pos, end_pos in highlight[color]:
-            assert start_pos >= 0.0 and end_pos <= array.shape[0]
-            min_depth = np.min(depths_at_positions[start_pos:end_pos])
-            max_height = np.max(heights_at_positions[start_pos:end_pos])
-            ax.add_patch(
-                matplotlib.patches.Rectangle(xy=[start_pos,min_depth],
-                    width=end_pos-start_pos,
-                    height=max_height-min_depth,
-                    edgecolor=color, fill=False))
+            if score > 0:
+                # plot nucleotide
+                plot_funcs[ni](ax=ax, base=current_height, left_edge=li, height=score, color=colors[ni])
 
-    length_padding = .005*array.shape[0]
-    # ax.set_xlim(-length_padding, array.shape[0]+length_padding)
-    ax.set_xlim(0, array.shape[0]+length_padding)
-    ax.xaxis.set_ticks(np.arange(0.0, array.shape[0]+1, choose_subtick_frequency(array.shape[0])))
-    height_padding = max(abs(min_neg_height)*(height_padding_factor),
-                         abs(max_pos_height)*(height_padding_factor))
-    ax.set_ylim(min_neg_height-height_padding, max_pos_height+height_padding)
+                # update height
+                current_height += score
 
+        # update max height
+        max_height = max(max_height, current_height)
 
-def plot_loss_gain(ax, seq_1hot, sat_loss_ti, sat_gain_ti, highlight={}, height_padding_factor=0.1, colors=default_colors, plot_funcs=default_plot_funcs):
-    ''' plot_loss_gain
+    # adjust limits
+    xbuf = .005*seq_len
+    ax.set_xlim(0, seq_len+xbuf)
 
-    Args
-     ax (Axis)
-     seq_1hot (Lx4 array): One-hot coding of a sequence.
-     sat_loss_ti (L array): Minimum mutation delta across satmut length.
-     sat_gain_ti (L array): Maximum mutation delta across satmut length.
-    '''
+    ybuf = .05*max_height
+    ax.set_ylim(-ybuf, max_height+ybuf)
 
-    max_loss_height = 0.0
-    max_gain_height = 0.0
-    heights_at_positions = []
-    depths_at_positions = []
-
-    for li in range(seq_1hot.shape[0]):
-        # determine letter, color
-        plot_func = None
-        for ni in range(4):
-            if seq_1hot[li,ni] == 1:
-                plot_func = plot_funcs[ni]
-                color = colors[ni]
-
-        if plot_func:
-            # plot loss
-            plot_func(ax=ax, base=0, left_edge=li, height=sat_loss_ti[li], color=color)
-            max_loss_height = max(max_loss_height, sat_loss_ti[li])
-            heights_at_positions.append(sat_loss_ti[li])
-
-            # plot gain
-            plot_func(ax=ax, base=0, left_edge=li, height=sat_gain_ti[li], color=color)
-            max_gain_height = min(max_gain_height, sat_gain_ti[li])
-            depths_at_positions.append(sat_gain_ti[li])
-
-    #now highlight any desired positions; the key of
-    #the highlight dict should be the color
-    for color in highlight:
-        for start_pos, end_pos in highlight[color]:
-            assert start_pos >= 0.0 and end_pos <= array.shape[0]
-            min_depth = np.min(depths_at_positions[start_pos:end_pos])
-            max_height = np.max(heights_at_positions[start_pos:end_pos])
-            ax.add_patch(
-                matplotlib.patches.Rectangle(xy=[start_pos,min_depth],
-                    width=end_pos-start_pos,
-                    height=max_height-min_depth,
-                    edgecolor=color, fill=False))
-
-    ax.set_xlim(0, seq_1hot.shape[0])
-    ax.xaxis.set_ticks(np.arange(0.0, seq_1hot.shape[0]+1, choose_subtick_frequency(seq_1hot.shape[0])))
-    height_padding = max(abs(max_gain_height)*(height_padding_factor),
-                         abs(max_loss_height)*(height_padding_factor))
-    ax.set_ylim(max_gain_height-height_padding, max_loss_height+height_padding)
-
-
-def choose_subtick_frequency(seq_len):
-    ''' Choose the sequence visualization subtick frequency
-         as a function of the sequence length. '''
-    st_freq = 1
-    if seq_len > 160:
-        st_freq = 20
-    elif seq_len > 80:
-        st_freq = 10
-    elif seq_len > 40:
-        st_freq = 5
-    elif seq_len > 20:
-        st_freq = 2
-    return st_freq
+    # adjust line widths
+    for axis in ['top','bottom','left','right']:
+        ax.spines[axis].set_linewidth(0.5)

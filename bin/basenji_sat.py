@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # Copyright 2017 Calico LLC
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -175,12 +175,9 @@ def main():
                 # plot predictions
                 plot_predictions(ax_pred, sat_preds[0,:,ti], options.satmut_len, dr.batch_length, dr.batch_buffer)
 
-                # plot sequence weblogo
-                # plot_weblogo(ax_logo, seqs[si], sat_loss[:,ti], options.min_limit)
-
-                # plot sequence logo w/ DeepLIFT
-                # sat_delta_ti_pos = sat_delta[:,:,ti].clip(0,None)
+                # plot sequence logo
                 plot_seqlogo(ax_logo, seqs_1hot[si], sat_loss[:,ti], sat_gain[:,ti])
+                # plot_weblogo(ax_logo, seqs[si], sat_loss[:,ti], options.min_limit)
 
                 # plot SAD
                 plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])
@@ -472,9 +469,7 @@ def plot_seqlogo(ax, seq_1hot, sat_loss_ti, sat_gain_ti):
     sat_loss_4l = expand_4l(sat_loss_ti, seq_1hot)
     sat_gain_4l = expand_4l(sat_gain_ti, seq_1hot)
 
-    basenji.plots.plot_weights_given_ax(ax=ax, array=-sat_loss_4l, highlight={})
-    for axis in ['top','bottom','left','right']:
-        ax.spines[axis].set_linewidth(0.5)
+    basenji.plots.seqlogo(-sat_loss_4l, ax)
 
 
 def plot_weblogo(ax, seq, sat_loss_ti, min_limit):

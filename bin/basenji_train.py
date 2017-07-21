@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
+from __future__ import print_function
 
 from optparse import OptionParser
 import time
@@ -83,13 +84,13 @@ def main():
     job['seq_depth'] = train_seqs.shape[2]
     job['num_targets'] = train_targets.shape[2]
     job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
-    job['early_stop'] = job.get('early_stop', 12)
+    job['early_stop'] = job.get('early_stop', 16)
     job['rate_drop'] = job.get('rate_drop', 3)
 
     t0 = time.time()
     dr = basenji.seqnn.SeqNN()
     dr.build(job)
-    print('Model building time %f' % (time.time()-t0), flush=True)
+    print('Model building time %f' % (time.time()-t0))
 
     # adjust for fourier
     job['fourier'] = 'train_out_imag' in data_open
@@ -108,7 +109,7 @@ def main():
     else:
         batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, train_na, dr.batch_size, dr.target_pool, shuffle=True)
         batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, valid_na, dr.batch_size, dr.target_pool)
-    print('Batcher initialized', flush=True)
+    print('Batcher initialized')
 
 
     # checkpoints
@@ -130,10 +131,10 @@ def main():
             saver.restore(sess, options.restart)
         else:
             # initialize variables
-            print('Initializing...', flush=True)
+            print('Initializing...')
             # sess.run(tf.initialize_all_variables())
             sess.run(tf.global_variables_initializer())
-            print("Initialization time %f" % (time.time()-t0), flush=True)
+            print("Initialization time %f" % (time.time()-t0))
 
         train_loss = None
         best_loss = None
@@ -191,7 +192,7 @@ def main():
                 else:
                     undroppable_counter = max(0, undroppable_counter-1)
 
-                print('', flush=True)
+                print('')
 
         if options.summary is not None:
             train_writer.close()

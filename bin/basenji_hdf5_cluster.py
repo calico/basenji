@@ -152,7 +152,7 @@ def main():
         if not os.path.isfile(npy_file) and not os.path.isfile('%s.npy'%npy_file):
             print(npy_file)
 
-            if os.path.splitext(wig_file)[1] == 'h5':
+            if os.path.splitext(wig_file)[1] == '.h5':
                 script = 'seqs_hdf5.py'
             else:
                 script = 'bigwig_hdf5.py'

@@ -47,13 +47,14 @@ def main():
     parser.add_option('-s', dest='save_prefix', default='houndnn')
     parser.add_option('--seed', dest='seed', type='float', default=1, help='RNG seed')
     parser.add_option('-u', dest='summary', default=None, help='TensorBoard summary directory')
+    parser.add_option('--log_device_placement', dest='log_device_placement', default=False, help='Log device placement (ie, CPU or GPU) [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
-    	parser.error('Must provide parameters and data files')
+        parser.error('Must provide parameters and data files')
     else:
         params_file = args[0]
-    	data_file = args[1]
+        data_file = args[1]
 
     np.random.seed(options.seed)
 
@@ -115,7 +116,10 @@ def main():
     # checkpoints
     saver = tf.train.Saver()
 
-    with tf.Session() as sess:
+    config = tf.ConfigProto()
+    if options.log_device_placement:
+        config.log_device_placement = True
+    with tf.Session(config=config) as sess:
         t0 = time.time()
 
         # set seed

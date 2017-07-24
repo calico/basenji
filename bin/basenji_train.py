@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # Copyright 2017 Calico LLC
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 from __future__ import print_function
 
 from optparse import OptionParser
+import sys
 import time
 
 import h5py
@@ -53,7 +54,7 @@ def main():
     	parser.error('Must provide parameters and data files')
     else:
         params_file = args[0]
-    	data_file = args[1]
+        data_file = args[1]
 
     np.random.seed(options.seed)
 
@@ -193,6 +194,7 @@ def main():
                     undroppable_counter = max(0, undroppable_counter-1)
 
                 print('')
+                sys.stdout.flush()
 
         if options.summary is not None:
             train_writer.close()

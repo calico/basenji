@@ -14,9 +14,9 @@ Train a convolutional neural network to make sequential predictions on the given
 | params_file | Text table | Model configuration parameters. |
 | data_file | HDF5 | Input training and validation data. |
 
-The model should be trained on a GPU so that it runs at a reasonable pace. Whening assigning ops to devices, TensorFlow gives priority to your gpu:0 device (over cpu:0) if the GPU is available and supported.
+The model should be trained on a GPU so that it runs at a reasonable pace. When assigning ops to devices, TensorFlow gives priority to your gpu:0 device (over cpu:0) if the GPU is available and supported.
 
-To print whether the model is being trained on the GPU, run basenji_train.py with the `log_device_placement` flag set to `True`. In this sample output, training happens on the CPU (The GPU is unsupported.):
+To print whether the model is being trained on the GPU, run basenji_train.py with the `log_device_placement` flag set to `True`. In this sample output, training happens on the CPU (The GPU is unsupported in this particular case.):
 
     Device mapping:
     ...

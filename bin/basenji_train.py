@@ -152,7 +152,10 @@ def main():
                 train_loss_last = train_loss
 
                 # alternate forward and reverse batches
-                rc_epoch = (epoch % 2) == 1
+                if options.rc:
+                    rc_epoch = (epoch % 2) == 1
+                else:
+                    rc_epoch = 0
 
                 # train
                 train_loss = dr.train_epoch(sess, batcher_train, rc_epoch, train_writer)

@@ -47,7 +47,8 @@ def main():
     parser.add_option('--f2', dest='genome2_fasta', default=None, help='Genome FASTA which which minor allele sequences will be drawn')
     parser.add_option('-g', dest='gain', default=False, action='store_true', help='Draw nucleotides proportional to the gain score [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
-    parser.add_option('-m', dest='min_limit', default=0.005, type='float', help='Minimum heatmap limit [Default: %default]')
+    parser.add_option('-m', dest='mc_n', default=0, type='int', help='Monte carlo iterations [Default: %default]')
+    parser.add_option('--min', dest='min_limit', default=0.005, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-n', dest='load_sat_npy', default=False, action='store_true', help='Load the predictions from .npy files [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='heat', help='Output directory [Default: %default]')
     parser.add_option('-s', dest='seq_len', default=131072, type='int', help='Input sequence length [Default: %default]')
@@ -139,7 +140,7 @@ def main():
                 batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
                 # predict
-                sat_preds = dr.predict(sess, batcher_sat, rc_avg=True, target_indexes=target_indexes)
+                sat_preds = dr.predict(sess, batcher_sat, rc_avg=True, mc_n=options.mc_n, target_indexes=target_indexes)
                 np.save('%s/seq%d_preds.npy' % (options.out_dir,si), sat_preds)
 
             #################################################################

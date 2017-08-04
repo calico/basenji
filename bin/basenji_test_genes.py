@@ -80,23 +80,6 @@ def main():
 
     gene_data = basenji.genes.GeneData(genes_hdf5_file)
 
-    # all targets
-    if options.target_indexes is None:
-        options.target_indexes = range(transcript_targets.shape[1])
-
-    # file targets
-    elif os.path.isfile(options.target_indexes):
-        target_indexes_file = options.target_indexes
-        options.target_indexes = []
-        for line in open(target_indexes_file):
-            options.target_indexes.append(int(line.split()[0]))
-
-    # comma-separated targets
-    else:
-        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
-
-    options.target_indexes = np.array(options.target_indexes)
-
     # not doing it this way anymore
     # if options.ignore_bed:
     #     seqs_1hot, transcript_map, transcript_targets = ignore_trained_regions(options.ignore_bed, seq_coords, seqs_1hot, transcript_map, transcript_targets)
@@ -122,7 +105,8 @@ def main():
         job['batch_length'] = gene_data.seq_length
         job['seq_depth'] = gene_data.seq_depth
         job['target_pool'] = gene_data.pool_width
-        job['num_targets'] = gene_data.num_targets
+        if not 'num_targets' in job:
+            job['num_targets'] = gene_data.num_targets
 
         # build model
         dr = basenji.seqnn.SeqNN()
@@ -164,6 +148,30 @@ def main():
     gene_targets = map_transcripts_genes(gene_data.transcript_targets, gene_data.transcript_map, gene_data.transcript_gene_indexes)
     gene_preds = map_transcripts_genes(transcript_preds, gene_data.transcript_map, gene_data.transcript_gene_indexes)
 
+
+    #################################################################
+    # determine targets
+
+    # all targets
+    if options.target_indexes is None:
+        if gene_data.num_targets is None:
+            print('No targets to test against')
+            exit()
+        else:
+            options.target_indexes = np.arange(gene_data.num_targets)
+
+    # file targets
+    elif os.path.isfile(options.target_indexes):
+        target_indexes_file = options.target_indexes
+        options.target_indexes = []
+        for line in open(target_indexes_file):
+            options.target_indexes.append(int(line.split()[0]))
+
+    # comma-separated targets
+    else:
+        options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
+
+    options.target_indexes = np.array(options.target_indexes)
 
     #################################################################
     # correlation statistics

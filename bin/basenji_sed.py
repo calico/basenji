@@ -180,6 +180,9 @@ def main():
     # helper variables
     adj = options.tss_width // 2
     pred_buffer = model.batch_buffer // model.target_pool
+    target_labels = gene_data.target_labels
+    if target_labels is None:
+        target_labels = ['t%d'%ti for ti in range(job['num_targets'])]
 
     # initialize saver
     saver = tf.train.Saver()
@@ -243,7 +246,7 @@ def main():
                         if options.transcript_table:
                             for ti in range(ref_preds.shape[1]):
                                 if options.all_sed or not np.isclose(snp_tx_sed[ti], 0, atol=1e-4):
-                                    cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, gene_data.target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
+                                    cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), transcript, snp_dist, target_labels[ti], rp[ti], ap[ti], snp_tx_sed[ti], snp_tx_ser[ti])
                                     if options.csv:
                                         print(','.join([str(c) for c in cols]), file=sed_tx_out)
                                     else:
@@ -270,7 +273,7 @@ def main():
                         # print rows to gene table
                         for ti in range(ref_preds.shape[1]):
                             if options.all_sed or not np.isclose(snp_gene_sed[ti], 0, atol=1e-4):
-                                cols = [snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str, snp_dist_gene[gene], gene_data.target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti]]
+                                cols = [snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str, snp_dist_gene[gene], target_labels[ti], gene_rp[ti], gene_ap[ti], snp_gene_sed[ti], snp_gene_ser[ti]]
                                 if options.csv:
                                     print(','.join([str(c) for c in cols]), file=sed_gene_out)
                                 else:

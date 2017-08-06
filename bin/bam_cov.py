@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # Copyright 2017 Calico LLC
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -81,6 +81,7 @@ def main():
     parser.add_option('-r', dest='strand_corr_shift', default=False, action='store_true', help='Learn the fragment shift by fitting a strand cross correlation model [Default: %default]')
     parser.add_option('-s', dest='smooth_sd', default=32, type='float', help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
     parser.add_option('-t', dest='shift', default=0, type='int', help='Fragment shift [Default: %default]')
+    parser.add_option('-u', dest='unsorted', default=False, action='store_true', help='Alignments are unsorted [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -117,7 +118,7 @@ def main():
             genome_coverage.learn_shift_pair(bam_file)
 
     # read alignments
-    genome_coverage.read_bam(bam_file)
+    genome_coverage.read_bam(bam_file, genome_sorted=~options.unsorted)
 
 
     ################################################################
@@ -939,7 +940,7 @@ class GenomeCoverage:
             shift_out.close()
 
 
-    def read_bam(self, bam_file):
+    def read_bam(self, bam_file, genome_sorted=False):
         ''' Read alignments from a BAM file into unique and multi data structures. '''
 
         t0 = time.time()
@@ -951,7 +952,10 @@ class GenomeCoverage:
         multi_weight = []
 
         # initialize dict mapping read_id's to indexes
-        multi_read_index = {}
+        if genome_sorted:
+            multi_read_index = {}
+        else:
+            last_read_id = ''
 
         ri = 0
         for align in pysam.AlignmentFile(bam_file):
@@ -989,40 +993,51 @@ class GenomeCoverage:
 
                 # if multi
                 else:
-                    # if read name is new
-                    if read_id not in multi_read_index:
-                        # map it to an index
-                        multi_read_index[read_id] = ri
-                        ri += 1
+                    # if new read, update index
+                    if genome_sorted:
+                        if read_id not in multi_read_index:
+                            # map it to an index
+                            multi_read_index[read_id] = ri
+                            ri += 1
+                        ari = multi_read_index[read_id]
+
+                    else:
+                        if read_id != last_read_id:
+                            ri += 1
+                        ari = ri
 
                     # store alignment matrix
-                    ari = multi_read_index[read_id]
                     multi_reads.append(ari)
                     multi_positions.append(gi)
-                    multi_weight.append(np.float16(1/nh_tag))
+                    multi_weight.append(np.float16(1./nh_tag))
 
+                if not genome_sorted:
+                    last_read_id = read_id
+
+        num_multi_reads = ri
         print(' Done in %ds.' % (time.time()-t0), flush=True)
 
         # convert sparse matrix
         t0 = time.time()
         print('Constructing multi-read CSR matrix.', flush=True, end='')
-        self.multi_weight_matrix = csr_matrix((multi_weight,(multi_reads,multi_positions)), shape=(len(multi_read_index),self.genome_length))
+        self.multi_weight_matrix = csr_matrix((multi_weight,(multi_reads,multi_positions)), shape=(num_multi_reads,self.genome_length))
         print(' Done in %ds.' % (time.time()-t0), flush=True)
 
         # validate that initial weights sum to 1
-        multi_sum = self.multi_weight_matrix.sum(axis=1)
-        warned = False
-        disposed_reads = 0
-        for read_id, ri in multi_read_index.items():
-            if not np.isclose(multi_sum[ri], 1, rtol=1e-3):
-                # warn user NH tags don't match
-                if not warned:
-                    print('Multi-weighted coverage for (%s,%s) %f != 1' % (read_id[0],read_id[1],multi_sum[ri]), file=sys.stderr)
-                    warned = True
+        if genome_sorted:
+            multi_sum = self.multi_weight_matrix.sum(axis=1)
+            warned = False
+            disposed_reads = 0
+            for read_id, ri in multi_read_index.items():
+                if not np.isclose(multi_sum[ri], 1, rtol=1e-3):
+                    # warn user NH tags don't match
+                    if not warned:
+                        print('Multi-weighted coverage for (%s,%s) %f != 1' % (read_id[0],read_id[1],multi_sum[ri]), file=sys.stderr)
+                        warned = True
 
-                # dispose
-                row_nzcols_set(self.multi_weight_matrix, ri, 0)
-                disposed_reads += 1
+                    # dispose
+                    row_nzcols_set(self.multi_weight_matrix, ri, 0)
+                    disposed_reads += 1
 
         if disposed_reads > 0:
             disposed_pct = disposed_reads / len(multi_sum)

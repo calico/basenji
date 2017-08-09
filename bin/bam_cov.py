@@ -417,7 +417,7 @@ class GenomeCoverage:
             t_r = time.time()
             for ri in range(num_multi_reads):
                 # update user
-                if ri % 1000000 == 1000000-1:
+                if ri % 10000000 == 10000000-1:
                     print('\n  processed %d reads in %ds' % (ri+1, time.time()-t_r), end='', flush=True)
                     t_r = time.time()
 
@@ -1196,11 +1196,8 @@ class GenomeCoverage:
         if len(self.clip_t) == 0:
             # we haven't chosen clip thresholds yet. be conservative.
             coverage = np.clip(coverage, 0, self.clip_max)
-            print('Clip thresholds unchosen. Clipping to %d' % self.clip_max)
 
         else:
-            print('Clip thresholds chosen. Clipping to various thresholds.')
-
             # clip indexes at each value
             clipped_indexes = np.zeros(len(coverage), dtype='bool')
             for clip_value in self.multi_clip_indexes:
@@ -1216,12 +1213,6 @@ class GenomeCoverage:
 
                 # clip these indexes at this clip_value
                 coverage[clip_indexes] = np.clip(coverage[clip_indexes], 0, clip_value)
-
-                # TEMP
-                clip_out = open('clips_post.txt', 'a')
-                for pos in clip_indexes:
-                    print('%s\t%d\t%d' % (chrom, pos, clip_value), file=clip_out)
-                clip_out.close()
 
             # clip the remainder to 1
             coverage[~clipped_indexes] = np.clip(coverage[~clipped_indexes], 0, 1)

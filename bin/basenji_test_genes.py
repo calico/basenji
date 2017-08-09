@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
+from __future__ import print_function
 
 from optparse import OptionParser
 from collections import OrderedDict
@@ -98,7 +99,7 @@ def main():
         # setup model
 
         t0 = time.time()
-        print('Constructing model.', end='', flush=True)
+        print('Constructing model.', end=''); sys.stdout.flush()
 
         job = basenji.dna_io.read_job_params(params_file)
 
@@ -115,13 +116,13 @@ def main():
         if options.batch_size is not None:
             dr.batch_size = options.batch_size
 
-        print(' Done in %ds' % (time.time()-t0), flush=True)
+        print(' Done in %ds' % (time.time()-t0))
 
 
         #######################################################
         # predict transcripts
 
-        print('Computing gene predictions.', end='', flush=True)
+        print('Computing gene predictions.', end=''); sys.stdout.flush()
 
         # initialize batcher
         batcher = basenji.batcher.Batcher(gene_data.seqs_1hot, batch_size=dr.batch_size)
@@ -139,7 +140,7 @@ def main():
         # save to file
         np.save('%s/preds' % options.out_dir, transcript_preds)
 
-        print(' Done in %ds.' % (time.time()-t0), flush=True)
+        print(' Done in %ds.' % (time.time()-t0))
 
 
     #################################################################
@@ -177,12 +178,12 @@ def main():
     # correlation statistics
 
     t0 = time.time()
-    print('Computing correlations.', end='', flush=True)
+    print('Computing correlations.', end=''); sys.stdout.flush()
 
     cor_table(gene_data.transcript_targets, transcript_preds, gene_data.target_labels, options.target_indexes, '%s/transcript_cors.txt' % options.out_dir)
     cor_table(gene_targets, gene_preds, gene_data.target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
 
-    print(' Done in %ds.' % (time.time()-t0), flush=True)
+    print(' Done in %ds.' % (time.time()-t0))
 
 
     #################################################################
@@ -190,13 +191,13 @@ def main():
 
     if options.print_tables:
         t0 = time.time()
-        print('Printing predictions.', end='', flush=True)
+        print('Printing predictions.', end=''); sys.stdout.flush()
 
         gene_table(gene_data.transcript_targets, transcript_preds, gene_data.transcript_map.keys(), gene_data.target_labels, options.target_indexes, '%s/transcript'%options.out_dir, options.plot_scatter)
 
         gene_table(gene_targets, gene_preds, set(gene_data.genes), gene_data.target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
 
-        print(' Done in %ds.' % (time.time()-t0), flush=True)
+        print(' Done in %ds.' % (time.time()-t0))
 
 
     #################################################################
@@ -207,12 +208,12 @@ def main():
         # normalize predictions across targets
 
         t0 = time.time()
-        print('Normalizing values across targets.', end='', flush=True)
+        print('Normalizing values across targets.', end=''); sys.stdout.flush()
 
         gene_targets_qn = normalize_targets(gene_targets[:,options.target_indexes])
         gene_preds_qn = normalize_targets(gene_preds[:,options.target_indexes])
 
-        print(' Done in %ds.' % (time.time()-t0), flush=True)
+        print(' Done in %ds.' % (time.time()-t0))
 
 
     if options.plot_heat:
@@ -220,7 +221,7 @@ def main():
         # plot genes by targets clustermap
 
         t0 = time.time()
-        print('Plotting heat maps.', end='', flush=True)
+        print('Plotting heat maps.', end=''); sys.stdout.flush()
 
         sns.set(font_scale=1.3, style='ticks')
         plot_genes = 2000
@@ -253,7 +254,7 @@ def main():
         # random gene targets
         clustermap(gene_targets_qn[indexes_rand,:][:,indexes_targets], '%s/gene_theat_rand.pdf' % options.out_dir)
 
-        print(' Done in %ds.' % (time.time()-t0), flush=True)
+        print(' Done in %ds.' % (time.time()-t0))
 
 
     #################################################################

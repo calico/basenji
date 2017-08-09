@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
+from __future__ import print_function
 
 from optparse import OptionParser
 import gc
@@ -109,9 +110,9 @@ def main():
     snps = basenji.vcf.vcf_snps(vcf_file)
 
     # intersect w/ segments
-    print('Intersecting gene sequences with SNPs...', flush=True, end='')
+    print('Intersecting gene sequences with SNPs...', end=''); sys.stdout.flush()
     seqs_snps = basenji.vcf.intersect_seqs_snps(vcf_file, gene_data.seq_coords, vision_p=0.5)
-    print('done', flush=True)
+    print('done')
 
 
     #################################################################

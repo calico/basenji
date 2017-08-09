@@ -22,7 +22,7 @@ This codebase offers numerous improvements and generalizations to its predecesso
 ---------------------------------------------------------------------------------------------------
 ### Installation
 
-Basenji has a variety of scientific computing dependencies, which you can see within the setup.py file. I highly recommend the [Anaconda python distribution](https://www.continuum.io/downloads), which contains most of them.
+Basenji was developed with Python3 and a variety of scientific computing dependencies, which you can see within the setup.py file. I highly recommend the [Anaconda python distribution](https://www.continuum.io/downloads), which contains most of them.
 
 Once you have the dependencies, run
 ```

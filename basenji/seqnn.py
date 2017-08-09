@@ -1,11 +1,11 @@
 # Copyright 2017 Calico LLC
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -37,11 +37,11 @@ class SeqNN:
         self.set_params(job)
 
         # batches
-        self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth))
+        self.inputs = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length, self.seq_depth), name='inputs')
         if self.target_classes == 1:
-            self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
+            self.targets = tf.placeholder(tf.float32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets), name='targets')
         else:
-            self.targets = tf.placeholder(tf.int32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets))
+            self.targets = tf.placeholder(tf.int32, shape=(self.batch_size, self.batch_length//self.target_pool, self.num_targets), name='targets')
         self.targets_na = tf.placeholder(tf.bool, shape=(self.batch_size, self.batch_length//self.target_pool))
 
         print('Targets pooled by %d to length %d' % (self.target_pool, self.batch_length//self.target_pool))
@@ -376,7 +376,6 @@ class SeqNN:
             self.preds_op = tf.matmul(outputs, final_weights) + final_biases
             print('Linear transform %dx%dx%d' % (seq_depth, self.num_targets, self.target_classes))
 
-
         # expand length back out
         if self.target_classes == 1:
             self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets))
@@ -398,27 +397,30 @@ class SeqNN:
         # slice out buffer regions
         tstart = self.batch_buffer // self.target_pool
         tend = (self.batch_length - self.batch_buffer) // self.target_pool
-        self.targets_op = self.targets[:,tstart:tend,:]
+        self.targets_op = tf.identity(self.targets[:,tstart:tend,:], name='targets_op')
 
         # work-around for specifying my own predictions
         self.preds_adhoc = tf.placeholder(tf.float32, shape=self.preds_op.get_shape())
 
         # choose link
         if self.link in ['identity','linear']:
-            pass
+            self.preds_op = tf.identity(self.preds_op, name='preds')
 
         elif self.link == 'relu':
-            self.preds_op = tf.relu(self.preds_op)
+            self.preds_op = tf.relu(self.preds_op, name='preds')
 
         elif self.link == 'exp':
-            self.preds_op = tf.exp(tf.clip_by_value(self.preds_op,-50,50))
+            self.preds_op = tf.exp(tf.clip_by_value(self.preds_op,-50,50), name='preds')
 
         elif self.link == 'exp_linear':
-            self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)))
+            self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)), name='preds')
+
+        elif self.link == 'softplus':
+            self.preds_op = tf.nn.softplus(self.preds_op, name='preds')
 
         elif self.link == 'softmax':
             # performed in the loss function, but saving probabilities
-            self.preds_prob = tf.nn.softmax(self.preds_op)
+            self.preds_prob = tf.nn.softmax(self.preds_op, name='preds')
 
         # choose loss
         if self.loss == 'gaussian':
@@ -554,7 +556,8 @@ class SeqNN:
                 if g is None:
                     clip_gvs.append(self.gvs[i])
                 else:
-                    clip_gvs.append((tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v))
+                    # clip_gvs.append((tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v))
+                    clip_gvs.append((tf.clip_by_norm(g, self.grad_clip), v))
 
         # apply gradients
         self.step_op = self.opt.apply_gradients(clip_gvs)
@@ -894,35 +897,55 @@ class SeqNN:
         return layer_reprs, preds
 
 
-    def predict(self, sess, batcher, rc_avg=False, target_indexes=None):
+    def predict(self, sess, batcher, rc_avg=False, mc_n=0, target_indexes=None, return_var=False, return_all=False, down_sample=1):
         ''' Compute predictions on a test set.
 
         In
-         sess: TensorFlow session
-         batcher: Batcher class with transcript-covering sequences
-         rc_avg: Average predictions from the forward and reverse complement sequences
+         sess:           TensorFlow session
+         batcher:        Batcher class with transcript-covering sequences
+         rc_avg:         Average predictions from the forward and reverse complement sequences
+         mc_n:           Monte Carlo iterations
          target_indexes: Optional target subset list
+         return_var:     Return variance estimates
+         down_sample:    Int specifying to consider uniformly spaced sampled positions
 
         Out
          preds: S (sequences) x L (unbuffered length) x T (targets) array
         '''
-
-        # setup feed dict
-        fd = self.set_mode('test')
 
         # determine non-buffer region
         buf_start = self.batch_buffer // self.target_pool
         buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
         buf_len = buf_end - buf_start
 
+        # uniformly sample indexes
+        ds_indexes = np.arange(0, buf_len, down_sample)
+
         # initialize prediction arrays
         num_targets = self.num_targets
         if target_indexes is not None:
             num_targets = len(target_indexes)
 
-        preds = np.zeros((batcher.num_seqs, buf_len, num_targets), dtype='float16')
+        preds = np.zeros((batcher.num_seqs, len(ds_indexes), num_targets), dtype='float16')
+        if mc_n > 0 and return_var:
+            preds_var = np.zeros((batcher.num_seqs, len(ds_indexes), num_targets), dtype='float16')
+        if mc_n > 0 and return_all:
+            preds_all = np.zeros((batcher.num_seqs, len(ds_indexes), num_targets, mc_n), dtype='float16')
 
         si = 0
+
+        if mc_n > 0:
+            # setup feed dict
+            fd = self.set_mode('test_mc')
+
+            # divide iterations between forward and reverse
+            mcf_n = mc_n
+            if rc_avg:
+                mcr_n = mc_n // 2
+                mcf_n = mc_n - mcr_n
+        else:
+            # setup feed dict
+            fd = self.set_mode('test')
 
         # get first batch
         Xb, _, _, Nb = batcher.next()
@@ -932,23 +955,55 @@ class SeqNN:
             fd[self.inputs] = Xb
 
             # compute predictions
-            preds_batch = sess.run(self.preds_op, feed_dict=fd)
+            preds_batch = sess.run(self.preds_op, feed_dict=fd)[:,ds_indexes,:]
+            if return_var:
+                preds_batch_var = np.zeros(preds_batch.shape, dtype='float32')
+            if return_all:
+                preds_all[si:si+Nb,:,:,0] = preds_batch[:Nb,:,target_indexes]
 
-            if rc_avg:
+            if mc_n > 0:
+                # accumulate predictions
+                for mi in range(1,mcf_n):
+                    preds_i = sess.run(self.preds_op, feed_dict=fd)[:,ds_indexes,:]
+                    preds_batch1 = preds_batch
+                    preds_batch = running_mean(preds_batch1, preds_i, mi+1)
+                    if return_var:
+                        preds_batch_var = running_varsum(preds_batch_var, preds_i, preds_batch1, preds_batch)
+                    if return_all:
+                        preds_all[si:si+Nb,:,:,mi] = preds_i[:Nb,:,target_indexes]
+
+                if rc_avg:
+                    # construct reverse complement
+                    fd[self.inputs] = hot1_rc(Xb)
+
+                    for mi in range(mcr_n):
+                        preds_i = sess.run(self.preds_op, feed_dict=fd)[:,::-1,:][:,ds_indexes,:]
+                        preds_batch1 = preds_batch
+                        preds_batch = running_mean(preds_batch1, preds_i, mcf_n+mi+1)
+                        if return_var:
+                            preds_batch_var = running_varsum(preds_batch_var, preds_i, preds_batch1, preds_batch)
+                        if return_all:
+                            preds_all[si:si+Nb,:,:,mcf_n+mi] = preds_i[:Nb,:,target_indexes]
+
+            elif rc_avg:
                 # compute reverse complement prediction
                 fd[self.inputs] = hot1_rc(Xb)
-                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
+                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)[:,::-1,:][:,ds_indexes,:]
 
                 # average with forward prediction
-                preds_batch += preds_batch_rc[:,::-1,:]
+                preds_batch += preds_batch_rc
                 preds_batch /= 2.
 
             # filter for specific targets
             if target_indexes is not None:
                 preds_batch = preds_batch[:,:,target_indexes]
+                if mc_n > 0 and return_var:
+                    preds_batch_var = preds_batch_var[:,:,target_indexes]
 
             # accumulate predictions
             preds[si:si+Nb,:,:] = preds_batch[:Nb,:,:]
+            if mc_n > 0 and return_var:
+                preds_var[si:si+Nb,:,:] = preds_batch_var[:Nb,:,:] / (mc_n-1)
 
             # update sequence index
             si += Nb
@@ -959,7 +1014,13 @@ class SeqNN:
         # reset batcher
         batcher.reset()
 
-        return preds
+        if return_var:
+            if return_all:
+                return preds, preds_var, preds_all
+            else:
+                return preds, preds_var
+        else:
+            return preds
 
 
     def predict_genes(self, sess, batcher, transcript_map, rc_avg=False, target_indexes=None):
@@ -1418,3 +1479,13 @@ def layer_extend(var, default, layers):
         var.append(default)
 
     return var
+
+def running_mean(u_k1, x_k, k):
+    return u_k1 + (x_k - u_k1) / k
+
+def running_varsum(v_k1, x_k, m_k1, m_k):
+    ''' Computing the running variance numerator.
+
+    Ref: https://www.johndcook.com/blog/standard_deviation/
+    '''
+    return v_k1 + (x_k - m_k1)*(x_k - m_k)

@@ -51,7 +51,7 @@ class GeneData:
         transcript_index = list(self.genes_hdf5_in['transcript_index'])
         transcript_pos = list(self.genes_hdf5_in['transcript_pos'])
 
-        self.transcript_map = {}
+        self.transcript_map = OrderedDict()
         for ti in range(len(self.transcripts)):
             self.transcript_map[self.transcripts[ti]] = (transcript_index[ti], transcript_pos[ti])
         self.num_transcripts = len(self.transcript_map)

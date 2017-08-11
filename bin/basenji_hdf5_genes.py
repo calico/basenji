@@ -78,6 +78,8 @@ def main():
     for tx_id in transcripts:
         if transcripts[tx_id].chrom in fasta.references:
             chrom_tss.setdefault(transcripts[tx_id].chrom,[]).append((transcripts[tx_id].tss(),tx_id))
+        else:
+            print('Missing chromosome')
 
     # sort TSS's by chromosome
     for chrom in chrom_tss:

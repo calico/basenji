@@ -47,7 +47,7 @@ def main():
     parser = OptionParser(usage)
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-l', dest='seq_length', default=1024, type='int', help='Sequence length [Default: %default]')
-    parser.add_option('-c', dest='center_t', default=1/3, type='float', help='Center proportion in which TSSs are required to be [Default: %default]')
+    parser.add_option('-c', dest='center_t', default=0.333, type='float', help='Center proportion in which TSSs are required to be [Default: %default]')
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')

@@ -195,7 +195,7 @@ def main():
 
         gene_table(gene_data.transcript_targets, transcript_preds, gene_data.transcript_map.keys(), gene_data.target_labels, options.target_indexes, '%s/transcript'%options.out_dir, options.plot_scatter)
 
-        gene_table(gene_targets, gene_preds, set(gene_data.genes), gene_data.target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
+        gene_table(gene_targets, gene_preds, gene_data.gene_indexes.keys(), gene_data.target_labels, options.target_indexes, '%s/gene'%options.out_dir, options.plot_scatter)
 
         print(' Done in %ds.' % (time.time()-t0))
 
@@ -464,14 +464,14 @@ def map_transcripts_genes(transcript_targets, transcript_map, transcript_gene_in
     genes = set()
     txi = 0
     for transcript in transcript_map:
-        # transcript sits at sequence si at pos
+        # transcript starts in sequence si at pos
         si, pos = transcript_map[transcript]
 
         # transcript to gene index
         gi = transcript_gene_indexes[txi]
         genes.add(gi)
 
-        # extend sequence lists to tsi
+        # extend sequence lists to si
         while len(sequence_pos_genes) <= si:
             sequence_pos_genes.append({})
             sequence_pos_targets.append({})
@@ -480,7 +480,10 @@ def map_transcripts_genes(transcript_targets, transcript_map, transcript_gene_in
         sequence_pos_genes[si].setdefault(pos,set()).add(gi)
 
         # save targets to sequence/position
-        sequence_pos_targets[si][pos] = transcript_targets[txi,:]
+        if pos in sequence_pos_targets[si]:
+            np.testing.assert_array_equal(sequence_pos_targets[si][pos], transcript_targets[txi,:])
+        else:
+            sequence_pos_targets[si][pos] = transcript_targets[txi,:]
 
         txi += 1
 

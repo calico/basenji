@@ -981,7 +981,6 @@ class SeqNN:
         # regularization
         ###################################################
         self.cnn_dropout = layer_extend(job.get('cnn_dropout', []), 0, self.cnn_layers)
-        self.full_dropout = layer_extend(job.get('full_dropout', []), 0, self.full_layers)
 
         self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0, self.cnn_layers)
         self.full_l2 = layer_extend(job.get('full_l2', []), 0, self.full_layers)

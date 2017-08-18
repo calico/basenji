@@ -53,9 +53,6 @@ class SeqNN:
         self.dcnn_dropout_ph = []
         for li in range(self.dcnn_layers):
             self.dcnn_dropout_ph.append(tf.placeholder(tf.float32))
-        self.rnn_dropout_ph = []
-        for li in range(self.rnn_layers):
-            self.rnn_dropout_ph.append(tf.placeholder(tf.float32))
         self.full_dropout_ph = []
         for li in range(self.full_layers):
             self.full_dropout_ph.append(tf.placeholder(tf.float32))
@@ -82,7 +79,7 @@ class SeqNN:
             self.layer_reprs.append(self.inputs)
 
         # reshape for convolution
-        cinput = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
+        seqs_repr = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
 
         for li in range(self.cnn_layers):
             with tf.variable_scope('cnn%d' % li) as vs:
@@ -98,25 +95,25 @@ class SeqNN:
                 self.filter_weights.append(kernel)
 
                 # convolution
-                conv = tf.nn.conv2d(cinput, kernel, [1, 1, self.cnn_strides[li], 1], padding='SAME')
+                seqs_repr = tf.nn.conv2d(seqs_repr, kernel, [1, 1, self.cnn_strides[li], 1], padding='SAME')
                 print('Convolution w/ %d %dx%d filters strided by %d' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li], self.cnn_strides[li]))
 
                 # batch normalization
                 if not self.batch_renorm:
-                    cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
                 else:
-                    cinput = tf.contrib.layers.batch_norm(conv, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
+                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 print('Batch normalization')
                 print('ReLU')
 
                 # pooling
                 if self.cnn_pool[li] > 1:
-                    cinput = tf.nn.max_pool(cinput, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME')
+                    seqs_repr = tf.nn.max_pool(seqs_repr, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME')
                     print('Max pool %d' % self.cnn_pool[li])
 
                 # dropout
                 if self.cnn_dropout[li] > 0:
-                    cinput = tf.nn.dropout(cinput, 1.0-self.cnn_dropout_ph[li])
+                    seqs_repr = tf.nn.dropout(seqs_repr, 1.0-self.cnn_dropout_ph[li])
                     print('Dropout w/ probability %.3f' % self.cnn_dropout[li])
 
                 # updates size variables
@@ -125,14 +122,7 @@ class SeqNN:
 
                 # save representation (not positive about this one)
                 if self.save_reprs:
-                    self.layer_reprs.append(cinput)
-
-        if self.cnn_layers > 0:
-            # pass to dilated CNN
-            dinput = cinput
-        else:
-            # pass input along (assuming it's actually heading towards RNN layers)
-            dinput = self.inputs
+                    self.layer_reprs.append(seqs_repr)
 
         # update batch buffer to reflect pooling
         pool_preds = self.batch_length // seq_length
@@ -145,7 +135,7 @@ class SeqNN:
         # dilated convolution layers
         ###################################################
 
-        # assuming dinput has been reshaped by convolution layers
+        # assuming seqs_repr has been reshaped by convolution layers
 
         for li in range(self.dcnn_layers):
             with tf.variable_scope('dcnn%d' % li) as vs:
@@ -161,163 +151,41 @@ class SeqNN:
                 drate = np.power(2,li+1)
 
                 # convolution
-                doutput = tf.nn.atrous_conv2d(dinput, kernel, rate=drate, padding='SAME')
+                seqs_repr_next = tf.nn.atrous_conv2d(seqs_repr, kernel, rate=drate, padding='SAME')
                 print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], drate))
 
                 # batch normalization and ReLU
                 if not self.batch_renorm:
-                    doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                    seqs_repr_next = tf.contrib.layers.batch_norm(seqs_repr_next, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
                 else:
-                    doutput = tf.contrib.layers.batch_norm(doutput, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
+                    seqs_repr_next = tf.contrib.layers.batch_norm(seqs_repr_next, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 print('Batch normalization')
                 print('ReLU')
 
                 # dropout
                 if self.dcnn_dropout[li] > 0:
-                    doutput = tf.nn.dropout(doutput, 1.0-self.dcnn_dropout_ph[li])
+                    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0-self.dcnn_dropout_ph[li])
                     print('Dropout w/ probability %.3f' % self.dcnn_dropout[li])
 
                 if self.dense_dilate:
-                    # concat to dinput
-                    dinput = tf.concat(values=[dinput, doutput], axis=3)
+                    # concat layer repr
+                    seqs_repr = tf.concat(values=[seqs_repr, seqs_repr_next], axis=3)
 
                     # update size variables
                     seq_depth += self.dcnn_filters[li]
                 else:
-                    # move doutput to dinput
-                    dinput = doutput
+                    # update layer repr
+                    seqs_repr = seqs_repr_next
 
                     # update size variables
                     seq_depth = self.dcnn_filters[li]
 
                 # save representation (not positive about this one)
                 if self.save_reprs:
-                    self.layer_reprs.append(doutput)
+                    self.layer_reprs.append(seqs_repr)
 
-        # prep for RNN
-        if self.cnn_layers + self.dcnn_layers > 0:
-            # reshape
-            rinput = tf.reshape(dinput, [self.batch_size, seq_length, seq_depth])
-
-        else:
-            # pass input along
-            rinput = dinput
-
-
-        ###################################################
-        # recurrent layers
-        ###################################################
-
-        # initialize norm stabilizer
-        norm_stabilizer = 0
-
-        if self.rnn_layers == 0:
-            outputs = rinput
-
-        else:
-            # move batch_length to the front as a list
-            rinput = tf.unstack(tf.transpose(rinput, [1, 0, 2]))
-
-            for li in range(self.rnn_layers):
-                with tf.variable_scope('rnn%d' % li) as vs:
-                    # determine cell
-                    if self.cell == 'rnn':
-                        fwd_cell = tf.contrib.rnn.BasicRNNCell(self.rnn_units[li], activation=self.activation)
-                        rev_cell = tf.contrib.rnn.BasicRNNCell(self.rnn_units[li], activation=self.activation)
-                    elif self.cell == 'gru':
-                        cell = tf.nn.rnn_cell.GRUCell(self.rnn_units[li], activation=self.activation)
-                    elif self.cell == 'lstm':
-                        fwd_cell = tf.contrib.rnn.LayerNormBasicLSTMCell(self.rnn_units[li], dropout_keep_prob=self.rnn_dropout[li])
-                        rev_cell = tf.contrib.rnn.LayerNormBasicLSTMCell(self.rnn_units[li], dropout_keep_prob=self.rnn_dropout[li])
-
-                        # cell = tf.nn.rnn_cell.LSTMCell(self.rnn_units[li], state_is_tuple=True, initializer=tf.contrib.layers.xavier_initializer(uniform=True), activation=self.activation)
-                    elif self.cell == 'block':
-                        cell = tf.contrib.rnn.LSTMBlockCell(self.rnn_units[li])
-                    else:
-                        print('Cannot recognize RNN cell type %s' % self.cell)
-                        exit(1)
-
-                    # dropout
-                    # if li < len(self.rnn_dropout) and self.rnn_dropout[li] > 0:
-                    #     fwd_cell = tf.contrib.rnn.DropoutWrapper(fwd_cell, output_keep_prob=(1-self.rnn_dropout_ph[li]))
-                    #     rev_cell = tf.contrib.rnn.DropoutWrapper(rev_cell, output_keep_prob=(1-self.rnn_dropout_ph[li]))
-
-                    # run bidirectional
-                    outputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(fwd_cell, rev_cell, rinput, dtype='float32')
-                    '''
-                    if self.cnn_layers == 0 and li == 0:
-                        outputs, _, _ = bidirectional_rnn_rc(cell, cell, rinput, dtype=tf.float32)
-                    else:
-                        outputs, _, _ = bidirectional_rnn_tied(cell, cell, rinput, dtype=tf.float32)
-                    '''
-
-                    # update depth
-                    seq_depth = 2*self.rnn_units[li]
-
-                    # accumulate norm stablizer
-                    if self.norm_stabilizer[li] > 0:
-                        output_norms = tf.sqrt(tf.reduce_sum(tf.square(outputs), axis=2))
-                        output_norms_diff = tf.squared_difference(output_norms[self.batch_buffer_pool:,:], output_norms[:seq_length-self.batch_buffer_pool,:])
-                        norm_stabilizer += self.norm_stabilizer[li]*tf.reduce_mean(output_norms_diff)
-
-                    # pooling
-                    if self.rnn_pool[li] > 1:
-                        # pack into a tensor
-                        outputs = tf.stack(outputs)
-
-                        # transpose batch to the front
-                        outputs = tf.transpose(outputs, [1, 0, 2])
-
-                        # reshape to pretend 4D
-                        outputs = tf.reshape(outputs, [self.batch_size, 1, seq_length, seq_depth])
-
-                        if self.activation == 'tanh':
-                            # max pool
-                            max_pool = tf.nn.max_pool(outputs, ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='pool%d'%li)
-
-                            # abs max pool
-                            abs_max_pool = tf.nn.max_pool(tf.abs(outputs), ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='abs_pool%d'%li)
-
-                            # construct matrix of 1/-1 for abs max
-                            abs_max_mask1 =  tf.to_float(tf.equal(max_pool, abs_max_pool))
-                            abs_max_mask = abs_max_mask1*2 - 1
-
-                            outputs = abs_max_mask * abs_max_pool
-
-                        else:
-                            # pool
-                            outputs = tf.nn.max_pool(outputs, ksize=[1,1,self.rnn_pool[li],1], strides=[1,1,self.rnn_pool[li],1], padding='SAME', name='pool%d'%li)
-
-                        # updates size variable
-                        seq_length = seq_length // self.rnn_pool[li]
-
-                        # reshape to real 3D
-                        outputs = tf.reshape(outputs, [self.batch_size, seq_length, seq_depth])
-
-                        # transpose length to the front
-                        outputs = tf.transpose(outputs, [1, 0, 2])
-
-                        # unpack into a list
-                        outputs = tf.unstack(outputs)
-
-                        # update batch buffer to reflect pooling
-                        pool_preds = self.batch_length // seq_length
-                        if self.batch_buffer % pool_preds != 0:
-                            print('Please make the batch_buffer %d divisible by the pooling %d' % (self.batch_buffer, pool_preds), file=sys.stderr)
-                            exit(1)
-                        self.batch_buffer_pool = self.batch_buffer // pool_preds
-
-                    # save representation
-                    if self.save_reprs:
-                        # cannot take gradients w.r.t. this,
-                        #  but I'm not in an RNN mindset to fix it right now
-                        self.layer_reprs.append(tf.transpose(tf.stack(outputs), [1, 0, 2]))
-
-                    # outputs become input to next layer
-                    rinput = outputs
-
-            # move batch_length back to the middle as a tensor
-            outputs = tf.stack(tf.transpose(outputs, [1, 0, 2]))
+        # reshape to 1D
+        seqs_repr = tf.reshape(seqs_repr, [self.batch_size, seq_length, seq_depth])
 
 
         ###################################################
@@ -325,11 +193,11 @@ class SeqNN:
         ###################################################
 
         # slice out buffer regions
-        outputs = outputs[:,self.batch_buffer_pool:seq_length-self.batch_buffer_pool,:]
+        seqs_repr = seqs_repr[:,self.batch_buffer_pool:seq_length-self.batch_buffer_pool,:]
         seq_length -= 2*self.batch_buffer_pool
 
         # reshape to make every position an element
-        outputs = tf.reshape(outputs, (self.batch_size*seq_length, seq_depth))
+        seqs_repr = tf.reshape(seqs_repr, (self.batch_size*seq_length, seq_depth))
 
         for li in range(self.full_layers):
             with tf.variable_scope('full%d' % li):
@@ -341,20 +209,20 @@ class SeqNN:
                 if self.full_l2[li] > 0:
                     weights_regularizers += self.full_l2[li]*tf.reduce_mean(tf.nn.l2_loss(full_weights))
 
-                outputs = tf.matmul(outputs, full_weights) + full_biases
+                seqs_repr = tf.matmul(seqs_repr, full_weights) + full_biases
                 print('Linear transformation %dx%d' % (seq_depth, self.full_units[li]))
 
                 # batch normalization
                 if not self.batch_renorm:
-                    outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
+                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
                 else:
-                    outputs = tf.contrib.layers.batch_norm(outputs, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
+                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
                 print('Batch normalization')
                 print('ReLU')
 
                 # dropout
                 if self.full_dropout[li] > 0:
-                    outputs = tf.nn.dropout(outputs, 1.0-self.full_dropout_ph[li])
+                    seqs_repr = tf.nn.dropout(seqs_repr, 1.0-self.full_dropout_ph[li])
                     print('Dropout w/ probability %.3f' % self.full_dropout[li])
 
                 # update
@@ -373,16 +241,16 @@ class SeqNN:
             if self.final_l1 > 0:
                 weights_regularizers += self.final_l1*tf.reduce_mean(tf.abs(final_weights))
 
-            self.preds_op = tf.matmul(outputs, final_weights) + final_biases
+            seqs_repr = tf.matmul(seqs_repr, final_weights) + final_biases
             print('Linear transform %dx%dx%d' % (seq_depth, self.num_targets, self.target_classes))
 
         # expand length back out
         if self.target_classes == 1:
-            self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets))
+            seqs_repr = tf.reshape(seqs_repr, (self.batch_size, seq_length, self.num_targets))
         else:
-            self.preds_op = tf.reshape(self.preds_op, (self.batch_size, seq_length, self.num_targets, self.target_classes))
+            seqs_repr = tf.reshape(seqs_repr, (self.batch_size, seq_length, self.num_targets, self.target_classes))
 
-        self.preds_op = tf.check_numerics(self.preds_op, 'Invalid predictions', name='preds_check')
+        seqs_repr = tf.check_numerics(seqs_repr, 'Invalid predictions', name='preds_check')
 
         # repeat if pooling
         # pool_repeat = pool_preds // self.target_pool
@@ -400,27 +268,31 @@ class SeqNN:
         self.targets_op = tf.identity(self.targets[:,tstart:tend,:], name='targets_op')
 
         # work-around for specifying my own predictions
-        self.preds_adhoc = tf.placeholder(tf.float32, shape=self.preds_op.get_shape())
+        self.preds_adhoc = tf.placeholder(tf.float32, shape=seqs_repr.get_shape())
 
         # choose link
         if self.link in ['identity','linear']:
-            self.preds_op = tf.identity(self.preds_op, name='preds')
+            self.preds_op = tf.identity(seqs_repr, name='preds')
 
         elif self.link == 'relu':
-            self.preds_op = tf.relu(self.preds_op, name='preds')
+            self.preds_op = tf.relu(seqs_repr, name='preds')
 
         elif self.link == 'exp':
-            self.preds_op = tf.exp(tf.clip_by_value(self.preds_op,-50,50), name='preds')
+            self.preds_op = tf.exp(tf.clip_by_value(seqs_repr,-50,50), name='preds')
 
         elif self.link == 'exp_linear':
-            self.preds_op = tf.where(self.preds_op > 0, self.preds_op + 1, tf.exp(tf.clip_by_value(self.preds_op,-50,50)), name='preds')
+            self.preds_op = tf.where(seqs_repr > 0, seqs_repr + 1, tf.exp(tf.clip_by_value(seqs_repr,-50,50)), name='preds')
 
         elif self.link == 'softplus':
-            self.preds_op = tf.nn.softplus(self.preds_op, name='preds')
+            self.preds_op = tf.nn.softplus(seqs_repr, name='preds')
 
         elif self.link == 'softmax':
             # performed in the loss function, but saving probabilities
-            self.preds_prob = tf.nn.softmax(self.preds_op, name='preds')
+            self.preds_prob = tf.nn.softmax(seqs_repr, name='preds')
+
+        else:
+            print('Unknown link function %s' % self.link, file=sys.stderr)
+            exit(1)
 
         # choose loss
         if self.loss == 'gaussian':
@@ -527,8 +399,8 @@ class SeqNN:
         self.loss_adhoc = tf.reduce_mean(self.loss_adhoc, name='loss_adhoc')
 
         # add extraneous terms
-        self.loss_op += weights_regularizers + norm_stabilizer # + tf.reduce_mean(tf.log(self.target_sigmas))
-        self.loss_adhoc += weights_regularizers + norm_stabilizer # + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_op += weights_regularizers # + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_adhoc += weights_regularizers # + tf.reduce_mean(tf.log(self.target_sigmas))
 
         # track
         tf.summary.scalar('loss', self.loss_op)
@@ -567,9 +439,7 @@ class SeqNN:
             self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
 
-        ###################################################
         # summary
-        ###################################################
         self.merged_summary = tf.summary.merge_all()
 
         # initialize steps
@@ -612,7 +482,7 @@ class SeqNN:
 
         # initialize layers
         if layers is None:
-            layers = range(1+self.cnn_layers+self.dcnn_layers+self.rnn_layers)
+            layers = range(1+self.cnn_layers+self.dcnn_layers)
         elif type(layers) != list:
             layers = [layers]
 
@@ -721,7 +591,7 @@ class SeqNN:
 
         # initialize layers
         if layers is None:
-            layers = range(1+self.cnn_layers+self.dcnn_layers+self.rnn_layers)
+            layers = range(1+self.cnn_layers+self.dcnn_layers)
         elif type(layers) != list:
             layers = [layers]
 
@@ -849,7 +719,7 @@ class SeqNN:
         ''' Compute hidden representations for a test set. '''
 
         if layers is None:
-            layers = list(range(self.cnn_layers+self.dcnn_layers+self.rnn_layers))
+            layers = list(range(self.cnn_layers+self.dcnn_layers))
 
         # initialize layer representation data structure
         layer_reprs = []
@@ -1142,8 +1012,6 @@ class SeqNN:
                 fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
             for li in range(self.dcnn_layers):
                 fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
-            for li in range(self.rnn_layers):
-                fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
             for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = self.full_dropout[li]
 
@@ -1153,8 +1021,6 @@ class SeqNN:
                 fd[self.cnn_dropout_ph[li]] = 0
             for li in range(self.dcnn_layers):
                 fd[self.dcnn_dropout_ph[li]] = 0
-            for li in range(self.rnn_layers):
-                fd[self.rnn_dropout_ph[li]] = 0
             for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = 0
 
@@ -1164,8 +1030,6 @@ class SeqNN:
                 fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
             for li in range(self.dcnn_layers):
                 fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
-            for li in range(self.rnn_layers):
-                fd[self.rnn_dropout_ph[li]] = self.rnn_dropout[li]
             for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = self.full_dropout[li]
 
@@ -1177,7 +1041,7 @@ class SeqNN:
 
 
     def set_params(self, job):
-        ''' Set RNN parameters. '''
+        ''' Set model parameters. '''
 
         ###################################################
         # data attributes
@@ -1224,22 +1088,6 @@ class SeqNN:
         self.dense_dilate = bool(job.get('dense_dilate',False))
         self.dense_dilate = bool(job.get('dense',self.dense_dilate))
 
-        ###################################################
-        # RNN params
-        ###################################################
-        self.rnn_units = np.atleast_1d(job.get('rnn_units', []))
-        self.rnn_layers = len(self.rnn_units)
-        self.rnn_pool = layer_extend(job.get('rnn_pool', []), 1, self.rnn_layers)
-
-        self.cell = job.get('cell', 'lstm').lower()
-        self.activation = job.get('activation','tanh').lower()
-        if self.activation == 'relu':
-            self.activation = tf.nn.relu
-        elif self.activation == 'tanh':
-            self.activation = tf.tanh
-        else:
-            print('Activation %s not implemented' % self.activation, file=sys.stderr)
-            exit(1)
 
         ###################################################
         # fully connected params
@@ -1252,17 +1100,14 @@ class SeqNN:
         ###################################################
         self.cnn_dropout = layer_extend(job.get('cnn_dropout', []), 0, self.cnn_layers)
         self.dcnn_dropout = layer_extend(job.get('dcnn_dropout', []), 0, self.dcnn_layers)
-        self.rnn_dropout = layer_extend(job.get('rnn_dropout', []), 0, self.rnn_layers)
         self.full_dropout = layer_extend(job.get('full_dropout', []), 0, self.full_layers)
 
         self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0, self.cnn_layers)
         self.dcnn_l2 = layer_extend(job.get('dcnn_l2', []), 0, self.dcnn_layers)
-        self.rnn_l2 = layer_extend(job.get('rnn_l2', []), 0, self.rnn_layers)
         self.full_l2 = layer_extend(job.get('full_l2', []), 0, self.full_layers)
 
         self.final_l1 = job.get('final_l1', 0)
 
-        self.norm_stabilizer = layer_extend(job.get('norm_stabilizer', []), 0, self.rnn_layers)
         self.batch_renorm = bool(job.get('batch_renorm', False))
         self.batch_renorm = bool(job.get('renorm', self.batch_renorm))
 

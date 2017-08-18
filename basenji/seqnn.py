@@ -50,9 +50,6 @@ class SeqNN:
         self.cnn_dropout_ph = []
         for li in range(self.cnn_layers):
             self.cnn_dropout_ph.append(tf.placeholder(tf.float32))
-        self.full_dropout_ph = []
-        for li in range(self.full_layers):
-            self.full_dropout_ph.append(tf.placeholder(tf.float32))
 
         if self.batch_renorm:
             create_global_step()
@@ -143,83 +140,39 @@ class SeqNN:
 
 
         ###################################################
-        # fully connected layers
+        # slice out side buffer
         ###################################################
 
-        # slice out buffer regions
+        # predictions
         seqs_repr = seqs_repr[:,self.batch_buffer_pool:seq_length-self.batch_buffer_pool,:]
         seq_length -= 2*self.batch_buffer_pool
 
-        # reshape to make every position an element
-        seqs_repr = tf.reshape(seqs_repr, (self.batch_size*seq_length, seq_depth))
-
-        for li in range(self.full_layers):
-            with tf.variable_scope('full%d' % li):
-                # linear transform
-                full_weights = tf.get_variable(name='weights', shape=[seq_depth, self.full_units[li]], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
-                full_biases = tf.Variable(tf.zeros(self.full_units), name='bias')
-
-                # regularize
-                if self.full_l2[li] > 0:
-                    weights_regularizers += self.full_l2[li]*tf.reduce_mean(tf.nn.l2_loss(full_weights))
-
-                seqs_repr = tf.matmul(seqs_repr, full_weights) + full_biases
-                print('Linear transformation %dx%d' % (seq_depth, self.full_units[li]))
-
-                # batch normalization
-                seqs_repr = tf.layers.batch_normalization(seqs_repr, momentum=0.9, training=self.is_training, renorm=self.batch_renorm, renorm_clipping=renorm_clipping, renorm_momentum=0.9)
-                print('Batch normalization')
-
-                # ReLU
-                seqs_repr = tf.nn.relu(seqs_repr)
-                print('ReLU')
-
-                # dropout
-                if self.full_dropout[li] > 0:
-                    seqs_repr = tf.nn.dropout(seqs_repr, 1.0-self.full_dropout_ph[li])
-                    print('Dropout w/ probability %.3f' % self.full_dropout[li])
-
-                # update
-                seq_depth = self.full_units[li]
+        # targets
+        tstart = self.batch_buffer // self.target_pool
+        tend = (self.batch_length - self.batch_buffer) // self.target_pool
+        self.targets_op = tf.identity(self.targets[:,tstart:tend,:], name='targets_op')
 
 
         ###################################################
         # final layer
         ###################################################
-
         with tf.variable_scope('final'):
-            # linear transform
-            final_weights = tf.get_variable(name='weights', shape=[seq_depth, self.num_targets*self.target_classes], dtype=tf.float32, initializer=tf.contrib.layers.xavier_initializer(uniform=True))
-            final_biases = tf.Variable(tf.zeros(self.num_targets*self.target_classes), name='bias')
+            final_filters = self.num_targets*self.target_classes
 
-            if self.final_l1 > 0:
-                weights_regularizers += self.final_l1*tf.reduce_mean(tf.abs(final_weights))
+            seqs_repr = tf.layers.conv1d(seqs_repr, filters=final_filters, kernel_size=[1], padding='same', use_bias=True, kernel_initializer=tf.contrib.layers.xavier_initializer(), kernel_regularizer=None)
+            print('Convolution w/ %d %dx1 filters to final targets' % (final_filters, seq_depth))
 
-            seqs_repr = tf.matmul(seqs_repr, final_weights) + final_biases
-            print('Linear transform %dx%dx%d' % (seq_depth, self.num_targets, self.target_classes))
+            # if self.final_l1 > 0:
+            #     weights_regularizers += self.final_l1*tf.reduce_mean(tf.abs(final_weights))
 
         # expand length back out
-        if self.target_classes == 1:
-            seqs_repr = tf.reshape(seqs_repr, (self.batch_size, seq_length, self.num_targets))
-        else:
+        if self.target_classes > 1:
             seqs_repr = tf.reshape(seqs_repr, (self.batch_size, seq_length, self.num_targets, self.target_classes))
 
-        seqs_repr = tf.check_numerics(seqs_repr, 'Invalid predictions', name='preds_check')
-
-        # repeat if pooling
-        # pool_repeat = pool_preds // self.target_pool
-        # if pool_repeat > 1:
-        #     tlength = (self.batch_length-2*self.batch_buffer) // self.target_pool
-        #     self.preds_op = tf.reshape(tf.tile(tf.reshape(self.preds_op, (-1,self.num_targets)), (1,pool_repeat)), (self.batch_size, tlength, self.num_targets))
 
         ###################################################
         # loss and optimization
         ###################################################
-
-        # slice out buffer regions
-        tstart = self.batch_buffer // self.target_pool
-        tend = (self.batch_length - self.batch_buffer) // self.target_pool
-        self.targets_op = tf.identity(self.targets[:,tstart:tend,:], name='targets_op')
 
         # work-around for specifying my own predictions
         self.preds_adhoc = tf.placeholder(tf.float32, shape=seqs_repr.get_shape())
@@ -964,22 +917,16 @@ class SeqNN:
             fd[self.is_training] = True
             for li in range(self.cnn_layers):
                 fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
-            for li in range(self.full_layers):
-                fd[self.full_dropout_ph[li]] = self.full_dropout[li]
 
         elif mode in ['test', 'testing', 'evaluate']:
             fd[self.is_training] = False
             for li in range(self.cnn_layers):
                 fd[self.cnn_dropout_ph[li]] = 0
-            for li in range(self.full_layers):
-                fd[self.full_dropout_ph[li]] = 0
 
         elif mode in ['test_mc', 'testing_mc', 'evaluate_mc', 'mc_test', 'mc_testing', 'mc_evaluate']:
             fd[self.is_training] = False
             for li in range(self.cnn_layers):
                 fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
-            for li in range(self.full_layers):
-                fd[self.full_dropout_ph[li]] = self.full_dropout[li]
 
         else:
             print('Cannot recognize mode %s' % mode)
@@ -1031,12 +978,6 @@ class SeqNN:
         self.cnn_dilation = layer_extend(job.get('cnn_dilation', []), 1, self.cnn_layers)
 
         ###################################################
-        # fully connected params
-        ###################################################
-        self.full_units = np.atleast_1d(job.get('full_units', []))
-        self.full_layers = len(self.full_units)
-
-        ###################################################
         # regularization
         ###################################################
         self.cnn_dropout = layer_extend(job.get('cnn_dropout', []), 0, self.cnn_layers)
@@ -1055,7 +996,6 @@ class SeqNN:
         ###################################################
         self.link = job.get('link', 'exp_linear')
         self.loss = job.get('loss', 'poisson')
-
 
         ###################################################
         # other

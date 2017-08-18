@@ -51,6 +51,7 @@ def main():
     parser.add_option('-p', dest='processes', default=1, type='int', help='Number parallel processes to load data [Default: %default]')
     parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
     parser.add_option('-w', dest='pool_width', type='int', default=1, help='Average pooling width [Default: %default]')
+    parser.add_option('--w5', dest='w5', default=False, action='store_true', help='Coverage files are w5 rather than BigWig [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
@@ -167,7 +168,10 @@ def main():
         bwt_params = [(wig_file, transcript_map, seq_coords, options.pool_width) for wig_file in target_wigs.values()]
 
         # pull the target values in parallel
-        transcript_targets = pool.starmap(bigwig_transcripts, bwt_params)
+        if options.w5:
+            transcript_targets = pool.starmap(wig5_transcripts, bwt_params)
+        else:
+            transcript_targets = pool.starmap(bigwig_transcripts, bwt_params)
 
         # convert to array
         transcript_targets = np.transpose(np.array(transcript_targets))
@@ -290,6 +294,65 @@ def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
     wig_in.close()
 
     return transcript_targets
+
+
+################################################################################
+def wig5_transcripts(w5_file, transcript_map, seq_coords, pool_width=1):
+    ''' Read gene target values from a bigwig
+
+    Args:
+      wig_file: wiggle HDF5 filename
+      transcript_map: OrderedDict mapping transcript_id to (seq index,seq pos) tuples
+      seq_coords: list of (chrom,start,end) sequence coordinates
+      pool_width: average pool adjacent nucleotides of this width
+
+    Returns:
+      transcript_targets:
+    '''
+
+    # initialize target values
+    transcript_targets = np.zeros(len(transcript_map), dtype='float16')
+
+    # open wig h5
+    w5_in = h5py.File(w5_file)
+
+    # so we can warn about missing chromosomes just once
+    warned_chroms = set()
+
+    # for each transcript
+    tx_i = 0
+    for transcript in transcript_map:
+        # determine sequence and position
+        seq_i, seq_pos = transcript_map[transcript]
+
+        # extract sequence coordinates
+        seq_chrom, seq_start, seq_end = seq_coords[seq_i]
+
+        # determine gene genomic coordinates
+        tx_start = seq_start + seq_pos*pool_width
+        tx_end = tx_start + pool_width
+
+        # pull sum (formerly mean value)
+        try:
+            transcript_targets[tx_i] = w5_in[seq_chrom][tx_start:tx_end].sum(dtype='float32')
+
+        except RuntimeError:
+            if seq_chrom not in warned_chroms:
+                print("WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,transcript,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
+                warned_chroms.add(seq_chrom)
+
+        # check NaN
+        if np.isnan(transcript_targets[tx_i]):
+            print('WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' % (transcript, seq_chrom, seq_start, seq_end, wig_file), file=sys.stderr)
+            transcript_targets[tx_i] = 0
+
+        tx_i += 1
+
+    # close w5 file
+    w5_in.close()
+
+    return transcript_targets
+
 
 
 ################################################################################

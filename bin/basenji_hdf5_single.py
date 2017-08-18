@@ -35,7 +35,7 @@ import tensorflow as tf
 import basenji
 
 '''
-basenji_hdf5.py
+basenji_hdf5_single.py
 
 Tile the genome and project the full functional profile to latent space
 using a given model. Save the result in HDF5 for Basenji learning.
@@ -645,7 +645,7 @@ def w5_batch(w5_file, segments, seq_length, pool_width=1, stride=None, log10to2=
     ''' Read a batch of segment values from a bigwig file
 
     Args:
-      wig_file: Bigwig filename
+      w5_file: wiggle HDF5 filename
       segments: list of (chrom,start,end) genomic segments to read,
                   assuming those segments are appropriate length
       seq_length: sequence length to break them into
@@ -698,6 +698,8 @@ def w5_batch(w5_file, segments, seq_length, pool_width=1, stride=None, log10to2=
             # update
             bstart += stride
             bend += stride
+
+    w5_in.close()
 
     return targets
 

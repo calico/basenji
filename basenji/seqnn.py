@@ -50,9 +50,6 @@ class SeqNN:
         self.cnn_dropout_ph = []
         for li in range(self.cnn_layers):
             self.cnn_dropout_ph.append(tf.placeholder(tf.float32))
-        self.dcnn_dropout_ph = []
-        for li in range(self.dcnn_layers):
-            self.dcnn_dropout_ph.append(tf.placeholder(tf.float32))
         self.full_dropout_ph = []
         for li in range(self.full_layers):
             self.full_dropout_ph.append(tf.placeholder(tf.float32))
@@ -88,8 +85,8 @@ class SeqNN:
         for li in range(self.cnn_layers):
             with tf.variable_scope('cnn%d' % li) as vs:
 
-                seqs_repr = tf.layers.conv1d(seqs_repr, filters=self.cnn_filters[li], kernel_size=[self.cnn_filter_sizes[li]], strides=self.cnn_strides[li], padding='same', use_bias=False, kernel_initializer=tf.contrib.layers.xavier_initializer(), kernel_regularizer=None)
-                print('Convolution w/ %d %dx%d filters strided %d' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li], self.cnn_strides[li]))
+                seqs_repr_next = tf.layers.conv1d(seqs_repr, filters=self.cnn_filters[li], kernel_size=[self.cnn_filter_sizes[li]], strides=self.cnn_strides[li], padding='same', dilation_rate=[self.cnn_dilation[li]], use_bias=False, kernel_initializer=tf.contrib.layers.xavier_initializer(), kernel_regularizer=None)
+                print('Convolution w/ %d %dx%d filters strided %d, dilated %d' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li], self.cnn_strides[li], self.cnn_dilation[li]))
 
                 # regularize
                 # if self.cnn_l2[li] > 0:
@@ -99,27 +96,39 @@ class SeqNN:
                 # self.filter_weights.append(kernel)
 
                 # batch normalization
-                seqs_repr = tf.layers.batch_normalization(seqs_repr, momentum=0.9, training=self.is_training, renorm=self.batch_renorm, renorm_clipping=renorm_clipping, renorm_momentum=0.9)
+                seqs_repr_next = tf.layers.batch_normalization(seqs_repr_next, momentum=0.9, training=self.is_training, renorm=self.batch_renorm, renorm_clipping=renorm_clipping, renorm_momentum=0.9)
                 print('Batch normalization')
 
                 # ReLU
-                seqs_repr = tf.nn.relu(seqs_repr)
+                seqs_repr_next = tf.nn.relu(seqs_repr_next)
                 print('ReLU')
 
                 # pooling
                 if self.cnn_pool[li] > 1:
-                    seqs_repr = tf.layers.max_pooling1d(seqs_repr, pool_size=self.cnn_pool[li], strides=self.cnn_pool[li], padding='same')
+                    seqs_repr_next = tf.layers.max_pooling1d(seqs_repr_next, pool_size=self.cnn_pool[li], strides=self.cnn_pool[li], padding='same')
                     print('Max pool %d' % self.cnn_pool[li])
 
                 # dropout
                 if self.cnn_dropout[li] > 0:
-                    seqs_repr = tf.nn.dropout(seqs_repr, 1.0-self.cnn_dropout_ph[li])
+                    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0-self.cnn_dropout_ph[li])
                     # seqs_repr = tf.layers.dropout(seqs_repr, rate=self.cnn_dropout[li], training=self.is_training)
                     print('Dropout w/ probability %.3f' % self.cnn_dropout[li])
 
                 # updates size variables
                 seq_length = seq_length // self.cnn_pool[li]
-                seq_depth = self.cnn_filters[li]
+
+                if self.cnn_dense[li]:
+                    # concat layer repr
+                    seqs_repr = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
+
+                    # update size variables
+                    seq_depth += self.cnn_filters[li]
+                else:
+                    # update layer repr
+                    seqs_repr = seqs_repr_next
+
+                    # update size variables
+                    seq_depth = self.cnn_filters[li]
 
                 # save representation (not positive about this one)
                 if self.save_reprs:
@@ -131,65 +140,6 @@ class SeqNN:
             print('Please make the batch_buffer %d divisible by the CNN pooling %d' % (self.batch_buffer, pool_preds), file=sys.stderr)
             exit(1)
         self.batch_buffer_pool = self.batch_buffer // pool_preds
-
-        ###################################################
-        # dilated convolution layers
-        ###################################################
-
-        # since I didn't do it above
-        seqs_repr = tf.reshape(seqs_repr, [self.batch_size, 1, seq_length, seq_depth])
-
-        # assuming seqs_repr has been reshaped by convolution layers
-
-        for li in range(self.dcnn_layers):
-            with tf.variable_scope('dcnn%d' % li) as vs:
-                # convolution params
-                stdev = 1./np.sqrt(self.dcnn_filters[li]*seq_depth)
-                kernel = tf.Variable(tf.random_uniform([1, self.dcnn_filter_sizes[li], seq_depth, self.dcnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
-
-                # regularize
-                if self.dcnn_l2[li] > 0:
-                    weights_regularizers += self.dcnn_l2[li]*tf.reduce_mean(tf.nn.l2_loss(kernel))
-
-                # let the last convolution layer handle the rate 1 pass
-                drate = np.power(2,li+1)
-
-                # convolution
-                seqs_repr_next = tf.nn.atrous_conv2d(seqs_repr, kernel, rate=drate, padding='SAME')
-                print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], drate))
-
-                # batch normalization and ReLU
-                seqs_repr_next = tf.layers.batch_normalization(seqs_repr_next, momentum=0.9, training=self.is_training, renorm=self.batch_renorm, renorm_clipping=renorm_clipping, renorm_momentum=0.9)
-                print('Batch normalization')
-
-                # ReLU
-                seqs_repr = tf.nn.relu(seqs_repr)
-                print('ReLU')
-
-                # dropout
-                if self.dcnn_dropout[li] > 0:
-                    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0-self.dcnn_dropout_ph[li])
-                    print('Dropout w/ probability %.3f' % self.dcnn_dropout[li])
-
-                if self.dense_dilate:
-                    # concat layer repr
-                    seqs_repr = tf.concat(values=[seqs_repr, seqs_repr_next], axis=3)
-
-                    # update size variables
-                    seq_depth += self.dcnn_filters[li]
-                else:
-                    # update layer repr
-                    seqs_repr = seqs_repr_next
-
-                    # update size variables
-                    seq_depth = self.dcnn_filters[li]
-
-                # save representation (not positive about this one)
-                if self.save_reprs:
-                    self.layer_reprs.append(seqs_repr)
-
-        # reshape to 1D
-        seqs_repr = tf.reshape(seqs_repr, [self.batch_size, seq_length, seq_depth])
 
 
         ###################################################
@@ -442,6 +392,7 @@ class SeqNN:
         # if self.batch_renorm:
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
+
         # summary
         self.merged_summary = tf.summary.merge_all()
 
@@ -485,7 +436,7 @@ class SeqNN:
 
         # initialize layers
         if layers is None:
-            layers = range(1+self.cnn_layers+self.dcnn_layers)
+            layers = range(1+self.cnn_layers)
         elif type(layers) != list:
             layers = [layers]
 
@@ -594,7 +545,7 @@ class SeqNN:
 
         # initialize layers
         if layers is None:
-            layers = range(1+self.cnn_layers+self.dcnn_layers)
+            layers = range(1+self.cnn_layers)
         elif type(layers) != list:
             layers = [layers]
 
@@ -722,7 +673,7 @@ class SeqNN:
         ''' Compute hidden representations for a test set. '''
 
         if layers is None:
-            layers = list(range(self.cnn_layers+self.dcnn_layers))
+            layers = list(range(self.cnn_layers))
 
         # initialize layer representation data structure
         layer_reprs = []
@@ -1013,8 +964,6 @@ class SeqNN:
             fd[self.is_training] = True
             for li in range(self.cnn_layers):
                 fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
-            for li in range(self.dcnn_layers):
-                fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
             for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = self.full_dropout[li]
 
@@ -1022,8 +971,6 @@ class SeqNN:
             fd[self.is_training] = False
             for li in range(self.cnn_layers):
                 fd[self.cnn_dropout_ph[li]] = 0
-            for li in range(self.dcnn_layers):
-                fd[self.dcnn_dropout_ph[li]] = 0
             for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = 0
 
@@ -1031,8 +978,6 @@ class SeqNN:
             fd[self.is_training] = False
             for li in range(self.cnn_layers):
                 fd[self.cnn_dropout_ph[li]] = self.cnn_dropout[li]
-            for li in range(self.dcnn_layers):
-                fd[self.dcnn_dropout_ph[li]] = self.dcnn_dropout[li]
             for li in range(self.full_layers):
                 fd[self.full_dropout_ph[li]] = self.full_dropout[li]
 
@@ -1079,18 +1024,11 @@ class SeqNN:
         self.cnn_filters = np.atleast_1d(job.get('cnn_filters', []))
         self.cnn_filter_sizes = np.atleast_1d(job.get('cnn_filter_sizes', []))
         self.cnn_layers = len(self.cnn_filters)
+
         self.cnn_pool = layer_extend(job.get('cnn_pool', []), 1, self.cnn_layers)
         self.cnn_strides = layer_extend(job.get('cnn_strides', []), 1, self.cnn_layers)
-
-        ###################################################
-        # dilated CNN params
-        ###################################################
-        self.dcnn_filters = np.atleast_1d(job.get('dcnn_filters', []))
-        self.dcnn_filter_sizes = np.atleast_1d(job.get('dcnn_filter_sizes', []))
-        self.dcnn_layers = len(self.dcnn_filters)
-        self.dense_dilate = bool(job.get('dense_dilate',False))
-        self.dense_dilate = bool(job.get('dense',self.dense_dilate))
-
+        self.cnn_dense = layer_extend(job.get('cnn_dense', []), False, self.cnn_layers)
+        self.cnn_dilation = layer_extend(job.get('cnn_dilation', []), 1, self.cnn_layers)
 
         ###################################################
         # fully connected params
@@ -1102,11 +1040,9 @@ class SeqNN:
         # regularization
         ###################################################
         self.cnn_dropout = layer_extend(job.get('cnn_dropout', []), 0, self.cnn_layers)
-        self.dcnn_dropout = layer_extend(job.get('dcnn_dropout', []), 0, self.dcnn_layers)
         self.full_dropout = layer_extend(job.get('full_dropout', []), 0, self.full_layers)
 
         self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0, self.cnn_layers)
-        self.dcnn_l2 = layer_extend(job.get('dcnn_l2', []), 0, self.dcnn_layers)
         self.full_l2 = layer_extend(job.get('full_l2', []), 0, self.full_layers)
 
         self.final_l1 = job.get('final_l1', 0)

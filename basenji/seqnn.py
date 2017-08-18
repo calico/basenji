@@ -61,6 +61,9 @@ class SeqNN:
             create_global_step()
             RMAX_decay = basenji.ops.adjust_max(6000, 60000, 1, 3, name='RMAXDECAY')
             DMAX_decay = basenji.ops.adjust_max(6000, 60000, 0, 5, name='DMAXDECAY')
+            renorm_clipping = {'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}
+        else:
+            renorm_clipping = {}
 
         # training conditional
         self.is_training = tf.placeholder(tf.bool)
@@ -79,41 +82,39 @@ class SeqNN:
             self.layer_reprs.append(self.inputs)
 
         # reshape for convolution
-        seqs_repr = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
+        # seqs_repr = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
+        seqs_repr = self.inputs
 
         for li in range(self.cnn_layers):
             with tf.variable_scope('cnn%d' % li) as vs:
-                # convolution params
-                stdev = 1./np.sqrt(self.cnn_filters[li]*seq_depth)
-                kernel = tf.Variable(tf.random_uniform([1, self.cnn_filter_sizes[li], seq_depth, self.cnn_filters[li]], minval=-stdev, maxval=stdev), name='kernel')
+
+                seqs_repr = tf.layers.conv1d(seqs_repr, filters=self.cnn_filters[li], kernel_size=[self.cnn_filter_sizes[li]], strides=self.cnn_strides[li], padding='same', use_bias=False, kernel_initializer=tf.contrib.layers.xavier_initializer(), kernel_regularizer=None)
+                print('Convolution w/ %d %dx%d filters strided %d' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li], self.cnn_strides[li]))
 
                 # regularize
-                if self.cnn_l2[li] > 0:
-                    weights_regularizers += self.cnn_l2[li]*tf.reduce_mean(tf.nn.l2_loss(kernel))
+                # if self.cnn_l2[li] > 0:
+                #    weights_regularizers += self.cnn_l2[li]*tf.reduce_mean(tf.nn.l2_loss(kernel))
 
                 # maintain a pointer to the weights
-                self.filter_weights.append(kernel)
-
-                # convolution
-                seqs_repr = tf.nn.conv2d(seqs_repr, kernel, [1, 1, self.cnn_strides[li], 1], padding='SAME')
-                print('Convolution w/ %d %dx%d filters strided by %d' % (self.cnn_filters[li], seq_depth, self.cnn_filter_sizes[li], self.cnn_strides[li]))
+                # self.filter_weights.append(kernel)
 
                 # batch normalization
-                if not self.batch_renorm:
-                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                else:
-                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
+                seqs_repr = tf.layers.batch_normalization(seqs_repr, momentum=0.9, training=self.is_training, renorm=self.batch_renorm, renorm_clipping=renorm_clipping, renorm_momentum=0.9)
                 print('Batch normalization')
+
+                # ReLU
+                seqs_repr = tf.nn.relu(seqs_repr)
                 print('ReLU')
 
                 # pooling
                 if self.cnn_pool[li] > 1:
-                    seqs_repr = tf.nn.max_pool(seqs_repr, ksize=[1,1,self.cnn_pool[li],1], strides=[1,1,self.cnn_pool[li],1], padding='SAME')
+                    seqs_repr = tf.layers.max_pooling1d(seqs_repr, pool_size=self.cnn_pool[li], strides=self.cnn_pool[li], padding='same')
                     print('Max pool %d' % self.cnn_pool[li])
 
                 # dropout
                 if self.cnn_dropout[li] > 0:
                     seqs_repr = tf.nn.dropout(seqs_repr, 1.0-self.cnn_dropout_ph[li])
+                    # seqs_repr = tf.layers.dropout(seqs_repr, rate=self.cnn_dropout[li], training=self.is_training)
                     print('Dropout w/ probability %.3f' % self.cnn_dropout[li])
 
                 # updates size variables
@@ -135,6 +136,9 @@ class SeqNN:
         # dilated convolution layers
         ###################################################
 
+        # since I didn't do it above
+        seqs_repr = tf.reshape(seqs_repr, [self.batch_size, 1, seq_length, seq_depth])
+
         # assuming seqs_repr has been reshaped by convolution layers
 
         for li in range(self.dcnn_layers):
@@ -155,11 +159,11 @@ class SeqNN:
                 print('Dilated convolution w/ %d %dx%d rate %d filters' % (self.dcnn_filters[li], seq_depth, self.dcnn_filter_sizes[li], drate))
 
                 # batch normalization and ReLU
-                if not self.batch_renorm:
-                    seqs_repr_next = tf.contrib.layers.batch_norm(seqs_repr_next, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                else:
-                    seqs_repr_next = tf.contrib.layers.batch_norm(seqs_repr_next, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
+                seqs_repr_next = tf.layers.batch_normalization(seqs_repr_next, momentum=0.9, training=self.is_training, renorm=self.batch_renorm, renorm_clipping=renorm_clipping, renorm_momentum=0.9)
                 print('Batch normalization')
+
+                # ReLU
+                seqs_repr = tf.nn.relu(seqs_repr)
                 print('ReLU')
 
                 # dropout
@@ -213,11 +217,11 @@ class SeqNN:
                 print('Linear transformation %dx%d' % (seq_depth, self.full_units[li]))
 
                 # batch normalization
-                if not self.batch_renorm:
-                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, updates_collections=None)
-                else:
-                    seqs_repr = tf.contrib.layers.batch_norm(seqs_repr, decay=0.9, center=True, scale=True, activation_fn=tf.nn.relu, is_training=self.is_training, renorm=True, renorm_decay=0.9, renorm_clipping={'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay})
+                seqs_repr = tf.layers.batch_normalization(seqs_repr, momentum=0.9, training=self.is_training, renorm=self.batch_renorm, renorm_clipping=renorm_clipping, renorm_momentum=0.9)
                 print('Batch normalization')
+
+                # ReLU
+                seqs_repr = tf.nn.relu(seqs_repr)
                 print('ReLU')
 
                 # dropout
@@ -435,9 +439,8 @@ class SeqNN:
         self.step_op = self.opt.apply_gradients(clip_gvs)
 
         # batch norm helper
-        if self.batch_renorm:
-            self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-
+        # if self.batch_renorm:
+        self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
         # summary
         self.merged_summary = tf.summary.merge_all()
@@ -1279,11 +1282,8 @@ class SeqNN:
             fd[self.targets] = Yb
             fd[self.targets_na] = NAb
 
-            if not self.batch_renorm:
-                summary, loss_batch, _ = sess.run([self.merged_summary, self.loss_op, self.step_op], feed_dict=fd)
-            else:
-                run_returns = sess.run([self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
-                summary, loss_batch = run_returns[:2]
+            run_returns = sess.run([self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
+            summary, loss_batch = run_returns[:2]
 
             # pull gradients
             # gvs_batch = sess.run([g for (g,v) in self.gvs if g is not None], feed_dict=fd)

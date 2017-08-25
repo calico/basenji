@@ -72,11 +72,13 @@ Notes:
 def main():
     usage = 'usage: %prog [options] <bam_file> <output_file>'
     parser = OptionParser(usage)
+    parser.add_option('-a', dest='adaptive_max', default=8, type='int', help='Maximum coverage at a single position, adaptively-determined [Default: %default]')
     parser.add_option('-c', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
-    parser.add_option('-d', dest='duplicate_max', default=None, type='int', help='Maximum coverage at a single position, which must be addressed due to PCR duplicates [Default: %default]')
+    parser.add_option('-d', dest='duplicate_max', default=None, type='int', help='Maximum coverage at a single position for initial clipping [Default: %default]')
     parser.add_option('-f', dest='fasta_file', default='%s/assembly/hg19.fa'%os.environ['HG19'], help='FASTA to obtain sequence to control for GC% [Default: %default]')
     parser.add_option('-g', dest='gc', default=False, action='store_true', help='Control for local GC% [Default: %default]')
     parser.add_option('-m', dest='multi_em', default=0, type='int', help='Iterations of EM to distribute multi-mapping reads [Default: %default]')
+    parser.add_option('--multi_max', dest='multi_max', default=1, type='int', help='Maximum coverage at a single position from multi-mapping reads [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='bam_cov', help='Output directory [Default: %default]')
     parser.add_option('-r', dest='strand_corr_shift', default=False, action='store_true', help='Learn the fragment shift by fitting a strand cross correlation model [Default: %default]')
     parser.add_option('-s', dest='smooth_sd', default=32, type='float', help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
@@ -108,7 +110,7 @@ def main():
         options.duplicate_max *= 2
 
     # initialize
-    genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max, shift=options.shift, fasta_file=options.fasta_file)
+    genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max, multi_max=options.multi_max, shift=options.shift, fasta_file=options.fasta_file)
 
     # estimate fragment shift
     if options.strand_corr_shift:
@@ -360,10 +362,11 @@ class GenomeCoverage:
 
      smooth_sd (int): Gaussian filter standard deviation.
      duplicate_max (int): Maximum coverage per position due to PCR duplicate fear.
+     multi_max (int): Maximum coverage per position from multi-mappers due to mis-mapping fear.
      shift (int): Alignment shift to maximize cross-strand coverage correlation
     '''
 
-    def __init__(self, chrom_lengths, smooth_sd=32, duplicate_max=2, shift=0, fasta_file=None):
+    def __init__(self, chrom_lengths, smooth_sd=32, adaptive_max=8, duplicate_max=2, multi_max=1, shift=0, fasta_file=None):
         self.chrom_lengths = chrom_lengths
         self.genome_length = sum(chrom_lengths.values())
         self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
@@ -371,11 +374,12 @@ class GenomeCoverage:
 
         self.smooth_sd = smooth_sd
         self.duplicate_max = duplicate_max
+        self.multi_max = multi_max
         self.shift = shift
 
-        self.clip_cdf = .05
-        self.clip_max = 10
-        self.clip_t = {}
+        self.adaptive_max = adaptive_max
+        self.adaptive_cdf = .05
+        self.adaptive_t = {}
 
         self.fasta = None
         if fasta_file is not None:
@@ -493,7 +497,7 @@ class GenomeCoverage:
             ri_ptr, ri_ptr1 = self.multi_weight_matrix.indptr[ri:ri+2]
             ci = 0
             for pos in self.multi_weight_matrix.indices[ri_ptr:ri_ptr1]:
-                genome_coverage[pos] += self.multi_weight_matrix.data[ri_ptr+ci]
+                genome_coverage[pos] += np.clip(self.multi_weight_matrix.data[ri_ptr+ci], 0, self.multi_max)
                 ci += 1
 
         # limit duplicates
@@ -1147,39 +1151,39 @@ class GenomeCoverage:
          coverage (np.array): Pre-clipped genome coverage.
 
         Out:
-         self.clip_t (int->float): Clip values mapped to coverage thresholds above which to apply them.
+         self.adaptive_t (int->float): Clip values mapped to coverage thresholds above which to apply them.
          self.multi_clip_indexes (int->np.array): Clip values mapped to genomic indexes to clip.
         '''
 
         # choose clip thresholds
-        if len(self.clip_t) == 0:
+        if len(self.adaptive_t) == 0:
             print('Clip thresholds:')
-            for clip_value in range(2,self.clip_max+1):
-                cdf_matcher = lambda u: (self.clip_cdf - (1-poisson.cdf(clip_value, u)))**2
-                self.clip_t[clip_value] = minimize(cdf_matcher, clip_value)['x'][0]
-                print(clip_value, self.clip_t[clip_value])
+            for clip_value in range(2,self.adaptive_max+1):
+                cdf_matcher = lambda u: (self.adaptive_cdf - (1-poisson.cdf(clip_value, u)))**2
+                self.adaptive_t[clip_value] = minimize(cdf_matcher, clip_value)['x'][0]
+                print(clip_value, self.adaptive_t[clip_value])
 
         # take indexes with coverage between this clip threshold and the next
         self.multi_clip_indexes = {}
-        for clip_value in range(2,self.clip_max):
-            mci = np.where((coverage > self.clip_t[clip_value]) & (coverage <= self.clip_t[clip_value+1]))[0]
+        for clip_value in range(2,self.adaptive_max):
+            mci = np.where((coverage > self.adaptive_t[clip_value]) & (coverage <= self.adaptive_t[clip_value+1]))[0]
             if len(mci) > 0:
                 self.multi_clip_indexes[clip_value] = mci
 
             print('Sites clipped to %d: %d' % (clip_value, len(mci)))
 
         # set the last clip_value
-        mci = np.where(coverage > self.clip_t[self.clip_max])[0]
+        mci = np.where(coverage > self.adaptive_t[self.adaptive_max])[0]
         if len(mci) > 0:
-            self.multi_clip_indexes[self.clip_max] = mci
+            self.multi_clip_indexes[self.adaptive_max] = mci
 
-        print('Sites clipped to %d: %d' % (self.clip_max, len(mci)))
+        print('Sites clipped to %d: %d' % (self.adaptive_max, len(mci)))
 
 
     def clip_multi(self, coverage, chrom=None):
         ''' Clip coverage at multiple pre-determined thresholds.
 
-        Must run set_clips to set self.multi_clip_indexes. If self.clip_t is empty, I
+        Must run set_clips to set self.multi_clip_indexes. If self.adaptive_t is empty, I
         know it hasn't been run yet.
 
         In:
@@ -1193,9 +1197,9 @@ class GenomeCoverage:
         # TEMP
         chroms_list = list(self.chrom_lengths.keys())
 
-        if len(self.clip_t) == 0:
+        if len(self.adaptive_t) == 0:
             # we haven't chosen clip thresholds yet. be conservative.
-            coverage = np.clip(coverage, 0, self.clip_max)
+            coverage = np.clip(coverage, 0, self.adaptive_max)
 
         else:
             # clip indexes at each value

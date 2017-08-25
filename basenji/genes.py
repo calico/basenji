@@ -51,7 +51,7 @@ class GeneData:
         transcript_index = list(self.genes_hdf5_in['transcript_index'])
         transcript_pos = list(self.genes_hdf5_in['transcript_pos'])
 
-        self.transcript_map = {}
+        self.transcript_map = OrderedDict()
         for ti in range(len(self.transcripts)):
             self.transcript_map[self.transcripts[ti]] = (transcript_index[ti], transcript_pos[ti])
         self.num_transcripts = len(self.transcript_map)
@@ -78,12 +78,12 @@ class GeneData:
             self.transcript_genes[self.transcripts[ti]] = self.genes[ti]
 
         # map transcript indexes to gene indexes
-        gene_indexes = {}
+        self.gene_indexes = OrderedDict()
         self.transcript_gene_indexes = []
         for gid in self.genes:
-            if gid not in gene_indexes:
-                gene_indexes[gid] = len(gene_indexes)
-            self.transcript_gene_indexes.append(gene_indexes[gid])
+            if gid not in self.gene_indexes:
+                self.gene_indexes[gid] = len(self.gene_indexes)
+            self.transcript_gene_indexes.append(self.gene_indexes[gid])
 
 
         # determine genes split across sequences

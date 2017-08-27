@@ -544,23 +544,17 @@ class SeqNN:
             print('Cannot recognize optimization algorithm %s' % self.optimization)
             exit(1)
 
-        # clip gradients
+        # compute gradients
         self.gvs = self.opt.compute_gradients(self.loss_op, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N)
-        if self.grad_clip is None:
-            clip_gvs =  self.gvs
-        else:
-            # batch norm introduces these None values that we have to dodge
-            clip_gvs = []
-            for i in range(len(self.gvs)):
-                g,v = self.gvs[i]
-                if g is None:
-                    clip_gvs.append(self.gvs[i])
-                else:
-                    # clip_gvs.append((tf.clip_by_value(g, -self.grad_clip, self.grad_clip), v))
-                    clip_gvs.append((tf.clip_by_norm(g, self.grad_clip), v))
+
+        # clip gradients
+        if self.grad_clip is not None:
+            gradients, variables = zip(*self.gvs)
+            gradients, _ = tf.clip_by_global_norm(gradients, self.grad_clip)
+            self.gvs = zip(gradients, variables)
 
         # apply gradients
-        self.step_op = self.opt.apply_gradients(clip_gvs)
+        self.step_op = self.opt.apply_gradients(self.gvs)
 
         # batch norm helper
         if self.batch_renorm:

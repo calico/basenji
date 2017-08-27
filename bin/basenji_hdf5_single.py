@@ -68,7 +68,7 @@ def main():
     (options,args) = parser.parse_args()
 
     if len(args) != 3:
-        parser.error('Must provide genome file, sample Wig/BigWig labels and paths, and model output file')
+        parser.error('Must provide genome FASTA file, sample Wig/BigWig labels and paths, and model output file')
     else:
         fasta_file = args[0]
         sample_wigs_file = args[1]

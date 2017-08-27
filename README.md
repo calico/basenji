@@ -65,10 +65,10 @@ These are a work in progress, so forgive incompleteness for the moment. If there
 
 - Preprocess
   - [Preprocess new datasets for training.](tutorials/preprocess.ipynb)
-- Train
-  - [Train a model.](tutorials/train.md)
-- Test
-  - [Test a trained model.](tutorials/test.ipynb)
-- Visualization
+- Train/test
+  - [Train and test a model.](tutorials/train_test.ipynb)
+- Gene expression
+  - [Test gene expression predictions.](tutorials/genes.ipynb)
+- Study
   - [Execute an in silico saturated mutagenesis](tutorials/sat_mut.ipynb)
   - [Compute SNP Activity Difference (SAD) and Expression Difference (SED) scores.](tutorials/sad.ipynb)

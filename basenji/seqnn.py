@@ -23,7 +23,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import create_global_step
 
-from basenji.dna_io import hot1_rc
+from basenji.dna_io import hot1_rc, hot1_augment
 import basenji.ops
 
 class SeqNN:
@@ -146,6 +146,7 @@ class SeqNN:
         # predictions
         seqs_repr = seqs_repr[:,self.batch_buffer_pool:seq_length-self.batch_buffer_pool,:]
         seq_length -= 2*self.batch_buffer_pool
+        self.preds_length = seq_length
 
         # targets
         tstart = self.batch_buffer // self.target_pool
@@ -668,14 +669,88 @@ class SeqNN:
         return layer_reprs, preds
 
 
-    def predict(self, sess, batcher, rc_avg=False, mc_n=0, target_indexes=None, return_var=False, return_all=False, down_sample=1):
+    def _predict_ensemble(self, sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes=None, target_indexes=None, return_var=False, return_all=False):
+
+        # determine predictions length
+        preds_length = self.preds_length
+        if ds_indexes is not None:
+            preds_length = len(ds_indexes)
+
+        # determine num targets
+        num_targets = self.num_targets
+        if target_indexes is not None:
+            num_targets = len(target_indexes)
+
+        # initialize batch predictions
+        preds_batch = np.zeros((Xb.shape[0], preds_length, num_targets), dtype='float32')
+
+        if return_var:
+            preds_batch_var = np.zeros(preds_batch.shape, dtype='float32')
+        else:
+            preds_batch_var = None
+
+        if return_all:
+            all_n = mc_n * len(ensemble_fwdrc)
+            preds_all = np.zeros((Xb.shape[0], preds_length, num_targets, all_n), dtype='float16')
+        else:
+            preds_all = None
+
+        running_i = 0
+
+        for ei in range(len(ensemble_fwdrc)):
+            # construct sequence
+            Xb_ensemble = hot1_augment(Xb, ensemble_fwdrc[ei], ensemble_shifts[ei])
+
+
+            # update feed dict
+            fd[self.inputs] = Xb_ensemble
+
+            # for each monte carlo (or non-mc single) iteration
+            for mi in range(mc_n):
+                print('ei=%d, mi=%d, fwdrc=%d, shifts=%d' % (ei, mi, ensemble_fwdrc[ei], ensemble_shifts[ei]), flush=True)
+
+                # predict
+                preds_ei = sess.run(self.preds_op, feed_dict=fd)
+
+                # reverse
+                if ensemble_fwdrc[ei] is False:
+                    preds_ei = preds_ei[:,::-1,:]
+
+                # down-sample
+                if ds_indexes is not None:
+                    preds_ei = preds_ei[:,ds_indexes,:]
+                if target_indexes is not None:
+                    preds_ei = preds_ei[:,:,target_indexes]
+
+                # save previous mean
+                preds_batch1 = preds_batch
+
+                # update mean
+                preds_batch = running_mean(preds_batch1, preds_ei, running_i+1)
+
+                # update variance sum
+                if return_var:
+                    preds_batch_var = running_varsum(preds_batch_var, preds_ei, preds_batch1, preds_batch)
+
+                # save iteration
+                if return_all:
+                    preds_all[:,:,:,running_i] = preds_ei[:,:,:]
+
+                # update running index
+                running_i += 1
+
+        return preds_batch, preds_batch_var, preds_all
+
+
+    def predict(self, sess, batcher, rc=False, shifts=[0], mc_n=0, target_indexes=None, return_var=False, return_all=False, down_sample=1):
         ''' Compute predictions on a test set.
 
         In
          sess:           TensorFlow session
-         batcher:        Batcher class with transcript-covering sequences
-         rc_avg:         Average predictions from the forward and reverse complement sequences
-         mc_n:           Monte Carlo iterations
+         batcher:        Batcher class with transcript-covering sequences.
+         rc:             Average predictions from the forward and reverse complement sequences.
+         shifts:         Average predictions from sequence shifts left/right.
+         mc_n:           Monte Carlo iterations per rc/shift.
          target_indexes: Optional target subset list
          return_var:     Return variance estimates
          down_sample:    Int specifying to consider uniformly spaced sampled positions
@@ -684,97 +759,69 @@ class SeqNN:
          preds: S (sequences) x L (unbuffered length) x T (targets) array
         '''
 
-        # determine non-buffer region
-        buf_start = self.batch_buffer // self.target_pool
-        buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
-        buf_len = buf_end - buf_start
-
         # uniformly sample indexes
-        ds_indexes = np.arange(0, buf_len, down_sample)
+        ds_indexes = None
+        preds_length = self.preds_length
+        if down_sample != 1:
+            ds_indexes = np.arange(0, self.preds_length, down_sample)
+            preds_length = len(ds_indexes)
 
         # initialize prediction arrays
         num_targets = self.num_targets
         if target_indexes is not None:
             num_targets = len(target_indexes)
 
-        preds = np.zeros((batcher.num_seqs, len(ds_indexes), num_targets), dtype='float16')
-        if mc_n > 0 and return_var:
-            preds_var = np.zeros((batcher.num_seqs, len(ds_indexes), num_targets), dtype='float16')
-        if mc_n > 0 and return_all:
-            preds_all = np.zeros((batcher.num_seqs, len(ds_indexes), num_targets, mc_n), dtype='float16')
-
-        si = 0
+        # determine ensemble iteration parameters
+        ensemble_fwdrc = []
+        ensemble_shifts = []
+        for shift in shifts:
+            ensemble_fwdrc.append(True)
+            ensemble_shifts.append(shift)
+            if rc:
+                ensemble_fwdrc.append(False)
+                ensemble_shifts.append(shift)
 
         if mc_n > 0:
             # setup feed dict
             fd = self.set_mode('test_mc')
 
-            # divide iterations between forward and reverse
-            mcf_n = mc_n
-            if rc_avg:
-                mcr_n = mc_n // 2
-                mcf_n = mc_n - mcr_n
         else:
             # setup feed dict
             fd = self.set_mode('test')
+
+            # co-opt the variable to represent
+            # iterations per fwdrc/shift.
+            mc_n = 1
+
+        # total ensemble predictions
+        all_n = mc_n * len(ensemble_fwdrc)
+
+        # initialize prediction data structures
+        preds = np.zeros((batcher.num_seqs, preds_length, num_targets), dtype='float16')
+        if return_var:
+            if all_n == 1:
+                print('Cannot return prediction variance. Add rc, shifts, or mc.', file=sys.stderr)
+                exit(1)
+            preds_var = np.zeros((batcher.num_seqs, preds_length, num_targets), dtype='float16')
+        if return_all:
+            preds_all = np.zeros((batcher.num_seqs, preds_length, num_targets, all_n), dtype='float16')
+
+        # sequence index
+        si = 0
 
         # get first batch
         Xb, _, _, Nb = batcher.next()
 
         while Xb is not None:
-            # update feed dict
-            fd[self.inputs] = Xb
-
-            # compute predictions
-            preds_batch = sess.run(self.preds_op, feed_dict=fd)[:,ds_indexes,:]
-            if return_var:
-                preds_batch_var = np.zeros(preds_batch.shape, dtype='float32')
-            if return_all:
-                preds_all[si:si+Nb,:,:,0] = preds_batch[:Nb,:,target_indexes]
-
-            if mc_n > 0:
-                # accumulate predictions
-                for mi in range(1,mcf_n):
-                    preds_i = sess.run(self.preds_op, feed_dict=fd)[:,ds_indexes,:]
-                    preds_batch1 = preds_batch
-                    preds_batch = running_mean(preds_batch1, preds_i, mi+1)
-                    if return_var:
-                        preds_batch_var = running_varsum(preds_batch_var, preds_i, preds_batch1, preds_batch)
-                    if return_all:
-                        preds_all[si:si+Nb,:,:,mi] = preds_i[:Nb,:,target_indexes]
-
-                if rc_avg:
-                    # construct reverse complement
-                    fd[self.inputs] = hot1_rc(Xb)
-
-                    for mi in range(mcr_n):
-                        preds_i = sess.run(self.preds_op, feed_dict=fd)[:,::-1,:][:,ds_indexes,:]
-                        preds_batch1 = preds_batch
-                        preds_batch = running_mean(preds_batch1, preds_i, mcf_n+mi+1)
-                        if return_var:
-                            preds_batch_var = running_varsum(preds_batch_var, preds_i, preds_batch1, preds_batch)
-                        if return_all:
-                            preds_all[si:si+Nb,:,:,mcf_n+mi] = preds_i[:Nb,:,target_indexes]
-
-            elif rc_avg:
-                # compute reverse complement prediction
-                fd[self.inputs] = hot1_rc(Xb)
-                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)[:,::-1,:][:,ds_indexes,:]
-
-                # average with forward prediction
-                preds_batch += preds_batch_rc
-                preds_batch /= 2.
-
-            # filter for specific targets
-            if target_indexes is not None:
-                preds_batch = preds_batch[:,:,target_indexes]
-                if mc_n > 0 and return_var:
-                    preds_batch_var = preds_batch_var[:,:,target_indexes]
+            # make ensemble predictions
+            preds_batch, preds_batch_var, preds_all = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes, target_indexes, return_var, return_all)
 
             # accumulate predictions
             preds[si:si+Nb,:,:] = preds_batch[:Nb,:,:]
-            if mc_n > 0 and return_var:
-                preds_var[si:si+Nb,:,:] = preds_batch_var[:Nb,:,:] / (mc_n-1)
+            if return_var:
+                preds_var[si:si+Nb,:,:] = preds_batch_var[:Nb,:,:] / (all_n-1)
+            if return_all:
+                preds_all[si:si+Nb,:,:,:] = preds_all[:Nb,:,:,:]
 
             # update sequence index
             si += Nb
@@ -994,119 +1041,88 @@ class SeqNN:
         self.save_reprs = job.get('save_reprs', False)
 
 
-    def test(self, sess, batcher, rc_avg=True, mc_n=0, down_sample=1):
+    def test(self, sess, batcher, rc=False, shifts=[0], mc_n=0):
         ''' Compute model accuracy on a test set.
 
         Args:
           sess:         TensorFlow session
           batcher:      Batcher object to provide data
-          rc_avg:       Perform half the iterations on the rc seq and average.
-          mc_n:         Monte Carlo iterations
-          down_sample:  Int specifying to consider uniformly spaced sampled positions
+          rc:             Average predictions from the forward and reverse complement sequences.
+          shifts:         Average predictions from sequence shifts left/right.
+          mc_n:           Monte Carlo iterations per rc/shift.
 
         Returns:
           acc:          Accuracy object
         '''
 
-        batch_losses = []
-        batch_target_losses = []
-
-        # determine non-buffer region
-        buf_start = self.batch_buffer // self.target_pool
-        buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
-        buf_len = buf_end - buf_start
-
-        # uniformly sample indexes
-        ds_indexes = np.arange(0, buf_len, down_sample)
-
-        # initialize prediction and target arrays
-        preds = np.zeros((batcher.num_seqs, len(ds_indexes), self.num_targets), dtype='float16')
-        targets = np.zeros((batcher.num_seqs, len(ds_indexes), self.num_targets), dtype='float16')
-        targets_na = np.zeros((batcher.num_seqs, len(ds_indexes)), dtype='bool')
-        si = 0
+        # determine ensemble iteration parameters
+        ensemble_fwdrc = []
+        ensemble_shifts = []
+        for shift in shifts:
+            ensemble_fwdrc.append(True)
+            ensemble_shifts.append(shift)
+            if rc:
+                ensemble_fwdrc.append(False)
+                ensemble_shifts.append(shift)
 
         if mc_n > 0:
             # setup feed dict
             fd = self.set_mode('test_mc')
 
-            # divide iterations between forward and reverse
-            mcf_n = mc_n
-            if rc_avg:
-                mcr_n = mc_n // 2
-                mcf_n = mc_n - mcr_n
         else:
             # setup feed dict
             fd = self.set_mode('test')
+
+            # co-opt the variable to represent
+            # iterations per fwdrc/shift.
+            mc_n = 1
+
+        # initialize prediction and target arrays
+        preds = np.zeros((batcher.num_seqs, self.preds_length, self.num_targets), dtype='float16')
+
+        targets = np.zeros((batcher.num_seqs, self.preds_length, self.num_targets), dtype='float16')
+        targets_na = np.zeros((batcher.num_seqs, self.preds_length), dtype='bool')
+
+        batch_losses = []
+        batch_target_losses = []
+
+        # sequence index
+        si = 0
 
         # get first batch
         Xb, Yb, NAb, Nb = batcher.next()
 
         while Xb is not None:
-            # update feed dict
-            fd[self.inputs] = Xb
+            # make ensemble predictions
+            preds_batch, preds_batch_var, preds_all = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n)
+
+            # add target info
             fd[self.targets] = Yb
             fd[self.targets_na] = NAb
 
-            # initialize accumulator
-            preds_batch, targets_batch, loss_batch, target_losses_batch = sess.run([self.preds_op, self.targets_op, self.loss_op, self.target_losses], feed_dict=fd)
-
-            if mc_n > 0:
-                # accumulate predictions
-                for mi in range(1,mcf_n):
-                    preds_batch += sess.run(self.preds_op, feed_dict=fd)
-
-                if rc_avg:
-                    # construct reverse complement
-                    fd[self.inputs] = hot1_rc(Xb)
-
-                    # initialize accumulator
-                    preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
-
-                    # accumulate predictions
-                    for mi in range(1,mcr_n):
-                        preds_batch_rc += sess.run(self.preds_op, feed_dict=fd)
-
-                    # sum with forward predictions
-                    preds_batch += preds_batch_rc[:,::-1,:]
-
-                # average all predictions
-                preds_batch /= mc_n
-
-                # recompute loss
-                fd[self.preds_adhoc] = preds_batch
-                loss_batch, target_losses_batch = sess.run([self.loss_adhoc, self.target_losses_adhoc], feed_dict=fd)
-
-            elif rc_avg:
-                # compute reverse complement prediction
-                fd[self.inputs] = hot1_rc(Xb)
-                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
-
-                # average with forward prediction
-                preds_batch += preds_batch_rc[:,::-1,:]
-                preds_batch /= 2.
-
-                # recompute loss
-                fd[self.preds_adhoc] = preds_batch
-                loss_batch, target_losses_batch = sess.run([self.loss_adhoc, self.target_losses_adhoc], feed_dict=fd)
+            # recompute loss w/ ensembled prediction
+            fd[self.preds_adhoc] = preds_batch
+            targets_batch, loss_batch, target_losses_batch = sess.run([self.targets_op, self.loss_adhoc, self.target_losses_adhoc], feed_dict=fd)
 
             # accumulate predictions and targets
             if preds_batch.ndim == 3:
-                preds[si:si+Nb,:,:] = preds_batch[:Nb,ds_indexes,:]
-                targets[si:si+Nb,:,:] = targets_batch[:Nb,ds_indexes,:]
+                preds[si:si+Nb,:,:] = preds_batch[:Nb,:,:]
+                targets[si:si+Nb,:,:] = targets_batch[:Nb,:,:]
+
             else:
                 for qi in range(preds_batch.shape[3]):
                     # TEMP, ideally this will be in the HDF5 and set previously
                     self.quantile_means = np.geomspace(0.1, 256, 16)
 
                     # softmax
-                    preds_batch_norm = np.expand_dims(np.sum(np.exp(preds_batch[:Nb,ds_indexes,:,:]),axis=3),axis=3)
-                    pred_probs_batch = np.exp(preds_batch[:Nb,ds_indexes,:,:]) / preds_batch_norm
+                    preds_batch_norm = np.expand_dims(np.sum(np.exp(preds_batch[:Nb,:,:,:]),axis=3),axis=3)
+                    pred_probs_batch = np.exp(preds_batch[:Nb,:,:,:]) / preds_batch_norm
 
                     # expectation over quantile medians
                     preds[si:si+Nb,:,:] = np.dot(pred_probs_batch, self.quantile_means)
 
                     # compare to quantile median
-                    targets[si:si+Nb,:,:] = self.quantile_means[targets_batch[:Nb,ds_indexes,:]-1]
+                    targets[si:si+Nb,:,:] = self.quantile_means[targets_batch[:Nb,:,:]-1]
 
             # accumulate loss
             batch_losses.append(loss_batch)

@@ -57,10 +57,12 @@ def main():
     parser.add_option('--ai', dest='accuracy_indexes', help='Comma-separated list of target indexes to make accuracy plots comparing true versus predicted values')
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome length information [Default: %default]')
+    parser.add_option('--mc', dest='mc_n', default=0, type='int', help='Monte carlo test iterations [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
     parser.add_option('--save', dest='save', default=False, action='store_true')
+    parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
@@ -76,6 +78,8 @@ def main():
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
+
+    options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
     #######################################################
     # load data
@@ -145,7 +149,8 @@ def main():
         # test
         t0 = time.time()
         # test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
-        test_acc = dr.test(sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
+        # test_acc = dr.test(sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
+        test_acc = dr.test(sess, batcher_test, rc=options.rc, shifts=options.shifts, mc=options.mc_n)
 
         if options.save:
             np.save('%s/preds.npy' % options.out_dir, test_acc.preds)

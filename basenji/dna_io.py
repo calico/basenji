@@ -109,6 +109,51 @@ def dna_1hot_float(seq, seq_len=None):
     return seq_code
 
 
+def hot1_augment(Xb, fwdrc, shift):
+    ''' Transform a batch of one hot coded sequences to augment training.
+
+    Args:
+      Xb:     Batch x Length x 4 array
+      fwdrc:  Boolean representing forward versus reverse complement strand.
+      shift:  Integer shift
+
+    Returns:
+      Xbt:    Transformed version of Xb
+    '''
+
+    if shift == 0:
+        Xbt = Xb
+
+    elif shift > 0:
+        Xbt = np.zeros(Xb.shape)
+
+        # fill in left unknowns
+        Xbt[:,:shift,:] = 1. / Xb.shape[2]
+        # e.g.
+        # Xbt[:,:1,:] = 1. / 4
+
+        # fill in sequence
+        Xbt[:,shift:,:] = Xb[:,:-shift,:]
+        # e.g.
+        # Xbt[:,1:,] = Xb[:,:-1,:]
+
+    elif shift < 0:
+        Xbt = np.zeros(Xb.shape)
+
+        # fill in right unknowns
+        Xbt[:,shift:,:] = 1. / Xb.shape[2]
+
+        # fill in sequence
+        Xbt[:,:shift,:] = Xb[:,-shift:,:]
+        # e.g.
+        # Xb_shift[:,:-1,:] = Xb[:,1:,:]
+
+    if not fwdrc:
+        Xbt = hot1_rc(Xbt)
+
+    return Xbt
+
+
 def hot1_dna(seqs_1hot):
     ''' Convert 1-hot coded sequences to ACGTN. '''
 
@@ -163,16 +208,19 @@ def hot1_get(seqs_1hot, pos):
 def hot1_rc(seqs_1hot):
     ''' Reverse complement a batch of one hot coded sequences '''
 
+    seqs_1hot_rc = seqs_1hot.copy()
+
     # reverse
-    seqs_1hot = seqs_1hot[:,::-1,:]
+    seqs_1hot_rc = seqs_1hot_rc[:,::-1,:]
+    # seqs_1hot_rc[:,::-1,:]
 
     # swap A and T
-    seqs_1hot[:,:,[0,3]] = seqs_1hot[:,:,[3,0]]
+    seqs_1hot_rc[:,:,[0,3]] = seqs_1hot_rc[:,:,[3,0]]
 
     # swap C and G
-    seqs_1hot[:,:,[1,2]] = seqs_1hot[:,:,[2,1]]
+    seqs_1hot_rc[:,:,[1,2]] = seqs_1hot_rc[:,:,[2,1]]
 
-    return seqs_1hot
+    return seqs_1hot_rc
 
 
 def hot1_set(seqs_1hot, pos, nt):

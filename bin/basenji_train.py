@@ -39,7 +39,6 @@ basenji_train.py
 def main():
     usage = 'usage: %prog [options] <params_file> <data_file>'
     parser = OptionParser(usage)
-    parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-l', dest='learn_rate_drop', default=False, action='store_true', help='Drop learning rate when training loss stalls [Default: %default]')
     parser.add_option('--mc', dest='mc_n', default=0, type='int', help='Monte carlo test iterations [Default: %default]')
     parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
@@ -165,7 +164,7 @@ def main():
                 train_loss = dr.train_epoch(sess, batcher_train, rc_epoch, train_writer)
 
                 # validate
-                valid_acc = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc_avg=options.rc, down_sample=options.down_sample)
+                valid_acc = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc=options.rc)
                 valid_loss = valid_acc.loss
                 valid_r2 = valid_acc.r2().mean()
                 del valid_acc

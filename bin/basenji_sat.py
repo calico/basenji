@@ -53,6 +53,7 @@ def main():
     parser.add_option('-a', dest='activity_enrich', default=1, type='float', help='Enrich the sample for the top proportion sorted by acitvity in the target cells requested. [Default: %default]')
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size')
     parser.add_option('-f', dest='figure_width', default=20, type='float', help='Figure width [Default: %default]')
+    parser.add_option('-g', dest='gain', default=False, action='store_true', help='Draw a sequence logo for the gain score, too [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
     parser.add_option('-m', dest='min_limit', default=0.005, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-n', dest='load_sat_npy', default=False, action='store_true', help='Load the predictions from .npy files [Default: %default]')
@@ -166,18 +167,29 @@ def main():
                 # setup plot
                 sns.set(style='white', font_scale=1)
                 spp = subplot_params(sat_delta.shape[1])
-                plt.figure(figsize=(options.figure_width,4))
-                ax_pred = plt.subplot2grid((4,spp['heat_cols']), (0,spp['pred_start']), colspan=spp['pred_span'])
-                ax_logo = plt.subplot2grid((4,spp['heat_cols']), (1,spp['logo_start']), colspan=spp['logo_span'])
-                ax_sad = plt.subplot2grid((4,spp['heat_cols']), (2,spp['sad_start']), colspan=spp['sad_span'])
-                ax_heat = plt.subplot2grid((4,spp['heat_cols']), (3,0), colspan=spp['heat_cols'])
+
+                if options.gain:
+                    plt.figure(figsize=(options.figure_width,5))
+                    ax_pred = plt.subplot2grid((5,spp['heat_cols']), (0,spp['pred_start']), colspan=spp['pred_span']);
+                    ax_logo_loss = plt.subplot2grid((5,spp['heat_cols']), (1,spp['logo_start']), colspan=spp['logo_span'])
+                    ax_logo_gain = plt.subplot2grid((5,spp['heat_cols']), (2,spp['logo_start']), colspan=spp['logo_span'])
+                    ax_sad = plt.subplot2grid((5,spp['heat_cols']), (3,spp['sad_start']), colspan=spp['sad_span'])
+                    ax_heat = plt.subplot2grid((5,spp['heat_cols']), (4,0), colspan=spp['heat_cols'])
+
+                else:
+                    plt.figure(figsize=(options.figure_width,4))
+                    ax_pred = plt.subplot2grid((4,spp['heat_cols']), (0,spp['pred_start']), colspan=spp['pred_span']);
+                    ax_logo_loss = plt.subplot2grid((4,spp['heat_cols']), (1,spp['logo_start']), colspan=spp['logo_span'])
+                    ax_sad = plt.subplot2grid((4,spp['heat_cols']), (2,spp['sad_start']), colspan=spp['sad_span'])
+                    ax_heat = plt.subplot2grid((4,spp['heat_cols']), (3,0), colspan=spp['heat_cols'])
 
                 # plot predictions
                 plot_predictions(ax_pred, sat_preds[0,:,ti], options.satmut_len, dr.batch_length, dr.batch_buffer)
 
                 # plot sequence logo
-                plot_seqlogo(ax_logo, seqs_1hot[si], sat_loss[:,ti], sat_gain[:,ti])
-                # plot_weblogo(ax_logo, seqs[si], sat_loss[:,ti], options.min_limit)
+                plot_seqlogo(ax_logo_loss, seqs_1hot[si], -sat_loss[:,ti])
+                if options.gain:
+                    plot_seqlogo(ax_logo_gain, seqs_1hot[si], sat_gain[:,ti])
 
                 # plot SAD
                 plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])
@@ -210,13 +222,12 @@ def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
     return seqs, seqs_1hot, targets
 
 
-def expand_4l(sat_lg_ti, seq_1hot, pseudo_pct=0.01):
+def expand_4l(sat_lg_ti, seq_1hot):
     ''' Expand
 
     In:
         sat_lg_ti (l array): Sat mut loss/gain scores for a single sequence and target.
         seq_1hot (Lx4 array): One-hot coding for a single sequence.
-        pseudo_pct (float): % of the max to add as a pseudocount.
 
     Out:
         sat_loss_4l (lx4 array): Score-hot coding?
@@ -232,12 +243,8 @@ def expand_4l(sat_lg_ti, seq_1hot, pseudo_pct=0.01):
     # filter sequence for satmut region
     seq_1hot_sm = seq_1hot[ssi:ssi+satmut_len,:]
 
-    # determine loss/gain pseduocount
-    max_val = np.abs(sat_lg_ti).max()
-    pseudo_lg = pseudo_pct * max_val
-
     # tile loss scores to align
-    sat_lg_tile = np.tile(sat_lg_ti, (4,1)).T + pseudo_lg
+    sat_lg_tile = np.tile(sat_lg_ti, (4,1)).T
 
     # element-wise multiple
     sat_lg_4l = np.multiply(seq_1hot_sm, sat_lg_tile)
@@ -454,22 +461,25 @@ def plot_sad(ax, sat_loss_ti, sat_gain_ti):
         ax.spines[axis].set_linewidth(0.5)
 
 
-def plot_seqlogo(ax, seq_1hot, sat_loss_ti, sat_gain_ti):
+def plot_seqlogo(ax, seq_1hot, sat_score_ti, pseudo_pct=0.05):
     ''' Plot a sequence logo for the loss/gain scores.
 
     Args:
         ax (Axis): matplotlib axis to plot to.
         seq_1hot (Lx4 array): One-hot coding of a sequence.
-        sat_loss_ti (L_sm array): Minimum mutation delta across satmut length.
-        sat_gain_ti (L_sm array): Maximum mutation delta across satmut length.
+        sat_score_ti (L_sm array): Minimum mutation delta across satmut length.
+        pseudo_pct (float): % of the max to add as a pseudocount.
     '''
 
-    satmut_len = len(sat_loss_ti)
+    satmut_len = len(sat_score_ti)
 
-    sat_loss_4l = expand_4l(sat_loss_ti, seq_1hot)
-    sat_gain_4l = expand_4l(sat_gain_ti, seq_1hot)
+    # add pseudocounts
+    sat_score_ti += pseudo_pct*sat_score_ti.max()
 
-    basenji.plots.seqlogo(-sat_loss_4l, ax)
+    # expand
+    sat_score_4l = expand_4l(sat_score_ti, seq_1hot)
+
+    basenji.plots.seqlogo(sat_score_4l, ax)
 
 
 def plot_weblogo(ax, seq, sat_loss_ti, min_limit):

@@ -16,6 +16,7 @@
 
 from optparse import OptionParser
 import os
+import pdb
 import sys
 
 import h5py
@@ -45,12 +46,13 @@ def main():
     parser.add_option('-f', dest='figure_width', default=20, type='float', help='Figure width [Default: %default]')
     parser.add_option('--f1', dest='genome1_fasta', default='%s/assembly/hg19.fa'%os.environ['HG19'], help='Genome FASTA which which major allele sequences will be drawn')
     parser.add_option('--f2', dest='genome2_fasta', default=None, help='Genome FASTA which which minor allele sequences will be drawn')
-    parser.add_option('-g', dest='gain', default=False, action='store_true', help='Draw nucleotides proportional to the gain score [Default: %default]')
+    parser.add_option('-g', dest='gain', default=False, action='store_true', help='Draw a sequence logo for the gain score, too [Default: %default]')
     parser.add_option('-l', dest='satmut_len', default=200, type='int', help='Length of centered sequence to mutate [Default: %default]')
     parser.add_option('-m', dest='mc_n', default=0, type='int', help='Monte carlo iterations [Default: %default]')
     parser.add_option('--min', dest='min_limit', default=0.005, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-n', dest='load_sat_npy', default=False, action='store_true', help='Load the predictions from .npy files [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='heat', help='Output directory [Default: %default]')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='seq_len', default=131072, type='int', help='Input sequence length [Default: %default]')
     parser.add_option('-t', dest='targets', default='0', help='Comma-separated list of target indexes to plot (or -1 for all) [Default: %default]')
     (options,args) = parser.parse_args()
@@ -140,7 +142,7 @@ def main():
                 batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
                 # predict
-                sat_preds = dr.predict(sess, batcher_sat, rc_avg=True, mc_n=options.mc_n, target_indexes=target_indexes)
+                sat_preds = dr.predict(sess, batcher_sat, rc=options.rc, mc_n=options.mc_n, target_indexes=target_indexes)
                 np.save('%s/seq%d_preds.npy' % (options.out_dir,si), sat_preds)
 
             #################################################################
@@ -160,16 +162,23 @@ def main():
                 # setup plot
                 sns.set(style='white', font_scale=1)
                 spp = basenji_sat.subplot_params(sat_delta.shape[1])
-                plt.figure(figsize=(options.figure_width,4))
-                ax_logo = plt.subplot2grid((3,spp['heat_cols']), (0,spp['logo_start']), colspan=spp['logo_span'])
-                ax_sad = plt.subplot2grid((3,spp['heat_cols']), (1,spp['sad_start']), colspan=spp['sad_span'])
-                ax_heat = plt.subplot2grid((3,spp['heat_cols']), (2,0), colspan=spp['heat_cols'])
 
-                # plot sequence logo w/ DeepLIFT
                 if options.gain:
-                    basenji_sat.plot_seqlogo(ax_logo, seqs_1hot[si], -sat_gain[:,ti], -sat_loss[:,ti])
+                    plt.figure(figsize=(options.figure_width,4))
+                    ax_logo_loss = plt.subplot2grid((4,spp['heat_cols']), (0,spp['logo_start']), colspan=spp['logo_span'])
+                    ax_logo_gain = plt.subplot2grid((4,spp['heat_cols']), (1,spp['logo_start']), colspan=spp['logo_span'])
+                    ax_sad = plt.subplot2grid((4,spp['heat_cols']), (2,spp['sad_start']), colspan=spp['sad_span'])
+                    ax_heat = plt.subplot2grid((4,spp['heat_cols']), (3,0), colspan=spp['heat_cols'])
                 else:
-                    basenji_sat.plot_seqlogo(ax_logo, seqs_1hot[si], sat_loss[:,ti], sat_gain[:,ti])
+                    plt.figure(figsize=(options.figure_width,3))
+                    ax_logo_loss = plt.subplot2grid((3,spp['heat_cols']), (0,spp['logo_start']), colspan=spp['logo_span'])
+                    ax_sad = plt.subplot2grid((3,spp['heat_cols']), (1,spp['sad_start']), colspan=spp['sad_span'])
+                    ax_heat = plt.subplot2grid((3,spp['heat_cols']), (2,0), colspan=spp['heat_cols'])
+
+                # plot sequence logo
+                basenji_sat.plot_seqlogo(ax_logo_loss, seqs_1hot[si], -sat_loss[:,ti])
+                if options.gain:
+                    basenji_sat.plot_seqlogo(ax_logo_gain, seqs_1hot[si], sat_gain[:,ti])
 
                 # plot SAD
                 basenji_sat.plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])
@@ -194,3 +203,4 @@ def fs_clean(header):
 ################################################################################
 if __name__ == '__main__':
     main()
+    # pdb.runcall(main)

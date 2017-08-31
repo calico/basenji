@@ -194,7 +194,7 @@ def snp_seq1(snp, seq_len, genome_open):
 
     # specify positions in GFF-style 1-based
     seq_start = snp.pos - left_len
-    seq_end = snp.pos + right_len + len(snp.ref_allele) - snp.longest_alt()
+    seq_end = snp.pos + right_len + max(0, len(snp.ref_allele) - snp.longest_alt())
 
     # extract sequence as BED style
     if seq_start < 0:
@@ -209,18 +209,29 @@ def snp_seq1(snp, seq_len, genome_open):
     # verify that ref allele matches ref sequence
     seq_ref = seq[left_len:left_len+len(snp.ref_allele)]
     if seq_ref != snp.ref_allele:
-        if seq_ref not in snp.alt_alleles:
-            print('WARNING: Skipping %s - neither allele matches reference genome: %s vs %s' % (snp.rsid, snp.ref_allele, seq_ref), file=sys.stderr)
 
-        else:
-            print('WARNING: %s - alt (as opposed to ref) allele matches reference genome; changing reference genome to match.' % (snp.rsid), file=sys.stderr)
+        # search for reference allele in alternatives
+        ref_found = False
 
-            # remove alt allele and include ref allele
-            seq = seq[:left_len] + snp.ref_allele + seq[left_len+len(seq_ref):]
+        # for each alternative allele
+        for alt_al in snp.alt_alleles:
 
-            # note that this won't work for indels, but they will be sent to the
-            # skipping code above because seq_ref will be the wrong length as the
-            # proper alternative allele
+            # grab reference sequence matching alt length
+            seq_ref_alt = seq[left_len:left_len+len(alt_al)]
+            if seq_ref_alt == alt_al:
+                # found it!
+                ref_found = True
+
+                # warn user
+                print('WARNING: %s - alt (as opposed to ref) allele matches reference genome; changing reference genome to match.' % (snp.rsid), file=sys.stderr)
+
+                # remove alt allele and include ref allele
+                seq = seq[:left_len] + snp.ref_allele + seq[left_len+len(alt_al):]
+                break
+
+        if not ref_found:
+            print('WARNING: %s - reference genome does not match any allele; skipping' % (snp.rsid), file=sys.stderr)
+            continue
 
     # one hot code ref allele
     seq_vecs_ref, seq_ref = dna_length_1hot(seq, seq_len)
@@ -253,9 +264,6 @@ def snps_seq1(snps, seq_len, genome_fasta, return_seqs=False):
     left_len = seq_len//2 - 1
     right_len = seq_len//2
 
-    # open genome FASTA
-    genome = pysam.Fastafile(genome_fasta)
-
     # initialize one hot coded vector list
     seq_vecs_list = []
 
@@ -268,16 +276,19 @@ def snps_seq1(snps, seq_len, genome_fasta, return_seqs=False):
     # name sequences
     seq_headers = []
 
+    # open genome FASTA
+    genome_open = pysam.Fastafile(genome_fasta)
+
     for snp in snps:
         # specify positions in GFF-style 1-based
         seq_start = snp.pos - left_len
-        seq_end = snp.pos + right_len + len(snp.ref_allele) - snp.longest_alt()
+        seq_end = snp.pos + right_len + max(0, len(snp.ref_allele) - snp.longest_alt())
 
         # extract sequence as BED style
         if seq_start < 0:
-            seq = 'N'*(-seq_start) + genome.fetch(snp.chrom, 0, seq_end).upper()
+            seq = 'N'*(-seq_start) + genome_open.fetch(snp.chrom, 0, seq_end).upper()
         else:
-            seq = genome.fetch(snp.chrom, seq_start-1, seq_end).upper()
+            seq = genome_open.fetch(snp.chrom, seq_start-1, seq_end).upper()
 
         # extend to full length
         if len(seq) < seq_end - seq_start:
@@ -286,19 +297,29 @@ def snps_seq1(snps, seq_len, genome_fasta, return_seqs=False):
         # verify that ref allele matches ref sequence
         seq_ref = seq[left_len:left_len+len(snp.ref_allele)]
         if seq_ref != snp.ref_allele:
-            if seq_ref not in snp.alt_alleles:
-                print('WARNING: Skipping %s - neither allele matches reference genome: %s vs %s' % (snp.rsid, snp.ref_allele, seq_ref), file=sys.stderr)
+
+            # search for reference allele in alternatives
+            ref_found = False
+
+            # for each alternative allele
+            for alt_al in snp.alt_alleles:
+
+                # grab reference sequence matching alt length
+                seq_ref_alt = seq[left_len:left_len+len(alt_al)]
+                if seq_ref_alt == alt_al:
+                    # found it!
+                    ref_found = True
+
+                    # warn user
+                    print('WARNING: %s - alt (as opposed to ref) allele matches reference genome; changing reference genome to match.' % (snp.rsid), file=sys.stderr)
+
+                    # remove alt allele and include ref allele
+                    seq = seq[:left_len] + snp.ref_allele + seq[left_len+len(alt_al):]
+                    break
+
+            if not ref_found:
+                print('WARNING: %s - reference genome does not match any allele; skipping' % (snp.rsid), file=sys.stderr)
                 continue
-
-            else:
-                print('WARNING: %s - alt (as opposed to ref) allele matches reference genome; changing reference genome to match.' % (snp.rsid), file=sys.stderr)
-
-                # remove alt allele and include ref allele
-                seq = seq[:left_len] + snp.ref_allele + seq[left_len+len(seq_ref):]
-
-                # note that this won't work for indels, but they will be sent to the
-                # skipping code above because seq_ref will be the wrong length as the
-                # proper alternative allele
 
         seq_snps.append(snp)
 

@@ -50,7 +50,7 @@ def main():
     parser.add_option('-o', dest='out_dir', default='predict_var', help='Output directory for test statistics [Default: %default]')
     parser.add_option('-s', dest='save', default=False, action='store_true', help='Save predictions and variance arrays [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
-    parser.add_option('-t', dest='targets', default=None, help='Comma-separated list of target indexes to plot (or -1 for all) [Default: %default]')
+    parser.add_option('-t', dest='targets', default=None, help='Comma-separated list of target indexes to plot [Default: %default]')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -130,13 +130,13 @@ def main():
         saver.restore(sess, model_file)
 
         # predict
-        # preds, preds_var = model.predict(sess, batcher_test, rc_avg=options.rc, mc_n=options.mc_n, return_var=True, target_indexes=target_indexes, down_sample=options.down_sample)
-        preds, preds_var, preds_all = model.predict(sess, batcher_test, rc_avg=options.rc, mc_n=options.mc_n, return_var=True, return_all=True, target_indexes=target_indexes, down_sample=options.down_sample)
+        preds, preds_var = model.predict(sess, batcher_test, rc=options.rc, shifts=[-1,0,1], mc_n=options.mc_n, return_var=True, target_indexes=target_indexes, down_sample=options.down_sample)
+        # preds, preds_var, preds_all = model.predict(sess, batcher_test, rc=options.rc, mc_n=options.mc_n, return_var=True, return_all=True, target_indexes=target_indexes, down_sample=options.down_sample)
 
         if options.save:
             np.save('%s/preds.npy'%options.out_dir, preds)
             np.save('%s/preds_var.npy'%options.out_dir, preds_var)
-            np.save('%s/preds_all.npy'%options.out_dir, preds_all)
+            # np.save('%s/preds_all.npy'%options.out_dir, preds_all)
 
     #######################################################
     # plot

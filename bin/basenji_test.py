@@ -150,7 +150,7 @@ def main():
         t0 = time.time()
         # test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
         # test_acc = dr.test(sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
-        test_acc = dr.test(sess, batcher_test, rc=options.rc, shifts=options.shifts, mc=options.mc_n)
+        test_acc = dr.test(sess, batcher_test, rc=options.rc, shifts=options.shifts, mc_n=options.mc_n)
 
         if options.save:
             np.save('%s/preds.npy' % options.out_dir, test_acc.preds)

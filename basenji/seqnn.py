@@ -707,7 +707,7 @@ class SeqNN:
 
             # for each monte carlo (or non-mc single) iteration
             for mi in range(mc_n):
-                print('ei=%d, mi=%d, fwdrc=%d, shifts=%d' % (ei, mi, ensemble_fwdrc[ei], ensemble_shifts[ei]), flush=True)
+                # print('ei=%d, mi=%d, fwdrc=%d, shifts=%d' % (ei, mi, ensemble_fwdrc[ei], ensemble_shifts[ei]), flush=True)
 
                 # predict
                 preds_ei = sess.run(self.preds_op, feed_dict=fd)

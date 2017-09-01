@@ -157,9 +157,14 @@ def main():
 
         # get wig files and labels
         target_wigs = OrderedDict()
+        target_labels = []
         for line in open(options.target_wigs_file):
-            a = line.split()
+            a = line.rstrip().split('\t')
             target_wigs[a[0]] = a[1]
+            if len(a) > 2:
+                target_labels.append(a[2])
+            else:
+                target_labels.append('')
 
         # initialize multiprocessing pool
         pool = multiprocessing.Pool(options.processes)
@@ -218,8 +223,12 @@ def main():
 
     # store targets
     if options.target_wigs_file:
+        # ids
+        target_ids = np.array([tl for tl in target_wigs.keys()], dtype='S')
+        hdf5_out.create_dataset('target_ids', data=target_ids)
+
         # labels
-        target_labels = np.array([tl for tl in target_wigs.keys()], dtype='S')
+        target_labels = np.array(target_labels, dtype='S')
         hdf5_out.create_dataset('target_labels', data=target_labels)
 
         # values

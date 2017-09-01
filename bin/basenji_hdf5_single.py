@@ -81,9 +81,14 @@ def main():
     ################################################################
     # get wig files and labels
     target_wigs = OrderedDict()
-    for line in open(sample_wigs_file):
-        a = line.split()
+    target_labels = []
+    for line in open(sample_wigs_file, encoding='UTF-8'):
+        a = line.rstrip().split('\t')
         target_wigs[a[0]] = a[1]
+        if len(a) > 2:
+            target_labels.append(a[2])
+        else:
+            target_labels.append('')
 
     if options.fourier_dim is not None and 2*options.fourier_dim >= options.seq_length/options.pool_width:
         print("Fourier transform to %d dims won't compress %d length sequences with %d pooling" % (options.fourier_dim, options.seq_length, options.pool_width), file=sys.stderr)
@@ -314,7 +319,10 @@ def main():
     hdf5_out.create_dataset('pool_width', data=options.pool_width, dtype='int')
 
     # store targets
-    target_labels = np.array(list(target_wigs.keys()), dtype='S')
+    target_ids = np.array(list(target_wigs.keys()), dtype='S')
+    hdf5_out.create_dataset('target_ids', data=target_ids)
+
+    target_labels = np.array(target_labels, dtype='S')
     hdf5_out.create_dataset('target_labels', data=target_labels)
 
     # HDF5 train

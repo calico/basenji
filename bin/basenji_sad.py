@@ -58,6 +58,7 @@ def main():
     parser.add_option('-p', dest='processes', default=None, type='int', help='Number of processes, passed by multi script')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
+    parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
     parser.add_option('-t', dest='targets_file', default=None, help='File specifying target indexes and labels in table format')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     (options,args) = parser.parse_args()
@@ -97,6 +98,8 @@ def main():
         if not os.path.isdir('%s/tracks' % options.out_dir):
             os.mkdir('%s/tracks' % options.out_dir)
 
+    options.shifts = [int(shift) for shift in options.shifts.split(',')]
+
     #################################################################
     # setup model
 
@@ -133,11 +136,17 @@ def main():
     # setup output
 
     if options.targets_file is None:
-        target_labels = ['t%d' % ti for ti in range(job['num_targets'])]
+        target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
+        target_labels = ['']*len(target_ids)
     else:
-        target_labels = [line.rstrip().split('\t')[-1] for line in open(options.targets_file)]
+        target_ids = []
+        target_labels = []
+        for line in open(options.targets_file):
+            a = line.strip().split('\t')
+            target_ids.append(a[1])
+            target_labels.append(a[2])
 
-    header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'target', 'ref_pred', 'alt pred', 'sad')
+    header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'ref_pred', 'alt pred', 'sad', 'target_index', 'target_id', 'target_label')
     if options.csv:
         sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
         print(','.join(header_cols), file=sad_out)
@@ -173,7 +182,7 @@ def main():
             batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.batch_size)
 
             # predict
-            batch_preds = model.predict(sess, batcher, rc=options.rc)
+            batch_preds = model.predict(sess, batcher, rc=options.rc, shifts=options.shifts)
 
             ###################################################
             # collect and print SADs
@@ -240,11 +249,11 @@ def main():
                                 max_sar = sar_li
 
                         # print line
-                        cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), ref_preds_lmean[ti], alt_preds_lmean[ti], sad[ti], sar[ti], ref_preds[max_li,ti], alt_preds[max_li,ti], max_sad, max_sar, ti, target_labels[ti])
+                        cols = (snp.rsid, snp_is, snp_score, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al), ref_preds_lmean[ti], alt_preds_lmean[ti], sad[ti], sar[ti], ref_preds[max_li,ti], alt_preds[max_li,ti], max_sad, max_sar, ti, target_ids[ti], target_labels[ti])
                         if options.csv:
                             print(','.join([str(c) for c in cols]), file=sad_out)
                         else:
-                            print('%-13s %s %5s %6s %6s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %5d %s' % cols, file=sad_out)
+                            print('%-13s %s %5s %6s %6s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %4d %12s %s' % cols, file=sad_out)
 
                     # print tracks
                     for ti in options.track_indexes:

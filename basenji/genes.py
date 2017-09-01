@@ -105,10 +105,15 @@ class GeneData:
         if 'transcript_targets' in self.genes_hdf5_in:
             self.transcript_targets = self.genes_hdf5_in['transcript_targets']
             self.target_labels = [tl.decode('UTF-8') for tl in self.genes_hdf5_in['target_labels']]
+            if 'target_ids' in self.genes_hdf5_in:   # TEMP
+                self.target_ids = [tl.decode('UTF-8') for tl in self.genes_hdf5_in['target_ids']]
+            else:
+                self.target_ids = ['']*len(self.target_labels)
             self.num_targets = len(self.target_labels)
 
         else:
             self.transcript_targets = None
+            self.target_ids = None
             self.target_labels = None
             self.num_targets = None
 

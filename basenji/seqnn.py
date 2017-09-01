@@ -841,15 +841,17 @@ class SeqNN:
             return preds
 
 
-    def predict_genes(self, sess, batcher, transcript_map, rc_avg=False, target_indexes=None):
+    def predict_genes(self, sess, batcher, transcript_map, rc=False, shifts=[0], mc_n=0, target_indexes=None):
         ''' Compute predictions on a test set.
 
         In
-         sess: TensorFlow session
-         batcher: Batcher class with transcript-covering sequences
-         transcript_map: OrderedDict mapping transcript id's to (sequence index, position) tuples marking TSSs.
-         rc_avg: Average predictions from the forward and reverse complement sequences
-         target_indexes: Optional target subset list
+         sess:            TensorFlow session
+         batcher:         Batcher class with transcript-covering sequences
+         transcript_map:  OrderedDict mapping transcript id's to (sequence index, position) tuples marking TSSs.
+         rc:              Average predictions from the forward and reverse complement sequences.
+         shifts:          Average predictions from sequence shifts left/right.
+         mc_n:            Monte Carlo iterations per rc/shift.
+         target_indexes:  Optional target subset list
 
         Out
          transcript_preds: G (gene transcripts) X T (targets) array
@@ -862,6 +864,31 @@ class SeqNN:
         num_targets = self.num_targets
         if target_indexes is not None:
             num_targets = len(target_indexes)
+
+        # determine ensemble iteration parameters
+        ensemble_fwdrc = []
+        ensemble_shifts = []
+        for shift in shifts:
+            ensemble_fwdrc.append(True)
+            ensemble_shifts.append(shift)
+            if rc:
+                ensemble_fwdrc.append(False)
+                ensemble_shifts.append(shift)
+
+        if mc_n > 0:
+            # setup feed dict
+            fd = self.set_mode('test_mc')
+
+        else:
+            # setup feed dict
+            fd = self.set_mode('test')
+
+            # co-opt the variable to represent
+            # iterations per fwdrc/shift.
+            mc_n = 1
+
+        # total ensemble predictions
+        all_n = mc_n * len(ensemble_fwdrc)
 
         # initialize gene target predictions
         num_genes = len(transcript_map)
@@ -882,55 +909,21 @@ class SeqNN:
 
             txi += 1
 
-        '''
-        sequence_transcripts = []
-        txi = 0
-        for transcript in transcript_map:
-            tsi, tpos = transcript_map[transcript]
-            while len(sequence_transcripts) <= tsi:
-                sequence_transcripts.append([])
-            sequence_transcripts[tsi].append((txi,tpos))
-            txi += 1
-        '''
-
+        # sequence index
         si = 0
 
         # get first batch
         Xb, _, _, Nb = batcher.next()
 
         while Xb is not None:
-            # update feed dict
-            fd[self.inputs] = Xb
-
-            # compute predictions
-            preds_batch = sess.run(self.preds_op, feed_dict=fd)
-
-            if rc_avg:
-                # compute reverse complement prediction
-                fd[self.inputs] = hot1_rc(Xb)
-                preds_batch_rc = sess.run(self.preds_op, feed_dict=fd)
-
-                # average with forward prediction
-                preds_batch += preds_batch_rc[:,::-1,:]
-                preds_batch /= 2.
-
-            # filter for specific targets
-            if target_indexes is not None:
-                preds_batch = preds_batch[:,:,target_indexes]
+            # make ensemble predictions
+            preds_batch, _, _ = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, target_indexes=target_indexes)
 
             # for each sequence in the batch
             for pi in range(Nb):
-                '''
-                # for each transcript in the sequence
-                for txi, tpos in sequence_transcripts[si+pi]:
-                    # adjust for the buffer
-                    ppos = tpos - self.batch_buffer//self.target_pool
-
-                    # save transcript prediction
-                    transcript_preds[txi,:] = preds_batch[pi,ppos,:]
-                '''
-
+                # for each position with a gene
                 for tpos in sequence_pos_transcripts[si+pi]:
+                    # for each gene at that position
                     for txi in sequence_pos_transcripts[si+pi][tpos]:
                         # adjust for the buffer
                         ppos = tpos - self.batch_buffer//self.target_pool

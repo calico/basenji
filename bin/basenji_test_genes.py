@@ -60,6 +60,7 @@ def main():
     parser.add_option('-o', dest='out_dir', default='genes_out', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='plot_scatter', default=False, action='store_true', help='Make time-consuming accuracy scatter plots [Default: %default]')
+    parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
     parser.add_option('--rep', dest='replicate_labels_file', help='Compare replicate experiments, aided by the given file with long labels')
     parser.add_option('-t', dest='target_indexes', default=None, help='File or Comma-separated list of target indexes to scatter plot true versus predicted values')
     parser.add_option('--table', dest='print_tables', default=False, action='store_true', help='Print big gene/transcript tables [Default: %default]')
@@ -75,6 +76,8 @@ def main():
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
+
+    options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
     #################################################################
     # read in genes and targets
@@ -135,7 +138,7 @@ def main():
             saver.restore(sess, model_file)
 
             # predict
-            transcript_preds = dr.predict_genes(sess, batcher, gene_data.transcript_map, rc_avg=options.rc)
+            transcript_preds = dr.predict_genes(sess, batcher, gene_data.transcript_map, rc=options.rc, shifts=options.shifts)
 
         # save to file
         np.save('%s/preds' % options.out_dir, transcript_preds)

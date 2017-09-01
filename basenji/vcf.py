@@ -73,8 +73,7 @@ def intersect_seqs_snps(vcf_file, seq_coords, vision_p=1):
         a = line.split()
         snp_id = a[2]
         if snp_id in snp_indexes:
-            print('Duplicate SNP id %s will break the script' % snp_id, file=sys.stderr)
-            exit(1)
+            raise Exception('Duplicate SNP id %s will break the script' % snp_id)
         snp_indexes[snp_id] = si
         si += 1
         line = vcf_in.readline()
@@ -142,8 +141,7 @@ def intersect_snps_seqs(vcf_file, seq_coords, vision_p=1):
         a = line.split()
         snp_id = a[2]
         if snp_id in snp_indexes:
-            print('Duplicate SNP id %s will break the script' % snp_id, file=sys.stderr)
-            exit(1)
+            raise Exception('Duplicate SNP id %s will break the script' % snp_id)
         snp_indexes[snp_id] = si
         si += 1
         line = vcf_in.readline()
@@ -230,8 +228,7 @@ def snp_seq1(snp, seq_len, genome_open):
                 break
 
         if not ref_found:
-            print('WARNING: %s - reference genome does not match any allele; skipping' % (snp.rsid), file=sys.stderr)
-            continue
+            raise Exception('WARNING: %s - reference genome does not match any allele' % (snp.rsid))
 
     # one hot code ref allele
     seq_vecs_ref, seq_ref = dna_length_1hot(seq, seq_len)
@@ -389,8 +386,8 @@ def snps2_seq1(snps, seq_len, genome1_fasta, genome2_fasta, return_seqs=False):
 
     for snp in snps:
         if len(snp.alt_alleles) > 1:
-            print('Major/minor genome mode requires only two alleles: %s' % snp.rsid, file=sys.stderr)
-            exit(1)
+            raise Exception('Major/minor genome mode requires only two alleles: %s' % snp.rsid)
+
         alt_al = snp.alt_alleles[0]
 
         # specify positions in GFF-style 1-based
@@ -410,9 +407,7 @@ def snps2_seq1(snps, seq_len, genome1_fasta, genome2_fasta, return_seqs=False):
         # verify that ref allele matches ref sequence
         seq_ref_snp = seq_ref[left_len:left_len+len(snp.ref_allele)]
         if seq_ref_snp != snp.ref_allele:
-            print('WARNING: Major allele SNP %s doesnt match reference genome: %s vs %s' % (snp.rsid, snp.ref_allele, seq_ref_snp), file=sys.stderr)
-            exit(1)
-
+            raise Exception('WARNING: Major allele SNP %s doesnt match reference genome: %s vs %s' % (snp.rsid, snp.ref_allele, seq_ref_snp))
 
         # specify positions in GFF-style 1-based
         seq_start = snp.pos2 - left_len
@@ -431,9 +426,7 @@ def snps2_seq1(snps, seq_len, genome1_fasta, genome2_fasta, return_seqs=False):
         # verify that ref allele matches ref sequence
         seq_alt_snp = seq_alt[left_len:left_len+len(alt_al)]
         if seq_alt_snp != alt_al:
-            print('WARNING: Minor allele SNP %s doesnt match reference genome: %s vs %s' % (snp.rsid, snp.alt_alleles[0], seq_alt_snp), file=sys.stderr)
-            exit(1)
-
+            raise Exception('WARNING: Minor allele SNP %s doesnt match reference genome: %s vs %s' % (snp.rsid, snp.alt_alleles[0], seq_alt_snp))
 
         seq_snps.append(snp)
 

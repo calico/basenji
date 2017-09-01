@@ -7,6 +7,26 @@ import numpy as np
 
 import basenji.dna_io
 
+class TestDelete(unittest.TestCase):
+    def test_insert(self):
+        seq = 'GATTACA'
+        seq_1hot = basenji.dna_io.dna_1hot(seq)
+
+        basenji.dna_io.hot1_delete(seq_1hot, 3, 2)
+
+        self.assertEqual('GATCANN', basenji.dna_io.hot1_dna(seq_1hot))
+
+
+class TestInsert(unittest.TestCase):
+    def test_insert(self):
+        seq = 'GATTACA'
+        seq_1hot = basenji.dna_io.dna_1hot(seq)
+
+        basenji.dna_io.hot1_insert(seq_1hot, 3, 'AG')
+
+        self.assertEqual('GATAGTA', basenji.dna_io.hot1_dna(seq_1hot))
+
+
 class TestRC(unittest.TestCase):
     def test_rc(self):
         #########################################

@@ -121,6 +121,11 @@ def hot1_augment(Xb, fwdrc, shift):
       Xbt:    Transformed version of Xb
     '''
 
+    if Xb.dtype == bool:
+        nval = 0
+    else:
+        nval = 1. / Xb.shape[2]
+
     if shift == 0:
         Xbt = Xb
 
@@ -128,9 +133,7 @@ def hot1_augment(Xb, fwdrc, shift):
         Xbt = np.zeros(Xb.shape)
 
         # fill in left unknowns
-        Xbt[:,:shift,:] = 1. / Xb.shape[2]
-        # e.g.
-        # Xbt[:,:1,:] = 1. / 4
+        Xbt[:,:shift,:] = nval
 
         # fill in sequence
         Xbt[:,shift:,:] = Xb[:,:-shift,:]
@@ -141,7 +144,7 @@ def hot1_augment(Xb, fwdrc, shift):
         Xbt = np.zeros(Xb.shape)
 
         # fill in right unknowns
-        Xbt[:,shift:,:] = 1. / Xb.shape[2]
+        Xbt[:,shift:,:] = nval
 
         # fill in sequence
         Xbt[:,:shift,:] = Xb[:,-shift:,:]
@@ -152,6 +155,27 @@ def hot1_augment(Xb, fwdrc, shift):
         Xbt = hot1_rc(Xbt)
 
     return Xbt
+
+
+def hot1_delete(seq_1hot, pos, delete_len):
+    ''' hot1_delete
+
+    Delete "delete_len" nucleotides starting at
+     position "pos" in the Lx4 array "seq_1hot".
+    '''
+
+    # shift left
+    seq_1hot[pos:-delete_len,:] = seq_1hot[pos+delete_len:,:]
+    # e.g.
+    # seq_1hot[100:-3,:] = seq_1hot[100+3:,:]
+
+    # change right end to N's
+    if seq_1hot.dtype == bool:
+        nval = 0
+    else:
+        nval = 0.25
+
+    seq_1hot[-delete_len:,:] = nval
 
 
 def hot1_dna(seqs_1hot):
@@ -205,6 +229,37 @@ def hot1_get(seqs_1hot, pos):
     return nt
 
 
+def hot1_insert(seq_1hot, pos, insert_seq):
+    ''' hot1_insert
+
+    Insert "insert_seq" at position "pos" in the Lx4 array "seq_1hot".
+    '''
+
+    # shift right
+    seq_1hot[pos+len(insert_seq):,:] = seq_1hot[pos:-len(insert_seq),:]
+    # e.g.
+    # seq_1hot[100+3:,:] = seq_1hot[100:-3,:]
+
+    # reset
+    seq_1hot[pos:pos+len(insert_seq),:] = 0
+
+    for i in range(len(insert_seq)):
+        nt = insert_seq[i]
+
+        # set
+        if nt == 'A':
+            seq_1hot[pos+i,0] = 1
+        elif nt == 'C':
+            seq_1hot[pos+i,1] = 1
+        elif nt == 'G':
+            seq_1hot[pos+i,2] = 1
+        elif nt == 'T':
+            seq_1hot[pos+i,3] = 1
+        else:
+            print('Invalid nucleotide set %s' % nt, file=sys.stderr)
+
+
+
 def hot1_rc(seqs_1hot):
     ''' Reverse complement a batch of one hot coded sequences '''
 
@@ -223,7 +278,7 @@ def hot1_rc(seqs_1hot):
     return seqs_1hot_rc
 
 
-def hot1_set(seqs_1hot, pos, nt):
+def hot1_set(seq_1hot, pos, nt):
     ''' hot1_set
 
     Set position "pos" in the Lx4 array "seqs_1hot"
@@ -231,17 +286,17 @@ def hot1_set(seqs_1hot, pos, nt):
     '''
 
     # reset
-    seqs_1hot[pos,:] = 0
+    seq_1hot[pos,:] = 0
 
     # set
     if nt == 'A':
-        seqs_1hot[pos,0] = 1
+        seq_1hot[pos,0] = 1
     elif nt == 'C':
-        seqs_1hot[pos,1] = 1
+        seq_1hot[pos,1] = 1
     elif nt == 'G':
-        seqs_1hot[pos,2] = 1
+        seq_1hot[pos,2] = 1
     elif nt == 'T':
-        seqs_1hot[pos,3] = 1
+        seq_1hot[pos,3] = 1
     else:
         print('Invalid nucleotide set %s' % nt, file=sys.stderr)
 

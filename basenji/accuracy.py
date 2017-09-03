@@ -34,7 +34,7 @@ class Accuracy:
         self.num_targets = self.targets.shape[-1]
 
 
-    def pearsonr(self, log=False, pseudocount=1):
+    def pearsonr(self, log=False, pseudocount=1, clip=None):
         ''' Compute target PearsonR vector. '''
 
         scor = np.zeros(self.num_targets)
@@ -46,6 +46,11 @@ class Accuracy:
             else:
                 preds_ti = self.preds[:,ti]
                 targets_ti = self.targets[:,ti]
+
+            if clip is not None:
+                preds_ti = np.clip(preds_ti, 0, clip)
+                targets_ti = np.clip(targets_ti, 0, clip)
+
             if log:
                 preds_ti = np.log2(preds_ti+pseudocount)
                 targets_ti = np.log2(targets_ti+pseudocount)
@@ -56,7 +61,7 @@ class Accuracy:
         return pcor
 
 
-    def r2(self, log=False, pseudocount=1):
+    def r2(self, log=False, pseudocount=1, clip=None):
         ''' Compute target R2 vector. '''
         r2_vec = np.zeros(self.num_targets)
 
@@ -67,6 +72,11 @@ class Accuracy:
             else:
                 preds_ti = self.preds[:,ti]
                 targets_ti = self.targets[:,ti]
+
+            if clip is not None:
+                preds_ti = np.clip(preds_ti, 0, clip)
+                targets_ti = np.clip(targets_ti, 0, clip)
+
             if log:
                 preds_ti = np.log2(preds_ti+pseudocount)
                 targets_ti = np.log2(targets_ti+pseudocount)

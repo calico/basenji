@@ -202,6 +202,11 @@ class SeqNN:
             print('Unknown link function %s' % self.link, file=sys.stderr)
             exit(1)
 
+        # clip
+        if self.target_clip is not None:
+            self.preds_op = tf.clip_by_value(self.preds_op, 0, self.target_clip)
+            self.targets_op = tf.clip_by_value(self.targets_op, 0, self.target_clip)
+
         # choose loss
         if self.loss == 'gaussian':
             self.loss_op = tf.squared_difference(self.preds_op, self.targets_op)
@@ -1027,6 +1032,7 @@ class SeqNN:
         ###################################################
         self.link = job.get('link', 'exp_linear')
         self.loss = job.get('loss', 'poisson')
+        self.target_clip = job.get('target_clip', None)
 
         ###################################################
         # other

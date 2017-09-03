@@ -55,6 +55,7 @@ def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <test_hdf5_file>'
     parser = OptionParser(usage)
     parser.add_option('--ai', dest='accuracy_indexes', help='Comma-separated list of target indexes to make accuracy plots comparing true versus predicted values')
+    parser.add_option('--clip', dest='target_clip', default=None, type='float', help='Clip targets and predictions to a maximum value [Default: %default]')
     parser.add_option('-d', dest='down_sample', default=1, type='int', help='Down sample test computation by taking uniformly spaced positions [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome length information [Default: %default]')
     parser.add_option('--mc', dest='mc_n', default=0, type='int', help='Monte carlo test iterations [Default: %default]')
@@ -160,8 +161,8 @@ def main():
         print('SeqNN test: %ds' % (time.time()-t0))
 
         # compute stats
-        test_r2 = test_acc.r2()
-        test_log_r2 = test_acc.r2(log=True)
+        test_r2 = test_acc.r2(clip=options.target_clip)
+        test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
         test_cor = test_acc.spearmanr()
 
         # print

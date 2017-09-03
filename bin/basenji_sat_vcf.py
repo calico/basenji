@@ -54,6 +54,7 @@ def main():
     parser.add_option('-o', dest='out_dir', default='heat', help='Output directory [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='seq_len', default=131072, type='int', help='Input sequence length [Default: %default]')
+    parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
     parser.add_option('-t', dest='targets', default='0', help='Comma-separated list of target indexes to plot (or -1 for all) [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -66,6 +67,8 @@ def main():
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
+
+    options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
     # decide which targets to obtain
     target_indexes = [int(ti) for ti in options.targets.split(',')]
@@ -142,7 +145,7 @@ def main():
                 batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
                 # predict
-                sat_preds = dr.predict(sess, batcher_sat, rc=options.rc, mc_n=options.mc_n, target_indexes=target_indexes)
+                sat_preds = dr.predict(sess, batcher_sat, rc=options.rc, shifts=options.shifts, mc_n=options.mc_n, target_indexes=target_indexes)
                 np.save('%s/seq%d_preds.npy' % (options.out_dir,si), sat_preds)
 
             #################################################################

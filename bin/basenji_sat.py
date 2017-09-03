@@ -59,7 +59,9 @@ def main():
     parser.add_option('-n', dest='load_sat_npy', default=False, action='store_true', help='Load the predictions from .npy files [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='heat', help='Output directory [Default: %default]')
     parser.add_option('-r', dest='rng_seed', default=1, type='float', help='Random number generator seed [Default: %default]')
+    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='sample', default=None, type='int', help='Sample sequences from the test set [Default:%default]')
+    parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
     parser.add_option('-t', dest='targets', default='0', help='Comma-separated list of target indexes to plot (or -1 for all) [Default: %default]')
     (options,args) = parser.parse_args()
 
@@ -72,6 +74,8 @@ def main():
 
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
+
+    options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
     random.seed(options.rng_seed)
 
@@ -147,7 +151,7 @@ def main():
                 batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
                 # predict
-                sat_preds = dr.predict(sess, batcher_sat, rc_avg=True, target_indexes=target_indexes)
+                sat_preds = dr.predict(sess, batcher_sat, rc=options.rc, shifts=options.shifts, target_indexes=target_indexes)
                 np.save('%s/seq%d_preds.npy' % (options.out_dir,si), sat_preds)
 
             #################################################################

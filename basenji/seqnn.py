@@ -207,6 +207,11 @@ class SeqNN:
             self.preds_op = tf.clip_by_value(self.preds_op, 0, self.target_clip)
             self.targets_op = tf.clip_by_value(self.targets_op, 0, self.target_clip)
 
+        # sqrt
+        if self.target_sqrt:
+            self.preds_op = tf.sqrt(self.preds_op)
+            self.targets_op = tf.sqrt(self.targets_op)
+
         # choose loss
         if self.loss == 'gaussian':
             self.loss_op = tf.squared_difference(self.preds_op, self.targets_op)
@@ -1033,6 +1038,7 @@ class SeqNN:
         self.link = job.get('link', 'exp_linear')
         self.loss = job.get('loss', 'poisson')
         self.target_clip = job.get('target_clip', None)
+        self.target_sqrt = bool(job.get('target_sqrt', False))
 
         ###################################################
         # other

@@ -50,7 +50,7 @@ class Batcher:
         self.reset()
 
 
-    def next(self, rc=False):
+    def next(self, fwdrc=True, shift=0):
         ''' Load the next batch from the HDF5. '''
         Xb = None
         Yb = None
@@ -91,10 +91,10 @@ class Batcher:
                     if self.NAf is not None:
                         NAb[i] = self.NAf[si]
 
-        # reverse complement
-        if rc:
-            if Xb is not None:
-                Xb = basenji.dna_io.hot1_rc(Xb)
+        # reverse complement and shift
+        if Xb is not None:
+            Xb = basenji.dna_io.hot1_augment(Xb, fwdrc, shift)
+        if fwdrc:
             if Yb is not None:
                 Yb = Yb[:,::-1,:]
             if NAb is not None:

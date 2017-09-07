@@ -711,7 +711,6 @@ class SeqNN:
             # construct sequence
             Xb_ensemble = hot1_augment(Xb, ensemble_fwdrc[ei], ensemble_shifts[ei])
 
-
             # update feed dict
             fd[self.inputs] = Xb_ensemble
 
@@ -1152,7 +1151,7 @@ class SeqNN:
         return acc
 
 
-    def train_epoch(self, sess, batcher, rc=False, sum_writer=None):
+    def train_epoch(self, sess, batcher, fwdrc=True, shift=0, sum_writer=None):
         ''' Execute one training epoch '''
 
         # initialize training loss
@@ -1162,7 +1161,7 @@ class SeqNN:
         fd = self.set_mode('train')
 
         # get first batch
-        Xb, Yb, NAb, Nb = batcher.next(rc)
+        Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
 
         while Xb is not None and Nb == self.batch_size:
             # update feed dict
@@ -1186,7 +1185,7 @@ class SeqNN:
             train_loss.append(loss_batch)
 
             # next batch
-            Xb, Yb, NAb, Nb = batcher.next(rc)
+            Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
             self.step += 1
 
         # reset training batcher

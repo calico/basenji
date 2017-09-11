@@ -84,6 +84,8 @@ def main():
     parser.add_option('-s', dest='smooth_sd', default=32, type='float', help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
     parser.add_option('-t', dest='shift', default=0, type='int', help='Fragment shift [Default: %default]')
     parser.add_option('-u', dest='unsorted', default=False, action='store_true', help='Alignments are unsorted [Default: %default]')
+    parser.add_option('-v', dest='shift_forward_end', default=0, type='int', help='Fragment shift for forward end read [Default: %default]')
+    parser.add_option('-w', dest='shift_reverse_end', default=0, type='int', help='Fragment shift for reverse end read [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -110,7 +112,9 @@ def main():
         options.duplicate_max *= 2
 
     # initialize
-    genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max, multi_max=options.multi_max, shift=options.shift, fasta_file=options.fasta_file)
+    genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max,
+        multi_max=options.multi_max, shift=options.shift, shift_forward=options.shift_forward_end,
+        shift_reverse=options.shift_reverse_end, fasta_file=options.fasta_file)
 
     # estimate fragment shift
     if options.strand_corr_shift:
@@ -366,7 +370,7 @@ class GenomeCoverage:
      shift (int): Alignment shift to maximize cross-strand coverage correlation
     '''
 
-    def __init__(self, chrom_lengths, smooth_sd=32, adaptive_max=8, duplicate_max=2, multi_max=1, shift=0, fasta_file=None):
+    def __init__(self, chrom_lengths, smooth_sd=32, adaptive_max=8, duplicate_max=2, multi_max=1, shift=0, shift_forward=0, shift_reverse=0, fasta_file=None):
         self.chrom_lengths = chrom_lengths
         self.genome_length = sum(chrom_lengths.values())
         self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
@@ -376,6 +380,8 @@ class GenomeCoverage:
         self.duplicate_max = duplicate_max
         self.multi_max = multi_max
         self.shift = shift
+        self.shift_forward = shift_forward
+        self.shift_reverse = shift_reverse
 
         self.adaptive_max = adaptive_max
         self.adaptive_cdf = .05
@@ -967,21 +973,26 @@ class GenomeCoverage:
                 read_id = (align.query_name, align.is_read1)
 
                 # determine shift
-                if self.shift == 0:
-                    # don't shift anyone
-                    align_shift = 0
+                if self.shift_forward and self.shift_reverse:
+                    align_shift_forward = self.shift_forward
+                    align_shift_reverse = self.shift_reverse
                 else:
-                    if align.is_proper_pair:
-                        # shift proper pairs according to mate
-                        align_shift = abs(align.template_length) // 2
+                    if self.shift == 0:
+                        # don't shift anyone
+                        align_shift_forward = 0
                     else:
-                        # shift others by estimated amount
-                        align_shift = self.shift
+                        if align.is_proper_pair:
+                            # shift proper pairs according to mate
+                            align_shift_forward = abs(align.template_length) // 2
+                        else:
+                            # shift others by estimated amount
+                            align_shift_forward = self.shift
+                    align_shift_reverse = align_shift_forward
 
                 # determine alignment position
-                chrom_pos = align.reference_start + align_shift
+                chrom_pos = align.reference_start + align_shift_forward
                 if align.is_reverse:
-                    chrom_pos = align.reference_end - align_shift
+                    chrom_pos = align.reference_end - align_shift_reverse
 
                 # determine genome index
                 gi = self.genome_index(align.reference_id, chrom_pos)

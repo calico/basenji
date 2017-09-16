@@ -143,10 +143,10 @@ def main():
         target_labels = []
         for line in open(options.targets_file):
             a = line.strip().split('\t')
-            target_ids.append(a[1])
+            target_ids.append(a[0])
             target_labels.append(a[2])
 
-    header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'ref_pred', 'alt pred', 'sad', 'target_index', 'target_id', 'target_label')
+    header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'ref_upred', 'alt_upred', 'usad', 'usar', 'ref_xpred', 'alt_xpred', 'xsad', 'xsar', 'target_index', 'target_id', 'target_label')
     if options.csv:
         sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
         print(','.join(header_cols), file=sad_out)
@@ -238,10 +238,10 @@ def main():
                         # profile the max difference position
                         max_li = 0
                         max_sad = alt_preds[max_li,ti] - ref_preds[max_li,ti]
-                        max_sar = np.log2(alt_preds[max_li,ti]) - np.log2(ref_preds[max_li,ti])
+                        max_sar = np.log2(alt_preds[max_li,ti]+1) - np.log2(ref_preds[max_li,ti]+1)
                         for li in range(ref_preds.shape[0]):
                             sad_li = alt_preds[li,ti] - ref_preds[li,ti]
-                            sar_li = np.log2(alt_preds[li,ti]) - np.log2(ref_preds[li,ti])
+                            sar_li = np.log2(alt_preds[li,ti]+1) - np.log2(ref_preds[li,ti]+1)
                             # if abs(sad_li) > abs(max_sad):
                             if abs(sar_li) > abs(max_sar):
                                 max_li = li

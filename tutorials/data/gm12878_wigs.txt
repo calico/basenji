@@ -1,0 +1,39 @@
+ENCSR000EJD_3_1	../../../data/human/dnase/encode_fastq/covse/ENCSR000EJD_3_1.h5	DNASE:GM12878
+ENCSR000EMT_2_1	../../../data/human/dnase/encode_fastq/covse/ENCSR000EMT_2_1.h5	DNASE:GM12878
+ENCSR000EMT_1_1	../../../data/human/dnase/encode_fastq/covse/ENCSR000EMT_1_1.h5	DNASE:GM12878
+ENCSR000EJD_1_1	../../../data/human/dnase/encode_fastq/covse/ENCSR000EJD_1_1.h5	DNASE:GM12878
+ENCSR000EJD_2_1	../../../data/human/dnase/encode_fastq/covse/ENCSR000EJD_2_1.h5	DNASE:GM12878
+ENCSR057BWO_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR057BWO_2_1.h5	HISTONE:H3K4me3 GM12878
+ENCSR000AKE_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKE_1_1.h5	HISTONE:H3K36me3 GM12878
+ENCSR000AKF_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKF_2_1.h5	HISTONE:H3K4me1 GM12878
+ENCSR000AOV_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AOV_2_1.h5	HISTONE:H2AFZ GM12878
+ENCSR000AKI_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKI_2_1.h5	HISTONE:H4K20me1 GM12878
+ENCSR000AKA_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKA_2_1.h5	HISTONE:H3K4me3 GM12878
+ENCSR000AOX_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AOX_2_1.h5	HISTONE:H3K9me3 GM12878
+ENCSR000DRW_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000DRW_1_1.h5	HISTONE:H3K36me3 GM12878
+ENCSR000AOW_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AOW_1_1.h5	HISTONE:H3K79me2 GM12878
+ENCSR000AKD_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKD_1_1.h5	HISTONE:H3K27me3 GM12878
+ENCSR000AKE_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKE_2_1.h5	HISTONE:H3K36me3 GM12878
+ENCSR000DRW_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000DRW_2_1.h5	HISTONE:H3K36me3 GM12878
+ENCSR000AKA_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKA_1_1.h5	HISTONE:H3K4me3 GM12878
+ENCSR000AKH_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKH_1_1.h5	HISTONE:H3K9ac GM12878
+ENCSR000AOX_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AOX_1_1.h5	HISTONE:H3K9me3 GM12878
+ENCSR000AKG_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKG_1_1.h5	HISTONE:H3K4me2 GM12878
+ENCSR057BWO_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR057BWO_1_1.h5	HISTONE:H3K4me3 GM12878
+ENCSR000DRY_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000DRY_2_1.h5	HISTONE:H3K4me3 GM12878
+ENCSR000DRY_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000DRY_1_1.h5	HISTONE:H3K4me3 GM12878
+ENCSR000DRX_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000DRX_2_1.h5	HISTONE:H3K27me3 GM12878
+ENCSR000AKG_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKG_2_1.h5	HISTONE:H3K4me2 GM12878
+ENCSR000AKD_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKD_2_1.h5	HISTONE:H3K27me3 GM12878
+ENCSR000AKC_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKC_2_1.h5	HISTONE:H3K27ac GM12878
+ENCSR000AOX_3_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AOX_3_1.h5	HISTONE:H3K9me3 GM12878
+ENCSR000DRX_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000DRX_1_1.h5	HISTONE:H3K27me3 GM12878
+ENCSR000AKF_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKF_1_1.h5	HISTONE:H3K4me1 GM12878
+ENCSR000AOW_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AOW_2_1.h5	HISTONE:H3K79me2 GM12878
+ENCSR000AKI_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKI_1_1.h5	HISTONE:H4K20me1 GM12878
+ENCSR000AKH_2_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKH_2_1.h5	HISTONE:H3K9ac GM12878
+ENCSR000AKC_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AKC_1_1.h5	HISTONE:H3K27ac GM12878
+ENCSR000AOV_1_1	../../../data/human/histone/encode_fastq/covse/ENCSR000AOV_1_1.h5	HISTONE:H2AFZ GM12878
+CNhs12332	../../../data/human/cage/fantom/coverage/CNhs12332.h5	CAGE:B lymphoblastoid cell line: GM12878 ENCODE, biol_rep2
+CNhs12333	../../../data/human/cage/fantom/coverage/CNhs12333.h5	CAGE:B lymphoblastoid cell line: GM12878 ENCODE, biol_rep3
+CNhs12331	../../../data/human/cage/fantom/coverage/CNhs12331.h5	CAGE:B lymphoblastoid cell line: GM12878 ENCODE, biol_rep1

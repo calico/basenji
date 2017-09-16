@@ -192,7 +192,7 @@ class SeqNN:
             self.preds_op = tf.where(seqs_repr > 0, seqs_repr + 1, tf.exp(tf.clip_by_value(seqs_repr,-50,50)), name='preds')
 
         elif self.link == 'softplus':
-            self.preds_op = tf.nn.softplus(seqs_repr, name='preds')
+            self.preds_op = tf.nn.softplus(tf.clip_by_value(seqs_repr,-50,50), name='preds')
 
         elif self.link == 'softmax':
             # performed in the loss function, but saving probabilities

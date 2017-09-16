@@ -978,9 +978,10 @@ class GenomeCoverage:
                     align_shift_reverse = self.shift_reverse
                 else:
                     if self.shift == 0:
-                        # don't shift anyone
+                        # don't shift
                         align_shift_forward = 0
                     else:
+                        # assuming we want the fragment center
                         if align.is_proper_pair:
                             # shift proper pairs according to mate
                             align_shift_forward = abs(align.template_length) // 2

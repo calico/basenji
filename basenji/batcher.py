@@ -94,7 +94,7 @@ class Batcher:
         # reverse complement and shift
         if Xb is not None:
             Xb = basenji.dna_io.hot1_augment(Xb, fwdrc, shift)
-        if fwdrc:
+        if not fwdrc:
             if Yb is not None:
                 Yb = Yb[:,::-1,:]
             if NAb is not None:

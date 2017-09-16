@@ -73,16 +73,15 @@ def main():
     usage = 'usage: %prog [options] <bam_file> <output_file>'
     parser = OptionParser(usage)
     parser.add_option('-a', dest='adaptive_max', default=8, type='int', help='Maximum coverage at a single position, adaptively-determined [Default: %default]')
-    parser.add_option('-c', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
+    parser.add_option('-b', dest='cut_bias_kmer', default=None, action='store_true', help='Normalize coverage for a cutting bias model for k-mers [Default: %default]')
+    parser.add_option('-c', dest='shift_center', default=False, action='store_true', help='Shift the event to the fragment center, learning the distribution for single end reads [Default: %default]')
     parser.add_option('-d', dest='duplicate_max', default=None, type='int', help='Maximum coverage at a single position for initial clipping [Default: %default]')
     parser.add_option('-f', dest='fasta_file', default='%s/assembly/hg19.fa'%os.environ['HG19'], help='FASTA to obtain sequence to control for GC% [Default: %default]')
     parser.add_option('-g', dest='gc', default=False, action='store_true', help='Control for local GC% [Default: %default]')
     parser.add_option('-m', dest='multi_em', default=0, type='int', help='Iterations of EM to distribute multi-mapping reads [Default: %default]')
     parser.add_option('--multi_max', dest='multi_max', default=1, type='int', help='Maximum coverage at a single position from multi-mapping reads [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='bam_cov', help='Output directory [Default: %default]')
-    parser.add_option('-r', dest='strand_corr_shift', default=False, action='store_true', help='Learn the fragment shift by fitting a strand cross correlation model [Default: %default]')
     parser.add_option('-s', dest='smooth_sd', default=32, type='float', help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
-    parser.add_option('-t', dest='shift', default=0, type='int', help='Fragment shift [Default: %default]')
     parser.add_option('-u', dest='unsorted', default=False, action='store_true', help='Alignments are unsorted [Default: %default]')
     parser.add_option('-v', dest='shift_forward_end', default=0, type='int', help='Fragment shift for forward end read [Default: %default]')
     parser.add_option('-w', dest='shift_reverse_end', default=0, type='int', help='Fragment shift for reverse end read [Default: %default]')
@@ -112,12 +111,17 @@ def main():
         options.duplicate_max *= 2
 
     # initialize
-    genome_coverage = GenomeCoverage(chrom_lengths, smooth_sd=options.smooth_sd, duplicate_max=options.duplicate_max,
-        multi_max=options.multi_max, shift=options.shift, shift_forward=options.shift_forward_end,
-        shift_reverse=options.shift_reverse_end, fasta_file=options.fasta_file)
+    genome_coverage = GenomeCoverage(chrom_lengths,
+        smooth_sd=options.smooth_sd,
+        duplicate_max=options.duplicate_max,
+        multi_max=options.multi_max,
+        shift_center=options.shift_center,
+        shift_forward=options.shift_forward_end,
+        shift_reverse=options.shift_reverse_end,
+        fasta_file=options.fasta_file)
 
     # estimate fragment shift
-    if options.strand_corr_shift:
+    if options.shift_center:
         if sp == 'single':
             genome_coverage.learn_shift_single(bam_file, out_dir=options.out_dir)
         else:
@@ -370,7 +374,7 @@ class GenomeCoverage:
      shift (int): Alignment shift to maximize cross-strand coverage correlation
     '''
 
-    def __init__(self, chrom_lengths, smooth_sd=32, adaptive_max=8, duplicate_max=2, multi_max=1, shift=0, shift_forward=0, shift_reverse=0, fasta_file=None):
+    def __init__(self, chrom_lengths, smooth_sd=32, adaptive_max=8, duplicate_max=2, multi_max=1, shift_center=False, shift_forward=0, shift_reverse=0, fasta_file=None):
         self.chrom_lengths = chrom_lengths
         self.genome_length = sum(chrom_lengths.values())
         self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
@@ -379,7 +383,8 @@ class GenomeCoverage:
         self.smooth_sd = smooth_sd
         self.duplicate_max = duplicate_max
         self.multi_max = multi_max
-        self.shift = shift
+
+        self.shift_center = shift_center
         self.shift_forward = shift_forward
         self.shift_reverse = shift_reverse
 
@@ -855,14 +860,15 @@ class GenomeCoverage:
                 template_lengths.append(abs(align.template_length))
 
         # compute mean
-        self.shift = int(np.round(np.mean(template_lengths) / 2))
+        self.shift_forward = int(np.round(np.mean(template_lengths) / 2))
 
         print(' Done in %ds.' % (time.time()-t0))
-        print('Shift: %d' % self.shift, flush=True)
+        print('Shift: %d' % self.shift_forward, flush=True)
 
 
     def learn_shift_single(self, bam_file, shift_min=50, shift_max=350, out_dir=None):
-        ''' Learn the optimal fragment shift that maximizes across strand correlation '''
+        ''' Learn the optimal fragment shift that maximizes across strand correlation
+             (to be applied for single end discordant alignments.) '''
 
         t0 = time.time()
         print('Learning shift from single-end sequences.', end='', flush=True)
@@ -934,10 +940,10 @@ class GenomeCoverage:
         strand_corrs_smooth = gaussian_filter1d(strand_corrs, sigma=12, truncate=3)
 
         # find max
-        self.shift = (shift_min + np.argmax(strand_corrs_smooth)) // 2
+        self.shift_forward = (shift_min + np.argmax(strand_corrs_smooth)) // 2
 
         print(' Done in %ds.' % (time.time()-t0))
-        print('Shift: %d' % self.shift, flush=True)
+        print('Shift: %d' % self.shift_forward, flush=True)
 
         if out_dir is not None:
             # plot training fit
@@ -946,7 +952,7 @@ class GenomeCoverage:
             # print table
             shift_out = open('%s/shift_table.txt' % out_dir, 'w')
             for si in range(len(shifts)):
-                print(shifts[si], strand_corrs[si], strand_corrs_smooth[si], '*'*int(2*self.shift==shifts[si]), file=shift_out)
+                print(shifts[si], strand_corrs[si], strand_corrs_smooth[si], '*'*int(2*self.shift_forward==shifts[si]), file=shift_out)
             shift_out.close()
 
 
@@ -972,23 +978,21 @@ class GenomeCoverage:
             if not align.is_unmapped:
                 read_id = (align.query_name, align.is_read1)
 
-                # determine shift
-                if self.shift_forward and self.shift_reverse:
+                if self.shift_center:
+                    if align.is_proper_pair:
+                        # shift proper pairs according to mate
+                        align_shift_forward = abs(align.template_length) // 2
+                    else:
+                        # shift others by estimated amount
+                        align_shift_forward = self.shift_forward
+
+                    # match reverse to forward
+                    align_shift_reverse = align_shift_forward
+
+                else:
+                    # apply user-specific shifts
                     align_shift_forward = self.shift_forward
                     align_shift_reverse = self.shift_reverse
-                else:
-                    if self.shift == 0:
-                        # don't shift
-                        align_shift_forward = 0
-                    else:
-                        # assuming we want the fragment center
-                        if align.is_proper_pair:
-                            # shift proper pairs according to mate
-                            align_shift_forward = abs(align.template_length) // 2
-                        else:
-                            # shift others by estimated amount
-                            align_shift_forward = self.shift
-                    align_shift_reverse = align_shift_forward
 
                 # determine alignment position
                 chrom_pos = align.reference_start + align_shift_forward

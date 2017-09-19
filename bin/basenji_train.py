@@ -15,7 +15,7 @@
 # =========================================================================
 from __future__ import print_function
 
-from optparse import OptionParser
+
 import sys
 import time
 
@@ -24,201 +24,220 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
-import basenji.dna_io
-import basenji.batcher
-import basenji.seqnn
+from basenji import batcher
+from basenji import dna_io
+from basenji import seqnn
 
-'''
-basenji_train.py
+FLAGS = tf.app.flags.FLAGS
 
-'''
+tf.flags.DEFINE_string('logdir', '/tmp/zrl',
+                       'directory to keep checkpoints and summaries in')
+tf.flags.DEFINE_boolean('learn_rate_drop', False,
+                        'Drop learning rate when training loss stalls')
+tf.flags.DEFINE_integer('mc_n', 0, 'Monte Carlo test iterations')
+tf.flags.DEFINE_integer('min_epochs', 0, 'Minimum epochs to train')
+tf.flags.DEFINE_boolean('restart', False, 'Restart training the model')
+tf.flags.DEFINE_boolean(
+    'rc', False,
+    'Average the forward and reverse complement predictions when testing')
+tf.flags.DEFINE_string('save_prefix', 'houndnn', 'Prefix for save files')
+tf.flags.DEFINE_integer('seed', 1, 'Random seed')
+tf.flags.DEFINE_string('shifts', '0', 'Ensemble prediction shifts.')
+tf.flags.DEFINE_string('params', '', 'File containing parameter config')
+tf.flags.DEFINE_string('data', '', 'Data h5py file')
+tf.flags.DEFINE_boolean('log_device_placement', False,
+                        'Log device placement (ie, CPU or GPU)')
+tf.flags.DEFINE_integer('num_train_epochs', 10,
+                        'number of full data passes for which to run training.')
+"""basenji_train.py
+
+"""
+
 
 ################################################################################
 # main
 ################################################################################
-def main():
-    usage = 'usage: %prog [options] <params_file> <data_file>'
-    parser = OptionParser(usage)
-    parser.add_option('-l', dest='learn_rate_drop', default=False, action='store_true', help='Drop learning rate when training loss stalls [Default: %default]')
-    parser.add_option('--mc', dest='mc_n', default=0, type='int', help='Monte carlo test iterations [Default: %default]')
-    parser.add_option('--min', dest='min_epochs', default=0, type='int', help='Minimum epochs to train [Default: %default]')
-    parser.add_option('-o', dest='output_file', help='Print accuracy output to file')
-    parser.add_option('-r', dest='restart', help='Restart training this model')
-    parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
-    parser.add_option('-s', dest='save_prefix', default='houndnn')
-    parser.add_option('--seed', dest='seed', type='float', default=1, help='RNG seed')
-    parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
-    parser.add_option('-u', dest='summary', default=None, help='TensorBoard summary directory')
-    parser.add_option('--log_device_placement', dest='log_device_placement', default=False, help='Log device placement (ie, CPU or GPU) [Default: %default]')
-    (options,args) = parser.parse_args()
+def main(_):
+  np.random.seed(FLAGS.seed)
 
-    if len(args) != 2:
-        parser.error('Must provide parameters and data files')
-    else:
-        params_file = args[0]
-        data_file = args[1]
-
-    np.random.seed(options.seed)
-
-    options.shifts = [int(shift) for shift in options.shifts.split(',')]
-
-    #######################################################
-    # load data
-    #######################################################
-    data_open = h5py.File(data_file)
-
-    train_seqs = data_open['train_in']
-    train_targets = data_open['train_out']
-    train_na = None
-    if 'train_na' in data_open:
-        train_na = data_open['train_na']
-
-    valid_seqs = data_open['valid_in']
-    valid_targets = data_open['valid_out']
-    valid_na = None
-    if 'valid_na' in data_open:
-        valid_na = data_open['valid_na']
+  run(params_file=FLAGS.params,
+      data_file=FLAGS.data,
+      num_train_epochs=FLAGS.num_train_epochs)
 
 
-    #######################################################
-    # model parameters and placeholders
-    #######################################################
-    job = basenji.dna_io.read_job_params(params_file)
+def run(params_file, data_file, num_train_epochs):
+  shifts = [int(shift) for shift in FLAGS.shifts.split(',')]
 
-    job['batch_length'] = train_seqs.shape[1]
-    job['seq_depth'] = train_seqs.shape[2]
-    job['num_targets'] = train_targets.shape[2]
-    job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
-    job['early_stop'] = job.get('early_stop', 16)
-    job['rate_drop'] = job.get('rate_drop', 3)
+  #######################################################
+  # load data
+  #######################################################
+  data_open = h5py.File(data_file)
 
+  train_seqs = data_open['train_in']
+  train_targets = data_open['train_out']
+  train_na = None
+  if 'train_na' in data_open:
+    train_na = data_open['train_na']
+
+  valid_seqs = data_open['valid_in']
+  valid_targets = data_open['valid_out']
+  valid_na = None
+  if 'valid_na' in data_open:
+    valid_na = data_open['valid_na']
+
+  #######################################################
+  # model parameters and placeholders
+  #######################################################
+  job = dna_io.read_job_params(params_file)
+
+  job['batch_length'] = train_seqs.shape[1]
+  job['seq_depth'] = train_seqs.shape[2]
+  job['num_targets'] = train_targets.shape[2]
+  job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
+  job['early_stop'] = job.get('early_stop', 16)
+  job['rate_drop'] = job.get('rate_drop', 3)
+
+  t0 = time.time()
+  dr = seqnn.SeqNN()
+  dr.build(job)
+  print('Model building time %f' % (time.time() - t0))
+
+  # adjust for fourier
+  job['fourier'] = 'train_out_imag' in data_open
+  if job['fourier']:
+    train_targets_imag = data_open['train_out_imag']
+    valid_targets_imag = data_open['valid_out_imag']
+
+  #######################################################
+  # train
+  #######################################################
+  # initialize batcher
+  if job['fourier']:
+    batcher_train = batcher.BatcherF(
+        train_seqs,
+        train_targets,
+        train_targets_imag,
+        train_na,
+        dr.batch_size,
+        dr.target_pool,
+        shuffle=True)
+    batcher_valid = batcher.BatcherF(valid_seqs, valid_targets,
+                                     valid_targets_imag, valid_na,
+                                     dr.batch_size, dr.target_pool)
+  else:
+    batcher_train = batcher.Batcher(
+        train_seqs,
+        train_targets,
+        train_na,
+        dr.batch_size,
+        dr.target_pool,
+        shuffle=True)
+    batcher_valid = batcher.Batcher(valid_seqs, valid_targets, valid_na,
+                                    dr.batch_size, dr.target_pool)
+  print('Batcher initialized')
+
+  # checkpoints
+  saver = tf.train.Saver()
+
+  config = tf.ConfigProto()
+  if FLAGS.log_device_placement:
+    config.log_device_placement = True
+  with tf.Session(config=config) as sess:
     t0 = time.time()
-    dr = basenji.seqnn.SeqNN()
-    dr.build(job)
-    print('Model building time %f' % (time.time()-t0))
 
-    # adjust for fourier
-    job['fourier'] = 'train_out_imag' in data_open
-    if job['fourier']:
-        train_targets_imag = data_open['train_out_imag']
-        valid_targets_imag = data_open['valid_out_imag']
+    # set seed
+    tf.set_random_seed(FLAGS.seed)
 
-
-    #######################################################
-    # train
-    #######################################################
-    # initialize batcher
-    if job['fourier']:
-        batcher_train = basenji.batcher.BatcherF(train_seqs, train_targets, train_targets_imag, train_na, dr.batch_size, dr.target_pool, shuffle=True)
-        batcher_valid = basenji.batcher.BatcherF(valid_seqs, valid_targets, valid_targets_imag, valid_na, dr.batch_size, dr.target_pool)
+    if FLAGS.logdir:
+      train_writer = tf.summary.FileWriter(FLAGS.logdir + '/train', sess.graph)
     else:
-        batcher_train = basenji.batcher.Batcher(train_seqs, train_targets, train_na, dr.batch_size, dr.target_pool, shuffle=True)
-        batcher_valid = basenji.batcher.Batcher(valid_seqs, valid_targets, valid_na, dr.batch_size, dr.target_pool)
-    print('Batcher initialized')
+      train_writer = None
 
+    if FLAGS.restart:
+      # load variables into session
+      saver.restore(sess, FLAGS.restart)
+    else:
+      # initialize variables
+      print('Initializing...')
+      sess.run(tf.global_variables_initializer())
+      print('Initialization time %f' % (time.time() - t0))
 
-    # checkpoints
-    saver = tf.train.Saver()
+    train_loss = None
+    best_loss = None
+    early_stop_i = 0
+    undroppable_counter = 3
+    max_drops = 8
+    num_drops = 0
 
-    config = tf.ConfigProto()
-    if options.log_device_placement:
-        config.log_device_placement = True
-    with tf.Session(config=config) as sess:
+    for epoch in range(num_train_epochs):
+      if early_stop_i < job['early_stop'] or epoch < FLAGS.min_epochs:
         t0 = time.time()
 
-        # set seed
-        tf.set_random_seed(options.seed)
+        # save previous
+        train_loss_last = train_loss
 
-        if options.summary is None:
-            train_writer = None
+        # alternate forward and reverse batches
+        fwdrc = True
+        if FLAGS.rc and epoch % 2 == 1:
+          fwdrc = False
+
+        # cycle shifts
+        shift_i = epoch % len(shifts)
+
+        # train
+        train_loss = dr.train_epoch(sess, batcher_train, fwdrc, shifts[shift_i],
+                                    train_writer)
+
+        # validate
+        valid_acc = dr.test(
+            sess, batcher_valid, mc_n=FLAGS.mc_n, rc=FLAGS.rc, shifts=shifts)
+        valid_loss = valid_acc.loss
+        valid_r2 = valid_acc.r2().mean()
+        del valid_acc
+
+        best_str = ''
+        if best_loss is None or valid_loss < best_loss:
+          best_loss = valid_loss
+          best_str = ', best!'
+          early_stop_i = 0
+          saver.save(sess, '%s/%s_best.tf' % (FLAGS.logdir, FLAGS.save_prefix))
         else:
-            train_writer = tf.summary.FileWriter(options.summary + '/train', sess.graph)
+          early_stop_i += 1
 
-        if options.restart:
-            # load variables into session
-            saver.restore(sess, options.restart)
+        # measure time
+        et = time.time() - t0
+        if et < 600:
+          time_str = '%3ds' % et
+        elif et < 6000:
+          time_str = '%3dm' % (et / 60)
         else:
-            # initialize variables
-            print('Initializing...')
-            sess.run(tf.global_variables_initializer())
-            print("Initialization time %f" % (time.time()-t0))
+          time_str = '%3.1fh' % (et / 3600)
 
-        train_loss = None
-        best_loss = None
-        early_stop_i = 0
-        undroppable_counter = 3
-        max_drops = 8
-        num_drops = 0
+        # print update
+        print(
+            'Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s%s'
+            % (epoch + 1, train_loss, valid_loss, valid_r2, time_str, best_str),
+            end='')
 
-        for epoch in range(1000):
-            if early_stop_i < job['early_stop'] or epoch < options.min_epochs:
-                t0 = time.time()
+        # if training stagnant
+        if FLAGS.learn_rate_drop and num_drops < max_drops and undroppable_counter == 0 and (
+            train_loss_last - train_loss) / train_loss_last < 0.0002:
+          print(', rate drop', end='')
+          dr.drop_rate(2 / 3)
+          undroppable_counter = 1
+          num_drops += 1
+        else:
+          undroppable_counter = max(0, undroppable_counter - 1)
 
-                # save previous
-                train_loss_last = train_loss
+        print('')
+        sys.stdout.flush()
 
-                # alternate forward and reverse batches
-                fwdrc = True
-                if options.rc and epoch % 2 == 1:
-                    fwdrc = False
-
-                # cycle shifts
-                shift_i = epoch % len(options.shifts)
-
-                # train
-                train_loss = dr.train_epoch(sess, batcher_train, fwdrc, options.shifts[shift_i], train_writer)
-
-                # validate
-                valid_acc = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc=options.rc, shifts=options.shifts)
-                valid_loss = valid_acc.loss
-                valid_r2 = valid_acc.r2().mean()
-                del valid_acc
-
-                best_str = ''
-                if best_loss is None or valid_loss < best_loss:
-                    best_loss = valid_loss
-                    best_str = ', best!'
-                    early_stop_i = 0
-                    saver.save(sess, '%s_best.tf' % options.save_prefix)
-                else:
-                    early_stop_i += 1
-
-                # measure time
-                et = time.time() - t0
-                if et < 600:
-                    time_str = '%3ds' % et
-                elif et < 6000:
-                    time_str = '%3dm' % (et/60)
-                else:
-                    time_str = '%3.1fh' % (et/3600)
-
-                # print update
-                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s%s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str), end='')
-
-                # if training stagnant
-                if options.learn_rate_drop and num_drops < max_drops and undroppable_counter == 0 and (train_loss_last - train_loss)/train_loss_last < 0.0002:
-                    print(', rate drop', end='')
-                    dr.drop_rate(2/3)
-                    undroppable_counter = 1
-                    num_drops += 1
-                else:
-                    undroppable_counter = max(0, undroppable_counter-1)
-
-                print('')
-                sys.stdout.flush()
-
-        if options.summary is not None:
-            train_writer.close()
-
-    # print result to file
-    if options.output_file:
-        output_open = open(options.output_file, 'w')
-        print(best_r2, file=output_open)
-        output_open.close()
+    if FLAGS.logdir:
+      train_writer.close()
 
 
 ################################################################################
 # __main__
 ################################################################################
 if __name__ == '__main__':
-    main()
+  tf.app.run(main)

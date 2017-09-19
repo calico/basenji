@@ -20,42 +20,47 @@ import numpy as np
 ####################################################################
 # param
 
+
 class param:
-    def __init__(self):
-        pass
 
-    def init_line(self, line):
-        a = line.split()
+  def __init__(self):
+    pass
 
-        self.name = a[0]
+  def init_line(self, line):
+    a = line.split()
 
-        self.range_min = to_num(a[1])
-        self.range_max = to_num(a[2])
+    self.name = a[0]
 
-        self.logscale = False
-        if len(a) > 3 and a[3] == 'log':
-            self.logscale = True
+    self.range_min = to_num(a[1])
+    self.range_max = to_num(a[2])
 
-        self.type = float
-        if type(self.range_min) == int and type(self.range_max) == int:
-            self.type = int
+    self.logscale = False
+    if len(a) > 3 and a[3] == 'log':
+      self.logscale = True
 
-        self.value = None
+    self.type = float
+    if type(self.range_min) == int and type(self.range_max) == int:
+      self.type = int
 
-    def rand(self):
-        if self.type == int:
-            self.value = random.randint(self.range_min, self.range_max)
-        else:
-            if self.logscale:
-                self.value = np.power(2, random.uniform(np.log2(self.range_min), np.log2(self.range_max)))
-            else:
-                self.value = random.uniform(self.range_min, self.range_max)
+    self.value = None
 
-        return self.value
+  def rand(self):
+    if self.type == int:
+      self.value = random.randint(self.range_min, self.range_max)
+    else:
+      if self.logscale:
+        self.value = np.power(2,
+                              random.uniform(
+                                  np.log2(self.range_min),
+                                  np.log2(self.range_max)))
+      else:
+        self.value = random.uniform(self.range_min, self.range_max)
+
+    return self.value
 
 
 def to_num(x):
-    if x.find('.') != -1 or x.find('e') != -1:
-        return float(x)
-    else:
-        return int(x)
+  if x.find('.') != -1 or x.find('e') != -1:
+    return float(x)
+  else:
+    return int(x)

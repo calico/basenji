@@ -1,9 +1,0 @@
-**/*~
-**/*.pyc
-build/
-dist/
-basenji.egg-info/
-*/__pycache__/
-.DS_Store
-*/.DS_Store
-bin/tutorials/.ipynb_checkpoints/

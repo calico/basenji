@@ -27,32 +27,9 @@ import tensorflow as tf
 from basenji import batcher
 from basenji import dna_io
 from basenji import seqnn
+from basenji.bin import shared_flags
 
 FLAGS = tf.app.flags.FLAGS
-
-tf.flags.DEFINE_string('logdir', '/tmp/zrl',
-                       'directory to keep checkpoints and summaries in')
-tf.flags.DEFINE_boolean('learn_rate_drop', False,
-                        'Drop learning rate when training loss stalls')
-tf.flags.DEFINE_integer('mc_n', 0, 'Monte Carlo test iterations')
-tf.flags.DEFINE_integer('min_epochs', 0, 'Minimum epochs to train')
-tf.flags.DEFINE_boolean('restart', False, 'Restart training the model')
-tf.flags.DEFINE_boolean(
-    'rc', False,
-    'Average the forward and reverse complement predictions when testing')
-tf.flags.DEFINE_string('save_prefix', 'houndnn', 'Prefix for save files')
-tf.flags.DEFINE_integer('seed', 1, 'Random seed')
-tf.flags.DEFINE_string('shifts', '0', 'Ensemble prediction shifts.')
-tf.flags.DEFINE_string('params', '', 'File containing parameter config')
-tf.flags.DEFINE_string('data', '', 'Data h5py file')
-tf.flags.DEFINE_boolean('log_device_placement', False,
-                        'Log device placement (ie, CPU or GPU)')
-tf.flags.DEFINE_integer('num_train_epochs', 10,
-                        'number of full data passes for which to run training.')
-"""basenji_train.py
-
-"""
-
 
 ################################################################################
 # main

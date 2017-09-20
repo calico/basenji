@@ -15,13 +15,14 @@ import dna_io
 import tensorflow as tf
 
 
-def tf_record_dataset(tfr_data_file, batch_size, seq_depth, num_targets,
-                      target_width, shuffle, trim_eos):
+def tfrecord_dataset(tfr_data_file, batch_size, seq_length, seq_depth,
+                     num_targets, target_width, shuffle, trim_eos):
   """Load TFRecord format data.
 
      Args:
        tfr_data_file: TFRecord format file
        batch_size: batch_size
+       seq_length: length of input sequence
        seq_depth: vocabulary size of the inputs (4 for raw DNA)
        num_targets: number of targets at each target sequence location
        target_width: length of the target sequence
@@ -41,13 +42,17 @@ def tf_record_dataset(tfr_data_file, batch_size, seq_depth, num_targets,
       inputs_name: tf.VarLenFeature(tf.int64),
       targets_name: tf.VarLenFeature(tf.float32)
   }
+  if (trim_eos):
+    seq_length += 1
 
   def _parse(example_proto):
 
     parsed_features = tf.parse_single_example(example_proto, features=features)
 
     seq = tf.cast(parsed_features[inputs_name].values, tf.int32)
-    if(trim_eos):
+
+    seq = tf.reshape(seq, [seq_length])
+    if (trim_eos):
       # useful because tensor2tensor preprocessing pads with an EOS
       seq = seq[:-1]
 
@@ -72,6 +77,9 @@ def tf_record_dataset(tfr_data_file, batch_size, seq_depth, num_targets,
   if shuffle:
     dataset.shuffle(buffer_size=150)
 
+  if batch_size is None:
+    raise ValueError('batch_size is None')
+
   dataset = dataset.batch(batch_size)
   return dataset
 
@@ -82,7 +90,7 @@ class TFRecordBatcher(object):
      Args:
        tfr_data_file: TFRecord format file
        load_targets: whether to load targets (unused)
-       seq_length: length of the input sequences (unused)
+       seq_length: length of the input sequences
        seq_depth: vocabulary size of the inputs (4 for raw DNA)
        target_width: length of the target sequence
        num_targets: number of targets at each target sequence location
@@ -108,8 +116,8 @@ class TFRecordBatcher(object):
 
     self.session = None
 
-    dataset = tf_record_dataset(tfr_data_file, batch_size, seq_depth,
-                                num_targets, target_width, shuffle, trim_eos)
+    dataset = tfrecord_dataset(tfr_data_file, batch_size, seq_length, seq_depth,
+                               num_targets, target_width, shuffle, trim_eos)
 
     self.iterator = dataset.make_initializable_iterator()
     self._next_element = self.iterator.get_next()

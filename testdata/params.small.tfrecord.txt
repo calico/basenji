@@ -1,7 +1,7 @@
-batch_size	2
-batch_length	262144
+batch_size  2
+batch_length  262144
 seq_depth    4
-target_width	2048
+target_width 2048
 num_targets  10
 target_pool  128
 batch_buffer    16384
@@ -53,5 +53,5 @@ full_dropout    0.009375
 full_l2 2.58e-08
 final_l1    1.45e-08
 load_hd5 0
-seq_length 65536
+seq_length 262144
 

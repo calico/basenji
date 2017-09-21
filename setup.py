@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
 with open('README.md') as f:
-    readme = f.read()
+  readme = f.read()
 
 with open('LICENSE') as f:
-    license = f.read()
+  license = f.read()
 
 setup(
     name='basenji',
@@ -16,5 +16,7 @@ setup(
     url='https://github.com/calico/basenji',
     license=license,
     packages=find_packages(exclude=('tests', 'docs')),
-    install_requires=['h5py','joblib','matplotlib','numpy','pandas','pyBigWig','pysam','scipy','seaborn','sklearn','statsmodels','tensorflow']
-)
+    install_requires=[
+        'h5py', 'joblib', 'matplotlib', 'numpy', 'pandas', 'pyBigWig', 'pysam',
+        'scipy', 'seaborn', 'sklearn', 'statsmodels', 'tensorflow'
+    ])

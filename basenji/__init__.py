@@ -13,7 +13,10 @@
 # limitations under the License.
 # =========================================================================
 
-__all__ = ['accuracy', 'autoencoder', 'batcher', 'dna_io', 'genes', 'genome', 'gff', 'hyper', 'ops', 'seqnn', 'stream', 'vcf']
+__all__ = [
+    'accuracy', 'autoencoder', 'batcher', 'dna_io', 'genes', 'genome', 'gff',
+    'hyper', 'ops', 'seqnn', 'stream', 'vcf'
+]
 
 import basenji.accuracy
 import basenji.autoencoder

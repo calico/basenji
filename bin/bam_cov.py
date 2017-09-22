@@ -1250,7 +1250,7 @@ class GenomeCoverage:
         '''
 
         # choose bigwig or h5
-        if os.path.splitext(output_file)[1] == 'bw':
+        if os.path.splitext(output_file)[1] == '.bw':
             print('Outputting coverage to BigWig')
             bigwig = True
             cov_out = pyBigWig.open(output_file, 'w')

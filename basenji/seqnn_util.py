@@ -805,6 +805,7 @@ class SeqNNModel(object):
     while Xb is not None and (num_test_batches == 0 or
                               batch_count < num_test_batches):
       batch_count += 1
+
       # make ensemble predictions
       preds_batch, preds_batch_var, preds_all = self._predict_ensemble(
           sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n)
@@ -812,7 +813,9 @@ class SeqNNModel(object):
       # add target info
       fd[self.targets] = Yb
       fd[self.targets_na] = NAb
+
       targets_na.append(np.zeros([Nb, self.preds_length], dtype='bool'))
+
       # recompute loss w/ ensembled prediction
       fd[self.preds_adhoc] = preds_batch
       targets_batch, loss_batch, target_losses_batch = sess.run(
@@ -821,8 +824,9 @@ class SeqNNModel(object):
 
       # accumulate predictions and targets
       if preds_batch.ndim == 3:
-        preds.append(preds_batch[:Nb, :, :])
-        targets.append(targets_batch[:Nb, :, :])
+        preds.append(preds_batch[:Nb, :, :].astype('float16'))
+        targets.append(targets_batch[:Nb, :, :].astype('float16'))
+
       else:
         for qi in range(preds_batch.shape[3]):
           # TEMP, ideally this will be in the HDF5 and set previously

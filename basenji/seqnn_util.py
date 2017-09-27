@@ -6,8 +6,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from google3.pyglib import app
-from google3.pyglib import flags
+try:
+    from google3.pyglib import app
+    from google3.pyglib import flags
+except ImportError:
+    pass
 
 import tensorflow as tf
 import numpy as np
@@ -722,8 +725,8 @@ class SeqNNModel(object):
       target_losses_batch = loss_batch
       targets_na.append(np.zeros([Nb, self.preds_length], dtype='bool'))
 
-      preds.append(preds_batch[:Nb, :, :])
-      targets.append(targets_batch[:Nb, :, :])
+      preds.append(preds_batch[:Nb, :, :].astype('float16'))
+      targets.append(targets_batch[:Nb, :, :].astype('float16'))
 
       # accumulate loss
       batch_losses.append(loss_batch)

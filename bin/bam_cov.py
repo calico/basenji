@@ -926,7 +926,7 @@ class GenomeCoverage:
     return ci, pos
 
   def genome_index(self, ci, pos):
-    """ Compute genome index for an chromosome and position.
+    """ Compute genome index for a chromosome index and position.
 
         Args
          ci (int): Chromosome index.
@@ -945,6 +945,27 @@ class GenomeCoverage:
         break
       else:
         gi += lengths_list[gci]
+    return gi
+
+  def genome_index_chrom(self, chrom, pos):
+    """ Compute genome index for a chromosome label and position.
+
+        Args
+         chrom (str): Chromosome label.
+         pos (int): Position.
+
+        Returns:
+         gi (int): Genomic index
+        """
+
+    gi = 0
+    for cl_chrom, cl_len in self.chrom_lengths.items():
+      if chrom == cl_chrom:
+        gi += pos
+        break
+      else:
+        gi += cl_len
+
     return gi
 
   def genome_chr(self, genome_indexes, chrom):
@@ -1002,7 +1023,7 @@ class GenomeCoverage:
                          out_dir=None):
     """ Learn the optimal fragment shift that maximizes across strand correlation
 
-             (to be applied for single end discordant alignments.) 
+             (to be applied for single end discordant alignments.)
     """
 
     t0 = time.time()
@@ -1027,7 +1048,7 @@ class GenomeCoverage:
       # if aligned to max_chrom
       if not align.is_unmapped and align.reference_name == chrom_max:
         # determine mappability
-        multi = align.has_tag('NH') and align.get_tag('NH') > 1
+        multi = (align.has_tag('NH') and align.get_tag('NH') > 1) or align.has_tag('XA')
 
         if align.is_reverse:
           # determine alignment position
@@ -1145,17 +1166,54 @@ class GenomeCoverage:
         # determine genome index
         gi = self.genome_index(align.reference_id, chrom_pos)
 
-        # determine multi-mapping state
-        nh_tag = 1
-        if align.has_tag('NH'):
+        # unique
+        if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
+            self.unique_counts[gi] += 1
+
+        # BWA multi-mapper
+        elif align.has_tag('XA') and not align.has_tag('NH'):
+
+          # update multi alignment matrix
+          multi_positions.append(gi)
+
+          # get multi-maps
+          multi_align_strings = align.get_tag('XA').split(';')[:-1]
+          multi_maps = len(multi_align_strings)+1
+
+          # for each multi-map
+          for multi_align_str in multi_align_strings:
+
+            # extract alignment information
+            multi_chrom, multi_start, multi_cigar, _ = multi_align_str.split(',')
+
+            # determine alignment position
+            if multi_start[0] == '+':
+              multi_pos = int(multi_start[1:]) + align_shift_forward
+            elif multi_start[0] == '-':
+              multi_pos = int(multi_start[1:]) + cigar_len(multi_cigar) - align_shift_reverse
+            else:
+              print('Bad assumption of initial +- for BWA multimap position: %s' % multi_start, file=sys.stderr)
+              exit(1)
+
+            # determine genome index
+            mgi = self.genome_index_chrom(multi_chrom, multi_pos)
+
+            # update multi alignment matrix
+            multi_positions.append(mgi)
+
+          # finish updating multi alignment matrix for all multi alignments
+          multi_reads += [ri]*multi_maps
+          multi_weight += [np.float16(1./multi_maps)]*multi_maps
+
+          # update read index
+          ri += 1
+
+        # Bowtie2 multi-mapper
+        elif align.has_tag('NH') and not align.has_tag('XA'):
+
+          # determine multi-mapping state
           nh_tag = align.get_tag('NH')
 
-        # if unique
-        if nh_tag == 1:
-          self.unique_counts[gi] += 1
-
-        # if multi
-        else:
           # if new read, update index
           if genome_sorted:
             if read_id not in multi_read_index:
@@ -1173,6 +1231,12 @@ class GenomeCoverage:
           multi_reads.append(ari)
           multi_positions.append(gi)
           multi_weight.append(np.float16(1. / nh_tag))
+
+        else:
+            print('Multi-map tag scenario I did not envision:', file=sys.stderr)
+            print(align, file=sys.stderr)
+            exit(1)
+
 
         if not genome_sorted:
           last_read_id = read_id
@@ -1489,6 +1553,19 @@ class GenomeCoverage:
     t0 = time.time()
     cov_out.close()
     print(' Close output file: %ds' % (time.time() - t0))
+
+
+def cigar_len(cigar_str):
+    clen = 0
+
+    cigar_iter = itertools.groupby(cigar_str, lambda c: c.isdigit())
+    for g, n_chars in cigar_iter:
+        n = int(''.join(n_chars))
+        op = ''.join(next(cigar_iter)[1])
+        if op in 'MDN=X':
+            clen += n
+
+    return clen
 
 
 ################################################################################

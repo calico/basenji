@@ -1,0 +1,5 @@
+*.bw
+*.h5
+hg19*fa*
+heart_*
+gm12878_test

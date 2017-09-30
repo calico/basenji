@@ -55,9 +55,9 @@ Notes:
   better understand how multi-mapping reads are handled; I'm worried it will throw
   away multi-mappers so the NH tag no longer reflects the number of alignments.
 
- -Also worth noting that when using duplicate_max, I can use uint8 for unique_counts
-  rather than uint16 and save ~3gb. Presently, the botteneck is multi_read_index, so
-  it wouldn't make a difference.
+ -Also worth noting that when clipping, I can use uint8 for unique_counts rather
+  than uint16 and save ~3gb. Presently, the botteneck is multi_read_index, so it
+  wouldn't make a difference.
 
  -It's probably worth trying to perform local filtering after every significant
   read weight change, instead of a single big filter after every full parse through
@@ -74,42 +74,45 @@ def main():
   usage = 'usage: %prog [options] <bam_file> <output_file>'
   parser = OptionParser(usage)
   parser.add_option(
-      '-a',
-      dest='adaptive_max',
-      default=8,
-      type='int',
-      help=
-      'Maximum coverage at a single position, adaptively-determined [Default: %default]'
-  )
-  parser.add_option(
       '-b',
       dest='cut_bias_kmer',
       default=None,
       action='store_true',
       help=
-      'Normalize coverage for a cutting bias model for k-mers [Default: %default]'
-  )
+      'Normalize coverage for a cutting bias model for k-mers [Default: %default]')
   parser.add_option(
       '-c',
       dest='shift_center',
       default=False,
       action='store_true',
       help=
-      'Shift the event to the fragment center, learning the distribution for single end reads [Default: %default]'
-  )
+      'Shift the event to the fragment center, learning the distribution for single end reads [Default: %default]')
   parser.add_option(
-      '-d',
-      dest='duplicate_max',
+      '--clip_max',
+      dest='clip_max',
       default=None,
       type='int',
       help=
-      'Maximum coverage at a single position for initial clipping [Default: %default]'
-  )
+      'Clip coverage using adaptively-determined thresholds to this maximum [Default: %default]')
+  parser.add_option(
+      '--clip_multi',
+      dest='clip_max_multi',
+      default=2,
+      type='int',
+      help=
+      'Maximum coverage at a single position from multi-mapping reads [Default: %default]'
+      )
   parser.add_option(
       '-f',
       dest='fasta_file',
       default='%s/assembly/hg19.fa' % os.environ['HG19'],
       help='FASTA to obtain sequence to control for GC% [Default: %default]')
+  parser.add_option(
+      '--forward',
+      dest='forward_only',
+      default=False,
+      action='store_true',
+      help='Consider only forward-aligning reads [Default: %default]')
   parser.add_option(
       '-g',
       dest='gc',
@@ -124,18 +127,17 @@ def main():
       help=
       'Iterations of EM to distribute multi-mapping reads [Default: %default]')
   parser.add_option(
-      '--multi_max',
-      dest='multi_max',
-      default=1,
-      type='int',
-      help=
-      'Maximum coverage at a single position from multi-mapping reads [Default: %default]'
-  )
-  parser.add_option(
       '-o',
       dest='out_dir',
       default='bam_cov',
-      help='Output directory [Default: %default]')
+      help='Output directory [Default: %default]'
+  )
+  parser.add_option(
+      '--reverse',
+      dest='reverse_only',
+      default=False,
+      action='store_true',
+      help='Consider only reverse-aligning reads [Default: %default]')
   parser.add_option(
       '-s',
       dest='smooth_sd',
@@ -166,6 +168,7 @@ def main():
 
   if len(args) != 2:
     parser.error('Must provide input BAM file and output HDF5/BigWig filename')
+
   else:
     bam_file = args[0]
     output_file = args[1]
@@ -183,16 +186,12 @@ def main():
   # determine single or paired
   sp = single_or_pair(bam_file)
 
-  # tell duplicate_max to expect double coverage for pair
-  if options.duplicate_max is not None and sp == 'pair':
-    options.duplicate_max *= 2
-
   # initialize
   genome_coverage = GenomeCoverage(
       chrom_lengths,
       smooth_sd=options.smooth_sd,
-      duplicate_max=options.duplicate_max,
-      multi_max=options.multi_max,
+      clip_max=options.clip_max,
+      clip_max_multi=options.clip_max_multi,
       shift_center=options.shift_center,
       shift_forward=options.shift_forward_end,
       shift_reverse=options.shift_reverse_end,
@@ -205,8 +204,16 @@ def main():
     else:
       genome_coverage.learn_shift_pair(bam_file)
 
+  # determine strands to consider
+  forward = True
+  reverse = True
+  if options.forward_only:
+    reverse = False
+  if options.reverse_only:
+    forward = False
+
   # read alignments
-  genome_coverage.read_bam(bam_file, genome_sorted=~options.unsorted)
+  genome_coverage.read_bam(bam_file, genome_sorted=~options.unsorted, forward=forward, reverse=reverse)
 
   ################################################################
   # run EM to distribute multi-mapping read weights
@@ -367,8 +374,8 @@ def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_
     # re-distribute multi-mapping reads
     multi_weight_matrix = multi_weight_matrix.dot(genome_coverage)
 
-    # normalize
-    multi_weight_matrix /= multi_weight_matrix.mean(axis=1)
+    # normalize by column sum
+    multi_weight_matrix /= multi_weight_matrix.sum(axis=1)
 
     # assess coverage (not sure how to do that. maybe an approximation of the big sparse matrix?)
     iteration_change /= multi_weight_matrix.shape[0]
@@ -471,7 +478,6 @@ class GenomeCoverage:
      multi-mapping read weight.
 
      smooth_sd (int): Gaussian filter standard deviation.
-     duplicate_max (int): Maximum coverage per position due to PCR duplicate
      fear.
      multi_max (int): Maximum coverage per position from multi-mappers due to
      mis-mapping fear.
@@ -481,9 +487,8 @@ class GenomeCoverage:
   def __init__(self,
                chrom_lengths,
                smooth_sd=32,
-               adaptive_max=8,
-               duplicate_max=2,
-               multi_max=1,
+               clip_max=None,
+               clip_max_multi=2,
                shift_center=False,
                shift_forward=0,
                shift_reverse=0,
@@ -494,15 +499,15 @@ class GenomeCoverage:
     self.active_blocks = None
 
     self.smooth_sd = smooth_sd
-    self.duplicate_max = duplicate_max
-    self.multi_max = multi_max
 
     self.shift_center = shift_center
     self.shift_forward = shift_forward
     self.shift_reverse = shift_reverse
 
-    self.adaptive_max = adaptive_max
-    self.adaptive_cdf = .05
+    self.clip_max = clip_max
+    self.clip_max_multi = clip_max_multi
+
+    self.adaptive_cdf = .01
     self.adaptive_t = {}
 
     self.fasta = None
@@ -510,6 +515,29 @@ class GenomeCoverage:
       self.fasta = pysam.Fastafile(fasta_file)
 
     self.gc_model = None
+
+
+  def align_shifts(self, align):
+    """ Helper function to determine alignment event position shifts. """
+
+    if self.shift_center:
+      if align.is_proper_pair:
+        # shift proper pairs according to mate
+        align_shift_forward = abs(align.template_length) // 2
+      else:
+        # shift others by estimated amount
+        align_shift_forward = self.shift_forward
+
+      # match reverse to forward
+      align_shift_reverse = align_shift_forward
+
+    else:
+      # apply user-specific shifts
+      align_shift_forward = self.shift_forward
+      align_shift_reverse = self.shift_reverse
+
+    return align_shift_forward, align_shift_reverse
+
 
   def distribute_multi(self, max_iterations=4, converge_t=.05):
     """ Distribute multi-mapping read weight proportional to coverage in a local window.
@@ -563,8 +591,13 @@ class GenomeCoverage:
         multi_read_positions = row_nzcols_geti(self.multi_weight_matrix, ri)
         multi_positions_len = len(multi_read_positions)
 
-        # handle disposed reads
+        # dodge disposed reads
         if multi_positions_len > 0:
+          # get previous weights
+          multi_read_prev = row_nzcols_get(self.multi_weight_matrix, ri)
+
+          # get previous weights' sum (<1 for strand consideration)
+          multi_norm = multi_read_prev.sum()
 
           # get coverage estimates
           multi_positions_coverage = np.array(
@@ -573,14 +606,11 @@ class GenomeCoverage:
           # normalize coverage as weights
           mpc_sum = multi_positions_coverage.sum(dtype='float64')
           if mpc_sum > 0:
-            multi_positions_weight = multi_positions_coverage / mpc_sum
+            multi_positions_weight = multi_norm * multi_positions_coverage / mpc_sum
           else:
-            print('Error: read %d coverage sum == %.4f' % (ri, mpc_sum))
-            print(multi_positions_coverage)
+            print('Error: read %d coverage sum == %.4f' % (ri, mpc_sum), file=sys.stderr)
+            print(multi_positions_coverage, file=sys.stderr)
             exit(1)
-
-          # get previous weights
-          multi_read_prev = row_nzcols_get(self.multi_weight_matrix, ri)
 
           # compute change
           read_pos_change = np.abs(multi_read_prev -
@@ -630,14 +660,15 @@ class GenomeCoverage:
       ri_ptr, ri_ptr1 = self.multi_weight_matrix.indptr[ri:ri + 2]
       ci = 0
       for pos in self.multi_weight_matrix.indices[ri_ptr:ri_ptr1]:
-        genome_coverage[pos] += np.clip(
-            self.multi_weight_matrix.data[ri_ptr + ci], 0, self.multi_max)
+        multi_cov = self.multi_weight_matrix.data[ri_ptr + ci]
+        if self.clip_max_multi:
+          multi_cov = np.clip(multi_cov, 0, self.clip_max_multi)
+        genome_coverage[pos] += multi_cov
         ci += 1
 
     # limit duplicates
-    # if self.duplicate_max is not None:
-    # np.copyto(genome_coverage, np.clip(genome_coverage, 0, self.duplicate_max))
-    self.clip_multi(genome_coverage)
+    if self.clip_max:
+      self.clip_multi(genome_coverage)
     """ if I switch to active blocks method
         if self.active_blocks is None:
             # determine centromere-like empty blocks
@@ -787,8 +818,8 @@ class GenomeCoverage:
         # compute coverage
         seq_cov = self.unique_counts[gi - fragment_sd3:
                                      gi + fragment_sd3] + pseudocount
-        if self.duplicate_max is not None:
-          seq_cov = np.clip(seq_cov, 0, self.duplicate_max)
+        if self.clip_max:
+          seq_cov = np.clip(seq_cov, 0, 2)
         gauss_cov = (seq_cov * gauss_kernel).sum() * gauss_invsum
         train_cov.append(np.log2(gauss_cov))
 
@@ -1073,9 +1104,9 @@ class GenomeCoverage:
             counts_fwd[ci] += 1
 
     # limit duplicates
-    if self.duplicate_max is not None:
-      np.copyto(counts_fwd, np.clip(counts_fwd, 0, self.duplicate_max))
-      np.copyto(counts_rev, np.clip(counts_rev, 0, self.duplicate_max))
+    if self.clip_max:
+      np.copyto(counts_fwd, np.clip(counts_fwd, 0, 2))
+      np.copyto(counts_rev, np.clip(counts_rev, 0, 2))
 
     # mean normalize
     mean_count = 0.5 * counts_fwd[~multi_mask].mean(
@@ -1120,7 +1151,7 @@ class GenomeCoverage:
             file=shift_out)
       shift_out.close()
 
-  def read_bam(self, bam_file, genome_sorted=False):
+  def read_bam(self, bam_file, genome_sorted=False, forward=True, reverse=True):
     """Read alignments from a BAM file into unique and multi data structures."""
 
     t0 = time.time()
@@ -1131,112 +1162,49 @@ class GenomeCoverage:
     multi_positions = []
     multi_weight = []
 
+    # multi-map read index
+    ri = 0
+
     # initialize dict mapping read_id's to indexes
     if genome_sorted:
       multi_read_index = {}
     else:
       last_read_id = ''
 
-    ri = 0
     for align in pysam.AlignmentFile(bam_file):
       if not align.is_unmapped:
-        read_id = (align.query_name, align.is_read1)
+        if (align.is_reverse and reverse) or (not align.is_reverse and forward):
+          read_id = (align.query_name, align.is_read1)
 
-        if self.shift_center:
-          if align.is_proper_pair:
-            # shift proper pairs according to mate
-            align_shift_forward = abs(align.template_length) // 2
+          # set alignment shift
+          align_shift_forward, align_shift_reverse = self.align_shifts(align)
+
+          # set alignment event position
+          chrom_pos = align.reference_start + align_shift_forward
+          if align.is_reverse:
+            chrom_pos = align.reference_end - align_shift_reverse
+
+          # set genome index
+          gi = self.genome_index(align.reference_id, chrom_pos)
+
+          # count unique
+          if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
+              self.unique_counts[gi] += 1
+
+          # count BWA multi-mapper
+          elif align.has_tag('XA') and not align.has_tag('NH'):
+            # update multi-map data structures
+            ri = self.read_multi_bwa(multi_positions, multi_reads, multi_weight, align, gi, ri, align_shift_forward, align_shift_reverse)
+
+          # count NH-tag multi-mapper
+          elif align.has_tag('NH') and not align.has_tag('XA'):
+            # update multi-map data structures
+            ri = self.read_multi_nh(multi_positions, multi_reads, multi_weight, align, ri, read_id, last_read_id, genome_sorted)
+
           else:
-            # shift others by estimated amount
-            align_shift_forward = self.shift_forward
-
-          # match reverse to forward
-          align_shift_reverse = align_shift_forward
-
-        else:
-          # apply user-specific shifts
-          align_shift_forward = self.shift_forward
-          align_shift_reverse = self.shift_reverse
-
-        # determine alignment position
-        chrom_pos = align.reference_start + align_shift_forward
-        if align.is_reverse:
-          chrom_pos = align.reference_end - align_shift_reverse
-
-        # determine genome index
-        gi = self.genome_index(align.reference_id, chrom_pos)
-
-        # unique
-        if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
-            self.unique_counts[gi] += 1
-
-        # BWA multi-mapper
-        elif align.has_tag('XA') and not align.has_tag('NH'):
-
-          # update multi alignment matrix
-          multi_positions.append(gi)
-
-          # get multi-maps
-          multi_align_strings = align.get_tag('XA').split(';')[:-1]
-          multi_maps = len(multi_align_strings)+1
-
-          # for each multi-map
-          for multi_align_str in multi_align_strings:
-
-            # extract alignment information
-            multi_chrom, multi_start, multi_cigar, _ = multi_align_str.split(',')
-
-            # determine alignment position
-            if multi_start[0] == '+':
-              multi_pos = int(multi_start[1:]) + align_shift_forward
-            elif multi_start[0] == '-':
-              multi_pos = int(multi_start[1:]) + cigar_len(multi_cigar) - align_shift_reverse
-            else:
-              print('Bad assumption of initial +- for BWA multimap position: %s' % multi_start, file=sys.stderr)
+              print('Multi-map tag scenario that I did not prepare for:', file=sys.stderr)
+              print(align, file=sys.stderr)
               exit(1)
-
-            # determine genome index
-            mgi = self.genome_index_chrom(multi_chrom, multi_pos)
-
-            # update multi alignment matrix
-            multi_positions.append(mgi)
-
-          # finish updating multi alignment matrix for all multi alignments
-          multi_reads += [ri]*multi_maps
-          multi_weight += [np.float16(1./multi_maps)]*multi_maps
-
-          # update read index
-          ri += 1
-
-        # Bowtie2 multi-mapper
-        elif align.has_tag('NH') and not align.has_tag('XA'):
-
-          # determine multi-mapping state
-          nh_tag = align.get_tag('NH')
-
-          # if new read, update index
-          if genome_sorted:
-            if read_id not in multi_read_index:
-              # map it to an index
-              multi_read_index[read_id] = ri
-              ri += 1
-            ari = multi_read_index[read_id]
-
-          else:
-            if read_id != last_read_id:
-              ri += 1
-            ari = ri
-
-          # store alignment matrix
-          multi_reads.append(ari)
-          multi_positions.append(gi)
-          multi_weight.append(np.float16(1. / nh_tag))
-
-        else:
-            print('Multi-map tag scenario I did not envision:', file=sys.stderr)
-            print(align, file=sys.stderr)
-            exit(1)
-
 
         if not genome_sorted:
           last_read_id = read_id
@@ -1253,7 +1221,7 @@ class GenomeCoverage:
     print(' Done in %ds.' % (time.time() - t0), flush=True)
 
     # validate that initial weights sum to 1
-    if genome_sorted:
+    if genome_sorted and (forward and reverse):
       multi_sum = self.multi_weight_matrix.sum(axis=1)
       warned = False
       disposed_reads = 0
@@ -1271,21 +1239,22 @@ class GenomeCoverage:
           row_nzcols_set(self.multi_weight_matrix, ri, 0)
           disposed_reads += 1
 
-    if disposed_reads > 0:
-      disposed_pct = disposed_reads / len(multi_sum)
-      print(
-          '%d (%.4f) multi-reads were disposed because of incorrect NH sums.' %
-          (disposed_reads, disposed_pct),
-          end='',
-          file=sys.stderr)
-      if disposed_pct < 0.15:
-        print(' Proceeding with caution.', file=sys.stderr)
-      else:
-        print(' Something is likely awry-- exiting', file=sys.stderr)
-        exit(1)
+      if disposed_reads > 0:
+        disposed_pct = disposed_reads / len(multi_sum)
+        print(
+            '%d (%.4f) multi-reads were disposed because of incorrect NH sums.' %
+            (disposed_reads, disposed_pct),
+            end='',
+            file=sys.stderr)
+        if disposed_pct < 0.15:
+          print(' Proceeding with caution.', file=sys.stderr)
+        else:
+          print(' Something is likely awry-- exiting', file=sys.stderr)
+          exit(1)
 
-      # eliminate zeros for disposed reads
-      self.multi_weight_matrix.eliminate_zeros()
+        # eliminate zeros for disposed reads
+        self.multi_weight_matrix.eliminate_zeros()
+
 
   def infer_active_blocks(self, genome_coverage, min_inactive=50000):
     # compute inactive blocks
@@ -1377,6 +1346,73 @@ class GenomeCoverage:
           # begin a new active block
           active_start = i
 
+
+  def read_multi_bwa(self, multi_positions, multi_reads, multi_weight, align, gi, ri, align_shift_forward, align_shift_reverse):
+    """ Helper function to process a BWA multi-mapper. """
+
+    # update multi alignment matrix
+    multi_positions.append(gi)
+
+    # get multi-maps
+    multi_align_strings = align.get_tag('XA').split(';')[:-1]
+    multi_maps = len(multi_align_strings)+1
+
+    # for each multi-map
+    for multi_align_str in multi_align_strings:
+
+      # extract alignment information
+      multi_chrom, multi_start, multi_cigar, _ = multi_align_str.split(',')
+
+      # determine shifted event position
+      if multi_start[0] == '+':
+        multi_pos = int(multi_start[1:]) + align_shift_forward
+      elif multi_start[0] == '-':
+        multi_pos = int(multi_start[1:]) + cigar_len(multi_cigar) - align_shift_reverse
+      else:
+        print('Bad assumption of initial +- for BWA multimap position: %s' % multi_start, file=sys.stderr)
+        exit(1)
+
+      # determine genome index
+      mgi = self.genome_index_chrom(multi_chrom, multi_pos)
+
+      # update multi alignment matrix
+      multi_positions.append(mgi)
+
+    # finish updating multi alignment matrix for all multi alignments
+    multi_reads += [ri]*multi_maps
+    multi_weight += [np.float16(1./multi_maps)]*multi_maps
+
+    # update read index
+    return ri + 1
+
+
+  def read_multi_nh(self, multi_positions, multi_reads, multi_weight, align, ri, read_id, last_read_id, genome_sorted):
+    """ Helper function to process an NH-tagged multi-mapper. """
+
+    # determine multi-mapping state
+    nh_tag = align.get_tag('NH')
+
+    # if new read, update index
+    if genome_sorted:
+      if read_id not in multi_read_index:
+        # map it to an index
+        multi_read_index[read_id] = ri
+        ri += 1
+      ari = multi_read_index[read_id]
+
+    else:
+      if read_id != last_read_id:
+        ri += 1
+      ari = ri
+
+    # store alignment matrix
+    multi_reads.append(ari)
+    multi_positions.append(gi)
+    multi_weight.append(np.float16(1. / nh_tag))
+
+    return ri
+
+
   def set_clips(self, coverage):
     """ Hash indexes to clip at various thresholds.
 
@@ -1396,14 +1432,14 @@ class GenomeCoverage:
     # choose clip thresholds
     if len(self.adaptive_t) == 0:
       print('Clip thresholds:')
-      for clip_value in range(2, self.adaptive_max + 1):
+      for clip_value in range(2, self.clip_max + 1):
         cdf_matcher = lambda u: (self.adaptive_cdf - (1-poisson.cdf(clip_value, u)))**2
         self.adaptive_t[clip_value] = minimize(cdf_matcher, clip_value)['x'][0]
         print(clip_value, self.adaptive_t[clip_value])
 
     # take indexes with coverage between this clip threshold and the next
     self.multi_clip_indexes = {}
-    for clip_value in range(2, self.adaptive_max):
+    for clip_value in range(2, self.clip_max):
       mci = np.where((coverage > self.adaptive_t[clip_value]) &
                      (coverage <= self.adaptive_t[clip_value + 1]))[0]
       if len(mci) > 0:
@@ -1412,11 +1448,12 @@ class GenomeCoverage:
       print('Sites clipped to %d: %d' % (clip_value, len(mci)))
 
     # set the last clip_value
-    mci = np.where(coverage > self.adaptive_t[self.adaptive_max])[0]
+    mci = np.where(coverage > self.adaptive_t[self.clip_max])[0]
     if len(mci) > 0:
-      self.multi_clip_indexes[self.adaptive_max] = mci
+      self.multi_clip_indexes[self.clip_max] = mci
 
-    print('Sites clipped to %d: %d' % (self.adaptive_max, len(mci)))
+    print('Sites clipped to %d: %d' % (self.clip_max, len(mci)))
+
 
   def clip_multi(self, coverage, chrom=None):
     """ Clip coverage at multiple pre-determined thresholds.
@@ -1432,12 +1469,9 @@ class GenomeCoverage:
          coverage (np.array): Clipped coverage values
         """
 
-    # TEMP
-    chroms_list = list(self.chrom_lengths.keys())
-
     if len(self.adaptive_t) == 0:
       # we haven't chosen clip thresholds yet. be conservative.
-      coverage = np.clip(coverage, 0, self.adaptive_max)
+      coverage = np.clip(coverage, 0, self.clip_max)
 
     else:
       # clip indexes at each value
@@ -1458,6 +1492,7 @@ class GenomeCoverage:
 
       # clip the remainder to 1
       coverage[~clipped_indexes] = np.clip(coverage[~clipped_indexes], 0, 1)
+
 
   def write(self, output_file, single_or_pair, zero_eps=.003):
     """ Compute and write out coverage to bigwig file.
@@ -1501,9 +1536,8 @@ class GenomeCoverage:
                                                 gi + cl] + chrom_multi_coverage
 
       # limit duplicates
-      # if self.duplicate_max is not None:
-      # chrom_coverage_array = np.clip(chrom_coverage_array, 0, self.duplicate_max)
-      self.clip_multi(chrom_coverage_array, chroms_list[ci])
+      if self.clip_max:
+        self.clip_multi(chrom_coverage_array, chroms_list[ci])
 
       # Gaussian smooth
       if self.smooth_sd > 0:

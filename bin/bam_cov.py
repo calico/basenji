@@ -49,22 +49,9 @@ bam_cov.py
 Transform BAM alignments to a normalized BigWig coverage track.
 
 Notes:
- -I'm making a tradeoff here on proper PCR duplicate maxing whereby I'm combining the
-  forward and reverse strands. To keep them separate, I'd need to double the memory.
-  Alternatively, I could remove duplicates at an earlier stage, but I'd have to
-  better understand how multi-mapping reads are handled; I'm worried it will throw
-  away multi-mappers so the NH tag no longer reflects the number of alignments.
-
- -Also worth noting that when clipping, I can use uint8 for unique_counts rather
-  than uint16 and save ~3gb. Presently, the botteneck is multi_read_index, so it
-  wouldn't make a difference.
-
- -It's probably worth trying to perform local filtering after every significant
-  read weight change, instead of a single big filter after every full parse through
-  the reads. I might be able to save by not filtering irrelevant regions, and I might
-  get faster optimization by improving the local coverage estimates quicker.
-   -Or related idea--determine the relevant multi map regions that need filtering and
-   only do those. I'd guess I can eliminate 1/3 of the genome.
+ -The adaptive trimming statistics are awry for paired end shift_center datasets
+  like ChIP-seq because the events are initially double counted in order to use
+  uint16 rather than a larger data structure.
 '''
 
 ################################################################################
@@ -108,12 +95,6 @@ def main():
       default='%s/assembly/hg19.fa' % os.environ['HG19'],
       help='FASTA to obtain sequence to control for GC% [Default: %default]')
   parser.add_option(
-      '--forward',
-      dest='forward_only',
-      default=False,
-      action='store_true',
-      help='Consider only forward-aligning reads [Default: %default]')
-  parser.add_option(
       '-g',
       dest='gc',
       default=False,
@@ -133,18 +114,19 @@ def main():
       help='Output directory [Default: %default]'
   )
   parser.add_option(
-      '--reverse',
-      dest='reverse_only',
-      default=False,
-      action='store_true',
-      help='Consider only reverse-aligning reads [Default: %default]')
-  parser.add_option(
       '-s',
       dest='smooth_sd',
       default=32,
       type='float',
       help=
       'Gaussian standard deviation to smooth coverage estimates with [Default: %default]'
+  )
+  parser.add_option(
+      '--strand',
+      dest='stranded',
+      default=False,
+      action='store_true',
+      help='Stranded sequencing, output forward and reverse coverage tracks [Default: %default]'
   )
   parser.add_option(
       '-u',
@@ -189,6 +171,7 @@ def main():
   # initialize
   genome_coverage = GenomeCoverage(
       chrom_lengths,
+      stranded=options.stranded,
       smooth_sd=options.smooth_sd,
       clip_max=options.clip_max,
       clip_max_multi=options.clip_max_multi,
@@ -204,16 +187,8 @@ def main():
     else:
       genome_coverage.learn_shift_pair(bam_file)
 
-  # determine strands to consider
-  forward = True
-  reverse = True
-  if options.forward_only:
-    reverse = False
-  if options.reverse_only:
-    forward = False
-
   # read alignments
-  genome_coverage.read_bam(bam_file, genome_sorted=~options.unsorted, forward=forward, reverse=reverse)
+  genome_coverage.read_bam(bam_file, genome_sorted=~options.unsorted)
 
   ################################################################
   # run EM to distribute multi-mapping read weights
@@ -486,6 +461,7 @@ class GenomeCoverage:
 
   def __init__(self,
                chrom_lengths,
+               stranded=False,
                smooth_sd=32,
                clip_max=None,
                clip_max_multi=2,
@@ -493,8 +469,20 @@ class GenomeCoverage:
                shift_forward=0,
                shift_reverse=0,
                fasta_file=None):
-    self.chrom_lengths = chrom_lengths
-    self.genome_length = sum(chrom_lengths.values())
+
+    self.stranded = stranded
+    if self.stranded:
+      # model + and - strand of each chromosome
+      self.chrom_lengths = OrderedDict()
+      for chrom, clen in chrom_lengths.items():
+        self.chrom_lengths['%s+'%chrom] = clen
+      for chrom, clen in chrom_lengths.items():
+        self.chrom_lengths['%s-'%chrom] = clen
+
+    else:
+      self.chrom_lengths = chrom_lengths
+
+    self.genome_length = sum(self.chrom_lengths.values())
     self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
     self.active_blocks = None
 
@@ -601,9 +589,6 @@ class GenomeCoverage:
           # get previous weights
           multi_read_prev = row_nzcols_get(self.multi_weight_matrix, ri)
 
-          # get previous weights' sum (<1 for strand consideration)
-          multi_norm = multi_read_prev.sum()
-
           # get coverage estimates
           multi_positions_coverage = np.array(
               [genome_coverage[pos] for pos in multi_read_positions])
@@ -611,7 +596,7 @@ class GenomeCoverage:
           # normalize coverage as weights
           mpc_sum = multi_positions_coverage.sum(dtype='float64')
           if mpc_sum > 0:
-            multi_positions_weight = multi_norm * multi_positions_coverage / mpc_sum
+            multi_positions_weight = multi_positions_coverage / mpc_sum
           else:
             print('Error: read %d coverage sum == %.4f' % (ri, mpc_sum), file=sys.stderr)
             print(multi_positions_coverage, file=sys.stderr)
@@ -711,6 +696,10 @@ class GenomeCoverage:
          model (sklearn object): To control for GC%.
         """
 
+    # trim chromosome strand
+    if self.stranded and chrom[-1] in '+-':
+      chrom = chrom[:-1]
+
     # get sequence
     seq = self.fasta.fetch(chrom)
     assert (len(seq) == len(coverage))
@@ -809,7 +798,11 @@ class GenomeCoverage:
       # get sequence
       seq_start = pos
       seq_end = pos + 2 * fragment_sd3
-      seq = self.fasta.fetch(chroms_list[ci], seq_start, seq_end)
+      if self.stranded:
+        seq_chrom = chroms_list[ci][:-1]
+      else:
+        seq_chrom = chroms_list[ci]
+      seq = self.fasta.fetch(seq_chrom, seq_start, seq_end)
 
       # filter for clean sequences
       if len(seq) == 2 * fragment_sd3 and seq.find('N') == -1:
@@ -909,7 +902,11 @@ class GenomeCoverage:
       # get sequence
       seq_start = max(0, pos - fragment_sd3)
       seq_end = pos + fragment_sd3
-      seq = self.fasta.fetch(chroms_list[ci], seq_start, seq_end)
+      if self.stranded:
+        seq_chrom = chroms_list[ci][:-1]
+      else:
+        seq_chrom = chroms_list[ci]
+      seq = self.fasta.fetch(seq_chrom, seq_start, seq_end)
 
       # filter for clean sequences
       if len(seq) == 2 * fragment_sd3 and seq.find('N') == -1:
@@ -961,18 +958,23 @@ class GenomeCoverage:
 
     return ci, pos
 
-  def genome_index(self, ci, pos):
+  def genome_index(self, ci, pos, strand=None):
     """ Compute genome index for a chromosome index and position.
 
         Args
          ci (int): Chromosome index.
          pos (int): Position.
+         strand (str): '+' or '-'
 
         Returns:
          gi (int): Genomic index
         """
 
     lengths_list = list(self.chrom_lengths.values())
+
+    if strand == '-':
+      # move the BAM chromosome index to the second half of my list
+      ci += len(self.chrom_lengths) // 2
 
     gi = 0
     for gci in range(len(lengths_list)):
@@ -983,16 +985,20 @@ class GenomeCoverage:
         gi += lengths_list[gci]
     return gi
 
-  def genome_index_chrom(self, chrom, pos):
+  def genome_index_chrom(self, chrom, pos, strand=None):
     """ Compute genome index for a chromosome label and position.
 
         Args
          chrom (str): Chromosome label.
          pos (int): Position.
+         strand (str): '+' or '-'
 
         Returns:
          gi (int): Genomic index
         """
+
+    if strand:
+      chrom += strand
 
     gi = 0
     for cl_chrom, cl_len in self.chrom_lengths.items():
@@ -1004,35 +1010,35 @@ class GenomeCoverage:
 
     return gi
 
-  def genome_chr(self, genome_indexes, chrom):
-    """ Filter and convert an array of genome indexes
-            to indexes for a specific chromosome.
+  # def genome_chr(self, genome_indexes, chrom):
+  #   """ Filter and convert an array of genome indexes
+  #           to indexes for a specific chromosome.
 
-        Args
-         genome_indexes (np.array):
-         chrom (str):
+  #       Args
+  #        genome_indexes (np.array):
+  #        chrom (str):
 
-        Returns
-         chrom_indexes (np.array)
-        """
+  #       Returns
+  #        chrom_indexes (np.array)
+  #       """
 
-    chrom_subtract = 0
-    for lchrom in self.chrom_lengths:
-      if chrom == lchrom:
-        break
-      else:
-        chrom_subtract += self.chrom_lengths[lchrom]
+  #   chrom_subtract = 0
+  #   for lchrom in self.chrom_lengths:
+  #     if chrom == lchrom:
+  #       break
+  #     else:
+  #       chrom_subtract += self.chrom_lengths[lchrom]
 
-    # filter up to chromosome
-    chrom_indexes = genome_indexes[genome_indexes >= chrom_subtract]
+  #   # filter up to chromosome
+  #   chrom_indexes = genome_indexes[genome_indexes >= chrom_subtract]
 
-    # adjust
-    chrom_indexes -= chrom_subtract
+  #   # adjust
+  #   chrom_indexes -= chrom_subtract
 
-    # filter beyond chromosome
-    chrom_indexes = chrom_indexes[chrom_indexes < self.chrom_lengths[chrom]]
+  #   # filter beyond chromosome
+  #   chrom_indexes = chrom_indexes[chrom_indexes < self.chrom_lengths[chrom]]
 
-    return chrom_indexes
+  #   return chrom_indexes
 
   def learn_shift_pair(self, bam_file):
     """ Learn the optimal fragment shift from paired end fragments. """
@@ -1156,7 +1162,7 @@ class GenomeCoverage:
             file=shift_out)
       shift_out.close()
 
-  def read_bam(self, bam_file, genome_sorted=False, forward=True, reverse=True):
+  def read_bam(self, bam_file, genome_sorted=False):
     """Read alignments from a BAM file into unique and multi data structures."""
 
     t0 = time.time()
@@ -1178,41 +1184,44 @@ class GenomeCoverage:
 
     for align in pysam.AlignmentFile(bam_file):
       if not align.is_unmapped:
-        if (align.is_reverse and reverse) or (not align.is_reverse and forward):
-          read_id = (align.query_name, align.is_read1)
+        read_id = (align.query_name, align.is_read1)
 
-          # set alignment shift
-          align_shift_forward, align_shift_reverse = self.align_shifts(align)
+        # set alignment shift
+        align_shift_forward, align_shift_reverse = self.align_shifts(align)
 
-          # set alignment event position
-          chrom_pos = align.reference_start + align_shift_forward
-          if align.is_reverse:
-            chrom_pos = align.reference_end - align_shift_reverse
+        # set alignment event position
+        chrom_pos = align.reference_start + align_shift_forward
+        if align.is_reverse:
+          chrom_pos = align.reference_end - align_shift_reverse
 
-          # set genome index
+        # set genome index
+        if self.stranded:
+          strand = '+'*(not align.is_reverse) + '-'*(align.is_reverse)
+          gi = self.genome_index(align.reference_id, chrom_pos, strand)
+        else:
           gi = self.genome_index(align.reference_id, chrom_pos)
 
-          # count unique
-          if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
-              self.unique_counts[gi] += 1
+        # count unique
+        if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
+            self.unique_counts[gi] += 1
 
-          # count BWA multi-mapper
-          elif align.has_tag('XA') and not align.has_tag('NH'):
-            # update multi-map data structures
-            ri = self.read_multi_bwa(multi_positions, multi_reads, multi_weight, align, gi, ri, align_shift_forward, align_shift_reverse)
+        # count BWA multi-mapper
+        elif align.has_tag('XA') and not align.has_tag('NH'):
+          # update multi-map data structures
+          ri = self.read_multi_bwa(multi_positions, multi_reads, multi_weight, align, gi, ri, align_shift_forward, align_shift_reverse)
 
-          # count NH-tag multi-mapper
-          elif align.has_tag('NH') and not align.has_tag('XA'):
-            # update multi-map data structures
-            ri = self.read_multi_nh(multi_positions, multi_reads, multi_weight, align, ri, read_id, last_read_id, genome_sorted)
+        # count NH-tag multi-mapper
+        elif align.has_tag('NH') and not align.has_tag('XA'):
+          # update multi-map data structures
+          ri = self.read_multi_nh(multi_positions, multi_reads, multi_weight, align, ri, read_id, last_read_id, genome_sorted)
 
-          else:
-              print('Multi-map tag scenario that I did not prepare for:', file=sys.stderr)
-              print(align, file=sys.stderr)
-              exit(1)
+        else:
+            print('Multi-map tag scenario that I did not prepare for:', file=sys.stderr)
+            print(align, file=sys.stderr)
+            exit(1)
 
-        if not genome_sorted:
-          last_read_id = read_id
+      if not genome_sorted:
+        last_read_id = read_id
 
     num_multi_reads = ri
     print(' Done in %ds.' % (time.time() - t0), flush=True)
@@ -1226,7 +1235,7 @@ class GenomeCoverage:
     print(' Done in %ds.' % (time.time() - t0), flush=True)
 
     # validate that initial weights sum to 1
-    if genome_sorted and (forward and reverse):
+    if genome_sorted:
       multi_sum = self.multi_weight_matrix.sum(axis=1)
       warned = False
       disposed_reads = 0
@@ -1378,7 +1387,11 @@ class GenomeCoverage:
         exit(1)
 
       # determine genome index
-      mgi = self.genome_index_chrom(multi_chrom, multi_pos)
+      if self.stranded:
+        strand = '+'*(not align.is_reverse) + '-'*(align.is_reverse)
+        mgi = self.genome_index_chrom(multi_chrom, multi_pos, strand)
+      else:
+        mgi = self.genome_index_chrom(multi_chrom, multi_pos)
 
       # update multi alignment matrix
       multi_positions.append(mgi)
@@ -1416,48 +1429,6 @@ class GenomeCoverage:
     multi_weight.append(np.float16(1. / nh_tag))
 
     return ri
-
-
-  # def set_clips(self, coverage):
-  #   """ Hash indexes to clip at various thresholds.
-
-  #       Must run this before running clip_multi, which will use
-  #       self.multi_clip_indexes.
-
-  #       In:
-  #        coverage (np.array): Pre-clipped genome coverage.
-
-  #       Out:
-  #        self.adaptive_t (int->float): Clip values mapped to coverage thresholds
-  #        above which to apply them.
-  #        self.multi_clip_indexes (int->np.array): Clip values mapped to genomic
-  #        indexes to clip.
-  #       """
-
-  #   # choose clip thresholds
-  #   if len(self.adaptive_t) == 0:
-  #     print('Clip thresholds:')
-  #     for clip_value in range(2, self.clip_max + 1):
-  #       cdf_matcher = lambda u: (self.adaptive_cdf - (1-poisson.cdf(clip_value, u)))**2
-  #       self.adaptive_t[clip_value] = minimize(cdf_matcher, clip_value)['x'][0]
-  #       print(clip_value, self.adaptive_t[clip_value])
-
-  #   # take indexes with coverage between this clip threshold and the next
-  #   self.multi_clip_indexes = {}
-  #   for clip_value in range(2, self.clip_max):
-  #     mci = np.where((coverage > self.adaptive_t[clip_value]) &
-  #                    (coverage <= self.adaptive_t[clip_value + 1]))[0]
-  #     if len(mci) > 0:
-  #       self.multi_clip_indexes[clip_value] = mci
-
-  #     print('Sites clipped to %d: %d' % (clip_value, len(mci)))
-
-  #   # set the last clip_value
-  #   mci = np.where(coverage > self.adaptive_t[self.clip_max])[0]
-  #   if len(mci) > 0:
-  #     self.multi_clip_indexes[self.clip_max] = mci
-
-  #   print('Sites clipped to %d: %d' % (self.clip_max, len(mci)))
 
 
   def clip_multi(self, coverage):
@@ -1510,13 +1481,29 @@ class GenomeCoverage:
     if os.path.splitext(output_file)[1] == '.bw':
       print('Outputting coverage to BigWig')
       bigwig = True
-      cov_out = pyBigWig.open(output_file, 'w')
-      cov_out.addHeader(list(self.chrom_lengths.items()))
+      if self.stranded:
+        headers = [(chrom[:-1],clen) for chrom,clen in self.chrom_lengths.items() if chrom[-1]=='+']
+
+        # forward
+        fcov_out = pyBigWig.open('%s+.bw' % os.path.splitext(output_file)[0], 'w')
+        fcov_out.addHeader(headers)
+
+        # reverse
+        rcov_out = pyBigWig.open('%s-.bw' % os.path.splitext(output_file)[0], 'w')
+        rcout_out.addHeader(headers)
+
+      else:
+        cov_out = pyBigWig.open(output_file, 'w')
+        cov_out.addHeader(list(self.chrom_lengths.items()))
 
     else:
       print('Outputting coverage to HDF5')
       bigwig = False
-      cov_out = h5py.File(output_file, 'w')
+      if self.stranded:
+        fcov_out = h5py.File('%s+.h5' % os.path.splitext(output_file)[0], 'w')
+        rcov_out = h5py.File('%s-.h5' % os.path.splitext(output_file)[0], 'w')
+      else:
+        cov_out = h5py.File(output_file, 'w')
 
     chroms_list = list(self.chrom_lengths.keys())
     lengths_list = list(self.chrom_lengths.values())
@@ -1553,24 +1540,38 @@ class GenomeCoverage:
         post_sum = chrom_coverage_array.sum()
         # print('  GC normalization altered mean coverage by %.3f (%d/%d)' % (post_sum/pre_sum, post_sum, pre_sum))
 
-      # correct for double coverage in paired end data
-      if single_or_pair == 'pair':
+      # correct for double coverage in paired end data with a single center event
+      if single_or_pair == 'pair' and self.shift_center:
         chrom_coverage_array /= 2.0
 
       # set small values to zero
       chrom_coverage_array[chrom_coverage_array < zero_eps] = 0
 
+      # for stranded output
+      if self.stranded:
+        # adjust chromosome name
+        chrom = chroms_list[ci][:-1]
+        strand = chroms_list[ci][-1]
+
+        # choose output file
+        if strand == '+':
+          cov_out = fcov_out
+        else:
+          cov_out = rcov_out
+      else:
+        chrom = chroms_list[ci]
+
       # add to bigwig
       if bigwig:
         cov_out.addEntries(
-            chroms_list[ci],
+            chrom,
             0,
             values=chrom_coverage_array.astype('float16'),
             span=1,
             step=1)
       else:
         cov_out.create_dataset(
-            chroms_list[ci],
+            chrom,
             data=chrom_coverage_array,
             dtype='float16',
             compression='gzip',

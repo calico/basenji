@@ -85,8 +85,8 @@ def main():
   parser.add_option(
       '--clip_multi',
       dest='clip_max_multi',
-      default=2,
-      type='int',
+      default=None,
+      type='float',
       help=
       'Maximum coverage at a single position from multi-mapping reads [Default: %default]'
       )

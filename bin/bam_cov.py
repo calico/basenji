@@ -483,7 +483,7 @@ class GenomeCoverage:
       self.chrom_lengths = chrom_lengths
 
     self.genome_length = sum(self.chrom_lengths.values())
-    self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
+    self.unique_counts = np.zeros(self.genome_length, dtype='uint8')
     self.active_blocks = None
 
     self.smooth_sd = smooth_sd
@@ -1203,7 +1203,8 @@ class GenomeCoverage:
 
         # count unique
         if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
-            self.unique_counts[gi] += 1
+            if self.unique_counts[gi] < 255:
+              self.unique_counts[gi] += 1
 
         # count BWA multi-mapper
         elif align.has_tag('XA') and not align.has_tag('NH'):
@@ -1376,11 +1377,12 @@ class GenomeCoverage:
 
       # extract alignment information
       multi_chrom, multi_start, multi_cigar, _ = multi_align_str.split(',')
+      multi_strand = multi_start[0]
 
       # determine shifted event position
-      if multi_start[0] == '+':
+      if multi_strand == '+':
         multi_pos = int(multi_start[1:]) + align_shift_forward
-      elif multi_start[0] == '-':
+      elif multi_strand == '-':
         multi_pos = int(multi_start[1:]) + cigar_len(multi_cigar) - align_shift_reverse
       else:
         print('Bad assumption of initial +- for BWA multimap position: %s' % multi_start, file=sys.stderr)
@@ -1388,8 +1390,7 @@ class GenomeCoverage:
 
       # determine genome index
       if self.stranded:
-        strand = '+'*(not align.is_reverse) + '-'*(align.is_reverse)
-        mgi = self.genome_index_chrom(multi_chrom, multi_pos, strand)
+        mgi = self.genome_index_chrom(multi_chrom, multi_pos, multi_strand)
       else:
         mgi = self.genome_index_chrom(multi_chrom, multi_pos)
 

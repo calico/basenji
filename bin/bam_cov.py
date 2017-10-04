@@ -15,6 +15,7 @@
 # =========================================================================
 from __future__ import print_function
 
+from array import array
 from optparse import OptionParser
 from collections import OrderedDict
 import gc
@@ -1169,9 +1170,9 @@ class GenomeCoverage:
     print('Reading alignments from BAM.', flush=True, end='')
 
     # intialize sparse matrix in COO format
-    multi_reads = []
-    multi_positions = []
-    multi_weight = []
+    multi_reads = array('I')
+    multi_positions = array('L')
+    multi_weight = array('f')
 
     # multi-map read index
     ri = 0
@@ -1232,7 +1233,8 @@ class GenomeCoverage:
     print('Constructing multi-read CSR matrix.', flush=True, end='')
     self.multi_weight_matrix = csr_matrix(
         (multi_weight, (multi_reads, multi_positions)),
-        shape=(num_multi_reads, self.genome_length))
+        shape=(num_multi_reads, self.genome_length),
+        dtype='float16')
     print(' Done in %ds.' % (time.time() - t0), flush=True)
 
     # validate that initial weights sum to 1
@@ -1398,8 +1400,8 @@ class GenomeCoverage:
       multi_positions.append(mgi)
 
     # finish updating multi alignment matrix for all multi alignments
-    multi_reads += [ri]*multi_maps
-    multi_weight += [np.float16(1./multi_maps)]*multi_maps
+    multi_reads.extend([ri]*multi_maps)
+    multi_weight.extend([np.float16(1./multi_maps)]*multi_maps)
 
     # update read index
     return ri + 1

@@ -13,7 +13,7 @@ from basenji import batcher
 from basenji import dna_io
 from basenji import seqnn
 from basenji import tfrecord_batcher
-from basenji.bin import shared_flags
+from bin import shared_flags
 
 FLAGS = tf.app.flags.FLAGS
 

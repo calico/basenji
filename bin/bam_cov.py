@@ -1095,7 +1095,7 @@ class GenomeCoverage:
 
         if align.is_reverse:
           # determine alignment position
-          ci = align.reference_end
+          ci = align.reference_end - 1
 
           if multi:
             # record as multi-mapping
@@ -1106,7 +1106,7 @@ class GenomeCoverage:
 
         else:
           # determine alignment position
-          ci = align.reference_start
+          ci = align.reference_start - 1
 
           if multi:
             # record as multi-mapping
@@ -1191,9 +1191,9 @@ class GenomeCoverage:
         align_shift_forward, align_shift_reverse = self.align_shifts(align)
 
         # set alignment event position
-        chrom_pos = align.reference_start + align_shift_forward
+        chrom_pos = align.reference_start - 1 + align_shift_forward
         if align.is_reverse:
-          chrom_pos = align.reference_end - align_shift_reverse
+          chrom_pos = align.reference_end - 1 - align_shift_reverse
 
         # set genome index
         if self.stranded:

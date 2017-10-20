@@ -15,6 +15,7 @@
 
 from __future__ import print_function
 import os
+import pdb
 import subprocess
 import sys
 import tempfile
@@ -196,7 +197,7 @@ def snp_seq1(snp, seq_len, genome_open):
 
     # extract sequence as BED style
     if seq_start < 0:
-        seq = 'N'*(-seq_start) + genome_open.fetch(snp.chrom, 0, seq_end).upper()
+        seq = 'N'*(-(seq_start-1)) + genome_open.fetch(snp.chrom, 0, seq_end).upper()
     else:
         seq = genome_open.fetch(snp.chrom, seq_start-1, seq_end).upper()
 

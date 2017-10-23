@@ -117,6 +117,11 @@ def main():
       action='store_true',
       help='SNPs are labeled with scores as column 7 [Default: %default]')
   parser.add_option(
+      '--shifts',
+      dest='shifts',
+      default='0',
+      help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option(
       '-t',
       dest='targets_file',
       default=None,

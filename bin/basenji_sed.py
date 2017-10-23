@@ -189,17 +189,35 @@ def main():
 
       # add minor alleles
       for snp_i in seqs_snps[seq_i]:
+        snp = snps[snp_i]
+
         # determine SNP position wrt sequence
-        snp_seq_pos = snps[snp_i].pos - 1 - seq_start
+        snp_seq_pos = snp.pos - 1 - seq_start
 
         # verify that the reference allele matches the reference
         seq_ref = basenji.dna_io.hot1_dna(gene_data.seqs_1hot[seq_i][
-            snp_seq_pos:snp_seq_pos + len(snps[snp_i].ref_allele), :])
-        assert (seq_ref == snps[snp_i].ref_allele)
+            snp_seq_pos:snp_seq_pos + len(snp.ref_allele), :])
+
+        # check if reference allele matches the alternative
+        if seq_ref != snp.ref_allele:
+          if seq_ref == snp.alt_alleles[0]:
+            # warn user
+            print('WARNING: %s - alt (as opposed to ref) allele matches reference genome; changing reference genome to match.' % (snp.rsid), file=sys.stderr)
+
+            # remove alt allele and include ref allele
+            if len(snp.ref_allele) == len(snp.alt_alleles[0]):
+              # SNP
+              basenji.dna_io.hot1_set(gene_data.seqs_1hot[seq_i], snp_seq_pos, snp.alt_alleles[0])
+            else:
+              raise Exception('ERROR: flipped reference-alternative indels cannot yet be handled. Please flip your variants so A1 matches the reference.')
+              # the problem is that here, the one hot coded sequence lives
+              # in the HDF5 file, so I cannot modify it's length.
+          else:
+            raise Exception('ERROR: %s - reference genome does not match any allele' % (snp.rsid))
 
         # append descriptive tuple to list
-        # seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i].alt_alleles[0]))
-        seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i]))
+        # seqs_snps_list.append((seq_i, snp_seq_pos, snp.alt_alleles[0]))
+        seqs_snps_list.append((seq_i, snp_seq_pos, snp))
 
   #################################################################
   # setup model

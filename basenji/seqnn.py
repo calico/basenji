@@ -30,7 +30,7 @@ class SeqNN:
     def __init__(self):
         pass
 
-    def build(self, job):
+    def build(self, job, target_subset=None):
         ###################################################
         # model parameters and placeholders
         ###################################################
@@ -153,6 +153,8 @@ class SeqNN:
         tend = (self.batch_length - self.batch_buffer) // self.target_pool
         self.targets_op = tf.identity(self.targets[:,tstart:tend,:], name='targets_op')
 
+        if target_subset is not None:
+            self.targets_op = tf.gather(self.targets_op, target_subset, axis=2)
 
         ###################################################
         # final layer
@@ -160,11 +162,30 @@ class SeqNN:
         with tf.variable_scope('final'):
             final_filters = self.num_targets*self.target_classes
 
-            seqs_repr = tf.layers.conv1d(seqs_repr, filters=final_filters, kernel_size=[1], padding='same', use_bias=True, kernel_initializer=tf.contrib.layers.xavier_initializer(), kernel_regularizer=None)
+            final_repr = tf.layers.conv1d(seqs_repr, filters=final_filters, kernel_size=[1], padding='same', use_bias=True, kernel_initializer=tf.contrib.layers.xavier_initializer(), kernel_regularizer=None)
             print('Convolution w/ %d %dx1 filters to final targets' % (final_filters, seq_depth))
 
             # if self.final_l1 > 0:
             #     weights_regularizers += self.final_l1*tf.reduce_mean(tf.abs(final_weights))
+
+            if target_subset is not None:
+                # get convolution parameters
+                filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/conv1d/kernel')[0]
+                bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/conv1d/bias')[0]
+
+                # subset to specific targets
+                filters_subset = tf.gather(filters_full, target_subset, axis=2)
+                bias_subset = tf.gather(bias_full, target_subset, axis=0)
+
+                # substitute a new limited convolution
+                final_repr = tf.nn.conv1d(seqs_repr, filters_subset, stride=1, padding='SAME')
+                final_repr = tf.nn.bias_add(final_repr, bias_subset)
+
+                # update # targets
+                self.num_targets = len(target_subset)
+
+            # switch back to expected name
+            seqs_repr = final_repr
 
         # expand length back out
         if self.target_classes > 1:
@@ -226,8 +247,8 @@ class SeqNN:
             self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
             self.alphas = tf.nn.softplus(tf.clip_by_value(self.alphas,-50,50))
             tf.summary.histogram('alphas', self.alphas)
-            for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
-                tf.summary.scalar('alpha_t%d'%ti, self.alphas[ti])
+            # for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
+            #    tf.summary.scalar('alpha_t%d'%ti, self.alphas[ti])
 
             # compute w/ inverse
             k = 1. / self.alphas

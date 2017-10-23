@@ -50,8 +50,10 @@ def main():
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=None, type='int', help='Number of processes, passed by multi script')
+    parser.add_option('--pseudo', dest='log_pseudo', default=0.125, type='float', help='Log2 pseudocount [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
+    parser.add_option('-t', dest='targets_file', default=None, help='File specifying target indexes and labels in table format')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-x', dest='transcript_table', default=False, action='store_true', help='Print transcript table in addition to gene [Default: %default]')
     parser.add_option('-w', dest='tss_width', default=1, type='int', help='Width of bins considered to quantify TSS transcription [Default: %default]')
@@ -134,10 +136,10 @@ def main():
                 snp = snps[snp_i]
 
                 # determine SNP position wrt sequence
-                snp_seq_pos = snps[snp_i].pos-1 - seq_start
+                snp_seq_pos = snp.pos-1 - seq_start
 
                 # verify that the reference allele matches the reference
-                seq_ref = basenji.dna_io.hot1_dna(gene_data.seqs_1hot[seq_i][snp_seq_pos:snp_seq_pos+len(snps[snp_i].ref_allele),:])
+                seq_ref = basenji.dna_io.hot1_dna(gene_data.seqs_1hot[seq_i][snp_seq_pos:snp_seq_pos+len(snp.ref_allele),:])
 
                 # check if reference allele matches the alternative
                 if seq_ref != snp.ref_allele:
@@ -158,8 +160,8 @@ def main():
                         raise Exception('ERROR: %s - reference genome does not match any allele' % (snp.rsid))
 
                 # append descriptive tuple to list
-                # seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i].alt_alleles[0]))
-                seqs_snps_list.append((seq_i, snp_seq_pos, snps[snp_i]))
+                # seqs_snps_list.append((seq_i, snp_seq_pos, snp.alt_alleles[0]))
+                seqs_snps_list.append((seq_i, snp_seq_pos, snp))
 
 
     #################################################################
@@ -178,9 +180,35 @@ def main():
         print("Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.", file=sys.stderr)
         exit(1)
 
+    if options.targets_file is None:
+        target_subset = None
+        target_ids = gene_data.target_ids
+        target_labels = gene_data.target_labels
+        if target_ids is None:
+            target_ids = ['t%d'%ti for ti in range(job['num_targets'])]
+            target_labels = ['']*len(target_ids)
+
+    else:
+        # Unfortunately, this target file differs from some others
+        # in that it needs to specify the indexes from the original
+        # set. In the future, I should standardize to this version.
+
+        target_labels = []
+        target_ids = []
+        target_subset = []
+
+        for line in open(options.targets_file):
+            a = line.strip().split('\t')
+            target_subset.append(int(a[0]))
+            target_ids.append(a[1])
+            target_labels.append(a[3])
+
+        if len(target_subset) == job['num_targets']:
+            target_subset = None
+
     # build model
-    model = basenji.seqnn.SeqNN()
-    model.build(job)
+    model = seqnn.basenji.SeqNN()
+    model.build(job, target_subset=target_subset)
 
 
     #################################################################
@@ -204,11 +232,6 @@ def main():
     # helper variables
     adj = options.tss_width // 2
     pred_buffer = model.batch_buffer // model.target_pool
-    target_ids = gene_data.target_ids
-    target_labels = gene_data.target_labels
-    if target_ids is None:
-        target_ids = ['t%d'%ti for ti in range(job['num_targets'])]
-        target_labels = ['']*len(target_ids)
 
     # initialize saver
     saver = tf.train.Saver()
@@ -266,7 +289,7 @@ def main():
 
                         # compute SED scores
                         snp_tx_sed = ap - rp
-                        snp_tx_ser = np.log2(ap+1) - np.log2(rp+1)
+                        snp_tx_ser = np.log2(ap+options.log_pseudo) - np.log2(rp+options.log_pseudo)
 
                         # print rows to transcript table
                         if options.transcript_table:
@@ -294,7 +317,7 @@ def main():
 
                         # compute SED scores
                         snp_gene_sed = gene_ap - gene_rp
-                        snp_gene_ser = np.log2(gene_ap+1) - np.log2(gene_rp+1)
+                        snp_gene_ser = np.log2(gene_ap+options.log_pseudo) - np.log2(gene_rp+options.log_pseudo)
 
                         # print rows to gene table
                         for ti in range(ref_preds.shape[1]):

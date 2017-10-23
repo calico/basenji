@@ -43,13 +43,13 @@ def main():
     parser.add_option('-b', dest='batch_size', default=None, type='int', help='Batch size [Default: %default]')
     parser.add_option('-c', dest='csv', default=False, action='store_true', help='Print table as CSV [Default: %default]')
     parser.add_option('-g', dest='genome_file', default='%s/assembly/human.hg19.genome'%os.environ['HG19'], help='Chromosome lengths file [Default: %default]')
-    parser.add_option('-i', dest='index_snp', default=False, action='store_true', help='SNPs are labeled with their index SNP as column 6 [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sed', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=2, type='int', help='Number of parallel processes to run [Default: %default]')
+    parser.add_option('--pseudo', dest='log_pseudo', default=0.125, type='float', help='Log2 pseudocount [Default: %default]')
     parser.add_option('-q', dest='queue', default='p100', help='SLURM queue on which to run the jobs [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
-    parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
-    parser.add_option('-t', dest='target_wigs_file', default=None, help='Store target values, extracted from this list of WIG files')
+    parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
+    parser.add_option('-t', dest='targets_file', default=None, help='File specifying target indexes and labels in table format')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
     parser.add_option('-x', dest='transcript_table', default=False, action='store_true', help='Print transcript table in addition to gene [Default: %default]')
     parser.add_option('-w', dest='tss_width', default=1, type='int', help='Width of bins considered to quantify TSS transcription [Default: %default]')
@@ -85,7 +85,7 @@ def main():
         name = 'sed_p%d'%pi
         outf = '%s/job%d.out' % (options.out_dir,pi)
         errf = '%s/job%d.err' % (options.out_dir,pi)
-        j = slurm.Job(cmd, name, outf, errf, queue=options.queue, mem=16000, time='4:0:0', gpu=1)
+        j = slurm.Job(cmd, name, outf, errf, queue=options.queue, mem=30000, time='4:0:0', gpu=1)
         jobs.append(j)
 
     slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
@@ -93,7 +93,7 @@ def main():
     #######################################################
     # collect output
 
-    collect_table_multi('sed_gene.txt', options.out_dir, options.processes)
+    collect_table_multi('sed_gene.txt', options.out_dir, options.processes, options.log_pseudo)
     if options.transcript_table:
         collect_table('sed_tx.txt', options.out_dir, options.processes)
 
@@ -114,7 +114,7 @@ def collect_table(file_name, out_dir, num_procs):
     for pi in range(1, num_procs):
         subprocess.call('tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, pi, file_name, out_dir, file_name), shell=True)
 
-def collect_table_multi(file_name, out_dir, num_procs):
+def collect_table_multi(file_name, out_dir, num_procs, log_pseudo):
     collect_out = open('%s/%s' % (out_dir, file_name), 'w')
 
     header = open('%s/job0/%s' % (out_dir, file_name)).readline().rstrip()
@@ -143,42 +143,48 @@ def collect_table_multi(file_name, out_dir, num_procs):
         gc.collect()
 
     for multi_key in multi_lines:
-        multi_lines[multi_key].print_lines(collect_out)
+        multi_lines[multi_key].print_lines(collect_out, log_pseudo)
 
     collect_out.close()
 
 
 class MultiLine:
-    __slots__ = ('rsid','a1','a2','gene','snp_dist_gene','preds')
+    __slots__ = ('rsid','a1','a2','gene','snp_dist_gene','preds','ids','labels')
     def __init__(self, a):
         self.rsid = a[0]
         self.a1 = a[1]
         self.a2 = a[2]
-        self.gene = a[3][:-6]
+        self.gene = a[3][:-6] # trim multi designation
         self.snp_dist_gene = int(a[4])
-        self.preds = {a[5]:([float(a[6])], [float(a[7])])}
+
+        ti = int(a[9])
+        self.preds = {ti:([float(a[5])], [float(a[6])])}
+        self.ids = {ti: a[10]}
+        self.labels = {ti: a[11]}
 
     def add(self, a):
         self.snp_dist_gene = min(self.snp_dist_gene, int(a[4]))
 
-        if a[5] in self.preds:
-            ref_preds, alt_preds = self.preds[a[5]]
-
-            ref_preds.append(float(a[6]))
-            alt_preds.append(float(a[7]))
+        ti = int(a[9])
+        if ti in self.preds:
+            ref_preds, alt_preds = self.preds[ti]
+            ref_preds.append(float(a[5]))
+            alt_preds.append(float(a[6]))
 
         else:
-            self.preds[a[5]] = ([float(a[6])], [float(a[7])])
+            self.preds[ti] = ([float(a[5])], [float(a[6])])
+            self.ids[ti] = a[10]
+            self.labels[ti] = a[11]
 
-    def print_lines(self, out_open):
+    def print_lines(self, out_open, log_pseudo):
         for ti in self.preds:
             ref_preds, alt_preds = self.preds[ti]
             ref_pred = np.sum(ref_preds)
             alt_pred = np.sum(alt_preds)
             sed = alt_pred - ref_pred
-            ser = np.log2(alt_pred+1) - np.log2(ref_pred+1)
-            cols = (self.rsid, self.a1, self.a2, self.gene, self.snp_dist_gene, ti, ref_pred, alt_pred, sed, ser)
-            print('%-13s %s %5s %12s %5d %12s %6.4f %6.4f %7.4f %7.4f' % tuple(cols), file=out_open)
+            ser = np.log2(alt_pred+log_pseudo) - np.log2(ref_pred+log_pseudo)
+            cols = (self.rsid, self.a1, self.a2, self.gene, self.snp_dist_gene, ref_pred, alt_pred, sed, ser, ti, self.ids[ti], self.labels[ti])
+            print('%-13s %s %5s %16s %5d %7.4f %7.4f %7.4f %7.4f %4d %12s %s' % tuple(cols), file=out_open)
 
 
 ################################################################################

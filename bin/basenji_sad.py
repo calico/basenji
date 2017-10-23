@@ -56,6 +56,7 @@ def main():
     parser.add_option('-m', dest='min_limit', default=0.1, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sad', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=None, type='int', help='Number of processes, passed by multi script')
+    parser.add_option('--pseudo', dest='log_pseudo', default=0.125, type='float', help='Log2 pseudocount [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')
     parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
@@ -114,9 +115,33 @@ def main():
         print("Must specify target pooling (target_pool) in the parameters file. I know it's annoying. Sorry", file=sys.stderr)
         exit(1)
 
+    if options.targets_file is None:
+        target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
+        target_labels = ['']*len(target_ids)
+        target_subset = None
+
+    else:
+        # Unfortunately, this target file differs from some others
+        # in that it needs to specify the indexes from the original
+        # set. In the future, I should standardize to this version.
+
+        target_ids = []
+        target_labels = []
+        target_subset = []
+
+        for line in open(options.targets_file):
+            a = line.strip().split('\t')
+            target_subset.append(int(a[0]))
+            target_ids.append(a[1])
+            target_labels.append(a[3])
+
+        if len(target_subset) == job['num_targets']:
+            target_subset = None
+
+    # build model
     t0 = time.time()
     model = basenji.seqnn.SeqNN()
-    model.build(job)
+    model.build(job, target_subset=target_subset)
     print('Model building time %f' % (time.time()-t0), flush=True)
 
     # initialize saver
@@ -134,17 +159,6 @@ def main():
 
     #################################################################
     # setup output
-
-    if options.targets_file is None:
-        target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
-        target_labels = ['']*len(target_ids)
-    else:
-        target_ids = []
-        target_labels = []
-        for line in open(options.targets_file):
-            a = line.strip().split('\t')
-            target_ids.append(a[0])
-            target_labels.append(a[2])
 
     header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'ref_upred', 'alt_upred', 'usad', 'usar', 'ref_xpred', 'alt_xpred', 'xsad', 'xsar', 'target_index', 'target_id', 'target_label')
     if options.csv:
@@ -214,7 +228,7 @@ def main():
                     sad_matrices.setdefault(snp.index_snp,[]).append(sad)
 
                     # compare reference to alternative via mean log division
-                    sar = np.log2(alt_preds_lmean+1) - np.log2(ref_preds_lmean+1)
+                    sar = np.log2(alt_preds_lmean+options.log_pseudo) - np.log2(ref_preds_lmean+options.log_pseudo)
 
                     # label as mutation from reference
                     alt_label = '%s_%s>%s' % (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele), basenji.vcf.cap_allele(alt_al))
@@ -238,10 +252,10 @@ def main():
                         # profile the max difference position
                         max_li = 0
                         max_sad = alt_preds[max_li,ti] - ref_preds[max_li,ti]
-                        max_sar = np.log2(alt_preds[max_li,ti]+1) - np.log2(ref_preds[max_li,ti]+1)
+                        max_sar = np.log2(alt_preds[max_li,ti]+options.log_pseudo) - np.log2(ref_preds[max_li,ti]+options.log_pseudo)
                         for li in range(ref_preds.shape[0]):
                             sad_li = alt_preds[li,ti] - ref_preds[li,ti]
-                            sar_li = np.log2(alt_preds[li,ti]+1) - np.log2(ref_preds[li,ti]+1)
+                            sar_li = np.log2(alt_preds[li,ti]+options.log_pseudo) - np.log2(ref_preds[li,ti]+options.log_pseudo)
                             # if abs(sad_li) > abs(max_sad):
                             if abs(sar_li) > abs(max_sar):
                                 max_li = li

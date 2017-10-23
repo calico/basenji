@@ -49,6 +49,7 @@ def main():
     parser.add_option('-m', dest='min_limit', default=0.1, type='float', help='Minimum heatmap limit [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='sad', help='Output directory for tables and plots [Default: %default]')
     parser.add_option('-p', dest='processes', default=2, type='int', help='Number of parallel processes to run.')
+    parser.add_option('--pseudo', dest='log_pseudo', default=0.125, type='float', help='Log2 pseudocount [Default: %default]')
     parser.add_option('-q', dest='queue', default='p100', help='SLURM queue on which to run the jobs [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='score', default=False, action='store_true', help='SNPs are labeled with scores as column 7 [Default: %default]')

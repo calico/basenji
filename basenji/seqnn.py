@@ -199,16 +199,22 @@ class SeqNN(seqnn_util.SeqNNModel):
     with tf.variable_scope('final'):
       final_filters = self.num_targets * self.target_classes
 
-      seqs_repr = tf.layers.conv1d(
-          seqs_repr,
-          filters=final_filters,
-          kernel_size=[1],
-          padding='same',
-          use_bias=True,
-          kernel_initializer=tf.contrib.layers.xavier_initializer(),
-          kernel_regularizer=None)
-      print('Convolution w/ %d %dx1 filters to final targets' %
-            (final_filters, seqs_repr.shape[2]))
+      seqs_repr = tf.layers.dense(
+          inputs=seqs_repr,
+          units=final_filters,
+          activation=None,
+          kernel_initializer=tf.contrib.layers.xavier_initializer())
+
+      # seqs_repr = tf.layers.conv1d(
+      #     seqs_repr,
+      #     filters=final_filters,
+      #     kernel_size=[1],
+      #     padding='same',
+      #     use_bias=True,
+      #     kernel_initializer=tf.contrib.layers.xavier_initializer(),
+      #     kernel_regularizer=None)
+      # print('Convolution w/ %d %dx1 filters to final targets' %
+      #       (final_filters, seqs_repr.shape[2]))
 
     # expand length back out
     if self.target_classes > 1:
@@ -220,40 +226,41 @@ class SeqNN(seqnn_util.SeqNNModel):
   def build_optimizer(self, loss_op):
     """Construct optimization op that minimizes loss_op."""
     # define optimization
-    if self.optimization == 'adam':
-      self.opt = tf.train.AdamOptimizer(
-          self.learning_rate,
-          beta1=self.adam_beta1,
-          beta2=self.adam_beta2,
-          epsilon=self.adam_eps)
-    elif self.optimization == 'rmsprop':
-      self.opt = tf.train.RMSPropOptimizer(
-          self.learning_rate, decay=self.decay, momentum=self.momentum)
-    elif self.optimization in ['sgd', 'momentum']:
-      self.opt = tf.train.MomentumOptimizer(
-          self.learning_rate, momentum=self.momentum)
-    else:
-      print('Cannot recognize optimization algorithm %s' % self.optimization)
-      exit(1)
+    with tf.variable_scope('training'):
+      if self.optimization == 'adam':
+        self.opt = tf.train.AdamOptimizer(
+            self.learning_rate,
+            beta1=self.adam_beta1,
+            beta2=self.adam_beta2,
+            epsilon=self.adam_eps)
+      elif self.optimization == 'rmsprop':
+        self.opt = tf.train.RMSPropOptimizer(
+            self.learning_rate, decay=self.decay, momentum=self.momentum)
+      elif self.optimization in ['sgd', 'momentum']:
+        self.opt = tf.train.MomentumOptimizer(
+            self.learning_rate, momentum=self.momentum)
+      else:
+        print('Cannot recognize optimization algorithm %s' % self.optimization)
+        exit(1)
 
-    # compute gradients
-    self.gvs = self.opt.compute_gradients(
-        loss_op,
-        aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N)
+      # compute gradients
+      self.gvs = self.opt.compute_gradients(
+          loss_op,
+          aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N)
 
-    # clip gradients
-    if self.grad_clip is not None:
-      gradients, variables = zip(*self.gvs)
-      gradients, _ = tf.clip_by_global_norm(gradients, self.grad_clip)
-      self.gvs = zip(gradients, variables)
+      # clip gradients
+      if self.grad_clip is not None:
+        gradients, variables = zip(*self.gvs)
+        gradients, _ = tf.clip_by_global_norm(gradients, self.grad_clip)
+        self.gvs = zip(gradients, variables)
 
-    # apply gradients
-    self.step_op = self.opt.apply_gradients(self.gvs)
+      # apply gradients
+      self.step_op = self.opt.apply_gradients(self.gvs)
 
-    self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+      self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
-    # summary
-    self.merged_summary = tf.summary.merge_all()
+      # summary
+      self.merged_summary = tf.summary.merge_all()
 
     # initialize steps
     self.step = 0

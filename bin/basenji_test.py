@@ -163,13 +163,17 @@ def main():
         # compute stats
         test_r2 = test_acc.r2(clip=options.target_clip)
         test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
-        test_cor = test_acc.spearmanr()
+        test_pcor = test_acc.pearsonr(clip=options.target_clip)
+        test_log_pcor = test_acc.pearsonr(log=True, clip=options.target_clip)
+        test_scor = test_acc.spearmanr()
 
         # print
-        print('Test Loss:      %7.5f' % test_acc.loss)
-        print('Test R2:        %7.5f' % test_r2.mean())
-        print('Test log R2:    %7.5f' % test_log_r2.mean())
-        print('Test SpearmanR: %7.5f' % test_cor.mean())
+        print('Test Loss:         %7.5f' % test_acc.loss)
+        print('Test R2:           %7.5f' % test_r2.mean())
+        print('Test log R2:       %7.5f' % test_log_r2.mean())
+        print('Test PearsonR:     %7.5f' % test_pcor.mean())
+        print('Test log PearsonR: %7.5f' % test_log_pcor.mean())
+        print('Test SpearmanR:    %7.5f' % test_scor.mean())
 
         acc_out = open('%s/acc.txt' % options.out_dir, 'w')
         for ti in range(len(test_r2)):
@@ -414,7 +418,7 @@ def bigwig_write(bw_file, signal_ti, track_bed, genome_file, buffer=0, bed_set='
     bw_out = bigwig_open(bw_file, genome_file)
 
     si = 0
-    bw_entries = []
+    bw_hash = {}
 
     # set entries
     for line in open(track_bed):
@@ -429,10 +433,17 @@ def bigwig_write(bw_file, signal_ti, track_bed, genome_file, buffer=0, bed_set='
             bw_start = start + buffer
             for li in range(signal_ti.shape[1]):
                 bw_end = bw_start + preds_pool
-                bw_entries.append((chrom,bw_start,bw_end,signal_ti[si,li]))
+                bw_hash.setdefault((chrom,bw_start,bw_end),[]).append(signal_ti[si,ti])
                 bw_start = bw_end
 
             si += 1
+
+    # average duplicates
+    bw_entries = []
+    for bw_key in bw_hash:
+        bw_signal = np.mean(bw_hash[bw_key])
+        bwe = tuple(list(bw_key)+[bw_signal])
+        bw_entries.append(bwe)
 
     # sort entries
     bw_entries.sort()

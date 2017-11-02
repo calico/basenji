@@ -15,6 +15,7 @@
 
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
+
 """accuracy.py
 
 Accuracy class to more succinctly store predictions/targets and
@@ -41,15 +42,15 @@ class Accuracy:
   def pearsonr(self, log=False, pseudocount=1, clip=None):
     """ Compute target PearsonR vector. """
 
-    scor = np.zeros(self.num_targets)
+    pcor = np.zeros(self.num_targets)
 
     for ti in range(self.num_targets):
       if self.targets_na is not None:
-        preds_ti = self.preds[~self.targets_na, ti]
-        targets_ti = self.targets[~self.targets_na, ti]
+        preds_ti = self.preds[~self.targets_na, ti].astype('float64')
+        targets_ti = self.targets[~self.targets_na, ti].astype('float64')
       else:
-        preds_ti = self.preds[:, ti]
-        targets_ti = self.targets[:, ti]
+        preds_ti = self.preds[:, ti].astype('float64')
+        targets_ti = self.targets[:, ti].astype('float64')
 
       if clip is not None:
         preds_ti = np.clip(preds_ti, 0, clip)

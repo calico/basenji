@@ -177,7 +177,7 @@ def main():
 
         acc_out = open('%s/acc.txt' % options.out_dir, 'w')
         for ti in range(len(test_r2)):
-            print('%4d  %7.5f  %.5f  %.5f  %.5f  %s' % (ti, test_acc.target_losses[ti], test_r2[ti], test_log_r2[ti], test_cor[ti], target_labels[ti]), file=acc_out)
+            print('%4d  %7.5f  %.5f  %.5f  %.5f  %.5f  %.5f  %s' % (ti, test_acc.target_losses[ti], test_r2[ti], test_log_r2[ti], test_pcor[ti], test_log_pcor[ti], test_scor[ti], target_labels[ti]), file=acc_out)
         acc_out.close()
 
         # clean up
@@ -433,7 +433,7 @@ def bigwig_write(bw_file, signal_ti, track_bed, genome_file, buffer=0, bed_set='
             bw_start = start + buffer
             for li in range(signal_ti.shape[1]):
                 bw_end = bw_start + preds_pool
-                bw_hash.setdefault((chrom,bw_start,bw_end),[]).append(signal_ti[si,ti])
+                bw_hash.setdefault((chrom,bw_start,bw_end),[]).append(signal_ti[si,li])
                 bw_start = bw_end
 
             si += 1

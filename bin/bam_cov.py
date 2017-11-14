@@ -1383,9 +1383,9 @@ class GenomeCoverage:
 
       # determine shifted event position
       if multi_strand == '+':
-        multi_pos = int(multi_start[1:]) + align_shift_forward
+        multi_pos = int(multi_start[1:])-1 + align_shift_forward
       elif multi_strand == '-':
-        multi_pos = int(multi_start[1:]) + cigar_len(multi_cigar) - align_shift_reverse
+        multi_pos = int(multi_start[1:])-1 + cigar_len(multi_cigar)-1 - align_shift_reverse
       else:
         print('Bad assumption of initial +- for BWA multimap position: %s' % multi_start, file=sys.stderr)
         exit(1)

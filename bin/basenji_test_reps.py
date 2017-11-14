@@ -45,18 +45,16 @@ def main():
            '<samples_file>')
   parser = OptionParser(usage)
   parser.add_option(
-      '-d',
-      dest='down_sample',
-      default=1,
-      type='int',
-      help=
-      'Down sample test computation by taking uniformly spaced positions [Default: %default]'
-  )
-  parser.add_option(
       '-o',
       dest='out_dir',
       default='test_out',
       help='Output directory for test statistics [Default: %default]')
+  parser.add_option(
+      '-p',
+      dest='plot_pct',
+      default=1.0,
+      type='float',
+      help='Proportion of plots to make [Default: %default]')
   parser.add_option(
       '--rc',
       dest='rc',
@@ -66,17 +64,16 @@ def main():
       'Average the forward and reverse complement predictions when testing [Default: %default]'
   )
   parser.add_option(
-      '-p',
-      dest='plot_pct',
-      default=1.0,
-      type='float',
-      help='Proportion of plots to make [Default: %default]')
-  parser.add_option(
       '-s',
       dest='scatter_plots',
       default=False,
       action='store_true',
       help='Make scatter plots [Default: %default]')
+  parser.add_option(
+      '--shifts',
+      dest='shifts',
+      default='0',
+      help='Ensemble prediction shifts [Default: %default]')
   parser.add_option(
       '-v',
       dest='valid',
@@ -96,6 +93,8 @@ def main():
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
+
+  options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   random.seed(1)
 
@@ -123,6 +122,8 @@ def main():
     a = line.split('\t')
     a[-1] = a[-1].rstrip()
     target_labels_long.append(a[2])
+
+  target_ids = [tl.decode('UTF-8') for tl in data_open['target_labels']]
 
   #######################################################
   # model parameters and placeholders
@@ -164,8 +165,7 @@ def main():
     saver.restore(sess, model_file)
 
     # test
-    test_acc = dr.test(
-        sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
+    test_acc = dr.test(sess, batcher_test, rc=options.rc, shifts=options.shifts)
     test_preds = test_acc.preds
 
   #######################################################
@@ -180,7 +180,7 @@ def main():
     if len(replicate_lists[label]) > 1:
       ti1 = replicate_lists[label][0]
       ti2 = replicate_lists[label][1]
-      print(ti1, ti2, label, file=reps_out)
+      print(ti1, ti2, target_ids[ti1], target_ids[ti2], label, file=reps_out)
   reps_out.close()
 
   sns.set(font_scale=1.3, style='ticks')

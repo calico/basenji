@@ -27,7 +27,7 @@ import time
 
 import h5py
 import matplotlib
-matplotlib.use('PDF')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -61,6 +61,7 @@ def main():
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='plot_scatter', default=False, action='store_true', help='Make time-consuming accuracy scatter plots [Default: %default]')
     parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
+    parser.add_option('-r', dest='tss_radius', default=0, type='int', help='Radius of bins considered to quantify TSS transcription [Default: %default]')
     parser.add_option('--rep', dest='replicate_labels_file', help='Compare replicate experiments, aided by the given file with long labels')
     parser.add_option('-t', dest='target_indexes', default=None, help='File or Comma-separated list of target indexes to scatter plot true versus predicted values')
     parser.add_option('--table', dest='print_tables', default=False, action='store_true', help='Print big gene/transcript tables [Default: %default]')
@@ -138,7 +139,7 @@ def main():
             saver.restore(sess, model_file)
 
             # predict
-            transcript_preds = dr.predict_genes(sess, batcher, gene_data.transcript_map, rc=options.rc, shifts=options.shifts)
+            transcript_preds = dr.predict_genes(sess, batcher, gene_data.transcript_map, rc=options.rc, shifts=options.shifts, tss_radius=options.tss_radius)
 
         # save to file
         np.save('%s/preds' % options.out_dir, transcript_preds)
@@ -686,7 +687,7 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix, log=False):
     basenji.plots.jointplot(gene_cv[ri], gene_mse[ri], out_pdf, point_size=10, cor='spearmanr', x_label='Coef Var across experiments', y_label='Mean squared prediction error')
 
     # plot MSE distributions in CV bins
-    numq = 4
+    numq = 5
     quant_indexes = stats.quantile_indexes(gene_cv, numq)
     quant_mse = []
     for qi in range(numq):

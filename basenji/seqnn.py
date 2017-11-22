@@ -69,11 +69,8 @@ class SeqNN:
         seq_depth = self.seq_depth
 
         weights_regularizers = 0
-        self.layer_reprs = []
+        self.layer_reprs = [self.inputs]
         self.filter_weights = []
-
-        if self.save_reprs:
-            self.layer_reprs.append(self.inputs)
 
         # reshape for convolution
         # seqs_repr = tf.reshape(self.inputs, [self.batch_size, 1, seq_length, seq_depth])
@@ -127,9 +124,8 @@ class SeqNN:
                     # update size variables
                     seq_depth = self.cnn_filters[li]
 
-                # save representation (not positive about this one)
-                if self.save_reprs:
-                    self.layer_reprs.append(seqs_repr)
+                # save representation
+                self.layer_reprs.append(seqs_repr)
 
         # update batch buffer to reflect pooling
         pool_preds = self.batch_length // seq_length
@@ -147,6 +143,9 @@ class SeqNN:
         seqs_repr = seqs_repr[:,self.batch_buffer_pool:seq_length-self.batch_buffer_pool,:]
         seq_length -= 2*self.batch_buffer_pool
         self.preds_length = seq_length
+
+        # save penultimate representation
+        self.penultimate_op = seqs_repr
 
         # targets
         tstart = self.batch_buffer // self.target_pool
@@ -700,7 +699,7 @@ class SeqNN:
         return layer_reprs, preds
 
 
-    def _predict_ensemble(self, sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes=None, target_indexes=None, return_var=False, return_all=False):
+    def _predict_ensemble(self, sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes=None, target_indexes=None, return_var=False, return_all=False, penultimate=False):
 
         # determine predictions length
         preds_length = self.preds_length
@@ -708,9 +707,12 @@ class SeqNN:
             preds_length = len(ds_indexes)
 
         # determine num targets
-        num_targets = self.num_targets
-        if target_indexes is not None:
-            num_targets = len(target_indexes)
+        if penultimate:
+            num_targets = self.cnn_filters[-1]
+        else:
+            num_targets = self.num_targets
+            if target_indexes is not None:
+                num_targets = len(target_indexes)
 
         # initialize batch predictions
         preds_batch = np.zeros((Xb.shape[0], preds_length, num_targets), dtype='float32')
@@ -740,7 +742,10 @@ class SeqNN:
                 # print('ei=%d, mi=%d, fwdrc=%d, shifts=%d' % (ei, mi, ensemble_fwdrc[ei], ensemble_shifts[ei]), flush=True)
 
                 # predict
-                preds_ei = sess.run(self.preds_op, feed_dict=fd)
+                if penultimate:
+                    preds_ei = sess.run(self.penultimate_op, feed_dict=fd)
+                else:
+                    preds_ei = sess.run(self.preds_op, feed_dict=fd)
 
                 # reverse
                 if ensemble_fwdrc[ei] is False:
@@ -772,7 +777,7 @@ class SeqNN:
         return preds_batch, preds_batch_var, preds_all
 
 
-    def predict(self, sess, batcher, rc=False, shifts=[0], mc_n=0, target_indexes=None, return_var=False, return_all=False, down_sample=1):
+    def predict(self, sess, batcher, rc=False, shifts=[0], mc_n=0, target_indexes=None, return_var=False, return_all=False, down_sample=1, penultimate=False):
         ''' Compute predictions on a test set.
 
         In
@@ -784,6 +789,7 @@ class SeqNN:
          target_indexes: Optional target subset list
          return_var:     Return variance estimates
          down_sample:    Int specifying to consider uniformly spaced sampled positions
+         penultimate:    Predict the penultimate layer.
 
         Out
          preds: S (sequences) x L (unbuffered length) x T (targets) array
@@ -797,9 +803,12 @@ class SeqNN:
             preds_length = len(ds_indexes)
 
         # initialize prediction arrays
-        num_targets = self.num_targets
-        if target_indexes is not None:
-            num_targets = len(target_indexes)
+        if penultimate:
+            num_targets = self.cnn_filters[-1]
+        else:
+            num_targets = self.num_targets
+            if target_indexes is not None:
+                num_targets = len(target_indexes)
 
         # determine ensemble iteration parameters
         ensemble_fwdrc = []
@@ -844,7 +853,7 @@ class SeqNN:
 
         while Xb is not None:
             # make ensemble predictions
-            preds_batch, preds_batch_var, preds_all = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes, target_indexes, return_var, return_all)
+            preds_batch, preds_batch_var, preds_all = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes, target_indexes, return_var, return_all, penultimate)
 
             # accumulate predictions
             preds[si:si+Nb,:,:] = preds_batch[:Nb,:,:]
@@ -871,7 +880,7 @@ class SeqNN:
             return preds
 
 
-    def predict_genes(self, sess, batcher, transcript_map, rc=False, shifts=[0], mc_n=0, target_indexes=None):
+    def predict_genes(self, sess, batcher, transcript_map, rc=False, shifts=[0], mc_n=0, target_indexes=None, tss_radius=0, penultimate=False):
         ''' Compute predictions on a test set.
 
         In
@@ -882,6 +891,8 @@ class SeqNN:
          shifts:          Average predictions from sequence shifts left/right.
          mc_n:            Monte Carlo iterations per rc/shift.
          target_indexes:  Optional target subset list
+         tss_radius:      Radius of bins to quantify TSS.
+         penultimate:     Predict the penultimate layer.
 
         Out
          transcript_preds: G (gene transcripts) X T (targets) array
@@ -891,9 +902,12 @@ class SeqNN:
         fd = self.set_mode('test')
 
         # initialize prediction arrays
-        num_targets = self.num_targets
-        if target_indexes is not None:
-            num_targets = len(target_indexes)
+        if penultimate:
+            num_targets = self.cnn_filters[-1]
+        else:
+            num_targets = self.num_targets
+            if target_indexes is not None:
+                num_targets = len(target_indexes)
 
         # determine ensemble iteration parameters
         ensemble_fwdrc = []
@@ -947,7 +961,7 @@ class SeqNN:
 
         while Xb is not None:
             # make ensemble predictions
-            preds_batch, _, _ = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, target_indexes=target_indexes)
+            preds_batch, _, _ = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, target_indexes=target_indexes, penultimate)
 
             # for each sequence in the batch
             for pi in range(Nb):
@@ -959,7 +973,9 @@ class SeqNN:
                         ppos = tpos - self.batch_buffer//self.target_pool
 
                         # add prediction
-                        gene_preds[txi,:] += preds_batch[pi,ppos,:]
+                        ppos_start = ppos - tss_radius
+                        ppos_end = ppos + tss_radius + 1
+                        gene_preds[txi,:] += preds_batch[pi,ppos_start:ppos_end,:].sum(axis=0)
 
             # update sequence index
             si += Nb

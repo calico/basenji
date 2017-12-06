@@ -241,61 +241,6 @@ class SeqNN:
             self.loss_op = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_op), compute_full_loss=True)
             self.loss_adhoc = tf.nn.log_poisson_loss(self.targets_op, tf.log(self.preds_adhoc), compute_full_loss=True)
 
-        elif self.loss == 'negative_binomial':
-            # define overdispersion alphas
-            self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
-            self.alphas = tf.nn.softplus(tf.clip_by_value(self.alphas,-50,50))
-            tf.summary.histogram('alphas', self.alphas)
-            # for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
-            #    tf.summary.scalar('alpha_t%d'%ti, self.alphas[ti])
-
-            # compute w/ inverse
-            k = 1. / self.alphas
-
-            # expand k
-            k_expand = tf.tile(k, [self.batch_size*seq_length])
-            k_expand = tf.reshape(k_expand, (self.batch_size, seq_length, self.num_targets))
-
-            # expand lgamma(k)
-            lgk_expand = tf.tile(tf.lgamma(k), [self.batch_size*seq_length])
-            lgk_expand = tf.reshape(lgk_expand, (self.batch_size, seq_length, self.num_targets))
-
-            # construct loss
-            loss1 = self.targets_op * tf.log(self.preds_op / (self.preds_op + k_expand))
-            loss2 = k_expand * tf.log(k_expand / (self.preds_op + k_expand))
-            loss3 = tf.lgamma(self.targets_op + k_expand) - lgk_expand
-            self.loss_op = -(loss1 + loss2 + loss3)
-
-            # adhoc
-            loss1 = self.targets_op * tf.log(self.preds_adhoc / (self.preds_adhoc + k_expand))
-            loss2 = k_expand * tf.log(k_expand / (self.preds_adhoc + k_expand))
-            self.loss_adhoc = -(loss1 + loss2 + loss3)
-
-        elif self.loss == 'negative_binomial_hilbe':
-            # define overdispersion alphas
-            self.alphas = tf.get_variable('alphas', shape=[self.num_targets], initializer=tf.constant_initializer(-5), dtype=tf.float32)
-            self.alphas = tf.exp(tf.clip_by_value(self.alphas,-50,50))
-
-            # expand
-            alphas_expand = tf.tile(self.alphas, [self.batch_size*seq_length])
-            alphas_expand = tf.reshape(alphas_expand, (self.batch_size, seq_length, self.num_targets))
-
-            # construct loss
-            loss1 = self.targets_op * tf.log(self.preds_op)
-            loss2 = (alphas_expand * self.targets_op + 1) / alphas_expand
-            loss3 = tf.log(alphas_expand * self.preds_op + 1)
-            self.loss_op = -loss1 + loss2*loss3
-
-            # adhoc
-            loss1 = self.targets_op * tf.log(self.preds_adhoc)
-            loss3 = tf.log(alphas_expand * self.preds_adhoc + 1)
-            self.loss_adhoc = -loss1 + loss2*loss3
-
-        elif self.loss == 'gamma':
-            # jchan document
-            self.loss_op = self.targets_op / self.preds_op + tf.log(self.preds_op)
-            self.loss_adhoc = self.targets_op / self.preds_adhoc + tf.log(self.preds_adhoc)
-
         elif self.loss == 'cross_entropy':
             self.loss_op = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=(self.targets_op-1), logits=self.preds_op)
             self.loss_adhoc = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=(self.targets_op-1), logits=self.preds_adhoc)
@@ -303,9 +248,6 @@ class SeqNN:
         else:
             print('Cannot identify loss function %s' % self.loss)
             exit(1)
-
-        # set NaN's to zero
-        # self.loss_op = tf.boolean_mask(self.loss_op, tf.logical_not(self.targets_na[:,tstart:tend]))
 
         self.loss_op = tf.check_numerics(self.loss_op, 'Invalid loss', name='loss_check')
 
@@ -318,27 +260,13 @@ class SeqNN:
         self.target_losses = self.loss_op
         self.target_losses_adhoc = self.loss_adhoc
 
-        # define target sigmas
-        '''
-        self.target_sigmas = tf.get_variable('target_sigmas', shape=[self.num_targets], initializer=tf.constant_initializer(2), dtype=tf.float32)
-        self.target_sigmas = tf.nn.softplus(tf.clip_by_value(self.target_sigmas,-50,50))
-        tf.summary.histogram('target_sigmas', self.target_sigmas)
-        for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
-            tf.summary.scalar('sigma_t%d'%ti, self.target_sigmas[ti])
-        # self.target_sigmas = tf.ones(self.num_targets) / 2.
-        '''
-
-        # dot losses target sigmas
-        # self.loss_op = self.loss_op / (2*self.target_sigmas)
-        # self.loss_adhoc = self.loss_adhoc / (2*self.target_sigmas)
-
         # fully reduce
         self.loss_op = tf.reduce_mean(self.loss_op, name='loss')
         self.loss_adhoc = tf.reduce_mean(self.loss_adhoc, name='loss_adhoc')
 
         # add extraneous terms
-        self.loss_op += weights_regularizers # + tf.reduce_mean(tf.log(self.target_sigmas))
-        self.loss_adhoc += weights_regularizers # + tf.reduce_mean(tf.log(self.target_sigmas))
+        self.loss_op += weights_regularizers
+        self.loss_adhoc += weights_regularizers
 
         # track
         tf.summary.scalar('loss', self.loss_op)
@@ -880,7 +808,7 @@ class SeqNN:
             return preds
 
 
-    def predict_genes(self, sess, batcher, transcript_map, rc=False, shifts=[0], mc_n=0, target_indexes=None, tss_radius=0, penultimate=False):
+    def predict_genes(self, sess, batcher, gene_seqs, rc=False, shifts=[0], mc_n=0, target_indexes=None, tss_radius=0, penultimate=False):
         ''' Compute predictions on a test set.
 
         In
@@ -898,95 +826,29 @@ class SeqNN:
          transcript_preds: G (gene transcripts) X T (targets) array
         '''
 
-        # setup feed dict
-        fd = self.set_mode('test')
+        # predict gene sequences
+        gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n, target_indexes=target_indexes, penultimate=penultimate)
 
-        # initialize prediction arrays
-        if penultimate:
-            num_targets = self.cnn_filters[-1]
-        else:
-            num_targets = self.num_targets
-            if target_indexes is not None:
-                num_targets = len(target_indexes)
+        # count TSSs
+        tss_num = 0
+        for gene_seq in gene_seqs:
+            tss_num += len(gene_seq.tss_list)
 
-        # determine ensemble iteration parameters
-        ensemble_fwdrc = []
-        ensemble_shifts = []
-        for shift in shifts:
-            ensemble_fwdrc.append(True)
-            ensemble_shifts.append(shift)
-            if rc:
-                ensemble_fwdrc.append(False)
-                ensemble_shifts.append(shift)
+        # initialize TSS predictions
+        tss_preds = np.zeros((tss_num,gseq_preds.shape[-1]), dtype='float16')
 
-        if mc_n > 0:
-            # setup feed dict
-            fd = self.set_mode('test_mc')
-
-        else:
-            # setup feed dict
-            fd = self.set_mode('test')
-
-            # co-opt the variable to represent
-            # iterations per fwdrc/shift.
-            mc_n = 1
-
-        # total ensemble predictions
-        all_n = mc_n * len(ensemble_fwdrc)
-
-        # initialize gene target predictions
-        num_genes = len(transcript_map)
-        gene_preds = np.zeros((num_genes, num_targets), dtype='float16')
-
-        # construct an inverse map
-        sequence_pos_transcripts = []
-        txi = 0
-        for transcript in transcript_map:
-            si, pos = transcript_map[transcript]
-
-            # extend sequence list
-            while len(sequence_pos_transcripts) <= si:
-                sequence_pos_transcripts.append({})
-
-            # add gene to position set
-            sequence_pos_transcripts[si].setdefault(pos,set()).add(txi)
-
-            txi += 1
-
-        # sequence index
-        si = 0
-
-        # get first batch
-        Xb, _, _, Nb = batcher.next()
-
-        while Xb is not None:
-            # make ensemble predictions
-            preds_batch, _, _ = self._predict_ensemble(sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, target_indexes=target_indexes, penultimate)
-
-            # for each sequence in the batch
-            for pi in range(Nb):
-                # for each position with a gene
-                for tpos in sequence_pos_transcripts[si+pi]:
-                    # for each gene at that position
-                    for txi in sequence_pos_transcripts[si+pi][tpos]:
-                        # adjust for the buffer
-                        ppos = tpos - self.batch_buffer//self.target_pool
-
-                        # add prediction
-                        ppos_start = ppos - tss_radius
-                        ppos_end = ppos + tss_radius + 1
-                        gene_preds[txi,:] += preds_batch[pi,ppos_start:ppos_end,:].sum(axis=0)
-
-            # update sequence index
-            si += Nb
-
-            # next batch
-            Xb, _, _, Nb = batcher.next()
+        # slice TSSs
+        tss_i = 0
+        for si in range(len(gene_seqs)):
+            for tss in gene_seqs[si].tss_list:
+                bi = tss.seq_bin(width=self.target_pool, pred_buffer=self.batch_buffer)
+                tss_preds[tss_i,:] = gseq_preds[si,bi-tss_radius:bi+1+tss_radius,:].sum(axis=0)
+                tss_i += 1
 
         # reset batcher
         batcher.reset()
 
-        return gene_preds
+        return tss_preds
 
 
     def set_mode(self, mode):

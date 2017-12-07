@@ -144,8 +144,8 @@ def main():
     #################################################################
     # convert to genes
 
-    gene_targets = basenji.gene.map_tss_genes(gene_data.tss_targets, gene_data.tss)
-    gene_preds = basenji.gene.map_tss_genes(tss_preds, gene_data.tss)
+    gene_targets = basenji.gene.map_tss_genes(gene_data.tss_targets, gene_data.tss, tss_radius=tss_radius)
+    gene_preds = basenji.gene.map_tss_genes(tss_preds, gene_data.tss, tss_radius=tss_radius)
 
 
     #################################################################

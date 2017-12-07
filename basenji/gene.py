@@ -64,7 +64,11 @@ class TSS:
         return '%s %s %s:%d' % (self.identifier, self.gene_id, self.chrom, self.pos)
 
 
-def map_tss_genes(tss_values, tss_list):
+def map_tss_genes(tss_values, tss_list, tss_radius=0):
+    if tss_radius > 0:
+        print("I don't see how to obtain an exact gene expression measurement with tss_radius > 0", file=sys.stderr)
+        exit(1)
+
     # map genes to TSS indexes
     gene_tss = OrderedDict()
     for tss_i in range(len(tss_list)):

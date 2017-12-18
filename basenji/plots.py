@@ -29,7 +29,7 @@ from scipy.stats import spearmanr, pearsonr
 ################################################################################
 # scatter plots
 
-def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor='pearsonr', x_label=None, y_label=None, figsize=(6,6), sample=None, table=False):
+def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor='pearsonr', x_label=None, y_label=None, figsize=(6,6), sample=None, table=False, kind='scatter'):
 
     if table:
         out_txt = '%s.txt' % out_pdf[:-4]
@@ -43,7 +43,12 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor
         vals1 = vals1[indexes]
         vals2 = vals2[indexes]
 
-    plt.figure(figsize=figsize)
+    if type(figsize) == tuple:
+        if figsize[0] != figsize[1]:
+            print('Figure size must be square', file=sys.stderr)
+        figsize = figsize[0]
+
+    plt.figure()
 
     if cor is None:
         cor_func = None
@@ -54,7 +59,15 @@ def jointplot(vals1, vals2, out_pdf, alpha=0.5, point_size=10, square=False, cor
     else:
         cor_func = None
 
-    g = sns.jointplot(vals1, vals2, color='black', space=0, stat_func=cor_func, joint_kws={'alpha':alpha, 's':point_size})
+    if kind == 'scatter':
+        joint_kws = {'alpha':alpha, 's':point_size}
+    else:
+        gold = sns.color_palette('husl',8)[1]
+        joint_kws = {}
+        joint_kws['scatter_kws'] = {'color':'black', 's':point_size, 'alpha':alpha}
+        joint_kws['line_kws'] = {'color':gold}
+
+    g = sns.jointplot(vals1, vals2, color='black', size=figsize, space=0, stat_func=cor_func, kind=kind, joint_kws=joint_kws)
 
     ax = g.ax_joint
 

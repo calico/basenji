@@ -108,6 +108,37 @@ class GeneData:
             self.num_targets = None
 
 
+    def subset_genes(self, gene_ids):
+        ''' Limit the sequences to a subset containing the given transcripts. '''
+
+        if type(gene_ids) != set:
+            gene_ids = set(gene_ids)
+
+        seq_mask = np.zeros(self.num_seqs, dtype='bool')
+        tss_mask = []
+        for si in range(self.num_seqs):
+            # determine TSSs matching given genes.
+            seq_tss_list = [tss for tss in self.gene_seqs[si].tss_list if tss.gene_id in gene_ids]
+            seq_tss_mask = [tss.gene_id in gene_ids for tss in self.gene_seqs[si].tss_list]
+            tss_mask += seq_tss_mask
+
+            # filter TSSs to those matching given genes.
+            if len(seq_tss_list) > 0:
+                seq_mask[si] = True
+                self.gene_seqs[si].tss_list = seq_tss_list
+
+        # filter sequences for those with a match
+        self.gene_seqs = [self.gene_seqs[si] for si in range(self.num_seqs) if seq_mask[si]]
+        self.seqs_1hot = self.seqs_1hot[seq_mask]
+        self.num_seqs = len(self.gene_seqs)
+
+        if self.tss_targets is not None:
+            tss_mask = np.array(tss_mask,dtype='bool')
+            print('tss_mask', tss_mask.shape)
+            print('tss_targets', self.tss_targets.shape)
+            self.tss_targets = self.tss_targets[tss_mask,:]
+
+
     # def subset_transcripts(self, transcripts):
     #     ''' Limit the sequences to a subset containing the given transcripts. '''
 

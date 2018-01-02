@@ -27,7 +27,7 @@ import tensorflow as tf
 from basenji import batcher
 from basenji import dna_io
 from basenji import seqnn
-from basenji.bin import shared_flags
+from bin import shared_flags
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -67,7 +67,7 @@ def run(params_file, data_file, num_train_epochs):
   #######################################################
   job = dna_io.read_job_params(params_file)
 
-  job['batch_length'] = train_seqs.shape[1]
+  job['seq_length'] = train_seqs.shape[1]
   job['seq_depth'] = train_seqs.shape[2]
   job['num_targets'] = train_targets.shape[2]
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))

@@ -85,10 +85,9 @@ class Accuracy:
         preds_ti = np.log2(preds_ti + pseudocount)
         targets_ti = np.log2(targets_ti + pseudocount)
 
-      tmean = targets_ti.mean(dtype='float64')
-      tvar = (targets_ti - tmean).var(dtype='float64')
-      pvar = (targets_ti - preds_ti).var(dtype='float64')
-      r2_vec[ti] = 1.0 - pvar / tvar
+      tvar = targets_ti.var(dtype='float64')
+      mse = np.square(targets_ti - preds_ti).mean(dtype='float64')
+      r2_vec[ti] = 1.0 - mse / tvar
 
     return r2_vec
 

@@ -15,6 +15,7 @@
 
 from __future__ import print_function
 
+
 import gc
 import sys
 import time
@@ -23,14 +24,14 @@ import numpy as np
 import tensorflow as tf
 
 from basenji.dna_io import hot1_augment
-from basenji import ops
 from basenji import seqnn_util
+from basenji import layers
 
 
 class SeqNN(seqnn_util.SeqNNModel):
 
   def __init__(self):
-    tf.train.create_global_step()
+    tf.train.get_or_create_global_step()
     self.params_set = False
 
   def build(self, job):
@@ -44,9 +45,9 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def build_from_data_ops(self, job, data_ops):
     """Build training ops from input data ops."""
-
     if not self.params_set:
       self.set_params(job)
+      self.params_set = True
     self.targets = data_ops['label']
     self.inputs = data_ops['sequence']
     self.targets_na = data_ops['na']
@@ -60,22 +61,22 @@ class SeqNN(seqnn_util.SeqNNModel):
     # batches
     self.inputs = tf.placeholder(
         tf.float32,
-        shape=(self.batch_size, self.batch_length, self.seq_depth),
+        shape=(self.batch_size, self.seq_length, self.seq_depth),
         name='inputs')
     if self.target_classes == 1:
       self.targets = tf.placeholder(
           tf.float32,
-          shape=(self.batch_size, self.batch_length // self.target_pool,
+          shape=(self.batch_size, self.seq_length // self.target_pool,
                  self.num_targets),
           name='targets')
     else:
       self.targets = tf.placeholder(
           tf.int32,
-          shape=(self.batch_size, self.batch_length // self.target_pool,
+          shape=(self.batch_size, self.seq_length // self.target_pool,
                  self.num_targets),
           name='targets')
     self.targets_na = tf.placeholder(
-        tf.bool, shape=(self.batch_size, self.batch_length // self.target_pool))
+        tf.bool, shape=(self.batch_size, self.seq_length // self.target_pool))
 
     data = {
         'sequence': self.inputs,
@@ -84,60 +85,23 @@ class SeqNN(seqnn_util.SeqNNModel):
     }
     return data
 
-  def cnn_block(self, seqs_repr, li):
-    """Construct a single (dilated) CNN block."""
-    seqs_repr_next = tf.layers.conv1d(
-        seqs_repr,
-        filters=self.cnn_filters[li],
-        kernel_size=[self.cnn_filter_sizes[li]],
-        strides=self.cnn_strides[li],
-        padding='same',
-        dilation_rate=[self.cnn_dilation[li]],
-        use_bias=False,
-        kernel_initializer=tf.contrib.layers.xavier_initializer(),
-        kernel_regularizer=None)
-    print('Convolution w/ %d %dx%d filters strided %d, dilated %d' %
-          (self.cnn_filters[li], seqs_repr.shape[2], self.cnn_filter_sizes[li],
-           self.cnn_strides[li], self.cnn_dilation[li]))
-
-    # batch normalization
-    seqs_repr_next = tf.layers.batch_normalization(
-        seqs_repr_next,
-        momentum=0.9,
-        training=self.is_training,
-        renorm=self.batch_renorm,
-        renorm_clipping=self.renorm_clipping,
-        renorm_momentum=0.9)
-    print('Batch normalization')
-
-    # ReLU
-    seqs_repr_next = tf.nn.relu(seqs_repr_next)
-    print('ReLU')
-
-    # pooling
-    if self.cnn_pool[li] > 1:
-      seqs_repr_next = tf.layers.max_pooling1d(
-          seqs_repr_next,
-          pool_size=self.cnn_pool[li],
-          strides=self.cnn_pool[li],
-          padding='same')
-      print('Max pool %d' % self.cnn_pool[li])
-
-    # dropout
-    if self.cnn_dropout[li] > 0:
-      seqs_repr_next = tf.nn.dropout(seqs_repr_next,
-                                     1.0 - self.cnn_dropout_ph[li])
-      print('Dropout w/ probability %.3f' % self.cnn_dropout[li])
-
-    if self.cnn_dense[li]:
-      # concat layer repr
-      seqs_repr = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
-    else:
-      # update layer repr
-      seqs_repr = seqs_repr_next
-
-    return seqs_repr
-
+  def _make_cnn_block_args(self, layer_index):
+    """Packages arguments to be used by layers.cnn_block."""
+    return {
+        'cnn_filters': self.cnn_filters[layer_index],
+        'cnn_filter_sizes': self.cnn_filter_sizes[layer_index],
+        'cnn_dilation': self.cnn_dilation[layer_index],
+        'cnn_strides': self.cnn_strides[layer_index],
+        'is_training': self.is_training,
+        'batch_norm' : self.batch_norm,
+        'batch_renorm': self.batch_renorm,
+        'renorm_clipping': self.renorm_clipping,
+        'cnn_pool': self.cnn_pool[layer_index],
+        'cnn_dropout_value': self.cnn_dropout[layer_index],
+        'cnn_dropout_op': self.cnn_dropout_ph[layer_index],
+        'cnn_dense': self.cnn_dense[layer_index],
+        'name' : 'conv-%d' % layer_index
+    }
 
   def build_representation(self, data_ops):
     """Construct per-location real-valued predictions."""
@@ -145,13 +109,13 @@ class SeqNN(seqnn_util.SeqNNModel):
     assert inputs is not None
 
     print('Targets pooled by %d to length %d' %
-          (self.target_pool, self.batch_length // self.target_pool))
+          (self.target_pool, self.seq_length // self.target_pool))
 
     # dropout rates
     self.cnn_dropout_ph = []
-    for li in range(self.cnn_layers):
+    for layer_index in range(self.cnn_layers):
       self.cnn_dropout_ph.append(
-          tf.placeholder(tf.float32, name='dropout_%d' % li))
+          tf.placeholder(tf.float32, name='dropout_%d' % layer_index))
 
     # training conditional
     self.is_training = tf.placeholder(tf.bool, name='is_training')
@@ -167,15 +131,17 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.layer_reprs.append(inputs)
 
     seqs_repr = inputs
-    for li in range(self.cnn_layers):
-      with tf.variable_scope('cnn%d' % li) as vs:
-        seqs_repr = self.cnn_block(seqs_repr, li)
+    for layer_index in range(self.cnn_layers):
+      with tf.variable_scope('cnn%d' % layer_index) as vs:
+        args_for_block = self._make_cnn_block_args(layer_index)
+        seqs_repr = layers.cnn_block(seqs_repr=seqs_repr, **args_for_block)
+
         if self.save_reprs:
           self.layer_reprs.append(seqs_repr)
 
     # update batch buffer to reflect pooling
     seq_length = seqs_repr.shape[1].value
-    pool_preds = self.batch_length // seq_length
+    pool_preds = self.seq_length // seq_length
     assert self.batch_buffer % pool_preds == 0, (
         'batch_buffer %d not divisible'
         ' by the CNN pooling %d') % (self.batch_buffer, pool_preds)
@@ -198,16 +164,12 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     with tf.variable_scope('final'):
       final_filters = self.num_targets * self.target_classes
-
-      seqs_repr = tf.layers.conv1d(
-          seqs_repr,
-          filters=final_filters,
-          kernel_size=[1],
-          padding='same',
-          use_bias=True,
-          kernel_initializer=tf.contrib.layers.xavier_initializer(),
-          kernel_regularizer=None)
-      print('Convolution w/ %d %dx1 filters to final targets' %
+      seqs_repr = tf.layers.dense(
+        inputs=seqs_repr,
+        units=final_filters,
+        activation=None,
+        kernel_initializer=tf.contrib.layers.xavier_initializer())
+    print('Convolution w/ %d %dx1 filters to final targets' %
             (final_filters, seqs_repr.shape[2]))
 
     # expand length back out
@@ -248,7 +210,8 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.gvs = zip(gradients, variables)
 
     # apply gradients
-    self.step_op = self.opt.apply_gradients(self.gvs)
+    self.step_op = self.opt.apply_gradients(
+        self.gvs, global_step=tf.train.get_or_create_global_step())
 
     self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
@@ -262,7 +225,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     """Convert per-location real-valued predictions to a loss."""
     # targets
     tstart = self.batch_buffer // self.target_pool
-    tend = (self.batch_length - self.batch_buffer) // self.target_pool
+    tend = (self.seq_length - self.batch_buffer) // self.target_pool
 
     targets = data_ops['label']
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
@@ -289,7 +252,8 @@ class SeqNN(seqnn_util.SeqNNModel):
           name='preds')
 
     elif self.link == 'softplus':
-      self.preds_op = tf.nn.softplus(seqs_repr, name='preds')
+      self.preds_op = tf.nn.softplus(tf.clip_by_value(seqs_repr, -50, 50),
+                                     name='preds')
 
     elif self.link == 'softmax':
       # performed in the loss function, but saving probabilities
@@ -311,18 +275,19 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     loss_op = None
     loss_adhoc = None
+    loss_name = self.loss
     # choose loss
-    if self.loss == 'gaussian':
+    if loss_name == 'gaussian':
       loss_op = tf.squared_difference(self.preds_op, targets)
       loss_adhoc = tf.squared_difference(self.preds_adhoc, targets)
 
-    elif self.loss == 'poisson':
+    elif loss_name == 'poisson':
       loss_op = tf.nn.log_poisson_loss(
           targets, tf.log(self.preds_op), compute_full_loss=True)
       loss_adhoc = tf.nn.log_poisson_loss(
           targets, tf.log(self.preds_adhoc), compute_full_loss=True)
 
-    elif self.loss == 'negative_binomial':
+    elif loss_name == 'negative_binomial':
       # define overdispersion alphas
       self.alphas = tf.get_variable(
           'alphas',
@@ -358,7 +323,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       loss2 = k_expand * tf.log(k_expand / (self.preds_adhoc + k_expand))
       loss_adhoc = -(loss1 + loss2 + loss3)
 
-    elif self.loss == 'negative_binomial_hilbe':
+    elif loss_name == 'negative_binomial_hilbe':
       # define overdispersion alphas
       self.alphas = tf.get_variable(
           'alphas',
@@ -383,23 +348,19 @@ class SeqNN(seqnn_util.SeqNNModel):
       loss3 = tf.log(alphas_expand * self.preds_adhoc + 1)
       loss_adhoc = -loss1 + loss2 * loss3
 
-    elif self.loss == 'gamma':
+    elif loss_name == 'gamma':
       # jchan document
       loss_op = targets / self.preds_op + tf.log(self.preds_op)
       loss_adhoc = targets / self.preds_adhoc + tf.log(self.preds_adhoc)
 
-    elif self.loss == 'cross_entropy':
+    elif loss_name == 'cross_entropy':
       loss_op = tf.nn.sparse_softmax_cross_entropy_with_logits(
           labels=(targets - 1), logits=self.preds_op)
       loss_adhoc = tf.nn.sparse_softmax_cross_entropy_with_logits(
           labels=(targets - 1), logits=self.preds_adhoc)
 
     else:
-      print('Cannot identify loss function %s' % self.loss)
-      exit(1)
-
-    # set NaN's to zero
-    # loss_op = tf.boolean_mask(loss_op, tf.logical_not(self.targets_na[:,tstart:tend]))
+      raise ValueError('Cannot identify loss function %s' % loss_name)
 
     # reduce lossses by batch and position
     loss_op = tf.reduce_mean(loss_op, axis=[0, 1], name='target_loss')
@@ -412,23 +373,6 @@ class SeqNN(seqnn_util.SeqNNModel):
       tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
     self.target_losses = loss_op
     self.target_losses_adhoc = loss_adhoc
-
-    # define target sigmas
-    """
-        self.target_sigmas = tf.get_variable('target_sigmas',
-        shape=[self.num_targets], initializer=tf.constant_initializer(2),
-        dtype=tf.float32)
-        self.target_sigmas =
-        tf.nn.softplus(tf.clip_by_value(self.target_sigmas,-50,50))
-        tf.summary.histogram('target_sigmas', self.target_sigmas)
-        for ti in np.linspace(0,self.num_targets-1,10).astype('int'):
-            tf.summary.scalar('sigma_t%d'%ti, self.target_sigmas[ti])
-        # self.target_sigmas = tf.ones(self.num_targets) / 2.
-        """
-
-    # dot losses target sigmas
-    # loss_op = loss_op / (2*self.target_sigmas)
-    # loss_adhoc = loss_adhoc / (2*self.target_sigmas)
 
     # fully reduce
     loss_op = tf.reduce_mean(loss_op, name='loss')
@@ -490,7 +434,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # batching
     ###################################################
     self.batch_size = job.get('batch_size', 64)
-    self.batch_length = job.get('batch_length', 1024)
+    self.seq_length = job.get('seq_length', 1024)
     self.batch_buffer = job.get('batch_buffer', 64)
 
     ###################################################
@@ -528,7 +472,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0, self.cnn_layers)
 
     self.final_l1 = job.get('final_l1', 0)
-
+    self.batch_norm = bool(job.get('batch_norm', True))
     self.batch_renorm = bool(job.get('batch_renorm', False))
     self.batch_renorm = bool(job.get('renorm', self.batch_renorm))
 
@@ -544,17 +488,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # other
     ###################################################
     self.save_reprs = job.get('save_reprs', False)
-
-    if self.batch_renorm:
-      RMAX_decay = ops.adjust_max(6000, 60000, 1, 3, name='RMAXDECAY')
-      DMAX_decay = ops.adjust_max(6000, 60000, 0, 5, name='DMAXDECAY')
-      self.renorm_clipping = {
-          'rmin': 1. / RMAX_decay,
-          'rmax': RMAX_decay,
-          'dmax': DMAX_decay
-      }
-    else:
-      self.renorm_clipping = {}
+    self.renorm_clipping = layers.renorm_clipping() if self.batch_renorm else {}
 
   def train_epoch(self,
                   sess,
@@ -610,12 +544,9 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def train_epoch_from_data_ops(self,
                                 sess,
-                                fwdrc=True,
-                                shift=0,
                                 sum_writer=None,
                                 batches_per_epoch=0):
     """ Execute one training epoch """
-    # TODO(dbelanger) this currently ignores the fwdrc and shift options
     assert batches_per_epoch > 0, ('not implemented for taking a full pass '
                                    'through the data')
     # initialize training loss

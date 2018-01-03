@@ -20,19 +20,18 @@ FLAGS = tf.app.flags.FLAGS
 
 def make_data_ops(job, train_file, test_file):
 
-  def make_dataset(filename):
+  def make_dataset(filename, mode):
     return tfrecord_batcher.tfrecord_dataset(
         filename,
         job['batch_size'],
         job['seq_length'],
         job['seq_depth'],
         job['num_targets'],
-        job['target_width'],
-        shuffle=True,
-        trim_eos=True)
+        job['target_length'],
+        mode=mode)
 
-  training_dataset = make_dataset(train_file)
-  test_dataset = make_dataset(test_file)
+  training_dataset = make_dataset(train_file, mode=tf.estimator.ModeKeys.TRAIN)
+  test_dataset = make_dataset(test_file, mode=tf.estimator.ModeKeys.EVAL)
 
   iterator = tf.contrib.data.Iterator.from_structure(
       training_dataset.output_types, training_dataset.output_shapes)
@@ -50,7 +49,7 @@ def main(_):
       train_file=FLAGS.train_data,
       test_file=FLAGS.test_data,
       num_train_epochs=FLAGS.num_train_epochs,
-      batches_per_epoch=FLAGS.batches_per_epoch,
+      batches_per_epoch=FLAGS.train_steps_per_iteration,
       num_test_batches=FLAGS.num_test_batches)
 
 
@@ -117,16 +116,13 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch,
 
         sess.run(training_init_op)
         # train
-        train_loss = dr.train_epoch_from_data_ops(
-            sess, fwdrc, shifts[shift_i], train_writer, batches_per_epoch)
+        train_loss = dr.train_epoch_from_data_ops(sess, train_writer,
+                                                  batches_per_epoch)
 
         sess.run(test_init_op)
 
         valid_acc = dr.test_from_data_ops(
             sess,
-            mc_n=FLAGS.mc_n,
-            rc=FLAGS.rc,
-            shifts=shifts,
             num_test_batches=num_test_batches)
         valid_loss = valid_acc.loss
         valid_r2 = valid_acc.r2().mean()

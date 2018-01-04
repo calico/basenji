@@ -62,10 +62,12 @@ def main():
     parser.add_option('-o', dest='out_dir', default='test_out', help='Output directory for test statistics [Default: %default]')
     parser.add_option('--rc', dest='rc', default=False, action='store_true', help='Average the forward and reverse complement predictions when testing [Default: %default]')
     parser.add_option('-s', dest='scent_file', help='Dimension reduction model file')
+    parser.add_option('--sample', dest='sample_pct', default=1, type='float', help='Sample percentage')
     parser.add_option('--save', dest='save', default=False, action='store_true')
     parser.add_option('--shifts', dest='shifts', default='0', help='Ensemble prediction shifts [Default: %default]')
     parser.add_option('-t', dest='track_bed', help='BED file describing regions so we can output BigWig tracks')
     parser.add_option('--ti', dest='track_indexes', help='Comma-separated list of target indexes to output BigWig tracks')
+    parser.add_option('--train', dest='train', default=False, action='store_true', help='Process the training set [Default: %default]')
     parser.add_option('-v', dest='valid', default=False, action='store_true', help='Process the validation set [Default: %default]')
     parser.add_option('-w', dest='pool_width', default=1, type='int', help='Max pool width for regressing nucleotide predictions to predict peak calls [Default: %default]')
     (options,args) = parser.parse_args()
@@ -87,19 +89,34 @@ def main():
     #######################################################
     data_open = h5py.File(test_hdf5_file)
 
-    if not options.valid:
+    if options.train:
+        test_seqs = data_open['train_in']
+        test_targets = data_open['train_out']
+        if 'train_na' in data_open:
+            test_na = data_open['train_na']
+
+    elif options.valid:
+        test_seqs = data_open['valid_in']
+        test_targets = data_open['valid_out']
+        test_na = None
+        if 'valid_na' in data_open:
+            test_na = data_open['valid_na']
+
+    else:
         test_seqs = data_open['test_in']
         test_targets = data_open['test_out']
         test_na = None
         if 'test_na' in data_open:
             test_na = data_open['test_na']
 
-    else:
-        test_seqs = data_open['valid_in']
-        test_targets = data_open['valid_out']
-        test_na = None
-        if 'test_na' in data_open:
-            test_na = data_open['valid_na']
+    if options.sample_pct < 1:
+        sample_n = int(test_seqs.shape[0]*options.sample_pct)
+        print('Sampling %d sequences' % sample_n)
+        sample_indexes = sorted(np.random.choice(np.arange(test_seqs.shape[0]), size=sample_n, replace=False))
+        test_seqs = test_seqs[sample_indexes]
+        test_targets = test_targets[sample_indexes]
+        if test_na is not None:
+            test_na = test_na[sample_indexes]
 
     target_labels = [tl.decode('UTF-8') for tl in data_open['target_labels']]
 

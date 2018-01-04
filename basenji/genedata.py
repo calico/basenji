@@ -68,25 +68,36 @@ class GeneData:
             # append to GeneSeq
             tss_seq.tss_list.append(tss)
 
+        self.num_tss = len(self.tss)
 
-        # do I need an ordered gene list?
+
+        #########################################
+        # gene information
+
+        self.gene_tss = OrderedDict()
+        self.gene_index = OrderedDict()
+
+        for tss_i in range(len(self.tss)):
+            gene_id = self.tss[tss_i].gene_id
+            self.gene_tss.setdefault(gene_id,[]).append(tss_i)
+            if gene_id not in self.gene_index:
+                self.gene_index[gene_id] = len(self.gene_index)
+
+        self.num_genes = len(self.gene_tss)
 
 
         #########################################
         # determine genes split across sequences
 
-        '''
         gene_seqs = {}
-        for seq_i in range(len(self.seq_coords)):
-            for transcript, tx_pos in self.seq_transcripts[seq_i]:
-                gene = self.transcript_genes[transcript]
-                gene_seqs.setdefault(gene,set()).add(seq_i)
+        for si in range(self.num_seqs):
+            for tss in self.gene_seqs[si].tss_list:
+                gene_seqs.setdefault(tss.gene_id,set()).add(si)
 
         self.multi_seq_genes = set()
-        for gene in gene_seqs:
-            if len(gene_seqs[gene]) > 1:
-                self.multi_seq_genes.add(gene)
-        '''
+        for gene_id in gene_seqs:
+            if len(gene_seqs[gene_id]) > 1:
+                self.multi_seq_genes.add(gene_id)
 
 
         #########################################
@@ -139,31 +150,6 @@ class GeneData:
             self.tss_targets = self.tss_targets[tss_mask,:]
 
 
-    # def subset_transcripts(self, transcripts):
-    #     ''' Limit the sequences to a subset containing the given transcripts. '''
-
-    #     seq_mask = np.zeros(self.num_seqs, dtype='bool')
-    #     for si in range(self.num_seqs):
-    #         # check this sequence's transcripts for matches
-    #         seq_si_mask = [tx_id in transcripts for tx_id, tx_pos in self.seq_transcripts[si]]
-
-    #         # if some transcripts match
-    #         if np.sum(seq_si_mask) > 0:
-    #             # keep the sequence
-    #             seq_mask[si] = True
-
-    #             # filter the transcript list
-    #             self.seq_transcripts[si] = [self.seq_transcripts[si][sti] for sti in range(len(seq_si_mask)) if seq_si_mask[sti]]
-
-    #     # filter the sequence data structures
-    #     self.seq_coords = [self.seq_coords[si] for si in range(self.num_seqs) if seq_mask[si]]
-    #     self.seqs_1hot = self.seqs_1hot[seq_mask,:,:]
-    #     self.seq_transcripts = [self.seq_transcripts[si] for si in range(self.num_seqs) if seq_mask[si]]
-    #     self.num_seqs = len(self.seq_coords)
-
-    #     # transcript_map will point to the wrong sequences
-
-
     # def worker(self, wi, worker_num):
     #     ''' Limit the sequences to one worker's share. '''
 
@@ -178,13 +164,6 @@ class GeneData:
 
     def gene_ids(self):
         return list(self.gene_tss().keys())
-
-
-    def gene_tss(self):
-        gene_tss = OrderedDict()
-        for tss_i in range(len(self.tss)):
-            gene_tss.setdefault(self.tss[tss_i].gene_id,[]).append(tss_i)
-        return gene_tss
 
 
     def tss_ids(self):

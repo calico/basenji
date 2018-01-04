@@ -62,6 +62,9 @@ def main():
         gtf_file = args[1]
         hdf5_file = args[2]
 
+    if options.target_wigs_file is not None:
+        check_wigs(options.target_wigs_file)
+
 
     ################################################################
     # organize TSS's by chromosome
@@ -262,6 +265,14 @@ def main():
 
     hdf5_out.close()
 
+
+def check_wigs(target_wigs_file):
+    for line in open(target_wigs_file):
+        a = line.rstrip().split('\t')
+        wig_file = a[1]
+        if not os.path.isfile(wig_file):
+            print('Cannot find %s' % wig_file, file=sys.stderr)
+            exit(1)
 
 def cluster_tss(transcript_genes, transcripts, merge_distance):
     ''' Cluster transcript TSSs and return a dict mapping gene_id

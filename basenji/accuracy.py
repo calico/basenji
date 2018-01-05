@@ -15,7 +15,7 @@
 
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
-from sklearn import r2_score
+from sklearn.metrics import r2_score
 
 '''
 accuracy.py

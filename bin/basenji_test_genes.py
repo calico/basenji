@@ -178,8 +178,8 @@ def main():
     t0 = time.time()
     print('Computing correlations.', end=''); sys.stdout.flush()
 
-    cor_table(gene_data.tss_targets, tss_preds, gene_data.target_labels, options.target_indexes, '%s/tss_cors.txt' % options.out_dir)
-    cor_table(gene_targets, gene_preds, gene_data.target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
+    cor_table(gene_data.tss_targets, tss_preds, gene_data.target_ids, gene_data.target_labels, options.target_indexes, '%s/tss_cors.txt' % options.out_dir)
+    cor_table(gene_targets, gene_preds, gene_data.target_ids, gene_data.target_labels, options.target_indexes, '%s/gene_cors.txt' % options.out_dir, plots=True)
 
     print(' Done in %ds.' % (time.time()-t0))
 
@@ -428,7 +428,7 @@ def clustermap(gene_values, out_pdf, color=None, table=False):
     plt.close()
 
 
-def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file, plots=False):
+def cor_table(gene_targets, gene_preds, target_ids, target_labels, target_indexes, out_file, plots=False):
     ''' Print a table and plot the distribution of target correlations. '''
 
     table_out = open(out_file, 'w')
@@ -456,8 +456,8 @@ def cor_table(gene_targets, gene_preds, target_labels, target_indexes, out_file,
         cors_nz.append(pcor_nz)
 
         # print
-        cols = (ti, scor, pcor, scor_nz, pcor_nz, target_labels[ti])
-        print('%-4d  %7.3f  %7.3f  %7.3f  %7.3f  %s' % cols, file=table_out)
+        cols = (ti, scor, pcor, scor_nz, pcor_nz, target_ids[ti], target_labels[ti])
+        print('%-4d  %7.3f  %7.3f  %7.3f  %7.3f  %s  %s' % cols, file=table_out)
 
     cors = np.array(cors)
     cors_nz = np.array(cors_nz)

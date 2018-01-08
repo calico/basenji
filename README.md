@@ -35,6 +35,12 @@ To verify the install, launch python and run
 ```
 
 ---------------------------------------------------------------------------------------------------
+### Manuscript
+
+Models and (links to ) data studied in the manuscript are available in the [manuscript](manuscript/README.md) directory.
+
+
+---------------------------------------------------------------------------------------------------
 ### Documentation
 
 At this stage, Basenji is something in between personal research code and accessible software for wide use. The primary challenge is uncertainty in what the best role for this type of toolkit is going to be in functional genomics and statistical genetics. The computational requirements don't make it easy either. Thus, this package is under active development, and I encourage anyone to get in touch to relate your experience and request clarifications or additional features, documentation, or tutorials.

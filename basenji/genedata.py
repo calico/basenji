@@ -163,7 +163,7 @@ class GeneData:
         # transcript_map will point to the wrong sequences
 
     def gene_ids(self):
-        return list(self.gene_tss().keys())
+        return list(self.gene_tss.keys())
 
 
     def tss_ids(self):

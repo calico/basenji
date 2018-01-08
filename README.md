@@ -37,7 +37,7 @@ To verify the install, launch python and run
 ---------------------------------------------------------------------------------------------------
 ### Manuscript
 
-Models and (links to ) data studied in the manuscript are available in the [manuscript](manuscript/README.md) directory.
+Models and (links to) data studied in the manuscript are available in the [manuscript](manuscript) directory.
 
 
 ---------------------------------------------------------------------------------------------------

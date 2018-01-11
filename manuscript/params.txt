@@ -1,6 +1,5 @@
 batch_size	2
 batch_buffer	4096
-batch_renorm	1
 
 link		exp_linear
 loss		poisson

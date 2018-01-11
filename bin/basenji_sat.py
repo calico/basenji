@@ -24,7 +24,7 @@ import time
 
 import h5py
 import matplotlib
-matplotlib.use('PDF')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
@@ -87,8 +87,10 @@ def main():
     # decide which targets to obtain
     if options.targets == '-1':
         target_indexes = range(targets.shape[2])
+        target_subset = None
     else:
         target_indexes = [int(ti) for ti in options.targets.split(',')]
+        target_subset = target_indexes
 
     # enrich for active sequences
     if targets is not None:
@@ -115,7 +117,7 @@ def main():
 
     t0 = time.time()
     dr = basenji.seqnn.SeqNN()
-    dr.build(job)
+    dr.build(job, target_subset=target_subset)
     print('Model building time %f' % (time.time()-t0), flush=True)
 
     if options.batch_size is not None:
@@ -151,7 +153,7 @@ def main():
                 batcher_sat = basenji.batcher.Batcher(sat_seqs_1hot, batch_size=dr.batch_size)
 
                 # predict
-                sat_preds = dr.predict(sess, batcher_sat, rc=options.rc, shifts=options.shifts, target_indexes=target_indexes)
+                sat_preds = dr.predict(sess, batcher_sat, rc=options.rc, shifts=options.shifts)
                 np.save('%s/seq%d_preds.npy' % (options.out_dir,si), sat_preds)
 
             #################################################################
@@ -167,7 +169,7 @@ def main():
             ##############################################
             # plot
 
-            for ti in range(len(target_indexes)):
+            for tii in range(len(target_indexes)):
                 # setup plot
                 sns.set(style='white', font_scale=1)
                 spp = subplot_params(sat_delta.shape[1])
@@ -188,21 +190,21 @@ def main():
                     ax_heat = plt.subplot2grid((4,spp['heat_cols']), (3,0), colspan=spp['heat_cols'])
 
                 # plot predictions
-                plot_predictions(ax_pred, sat_preds[0,:,ti], options.satmut_len, dr.batch_length, dr.batch_buffer)
+                plot_predictions(ax_pred, sat_preds[0,:,tii], options.satmut_len, dr.batch_length, dr.batch_buffer)
 
                 # plot sequence logo
-                plot_seqlogo(ax_logo_loss, seqs_1hot[si], -sat_loss[:,ti])
+                plot_seqlogo(ax_logo_loss, seqs_1hot[si], -sat_loss[:,tii])
                 if options.gain:
-                    plot_seqlogo(ax_logo_gain, seqs_1hot[si], sat_gain[:,ti])
+                    plot_seqlogo(ax_logo_gain, seqs_1hot[si], sat_gain[:,tii])
 
                 # plot SAD
-                plot_sad(ax_sad, sat_loss[:,ti], sat_gain[:,ti])
+                plot_sad(ax_sad, sat_loss[:,tii], sat_gain[:,tii])
 
                 # plot heat map
-                plot_heat(ax_heat, sat_delta[:,:,ti], options.min_limit)
+                plot_heat(ax_heat, sat_delta[:,:,tii], options.min_limit)
 
                 plt.tight_layout()
-                plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si,ti), dpi=600)
+                plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir,si,target_indexes[tii]), dpi=600)
                 plt.close()
 
 

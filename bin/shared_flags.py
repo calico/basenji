@@ -1,5 +1,6 @@
 """Common flags for various basenji training functions."""
 
+
 import tensorflow as tf
 
 tf.flags.DEFINE_string('logdir', '/tmp/zrl',
@@ -21,9 +22,12 @@ tf.flags.DEFINE_string('train_data', '', 'train tfrecord file')
 tf.flags.DEFINE_string('test_data', '', 'test tfrecord file')
 tf.flags.DEFINE_boolean('log_device_placement', False,
                         'Log device placement (ie, CPU or GPU)')
-tf.flags.DEFINE_integer('batches_per_epoch', 0,
+tf.flags.DEFINE_integer('train_steps_per_iteration', None,
                         'if > 0, use this many steps for an epoch')
-tf.flags.DEFINE_integer('num_test_batches', 0,
+tf.flags.DEFINE_integer('num_test_batches', None,
                         'if > 0, use this many test examples when evaluating')
-tf.flags.DEFINE_integer('num_train_epochs', 10,
+tf.flags.DEFINE_integer('num_train_epochs', None,
                         'number of full data passes for which to run training.')
+
+tf.flags.DEFINE_boolean('augment_with_rc', False,
+                        'Do data augmentation with reverse complement.')

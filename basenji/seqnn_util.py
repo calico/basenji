@@ -6,12 +6,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-try:
-    from google3.pyglib import app
-    from google3.pyglib import flags
-except ImportError:
-    pass
-
 import tensorflow as tf
 import numpy as np
 
@@ -67,7 +61,7 @@ class SeqNNModel(object):
     if return_preds:
       # determine non-buffer region
       buf_start = self.batch_buffer // self.target_pool
-      buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
+      buf_end = (self.seq_length - self.batch_buffer) // self.target_pool
       buf_len = buf_end - buf_start
 
       # initialize predictions
@@ -200,7 +194,7 @@ class SeqNNModel(object):
     if return_preds:
       # determine non-buffer region
       buf_start = self.batch_buffer // self.target_pool
-      buf_end = (self.batch_length - self.batch_buffer) // self.target_pool
+      buf_end = (self.seq_length - self.batch_buffer) // self.target_pool
       buf_len = buf_end - buf_start
 
       # initialize predictions
@@ -672,18 +666,11 @@ class SeqNNModel(object):
 
   def test_from_data_ops(self,
                          sess,
-                         rc=False,
-                         shifts=[0],
-                         mc_n=0,
                          num_test_batches=0):
     """ Compute model accuracy on a test set, where data is loaded from a queue.
 
         Args:
           sess:         TensorFlow session
-          rc:             Average predictions from the forward and reverse
-            complement sequences.
-          shifts:         Average predictions from sequence shifts left/right.
-          mc_n:           Monte Carlo iterations per rc/shift.
           num_test_batches: if > 0, only use this many test batches
 
         Returns:
@@ -697,9 +684,6 @@ class SeqNNModel(object):
 
     fd = self.set_mode('test')
 
-    # co-opt the variable to represent
-    # iterations per fwdrc/shift.
-    mc_n = 1
 
     # initialize prediction and target arrays
     preds = []

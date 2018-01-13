@@ -1,7 +1,7 @@
 batch_size    2
-batch_length    262144
+seq_length    262144
 seq_depth    4
-target_width    2048
+target_length    2048
 num_targets  10
 target_pool  128
 batch_buffer    16384

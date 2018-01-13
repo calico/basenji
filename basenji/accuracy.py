@@ -15,6 +15,7 @@
 
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
+from sklearn.metrics import r2_score
 
 """accuracy.py
 
@@ -71,11 +72,11 @@ class Accuracy:
 
     for ti in range(self.num_targets):
       if self.targets_na is not None:
-        preds_ti = self.preds[~self.targets_na, ti]
-        targets_ti = self.targets[~self.targets_na, ti]
+        preds_ti = self.preds[~self.targets_na, ti].astype('float64')
+        targets_ti = self.targets[~self.targets_na, ti].astype('float64')
       else:
-        preds_ti = self.preds[:, ti]
-        targets_ti = self.targets[:, ti]
+        preds_ti = self.preds[:, ti].astype('float64')
+        targets_ti = self.targets[:, ti].astype('float64')
 
       if clip is not None:
         preds_ti = np.clip(preds_ti, 0, clip)
@@ -85,10 +86,7 @@ class Accuracy:
         preds_ti = np.log2(preds_ti + pseudocount)
         targets_ti = np.log2(targets_ti + pseudocount)
 
-      tmean = targets_ti.mean(dtype='float64')
-      tvar = (targets_ti - tmean).var(dtype='float64')
-      pvar = (targets_ti - preds_ti).var(dtype='float64')
-      r2_vec[ti] = 1.0 - pvar / tvar
+      r2_vec[ti] = r2_score(targets_ti, preds_ti)
 
     return r2_vec
 

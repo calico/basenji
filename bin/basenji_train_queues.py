@@ -1,6 +1,7 @@
+#!/usr/bin/env python
 from __future__ import print_function
 
-
+import pdb
 import sys
 import time
 
@@ -25,7 +26,7 @@ def make_data_ops(job, train_file, test_file):
         filename,
         job['batch_size'],
         job['seq_length'],
-        job['seq_depth'],
+        job.get('seq_depth',4),
         job['num_targets'],
         job['target_length'],
         mode=mode)

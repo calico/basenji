@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-
 from __future__ import print_function
 
-
 import gc
+import pdb
 import sys
 import time
 
@@ -224,6 +223,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def build_loss(self, seqs_repr, data_ops):
     """Convert per-location real-valued predictions to a loss."""
+
     # targets
     tstart = self.batch_buffer // self.target_pool
     tend = (self.seq_length - self.batch_buffer) // self.target_pool

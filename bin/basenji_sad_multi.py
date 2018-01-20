@@ -98,6 +98,12 @@ def main():
       type='int',
       help='Number of parallel processes to run.')
   parser.add_option(
+      '--pseudo',
+      dest='log_pseudo',
+      default=0.125,
+      type='float',
+      help='Log2 pseudocount [Default: %default]')
+  parser.add_option(
       '-q',
       dest='queue',
       default='p100',

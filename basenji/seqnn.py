@@ -33,16 +33,16 @@ class SeqNN(seqnn_util.SeqNNModel):
     tf.train.get_or_create_global_step()
     self.params_set = False
 
-  def build(self, job):
+  def build(self, job, target_subset=None):
     """Build training ops that depend on placeholders."""
 
     self.set_params(job)
     self.params_set = True
     data_ops = self.make_placeholders()
 
-    self.build_from_data_ops(job, data_ops)
+    self.build_from_data_ops(job, data_ops, target_subset)
 
-  def build_from_data_ops(self, job, data_ops):
+  def build_from_data_ops(self, job, data_ops, target_subset=None):
     """Build training ops from input data ops."""
     if not self.params_set:
       self.set_params(job)
@@ -51,8 +51,8 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.inputs = data_ops['sequence']
     self.targets_na = data_ops['na']
 
-    seqs_repr = self.build_representation(data_ops)
-    self.loss_op, self.loss_adhoc = self.build_loss(seqs_repr, data_ops)
+    seqs_repr = self.build_representation(data_ops, target_subset)
+    self.loss_op, self.loss_adhoc = self.build_loss(seqs_repr, data_ops, target_subset)
     self.build_optimizer(self.loss_op)
 
   def make_placeholders(self):
@@ -102,7 +102,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'name' : 'conv-%d' % layer_index
     }
 
-  def build_representation(self, data_ops):
+  def build_representation(self, data_ops, target_subset):
     """Construct per-location real-valued predictions."""
     inputs = data_ops['sequence']
     assert inputs is not None
@@ -163,20 +163,39 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     with tf.variable_scope('final'):
       final_filters = self.num_targets * self.target_classes
-      seqs_repr = tf.layers.dense(
+      final_repr = tf.layers.dense(
         inputs=seqs_repr,
         units=final_filters,
         activation=None,
         kernel_initializer=tf.contrib.layers.xavier_initializer())
-    print('Convolution w/ %d %dx1 filters to final targets' %
+      print('Convolution w/ %d %dx1 filters to final targets' %
             (final_filters, seqs_repr.shape[2]))
 
-    # expand length back out
-    if self.target_classes > 1:
-      seqs_repr = tf.reshape(seqs_repr, (self.batch_size, -1, self.num_targets,
-                                         self.target_classes))
+      if target_subset is not None:
+        # get convolution parameters
+        filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
+        bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
 
-    return seqs_repr
+        print('filters_full', filters_full.shape)
+
+        # subset to specific targets
+        filters_subset = tf.gather(filters_full, target_subset, axis=1)
+        bias_subset = tf.gather(bias_full, target_subset, axis=0)
+
+        # substitute a new limited convolution
+        final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
+        print('final_repr', final_repr.get_shape())
+        final_repr = tf.nn.bias_add(final_repr, bias_subset)
+
+        # update # targets
+        self.num_targets = len(target_subset)
+
+      # expand length back out
+      if self.target_classes > 1:
+        final_repr = tf.reshape(final_repr, (self.batch_size, -1, self.num_targets,
+                                           self.target_classes))
+
+    return final_repr
 
   def build_optimizer(self, loss_op):
     """Construct optimization op that minimizes loss_op."""
@@ -221,7 +240,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # initialize steps
     self.step = 0
 
-  def build_loss(self, seqs_repr, data_ops):
+  def build_loss(self, seqs_repr, data_ops, target_subset=None):
     """Convert per-location real-valued predictions to a loss."""
 
     # targets
@@ -230,6 +249,9 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     targets = data_ops['label']
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
+
+    if target_subset is not None:
+      targets = tf.gather(targets, target_subset, axis=2)
 
     # work-around for specifying my own predictions
     self.preds_adhoc = tf.placeholder(
@@ -297,8 +319,6 @@ class SeqNN(seqnn_util.SeqNNModel):
           dtype=tf.float32)
       self.alphas = tf.nn.softplus(tf.clip_by_value(self.alphas, -50, 50))
       tf.summary.histogram('alphas', self.alphas)
-      for ti in np.linspace(0, self.num_targets - 1, 10).astype('int'):
-        tf.summary.scalar('alpha_t%d' % ti, self.alphas[ti])
 
       # compute w/ inverse
       k = 1. / self.alphas

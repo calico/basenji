@@ -81,6 +81,12 @@ def main():
       type='int',
       help='Number of processes, passed by multi script')
   parser.add_option(
+      '--pseudo',
+      dest='log_pseudo',
+      default=0.125,
+      type='float',
+      help='Log2 pseudocount [Default: %default]')
+  parser.add_option(
       '--rc',
       dest='rc',
       default=False,
@@ -93,6 +99,11 @@ def main():
       dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option(
+      '-t',
+      dest='targets_file',
+      default=None,
+      help='File specifying target indexes and labels in table format')
   parser.add_option(
       '--ti',
       dest='track_indexes',
@@ -237,9 +248,35 @@ def main():
         file=sys.stderr)
     exit(1)
 
+  if options.targets_file is None:
+    target_labels = gene_data.target_labels
+    target_subset = None
+    target_ids = gene_data.target_ids
+    if target_ids is None:
+      target_ids = ['t%d'%ti for ti in range(job['num_targets'])]
+      target_labels = ['']*len(target_ids)
+
+    else:
+      # Unfortunately, this target file differs from some others
+      # in that it needs to specify the indexes from the original
+      # set. In the future, I should standardize to this version.
+
+      target_ids = []
+      target_labels = []
+      target_subset = []
+
+    for line in open(options.targets_file):
+      a = line.strip().split('\t')
+      target_subset.append(int(a[0]))
+      target_ids.append(a[1])
+      target_labels.append(a[3])
+
+      if len(target_subset) == job['num_targets']:
+        target_subset = None
+
   # build model
   model = basenji.seqnn.SeqNN()
-  model.build(job)
+  model.build(job, target_subset=target_subset)
 
   #################################################################
   # compute, collect, and print SEDs
@@ -264,11 +301,6 @@ def main():
   # helper variables
   adj = options.tss_width // 2
   pred_buffer = model.batch_buffer // model.target_pool
-  target_ids = gene_data.target_ids
-  target_labels = gene_data.target_labels
-  if target_ids is None:
-    target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
-    target_labels = [''] * len(target_ids)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -330,7 +362,7 @@ def main():
 
             # compute SED scores
             snp_tx_sed = ap - rp
-            snp_tx_ser = np.log2(ap + 1) - np.log2(rp + 1)
+            snp_tx_ser = np.log2(ap + options.log_pseudo) - np.log2(rp + options.log_pseudo)
 
             # print rows to transcript table
             if options.transcript_table:
@@ -365,7 +397,7 @@ def main():
 
             # compute SED scores
             snp_gene_sed = gene_ap - gene_rp
-            snp_gene_ser = np.log2(gene_ap + 1) - np.log2(gene_rp + 1)
+            snp_gene_ser = np.log2(gene_ap + options.log_pseudo) - np.log2(gene_rp + options.log_pseudo)
 
             # print rows to gene table
             for ti in range(ref_preds.shape[1]):

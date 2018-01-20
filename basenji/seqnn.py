@@ -176,15 +176,12 @@ class SeqNN(seqnn_util.SeqNNModel):
         filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
         bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
 
-        print('filters_full', filters_full.shape)
-
         # subset to specific targets
         filters_subset = tf.gather(filters_full, target_subset, axis=1)
         bias_subset = tf.gather(bias_full, target_subset, axis=0)
 
         # substitute a new limited convolution
         final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
-        print('final_repr', final_repr.get_shape())
         final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
         # update # targets

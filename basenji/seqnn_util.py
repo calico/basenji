@@ -554,7 +554,8 @@ class SeqNNModel(object):
                     rc=False,
                     shifts=[0],
                     mc_n=0,
-                    target_indexes=None):
+                    target_indexes=None,
+                    tss_radius=0):
     """ Compute predictions on a test set.
 
         In
@@ -567,6 +568,7 @@ class SeqNNModel(object):
          shifts:          Average predictions from sequence shifts left/right.
          mc_n:            Monte Carlo iterations per rc/shift.
          target_indexes:  Optional target subset list
+         tss_radius:      Radius of bins to quantify TSS.
 
         Out
          transcript_preds: G (gene transcripts) X T (targets) array
@@ -651,7 +653,10 @@ class SeqNNModel(object):
             ppos = tpos - self.batch_buffer // self.target_pool
 
             # add prediction
-            gene_preds[txi, :] += preds_batch[pi, ppos, :]
+            ppos_start = ppos - tss_radius
+            ppos_end = ppos + tss_radius + 1
+
+            gene_preds[txi, :] += preds_batch[pi, ppos_start:ppos_end, :].sum(axis=0)
 
       # update sequence index
       si += Nb

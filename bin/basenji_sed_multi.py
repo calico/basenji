@@ -89,6 +89,12 @@ def main():
       default='k80',
       help='SLURM queue on which to run the jobs [Default: %default]')
   parser.add_option(
+      '-r',
+      dest='tss_radius',
+      default=0,
+      type='int',
+      help='Radius of bins considered to quantify TSS transcription [Default: %default]')
+  parser.add_option(
       '--rc',
       dest='rc',
       default=False,
@@ -116,14 +122,6 @@ def main():
       default=False,
       action='store_true',
       help='Print transcript table in addition to gene [Default: %default]')
-  parser.add_option(
-      '-w',
-      dest='tss_width',
-      default=1,
-      type='int',
-      help=
-      'Width of bins considered to quantify TSS transcription [Default: %default]'
-  )
   (options, args) = parser.parse_args()
 
   if len(args) != 4:

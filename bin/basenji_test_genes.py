@@ -76,6 +76,12 @@ def main():
       default='genes_out',
       help='Output directory for tables and plots [Default: %default]')
   parser.add_option(
+      '-r',
+      dest='tss_radius',
+      default=0,
+      type='int',
+      help='Radius of bins considered to quantify TSS transcription [Default: %default]')
+  parser.add_option(
       '--rc',
       dest='rc',
       default=False,
@@ -199,7 +205,8 @@ def main():
           batcher,
           gene_data.transcript_map,
           rc=options.rc,
-          shifts=options.shifts)
+          shifts=options.shifts,
+          tss_radius=options.tss_radius)
 
     # save to file
     np.save('%s/preds' % options.out_dir, transcript_preds)

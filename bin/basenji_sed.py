@@ -235,7 +235,7 @@ def main():
 
   job = basenji.dna_io.read_job_params(params_file)
 
-  job['batch_length'] = gene_data.seq_length
+  job['seq_length'] = gene_data.seq_length
   job['seq_depth'] = gene_data.seq_depth
   job['target_pool'] = gene_data.pool_width
 
@@ -256,14 +256,14 @@ def main():
       target_ids = ['t%d'%ti for ti in range(job['num_targets'])]
       target_labels = ['']*len(target_ids)
 
-    else:
-      # Unfortunately, this target file differs from some others
-      # in that it needs to specify the indexes from the original
-      # set. In the future, I should standardize to this version.
+  else:
+    # Unfortunately, this target file differs from some others
+    # in that it needs to specify the indexes from the original
+    # set. In the future, I should standardize to this version.
 
-      target_ids = []
-      target_labels = []
-      target_subset = []
+    target_ids = []
+    target_labels = []
+    target_subset = []
 
     for line in open(options.targets_file):
       a = line.strip().split('\t')

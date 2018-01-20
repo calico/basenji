@@ -254,15 +254,16 @@ class MultiLine:
 
     ti = int(a[9])
     if ti in self.preds:
-
-    if a[5] in self.preds:
       ref_preds, alt_preds = self.preds[ti]
 
-      ref_preds.append(float(a[6]))
-      alt_preds.append(float(a[7]))
+      ref_preds.append(float(a[5]))
+      alt_preds.append(float(a[6]))
 
     else:
-      self.preds[a[5]] = ([float(a[6])], [float(a[7])])
+      self.preds[ti] = ([float(a[5])], [float(a[6])])
+      self.ids[ti] = a[10]
+      self.labels[ti] = a[11]
+
 
   def print_lines(self, out_open, log_pseudo):
     for ti in self.preds:

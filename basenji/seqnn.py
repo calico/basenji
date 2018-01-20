@@ -22,7 +22,7 @@ import time
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.framework.python.ops import create_global_step
+
 
 from basenji.dna_io import hot1_rc, hot1_augment
 import basenji.ops
@@ -52,11 +52,13 @@ class SeqNN:
         for li in range(self.cnn_layers):
             self.cnn_dropout_ph.append(tf.placeholder(tf.float32))
 
+        self.global_step = tf.train.create_global_step()
         if self.batch_renorm:
-            create_global_step()
-            RMAX_decay = basenji.ops.adjust_max(6000, 60000, 1, 3, name='RMAXDECAY')
-            DMAX_decay = basenji.ops.adjust_max(6000, 60000, 0, 5, name='DMAXDECAY')
+            RMAX_decay = basenji.ops.adjust_max(5000, 50000, 1, 2, name='RMAXDECAY')
+            DMAX_decay = basenji.ops.adjust_max(5000, 50000, 0, 3, name='DMAXDECAY')
             renorm_clipping = {'rmin':1./RMAX_decay, 'rmax':RMAX_decay, 'dmax':DMAX_decay}
+            tf.summary.scalar('renorm_rmax', RMAX_decay)
+            tf.summary.scalar('renorm_dmax', DMAX_decay)
         else:
             renorm_clipping = {}
 
@@ -293,7 +295,7 @@ class SeqNN:
             self.gvs = zip(gradients, variables)
 
         # apply gradients
-        self.step_op = self.opt.apply_gradients(self.gvs)
+        self.step_op = self.opt.apply_gradients(self.gvs, global_step=self.global_step)
 
         # batch norm helper
         # if self.batch_renorm:
@@ -302,9 +304,6 @@ class SeqNN:
 
         # summary
         self.merged_summary = tf.summary.merge_all()
-
-        # initialize steps
-        self.step = 0
 
 
     def build_grads(self, layers=[0]):
@@ -1240,15 +1239,15 @@ class SeqNN:
             fd[self.targets] = Yb
             fd[self.targets_na] = NAb
 
-            run_returns = sess.run([self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
-            summary, loss_batch = run_returns[:2]
+            run_returns = sess.run([self.global_step, self.merged_summary, self.loss_op, self.step_op]+self.update_ops, feed_dict=fd)
+            gstep, summary, loss_batch = run_returns[:3]
 
             # pull gradients
             # gvs_batch = sess.run([g for (g,v) in self.gvs if g is not None], feed_dict=fd)
 
             # add summary
             if sum_writer is not None:
-                sum_writer.add_summary(summary, self.step)
+                sum_writer.add_summary(summary, gstep)
 
             # accumulate loss
             # avail_sum = np.logical_not(NAb[:Nb,:]).sum()
@@ -1257,12 +1256,11 @@ class SeqNN:
 
             # next batch
             Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
-            self.step += 1
 
         # reset training batcher
         batcher.reset()
 
-        return np.mean(train_loss)
+        return np.mean(train_loss), self.global_step
 
 
 def layer_extend(var, default, layers):

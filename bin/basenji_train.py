@@ -166,7 +166,7 @@ def main():
                 shift_i = epoch % len(options.shifts)
 
                 # train
-                train_loss = dr.train_epoch(sess, batcher_train, fwdrc, options.shifts[shift_i], train_writer)
+                train_loss, steps = dr.train_epoch(sess, batcher_train, fwdrc, options.shifts[shift_i], train_writer)
 
                 # validate
                 valid_acc = dr.test(sess, batcher_valid, mc_n=options.mc_n, rc=options.rc, shifts=options.shifts)
@@ -193,7 +193,7 @@ def main():
                     time_str = '%3.1fh' % (et/3600)
 
                 # print update
-                print('Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s%s' % (epoch+1, train_loss, valid_loss, valid_r2, time_str, best_str), end='')
+                print('Epoch %3d: Steps: %7d, Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s%s' % (epoch+1, steps, train_loss, valid_loss, valid_r2, time_str, best_str), end='')
 
                 # if training stagnant
                 if options.learn_rate_drop and num_drops < max_drops and undroppable_counter == 0 and (train_loss_last - train_loss)/train_loss_last < 0.0002:

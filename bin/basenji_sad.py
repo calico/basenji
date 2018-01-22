@@ -140,6 +140,12 @@ def main():
       '--ti',
       dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option(
+      '-u',
+      dest='penultimate',
+      default=False,
+      action='store_true',
+      help='Compute SED in the penultimate layer [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -226,8 +232,11 @@ def main():
   model.build(job, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
-  # initialize saver
-  saver = tf.train.Saver()
+  if options.penultimate:
+    # labels become inappropriate
+    target_ids = ['']*model.cnn_filters[-1]
+    target_labels = target_ids
+
 
   #################################################################
   # load SNPs
@@ -267,6 +276,9 @@ def main():
 
   snp_i = 0
 
+  # initialize saver
+  saver = tf.train.Saver()
+
   with tf.Session() as sess:
     # load variables into session
     saver.restore(sess, model_file)
@@ -283,8 +295,9 @@ def main():
       batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.batch_size)
 
       # predict
-      batch_preds = model.predict(
-          sess, batcher, rc=options.rc, shifts=options.shifts)
+      batch_preds = model.predict(sess, batcher,
+                      rc=options.rc, shifts=options.shifts,
+                      penultimate=options.penultimate)
 
       ###################################################
       # collect and print SADs

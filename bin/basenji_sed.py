@@ -87,6 +87,12 @@ def main():
       type='float',
       help='Log2 pseudocount [Default: %default]')
   parser.add_option(
+      '-r',
+      dest='tss_radius',
+      default=0,
+      type='int',
+      help='Radius of bins considered to quantify TSS transcription [Default: %default]')
+  parser.add_option(
       '--rc',
       dest='rc',
       default=False,
@@ -109,19 +115,17 @@ def main():
       dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
   parser.add_option(
+      '-u',
+      dest='penultimate',
+      default=False,
+      action='store_true',
+      help='Compute SED in the penultimate layer [Default: %default]')
+  parser.add_option(
       '-x',
       dest='transcript_table',
       default=False,
       action='store_true',
       help='Print transcript table in addition to gene [Default: %default]')
-  parser.add_option(
-      '-w',
-      dest='tss_width',
-      default=1,
-      type='int',
-      help=
-      'Width of bins considered to quantify TSS transcription [Default: %default]'
-  )
   (options, args) = parser.parse_args()
 
   if len(args) == 4:
@@ -185,7 +189,7 @@ def main():
   sys.stdout.flush()
   seqs_snps = basenji.vcf.intersect_seqs_snps(
       vcf_file, gene_data.seq_coords, vision_p=0.5)
-  print('done')
+  print('%d sequences w/ SNPs' % len(seqs_snps))
 
   #################################################################
   # determine SNP sequences to be needed
@@ -278,6 +282,11 @@ def main():
   model = basenji.seqnn.SeqNN()
   model.build(job, target_subset=target_subset)
 
+  if options.penultimate:
+    # labels become inappropriate
+    target_ids = ['']*model.cnn_filters[-1]
+    target_labels = target_ids
+
   #################################################################
   # compute, collect, and print SEDs
 
@@ -299,7 +308,6 @@ def main():
       print(' '.join(header_cols), file=sed_tx_out)
 
   # helper variables
-  adj = options.tss_width // 2
   pred_buffer = model.batch_buffer // model.target_pool
 
   # initialize saver
@@ -311,7 +319,7 @@ def main():
 
     # initialize prediction stream
     seq_preds = PredStream(sess, model, gene_data.seqs_1hot, seqs_snps_list,
-                           128, options.rc, options.shifts)
+                           128, options.rc, options.shifts, options.penultimate)
 
     # prediction index
     pi = 0
@@ -351,14 +359,16 @@ def main():
             tx_pos_buf = tx_pos - pred_buffer
 
             # hash transcription positions and predictions to gene id
-            for tx_pos_i in range(tx_pos_buf - adj, tx_pos_buf + adj + 1):
+            tx_pos_start = tx_pos_buf - options.tss_radius
+            tx_pos_end = tx_pos_buf + options.tss_radius + 1
+            for tx_pos_i in range(tx_pos_start, tx_pos_end):
               gene_pos_preds.setdefault(gene,
                                         {})[tx_pos_i] = (ref_preds[tx_pos_i, :],
                                                          alt_preds[tx_pos_i, :])
 
             # accumulate transcript predictions by (possibly) summing adjacent positions
-            ap = alt_preds[tx_pos_buf - adj:tx_pos_buf + adj + 1, :].sum(axis=0)
-            rp = ref_preds[tx_pos_buf - adj:tx_pos_buf + adj + 1, :].sum(axis=0)
+            ap = alt_preds[tx_pos_start:tx_pos_end, :].sum(axis=0)
+            rp = ref_preds[tx_pos_start:tx_pos_end, :].sum(axis=0)
 
             # compute SED scores
             snp_tx_sed = ap - rp
@@ -479,7 +489,7 @@ class PredStream:
     """
 
   def __init__(self, sess, model, seqs_1hot, seqs_snps_list, stream_length, rc,
-               shifts):
+               shifts, penultimate):
     self.sess = sess
     self.model = model
 
@@ -499,6 +509,7 @@ class PredStream:
 
     self.rc = rc
     self.shifts = shifts
+    self.penultimate = penultimate
 
   def __getitem__(self, i):
     # acquire predictions, if needed
@@ -537,7 +548,9 @@ class PredStream:
 
       # predict
       self.stream_preds = self.model.predict(
-          self.sess, batcher, rc=self.rc, shifts=self.shifts)
+                            self.sess, batcher,
+                            rc=self.rc, shifts=self.shifts,
+                            penultimate=self.penultimate)
 
     return self.stream_preds[i - self.stream_start]
 

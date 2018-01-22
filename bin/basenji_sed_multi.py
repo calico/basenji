@@ -117,6 +117,12 @@ def main():
       dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
   parser.add_option(
+      '-u',
+      dest='penultimate',
+      default=False,
+      action='store_true',
+      help='Compute SED in the penultimate layer [Default: %default]')
+  parser.add_option(
       '-x',
       dest='transcript_table',
       default=False,

@@ -136,6 +136,12 @@ def main():
       '--ti',
       dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option(
+      '-u',
+      dest='penultimate',
+      default=False,
+      action='store_true',
+      help='Compute SED in the penultimate layer [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -175,7 +181,7 @@ def main():
         errf,
         queue=options.queue,
         mem=16000,
-        time='4:0:0',
+        time='24:0:0',
         gpu=1)
     jobs.append(j)
 

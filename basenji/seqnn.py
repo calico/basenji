@@ -124,10 +124,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     self.weights_regularizers = 0
     self.filter_weights = []
-
-    if self.save_reprs:
-      self.layer_reprs = []
-      self.layer_reprs.append(inputs)
+    self.layer_reprs = [inputs]
 
     seqs_repr = inputs
     for layer_index in range(self.cnn_layers):
@@ -135,8 +132,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         args_for_block = self._make_cnn_block_args(layer_index)
         seqs_repr = layers.cnn_block(seqs_repr=seqs_repr, **args_for_block)
 
-        if self.save_reprs:
-          self.layer_reprs.append(seqs_repr)
+        # save representation
+        self.layer_reprs.append(seqs_repr)
 
     # update batch buffer to reflect pooling
     seq_length = seqs_repr.shape[1].value
@@ -157,6 +154,10 @@ class SeqNN(seqnn_util.SeqNNModel):
                           seq_length - self.batch_buffer_pool, :]
     seq_length = seqs_repr.shape[1].value
     self.preds_length = seq_length
+
+    # save penultimate representation
+    self.penultimate_op = seqs_repr
+
 
     ###################################################
     # final layer

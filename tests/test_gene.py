@@ -79,15 +79,30 @@ class TestGenesH5(unittest.TestCase):
 
 
 
-# class TestTestGenes(unittest.TestCase):
-#     @classmethod
-#     def setUpClass(cls):
-#         params_file = 'data/params.txt'
-#         model_file = 'data/model.tf'
-#         h5_file = 'data/genes.h5'
+class TestTestGenes(unittest.TestCase):
+  @classmethod
+  def setUpClass(cls):
+    fasta_file = '%s/assembly/hg19.fa' % os.environ['HG19']
+    gtf_file = 'data/genes.gtf'
+    h5_file = 'data/genes.h5'
+    target_wigs_file = 'data/target_wigs.txt'
+    cls.seq_len = 131072
+    cls.pool_width = 128
 
-#         cmd = 'basenji_test_genes.py data/params.txt data/model.tf %s' % (params_file, model_file, h5_file)
-#         subprocess.call(cmd, shell=True)
+    cmd = 'basenji_hdf5_genes.py -l %d -w %d -t %s --w5 %s %s %s' % (cls.seq_len, cls.pool_width, target_wigs_file, fasta_file, gtf_file, h5_file)
+    subprocess.call(cmd, shell=True)
+
+    cls.gene_data = GeneData(h5_file)
+
+  def test_test_genes(cls):
+    params_file = 'data/params.txt'
+    model_file = 'data/model_best.tf'
+    h5_file = 'data/genes.h5'
+
+    cmd = 'basenji_test_genes.py --heat --table --tss -v %s %s %s' % (params_file, model_file, h5_file)
+    subprocess.call(cmd, shell=True)
+
+    print('GOOD')
 
 
 ################################################################################

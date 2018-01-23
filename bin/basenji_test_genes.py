@@ -28,7 +28,7 @@ import time
 
 import h5py
 import matplotlib
-matplotlib.use('PDF')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -167,7 +167,7 @@ def main():
 
     job = basenji.dna_io.read_job_params(params_file)
 
-    job['batch_length'] = gene_data.seq_length
+    job['seq_length'] = gene_data.seq_length
     job['seq_depth'] = gene_data.seq_depth
     job['target_pool'] = gene_data.pool_width
     if not 'num_targets' in job:
@@ -180,7 +180,6 @@ def main():
     if options.batch_size is not None:
       model.batch_size = options.batch_size
 
-    print(' Done in %ds' % (time.time() - t0))
 
     #######################################################
     # predict TSSs
@@ -317,8 +316,11 @@ def main():
     indexes_var = np.argsort(gene_vars)[::-1][:plot_genes]
 
     # choose a set of random genes
-    indexes_rand = np.random.choice(
+    if plot_genes < gene_preds_qn.shape[0]:
+      indexes_rand = np.random.choice(
         np.arange(gene_preds_qn.shape[0]), plot_genes, replace=False)
+    else:
+      indexes_rand = np.arange(gene_preds_qn.shape[0])
 
     # choose a set of random targets
     if plot_targets < 0.8 * gene_preds_qn.shape[1]:
@@ -393,7 +395,9 @@ def main():
 
 
 def alternative_tss(tss_targets, tss_preds, gene_data, out_base, log_pseudo=1, tss_var_t=1, scatter_pct=0.02):
-    ''' Compare predicted to experimental log2 TSS1 to TSS2 ratio. '''
+  ''' Compare predicted to experimental log2 TSS1 to TSS2 ratio. '''
+
+  sns.set(style='ticks', font_scale=1.2)
 
   # normalize TSS
   tss_targets_qn = normalize_targets(tss_targets, log_pseudo=log_pseudo)
@@ -458,13 +462,13 @@ def alternative_tss(tss_targets, tss_preds, gene_data, out_base, log_pseudo=1, t
   _, tp = ttest_1samp(gene_tss12_cors, 0)
 
   # plot PearsonR distribution
-  plt.figure()
-  sns.distplot(gene_tss12_cors, axlabel='TSS1/TSS2 PearsonR')
+  plt.figure(figsize=(6.5,4))
+  sns.distplot(gene_tss12_cors, axlabel='TSS1/TSS2 PearsonR') # , color='black')
   ax = plt.gca()
-  ax.axvline(0, linestyle='--')
+  ax.axvline(0, linestyle='--', color='black')
   xmin, xmax = ax.get_xlim()
   ymin, ymax = ax.get_ylim()
-  ax.text(xmax*0.98, ymax*0.95, 'p-val < %.2e' % p, horizontalalignment='right')
+  ax.text(xmax*0.98, ymax*0.92, 'p-val < %.2e' % p, horizontalalignment='right')
   plt.tight_layout()
   plt.savefig('%s/tss12_cor.pdf' % out_base)
   plt.close()
@@ -482,9 +486,12 @@ def alternative_tss(tss_targets, tss_preds, gene_data, out_base, log_pseudo=1, t
     cor_i = cor_indexes[pct_i]
 
     out_pdf = '%s/tss12_q%d.pdf' % (out_base, qi)
-    basenji.plots.jointplot(gene_tss12_targets[cor_i], gene_tss12_preds[cor_i],
-      out_pdf, x_label='Experiment log2 TSS1/TSS2', y_label='Prediction log2 TSS1/TSS2',
-      cor='pearsonr', table=True)
+    basenji.plots.regplot(gene_tss12_targets[cor_i], gene_tss12_preds[cor_i],
+                            out_pdf, poly_order=1, alpha=0.8, point_size=8,
+                            square=False, figsize=(4,4),
+                            x_label='log2 Experiment TSS1/TSS2',
+                            y_label='log2 Prediction TSS1/TSS2',
+                            title=gene_ids[cor_i])
 
     print(qi, gene_ids[cor_i], file=genes_out)
 
@@ -615,6 +622,8 @@ def gene_table(gene_targets, gene_preds, gene_iter, target_labels,
       tx_i += 1
 
   table_out.close()
+
+  subprocess.call('gzip -f %s_table.txt' % out_prefix, shell=True)
 
 
 def normalize_targets(gene_values, log_pseudo=1, outlier_mult=10):
@@ -805,13 +814,13 @@ def quantile_accuracy(gene_targets, gene_preds, gene_stat, out_pdf, numq=4):
 
   for qi in range(numq):
     # slice quantile
-    gene_targets_quant = gene_targets[quant_indexes[qi]]
-    gene_preds_quant = gene_preds[quant_indexes[qi]]
+    gene_targets_quant = gene_targets[quant_indexes[qi]].astype('float32')
+    gene_preds_quant = gene_preds[quant_indexes[qi]].astype('float32')
 
     # compute target PearsonR
     for ti in range(gene_targets_quant.shape[1]):
-      pcor, _ = pearsonr(gene_targets_quant[:,ti].astype('float32'),
-                          gene_preds_quant[:,ti].astype('float32'))
+      pcor, _ = pearsonr(gene_targets_quant[:,ti],
+                          gene_preds_quant[:,ti])
 
       quantiles_series.append(qi)
       targets_series.append(ti)
@@ -821,8 +830,16 @@ def quantile_accuracy(gene_targets, gene_preds, gene_stat, out_pdf, numq=4):
   df_quant = pd.DataFrame({'Quantile':quantiles_series,
                             'Target':targets_series,
                             'PearsonR':pcor_series})
-  df_quant.to_csv('%s.txt' % out_pdf[:-4])
+  df_quant.to_csv('%s.csv' % out_pdf[:-4])
 
+  # print summary table
+  table_out = open('%s.txt' % out_pdf[:-4], 'w')
+  for qi in range(numq):
+    quantile_cors = df_quant[df_quant.Quantile == qi].PearsonR
+    print('%2d  %.4f  %.4f' % \
+          (qi, np.mean(quantile_cors),np.median(quantile_cors)),
+          file=table_out)
+  table_out.close()
 
   # construct figure
   plt.figure()
@@ -837,6 +854,43 @@ def quantile_accuracy(gene_targets, gene_preds, gene_stat, out_pdf, numq=4):
 
   plt.savefig(out_pdf)
   plt.close()
+
+  # sort targets by their decrease
+  target_ratios = []
+  for ti in range(gene_targets.shape[1]):
+    df_quant_target = df_quant[df_quant.Target == ti]
+    assert(df_quant_target.Quantile.iloc[0] == 0)
+    assert(df_quant_target.Quantile.iloc[-1] == numq-1)
+    cor_ratio = df_quant_target.PearsonR.iloc[-1] / df_quant_target.PearsonR.iloc[0]
+    target_ratios.append((cor_ratio,ti))
+  target_ratios = sorted(target_ratios)
+
+  # take 10 samples across
+  pct_indexes = np.linspace(0, len(target_ratios)-1, 10+1).astype('int')
+
+  # write quantile targets
+  table_out = open('%s_qt.txt' % out_pdf[:-4], 'w')
+  sns.set(font_scale=1.2, style='ticks')
+
+  # scatter plot each quantile
+  for qi in range(numq):
+    # slice quantile
+    gene_targets_quant = gene_targets[quant_indexes[qi]].astype('float32')
+    gene_preds_quant = gene_preds[quant_indexes[qi]].astype('float32')
+
+    for pqi in range(len(pct_indexes)):
+      pct_i = pct_indexes[pqi]
+      ti = target_ratios[pct_i][1]
+
+      print(qi, pqi, ti, target_ratios[ti], file=table_out)
+
+      qout_pdf = '%s_pq%d_q%d.pdf' % (out_pdf[:-4], pqi, qi)
+      basenji.plots.jointplot(gene_targets_quant[:,ti], gene_preds_quant[:,ti],
+                              qout_pdf, alpha=0.8, point_size=8, kind='reg',
+                              figsize=5, x_label='log2 Experiment',
+                              y_label='log2 Prediction')
+
+  table_out.close()
 
 
 def variance_accuracy(gene_targets, gene_preds, out_prefix, log_pseudo=None):
@@ -853,7 +907,7 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix, log_pseudo=None):
   gene_mse = np.power(gene_targets - gene_preds, 2).mean(axis=1, dtype='float64')
 
   # filter for sufficient expression
-  expr_indexes = (gene_mean > 0.1) & (gene_max > 2)
+  expr_indexes = (gene_mean > 0.5) & (gene_max > 3)
   gene_targets = gene_targets[expr_indexes,:]
   gene_preds = gene_preds[expr_indexes,:]
   gene_mse = gene_mse[expr_indexes]
@@ -863,7 +917,10 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix, log_pseudo=None):
 
 
   sns.set(style='ticks', font_scale=1.3)
-  ri = np.random.choice(np.arange(len(gene_mse)), 2000, replace=False)
+  if len(gene_mse) < 2000:
+    ri = np.arange(len(gene_mse))
+  else:
+    ri = np.random.choice(np.arange(len(gene_mse)), 2000, replace=False)
 
   # plot mean vs std
   out_pdf = '%s_mean-std.pdf' % out_prefix

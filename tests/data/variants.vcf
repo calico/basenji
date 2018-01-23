@@ -1,0 +1,4 @@
+##fileformat=VCFv4.2
+#CHROM	POS	ID	REF	ALT	 QUAL
+chr16	67596294	rsDK1	G	A	.
+chr16	67596297	rsDK2	C	G	.

@@ -37,12 +37,12 @@ def cap_allele(allele, cap=5):
   return allele
 
 
-def intersect_seqs_snps(vcf_file, seq_coords, vision_p=1):
+def intersect_seqs_snps(vcf_file, gene_seqs, vision_p=1):
   """ Intersect a VCF file with a list of sequence coordinates.
 
     In
      vcf_file:
-     seq_coords: list of sequence coordinates
+     gene_seqs: list of GeneSeq's
      vision_p: proportion of sequences visible to center genes.
 
     Out
@@ -55,9 +55,11 @@ def intersect_seqs_snps(vcf_file, seq_coords, vision_p=1):
   seq_bed_file = seq_temp.name
   seq_bed_out = open(seq_bed_file, 'w')
   seq_indexes = {}
-  for si in range(len(seq_coords)):
-    seq_indexes[seq_coords[si]] = si
-    print('%s\t%d\t%d' % seq_coords[si], file=seq_bed_out)
+  for si in range(len(gene_seqs)):
+    gs = gene_seqs[si]
+    gene_seq_key = (gs.chrom, gs.start)
+    seq_indexes[gene_seq_key] = si
+    print('%s\t%d\t%d' % (gs.chrom, gs.start, gs.end), file=seq_bed_out)
   seq_bed_out.close()
 
   # hash SNPs to indexes
@@ -80,7 +82,7 @@ def intersect_seqs_snps(vcf_file, seq_coords, vision_p=1):
 
   # initialize list of lists
   seqs_snps = []
-  for i in range(len(seq_coords)):
+  for _ in range(len(gene_seqs)):
     seqs_snps.append([])
 
   # intersect
@@ -96,7 +98,7 @@ def intersect_seqs_snps(vcf_file, seq_coords, vision_p=1):
     seq_chrom = a[-4]
     seq_start = int(a[-3])
     seq_end = int(a[-2])
-    seq_key = (seq_chrom, seq_start, seq_end)
+    seq_key = (seq_chrom, seq_start)
 
     vision_buffer = (seq_end - seq_start) * (1 - vision_p) // 2
     if seq_start + vision_buffer < pos < seq_end - vision_buffer:

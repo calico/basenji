@@ -1,0 +1,2 @@
+3742	CNhs12331	data/gm12878_rep1.h5	GM12878 rep1
+3586	CNhs12334	data/k562_rep1.h5	K562 rep1

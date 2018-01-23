@@ -562,7 +562,7 @@ class SeqNNModel(object):
   def predict_genes(self,
                     sess,
                     batcher,
-                    transcript_map,
+                    gene_seqs,
                     rc=False,
                     shifts=[0],
                     mc_n=0,
@@ -588,104 +588,30 @@ class SeqNNModel(object):
          transcript_preds: G (gene transcripts) X T (targets) array
         """
 
-    # setup feed dict
-    fd = self.set_mode('test')
+    # predict gene sequences
+    gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n, target_indexes=target_indexes, penultimate=penultimate)
 
-    # initialize prediction arrays
-    if penultimate:
-      num_targets = self.cnn_filters[-1]
-    else:
-      num_targets = self.num_targets
-      if target_indexes is not None:
-        num_targets = len(target_indexes)
+    # count TSSs
+    tss_num = 0
+    for gene_seq in gene_seqs:
+      tss_num += len(gene_seq.tss_list)
 
-    # determine ensemble iteration parameters
-    ensemble_fwdrc = []
-    ensemble_shifts = []
-    for shift in shifts:
-      ensemble_fwdrc.append(True)
-      ensemble_shifts.append(shift)
-      if rc:
-        ensemble_fwdrc.append(False)
-        ensemble_shifts.append(shift)
+    # initialize TSS preds
+    tss_preds = np.zeros( (tss_num, gseq_preds.shape[-1]) , dtype='float16')
 
-    if mc_n > 0:
-      # setup feed dict
-      fd = self.set_mode('test_mc')
-
-    else:
-      # setup feed dict
-      fd = self.set_mode('test')
-
-      # co-opt the variable to represent
-      # iterations per fwdrc/shift.
-      mc_n = 1
-
-    # total ensemble predictions
-    all_n = mc_n * len(ensemble_fwdrc)
-
-    # initialize gene target predictions
-    num_genes = len(transcript_map)
-    gene_preds = np.zeros((num_genes, num_targets), dtype='float16')
-
-    # construct an inverse map
-    sequence_pos_transcripts = []
-    txi = 0
-    for transcript in transcript_map:
-      si, pos = transcript_map[transcript]
-
-      # extend sequence list
-      while len(sequence_pos_transcripts) <= si:
-        sequence_pos_transcripts.append({})
-
-      # add gene to position set
-      sequence_pos_transcripts[si].setdefault(pos, set()).add(txi)
-
-      txi += 1
-
-    # sequence index
-    si = 0
-
-    # get first batch
-    Xb, _, _, Nb = batcher.next()
-
-    while Xb is not None:
-      # make ensemble predictions
-      preds_batch, _, _ = self._predict_ensemble(
-          sess,
-          fd,
-          Xb,
-          ensemble_fwdrc,
-          ensemble_shifts,
-          mc_n,
-          target_indexes=target_indexes,
-          penultimate=penultimate)
-
-      # for each sequence in the batch
-      for pi in range(Nb):
-        # for each position with a gene
-        for tpos in sequence_pos_transcripts[si + pi]:
-          # for each gene at that position
-          for txi in sequence_pos_transcripts[si + pi][tpos]:
-            # adjust for the buffer
-            ppos = tpos - self.batch_buffer // self.target_pool
-
-            # add prediction
-            ppos_start = ppos - tss_radius
-            ppos_end = ppos + tss_radius + 1
-
-            gene_preds[txi, :] += preds_batch[pi, ppos_start:ppos_end, :].sum(axis=0)
-
-      # update sequence index
-      si += Nb
-
-      # next batch
-      Xb, _, _, Nb = batcher.next()
+    # slice TSSs
+    tss_i = 0
+    for si in range(len(gene_seqs)):
+      for tss in gene_seqs[si].tss_list:
+        bi = tss.seq_bin(width=self.target_pool, pred_buffer=self.batch_buffer)
+        tss_preds[tss_i,:] = gseq_preds[si,bi-tss_radius:bi+1+tss_radius,:].sum(axis=0)
+        tss_i += 1
 
     # reset batcher
     batcher.reset()
 
-    return gene_preds
+    return tss_preds
+
 
   def test_from_data_ops(self,
                          sess,

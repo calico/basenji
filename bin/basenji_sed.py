@@ -26,11 +26,13 @@ import sys
 import h5py
 import numpy as np
 import pyBigWig
-import tensorflow as tf
 
 import basenji
-
+from basenji.gene import map_tss_genes
 from basenji_test import bigwig_open
+
+import tensorflow as tf
+
 """basenji_sed.py
 
 Compute SNP expression difference (SED) scores for SNPs in a VCF file.
@@ -50,8 +52,7 @@ def main():
       default=False,
       action='store_true',
       help=
-      'Print all variant-gene pairs, as opposed to only nonzero [Default: %default]'
-  )
+      'Print all variant-gene pairs, as opposed to only nonzero [Default: %default]')
   parser.add_option(
       '-b',
       dest='batch_size',
@@ -98,8 +99,7 @@ def main():
       default=False,
       action='store_true',
       help=
-      'Average the forward and reverse complement predictions when testing [Default: %default]'
-  )
+      'Average the forward and reverse complement predictions when testing [Default: %default]')
   parser.add_option(
       '--shifts',
       dest='shifts',
@@ -111,10 +111,6 @@ def main():
       default=None,
       help='File specifying target indexes and labels in table format')
   parser.add_option(
-      '--ti',
-      dest='track_indexes',
-      help='Comma-separated list of target indexes to output BigWig tracks')
-  parser.add_option(
       '-u',
       dest='penultimate',
       default=False,
@@ -122,10 +118,10 @@ def main():
       help='Compute SED in the penultimate layer [Default: %default]')
   parser.add_option(
       '-x',
-      dest='transcript_table',
+      dest='tss_table',
       default=False,
       action='store_true',
-      help='Print transcript table in addition to gene [Default: %default]')
+      help='Print TSS table in addition to gene [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 4:
@@ -160,19 +156,12 @@ def main():
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
-  if options.track_indexes is None:
-    options.track_indexes = []
-  else:
-    options.track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
-    if not os.path.isdir('%s/tracks' % options.out_dir):
-      os.mkdir('%s/tracks' % options.out_dir)
-
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   #################################################################
   # reads in genes HDF5
 
-  gene_data = basenji.genes.GeneData(genes_hdf5_file)
+  gene_data = basenji.genedata.GeneData(genes_hdf5_file)
 
   # filter for worker sequences
   if options.processes is not None:
@@ -188,51 +177,9 @@ def main():
   print('Intersecting gene sequences with SNPs...', end='')
   sys.stdout.flush()
   seqs_snps = basenji.vcf.intersect_seqs_snps(
-      vcf_file, gene_data.seq_coords, vision_p=0.5)
+      vcf_file, gene_data.gene_seqs, vision_p=0.5)
   print('%d sequences w/ SNPs' % len(seqs_snps))
 
-  #################################################################
-  # determine SNP sequences to be needed
-
-  seqs_snps_list = []
-  for seq_i in range(gene_data.num_seqs):
-    seq_chrom, seq_start, seq_end = gene_data.seq_coords[seq_i]
-
-    if seqs_snps[seq_i]:
-      # add major allele
-      seqs_snps_list.append((seq_i, None, None))
-
-      # add minor alleles
-      for snp_i in seqs_snps[seq_i]:
-        snp = snps[snp_i]
-
-        # determine SNP position wrt sequence
-        snp_seq_pos = snp.pos - 1 - seq_start
-
-        # verify that the reference allele matches the reference
-        seq_ref = basenji.dna_io.hot1_dna(gene_data.seqs_1hot[seq_i][
-            snp_seq_pos:snp_seq_pos + len(snp.ref_allele), :])
-
-        # check if reference allele matches the alternative
-        if seq_ref != snp.ref_allele:
-          if seq_ref == snp.alt_alleles[0]:
-            # warn user
-            print('WARNING: %s - alt (as opposed to ref) allele matches reference genome; changing reference genome to match.' % (snp.rsid), file=sys.stderr)
-
-            # remove alt allele and include ref allele
-            if len(snp.ref_allele) == len(snp.alt_alleles[0]):
-              # SNP
-              basenji.dna_io.hot1_set(gene_data.seqs_1hot[seq_i], snp_seq_pos, snp.alt_alleles[0])
-            else:
-              raise Exception('ERROR: flipped reference-alternative indels cannot yet be handled. Please flip your variants so A1 matches the reference.')
-              # the problem is that here, the one hot coded sequence lives
-              # in the HDF5 file, so I cannot modify it's length.
-          else:
-            raise Exception('ERROR: %s - reference genome does not match any allele' % (snp.rsid))
-
-        # append descriptive tuple to list
-        # seqs_snps_list.append((seq_i, snp_seq_pos, snp.alt_alleles[0]))
-        seqs_snps_list.append((seq_i, snp_seq_pos, snp))
 
   #################################################################
   # setup model
@@ -247,9 +194,8 @@ def main():
     job['num_targets'] = gene_data.num_targets
 
   if 'num_targets' not in job:
-    print(
-        "Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.",
-        file=sys.stderr)
+    print("Must specify number of targets (num_targets) in the \
+            parameters file.", file=sys.stderr)
     exit(1)
 
   if options.targets_file is None:
@@ -296,16 +242,16 @@ def main():
   if options.csv:
     sed_gene_out = open('%s/sed_gene.csv' % options.out_dir, 'w')
     print(','.join(header_cols), file=sed_gene_out)
-    if options.transcript_table:
-      sed_tx_out = open('%s/sed_tx.csv' % options.out_dir, 'w')
-      print(','.join(header_cols), file=sed_tx_out)
+    if options.tss_table:
+      sed_tss_out = open('%s/sed_tss.csv' % options.out_dir, 'w')
+      print(','.join(header_cols), file=sed_tss_out)
 
   else:
     sed_gene_out = open('%s/sed_gene.txt' % options.out_dir, 'w')
     print(' '.join(header_cols), file=sed_gene_out)
-    if options.transcript_table:
-      sed_tx_out = open('%s/sed_tx.txt' % options.out_dir, 'w')
-      print(' '.join(header_cols), file=sed_tx_out)
+    if options.tss_table:
+      sed_tss_out = open('%s/sed_tss.txt' % options.out_dir, 'w')
+      print(' '.join(header_cols), file=sed_tss_out)
 
   # helper variables
   pred_buffer = model.batch_buffer // model.target_pool
@@ -317,109 +263,112 @@ def main():
     # load variables into session
     saver.restore(sess, model_file)
 
-    # initialize prediction stream
-    seq_preds = PredStream(sess, model, gene_data.seqs_1hot, seqs_snps_list,
-                           128, options.rc, options.shifts, options.penultimate)
-
-    # prediction index
-    pi = 0
-
+    # for each gene sequence
     for seq_i in range(gene_data.num_seqs):
-      if seqs_snps[seq_i]:
-        # get reference prediction (LxT)
-        ref_preds = seq_preds[pi]
-        pi += 1
+      gene_seq = gene_data.gene_seqs[seq_i]
+      print(gene_seq)
 
-        for snp_i in seqs_snps[seq_i]:
-          snp = snps[snp_i]
+      # if it contains SNPs
+      seq_snps = [snps[snp_i] for snp_i in seqs_snps[seq_i]]
+      if len(seq_snps) > 0:
 
-          # get alternate prediction (LxT)
-          alt_preds = seq_preds[pi]
-          pi += 1
+        # one hot code allele sequences
+        aseqs_1hot = alleles_1hot(gene_seq, gene_data.seqs_1hot[seq_i], seq_snps)
+
+        # initialize batcher
+        batcher = basenji.batcher.Batcher(aseqs_1hot, batch_size=model.batch_size)
+
+        # construct allele gene_seq's
+        allele_gene_seqs = [gene_seq] * aseqs_1hot.shape[0]
+
+        # predict alleles
+        allele_tss_preds = model.predict_genes(sess, batcher, allele_gene_seqs,
+                                                rc=options.rc, shifts=options.shifts,
+                                                penultimate=options.penultimate,
+                                                tss_radius=options.tss_radius)
+
+        # reshape (Alleles x TSSs) x Targets to Alleles x TSSs x Targets
+        allele_tss_preds = allele_tss_preds.reshape((aseqs_1hot.shape[0], gene_seq.num_tss(), -1))
+
+        # extract reference and SNP alt predictions
+        ref_tss_preds = allele_tss_preds[0] # TSSs x Targets
+        alt_tss_preds = allele_tss_preds[1:] # SNPs x TSSs x Targets
+
+        # compute TSS SED scores
+        snp_tss_sed = alt_tss_preds - ref_tss_preds
+        snp_tss_ser = np.log2(alt_tss_preds + options.log_pseudo) \
+                        - np.log2(ref_tss_preds + options.log_pseudo)
+
+        # compute gene-level predictions
+        ref_gene_preds, gene_ids = map_tss_genes(ref_tss_preds, gene_seq.tss_list, options.tss_radius)
+        alt_gene_preds = []
+        for snp_i in range(len(seq_snps)):
+          agp, _ = map_tss_genes(alt_tss_preds[snp_i], gene_seq.tss_list, options.tss_radius)
+          alt_gene_preds.append(agp)
+        alt_gene_preds = np.array(alt_gene_preds)
+
+        # compute gene SED scores
+        gene_sed = alt_gene_preds - ref_gene_preds
+        gene_ser = np.log2(alt_gene_preds + options.log_pseudo) \
+                    - np.log2(ref_gene_preds + options.log_pseudo)
+
+        # for each SNP
+        for snp_i in range(len(seq_snps)):
+          snp = seq_snps[snp_i]
 
           # initialize gene data structures
-          gene_pos_preds = {}  # gene -> pos -> (ref_preds,alt_preds)
           snp_dist_gene = {}
 
-          # process transcripts
-          for transcript, tx_pos in gene_data.seq_transcripts[seq_i]:
-            # get gene id
-            gene = gene_data.transcript_genes[transcript]
+          # for each TSS
+          for tss_i in range(gene_seq.num_tss()):
+            tss = gene_seq.tss_list[tss_i]
 
-            # compute distance between SNP and TSS
-            tx_gpos = gene_data.seq_coords[seq_i][1] + (
-                tx_pos + 0.5) * model.target_pool
-            snp_dist = abs(tx_gpos - snp.pos)
-            if gene in snp_dist_gene:
-              snp_dist_gene[gene] = min(snp_dist_gene[gene], snp_dist)
+            # SNP distance to TSS
+            snp_dist = abs(snp.pos - tss.pos)
+            if tss.gene_id in snp_dist_gene:
+              snp_dist_gene[tss.gene_id] = min(snp_dist_gene[tss.gene_id], snp_dist)
             else:
-              snp_dist_gene[gene] = snp_dist
+              snp_dist_gene[tss.gene_id] = snp_dist
 
-            # compute transcript pos in predictions
-            tx_pos_buf = tx_pos - pred_buffer
+            # for each target
+            if options.tss_table:
+              for ti in range(ref_tss_preds.shape[1]):
 
-            # hash transcription positions and predictions to gene id
-            tx_pos_start = tx_pos_buf - options.tss_radius
-            tx_pos_end = tx_pos_buf + options.tss_radius + 1
-            for tx_pos_i in range(tx_pos_start, tx_pos_end):
-              gene_pos_preds.setdefault(gene,
-                                        {})[tx_pos_i] = (ref_preds[tx_pos_i, :],
-                                                         alt_preds[tx_pos_i, :])
+                # check if nonzero
+                if options.all_sed or not np.isclose(tss_sed[snp_i,tss_i,ti], 0, atol=1e-4):
 
-            # accumulate transcript predictions by (possibly) summing adjacent positions
-            ap = alt_preds[tx_pos_start:tx_pos_end, :].sum(axis=0)
-            rp = ref_preds[tx_pos_start:tx_pos_end, :].sum(axis=0)
-
-            # compute SED scores
-            snp_tx_sed = ap - rp
-            snp_tx_ser = np.log2(ap + options.log_pseudo) - np.log2(rp + options.log_pseudo)
-
-            # print rows to transcript table
-            if options.transcript_table:
-              for ti in range(ref_preds.shape[1]):
-                if options.all_sed or not np.isclose(
-                    snp_tx_sed[ti], 0, atol=1e-4):
+                  # print
                   cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele),
                           basenji.vcf.cap_allele(snp.alt_alleles[0]),
-                          transcript, snp_dist, rp[ti], ap[ti], snp_tx_sed[ti],
-                          snp_tx_ser[ti], ti, target_ids[ti], target_labels[ti])
+                          tss.identifier, snp_dist, ref_tss_preds[tss_i,ti], alt_tss_preds[snp_i,tss_i,ti],
+                          tss_sed[snp_i,tss_i,ti], tss_ser[snp_i,tss_i,ti], ti, target_ids[ti], target_labels[ti])
                   if options.csv:
-                    print(','.join([str(c) for c in cols]), file=sed_tx_out)
+                    print(','.join([str(c) for c in cols]), file=sed_tss_out)
                   else:
                     print(
                         '%-13s %s %5s %16s %5d %7.4f %7.4f %7.4f %7.4f %4d %12s %s'
                         % cols,
-                        file=sed_tx_out)
+                        file=sed_tss_out)
 
-          # process genes
-          for gene in gene_pos_preds:
-            gene_str = gene
-            if gene in gene_data.multi_seq_genes:
-              gene_str = '%s_multi' % gene
-
-            # sum gene preds across positions
-            gene_rp = np.zeros(ref_preds.shape[1])
-            gene_ap = np.zeros(alt_preds.shape[1])
-            for pos_i in gene_pos_preds[gene]:
-              pos_rp, pos_ap = gene_pos_preds[gene][pos_i]
-              gene_rp += pos_rp
-              gene_ap += pos_ap
-
-            # compute SED scores
-            snp_gene_sed = gene_ap - gene_rp
-            snp_gene_ser = np.log2(gene_ap + options.log_pseudo) - np.log2(gene_rp + options.log_pseudo)
+          # for each gene
+          for gi in range(len(gene_ids)):
+            gene_str = gene_ids[gi]
+            if gene_ids[gi] in gene_data.multi_seq_genes:
+              gene_str = '%s_multi' % gene_ids[gi]
 
             # print rows to gene table
-            for ti in range(ref_preds.shape[1]):
-              if options.all_sed or not np.isclose(
-                  snp_gene_sed[ti], 0, atol=1e-4):
+            for ti in range(ref_gene_preds.shape[1]):
+
+              # check if nonzero
+              if options.all_sed or not np.isclose(gene_sed[snp_i,gi,ti], 0, atol=1e-4):
+
+                # print
                 cols = [
                     snp.rsid,
                     basenji.vcf.cap_allele(snp.ref_allele),
                     basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str,
-                    snp_dist_gene[gene], gene_rp[ti], gene_ap[ti],
-                    snp_gene_sed[ti], snp_gene_ser[ti], ti, target_ids[ti],
-                    target_labels[ti]
+                    snp_dist_gene[gene_ids[gi]], ref_gene_preds[gi,ti], alt_gene_preds[snp_i,gi,ti],
+                    gene_sed[snp_i,gi,ti], gene_ser[snp_i,gi,ti], ti, target_ids[ti], target_labels[ti]
                 ]
                 if options.csv:
                   print(','.join([str(c) for c in cols]), file=sed_gene_out)
@@ -429,130 +378,84 @@ def main():
                       % tuple(cols),
                       file=sed_gene_out)
 
-          # print tracks
-          for ti in options.track_indexes:
-            ref_bw_file = '%s/tracks/%s_%s_t%d_ref.bw' % (options.out_dir,
-                                                          snp.rsid, seq_i, ti)
-            alt_bw_file = '%s/tracks/%s_%s_t%d_alt.bw' % (options.out_dir,
-                                                          snp.rsid, seq_i, ti)
-            diff_bw_file = '%s/tracks/%s_%s_t%d_diff.bw' % (options.out_dir,
-                                                            snp.rsid, seq_i, ti)
-            ref_bw_open = bigwig_open(ref_bw_file, options.genome_file)
-            alt_bw_open = bigwig_open(alt_bw_file, options.genome_file)
-            diff_bw_open = bigwig_open(diff_bw_file, options.genome_file)
-
-            seq_chrom, seq_start, seq_end = gene_data.seq_coords[seq_i]
-            bw_chroms = [seq_chrom] * ref_preds.shape[0]
-            bw_starts = [
-                int(seq_start + model.batch_buffer + bi * model.target_pool)
-                for bi in range(ref_preds.shape[0])
-            ]
-            bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
-
-            ref_values = [float(p) for p in ref_preds[:, ti]]
-            ref_bw_open.addEntries(
-                bw_chroms, bw_starts, ends=bw_ends, values=ref_values)
-
-            alt_values = [float(p) for p in alt_preds[:, ti]]
-            alt_bw_open.addEntries(
-                bw_chroms, bw_starts, ends=bw_ends, values=alt_values)
-
-            diff_values = [
-                alt_values[vi] - ref_values[vi]
-                for vi in range(len(ref_values))
-            ]
-            diff_bw_open.addEntries(
-                bw_chroms, bw_starts, ends=bw_ends, values=diff_values)
-
-            ref_bw_open.close()
-            alt_bw_open.close()
-            diff_bw_open.close()
-
         # clean up
         gc.collect()
 
   sed_gene_out.close()
-  if options.transcript_table:
-    sed_tx_out.close()
+  if options.tss_table:
+    sed_tss_out.close()
 
 
-class PredStream:
-  """ Interface to acquire predictions via a buffered stream mechanism
-         rather than getting them all at once and using excessive memory.
+def alleles_1hot(gene_seq, seq_1hot, seq_snps):
+  ''' One hot code for gene sequence alleles. '''
 
-    Attrs
-     sess: TF session to predict within
-     model: TF model to predict with
-     seqs_1hot (Nx4XL array): one hot coded gene sequences
-    ...
+  # initialize one hot coding
+  aseqs_1hot = []
 
-    """
+  # add reference allele sequence
+  aseqs_1hot.append(np.copy(seq_1hot))
 
-  def __init__(self, sess, model, seqs_1hot, seqs_snps_list, stream_length, rc,
-               shifts, penultimate):
-    self.sess = sess
-    self.model = model
+  # set all reference alleles
+  for snp in seq_snps:
 
-    self.seqs_1hot = seqs_1hot
+    # determine SNP position wrt sequence
+    snp_seq_pos = snp.pos - 1 - gene_seq.start
 
-    self.seqs_snps_list = seqs_snps_list
+    # verify that the reference allele matches the reference
+    seq_ref = basenji.dna_io.hot1_dna(aseqs_1hot[0][
+      snp_seq_pos:snp_seq_pos + len(snp.ref_allele), :])
+    if seq_ref != snp.ref_allele:
+      print('WARNING: %s - ref allele %s does not match reference genome %s; changing reference genome to match.' % (snp.rsid, snp.ref_allele, seq_ref), file=sys.stderr)
 
-    self.stream_length = stream_length
-    self.stream_start = 0
-    self.stream_end = 0
+      if len(seq_ref) == len(snp.ref_allele):
+        # SNP
+        basenji.dna_io.hot1_set(aseqs_1hot[0], snp_seq_pos, snp.ref_allele)
 
-    if self.stream_length % self.model.batch_size != 0:
-      print(
-          'Make the stream length a multiple of the batch size',
-          file=sys.stderr)
-      exit(1)
+      # not confident in these operations
 
-    self.rc = rc
-    self.shifts = shifts
-    self.penultimate = penultimate
+      # elif len(seq_ref) > len(snp.ref_allele):
+      #   # deletion
+      #   delete_len = len(seq_ref) - len(snp.ref_allele)
+      #   basenji.dna_io.hot1_delete(aseqs_1hot[0], snp_seq_pos + 1, delete_len)
 
-  def __getitem__(self, i):
-    # acquire predictions, if needed
-    if i >= self.stream_end:
-      self.stream_start = self.stream_end
-      self.stream_end = min(self.stream_start + self.stream_length,
-                            len(self.seqs_snps_list))
+      # else:
+      #   # insertion
+      #   basenji.dna_io.hot1_insert(aseqs_1hot[0], snp_seq_pos + 1, snp.ref_allele[1:])
 
-      # construct sequences
-      stream_seqs_1hot = []
-      for ssi in range(self.stream_start, self.stream_end):
-        seq_i, snp_seq_pos, snp = self.seqs_snps_list[ssi]
-        stream_seqs_1hot.append(np.copy(self.seqs_1hot[seq_i]))
-        if snp_seq_pos is not None:
-          if len(snp.ref_allele) == len(snp.alt_alleles[0]):
-            # SNP
-            basenji.dna_io.hot1_set(stream_seqs_1hot[-1], snp_seq_pos,
-                                    snp.alt_alleles[0])
-          elif len(snp.ref_allele) > len(snp.alt_alleles[0]):
-            # deletion
-            delete_len = len(snp.ref_allele) - len(snp.alt_alleles[0])
-            assert (snp.ref_allele[0] == snp.alt_alleles[0][0])
-            basenji.dna_io.hot1_delete(stream_seqs_1hot[-1], snp_seq_pos + 1,
-                                       delete_len)
-          else:
-            # insertion
-            assert (snp.ref_allele[0] == snp.alt_alleles[0][0])
-            basenji.dna_io.hot1_insert(stream_seqs_1hot[-1], snp_seq_pos + 1,
-                                       snp.alt_alleles[0][1:])
+      else:
+        raise Exception('ERROR: reference mismatch indels cannot yet be handled.')
 
-      stream_seqs_1hot = np.array(stream_seqs_1hot)
 
-      # initialize batcher
-      batcher = basenji.batcher.Batcher(
-          stream_seqs_1hot, batch_size=self.model.batch_size)
+  # for each SNP
+  for snp in seq_snps:
 
-      # predict
-      self.stream_preds = self.model.predict(
-                            self.sess, batcher,
-                            rc=self.rc, shifts=self.shifts,
-                            penultimate=self.penultimate)
+    # determine SNP position wrt sequence
+    snp_seq_pos = snp.pos - 1 - gene_seq.start
 
-    return self.stream_preds[i - self.stream_start]
+    # add minor allele sequence
+    aseqs_1hot.append(np.copy(aseqs_1hot[0]))
+    if len(snp.ref_allele) == len(snp.alt_alleles[0]):
+      # SNP
+      basenji.dna_io.hot1_set(aseqs_1hot[-1], snp_seq_pos,
+                              snp.alt_alleles[0])
+
+    elif len(snp.ref_allele) > len(snp.alt_alleles[0]):
+      # deletion
+      delete_len = len(snp.ref_allele) - len(snp.alt_alleles[0])
+      assert (snp.ref_allele[0] == snp.alt_alleles[0][0])
+      basenji.dna_io.hot1_delete(aseqs_1hot[-1], snp_seq_pos + 1,
+                                 delete_len)
+
+    else:
+      # insertion
+      assert (snp.ref_allele[0] == snp.alt_alleles[0][0])
+      basenji.dna_io.hot1_insert(aseqs_1hot[-1], snp_seq_pos + 1,
+                                 snp.alt_alleles[0][1:])
+
+  # finalize
+  aseqs_1hot = np.array(aseqs_1hot)
+
+  return aseqs_1hot
 
 
 ################################################################################

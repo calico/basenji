@@ -95,7 +95,7 @@ def main():
     hdf5_file = args[2]
 
   ################################################################
-  # organize transcript TSS's by chromosome
+  # organize TSS's by chromosome
 
   # read transcripts
   transcripts = basenji.gff.read_genes(gtf_file, key_id='transcript_id')
@@ -103,83 +103,97 @@ def main():
   # read transcript --> gene mapping
   transcript_genes = basenji.gff.t2g(gtf_file)
 
-  # open fasta
-  fasta = pysam.Fastafile(fasta_file)
-
-  # hash transcript TSS's by chromosome
-  chrom_tss = {}
+  # make gene --> strand mapping
+  gene_strand = {}
   for tx_id in transcripts:
-    if transcripts[tx_id].chrom in fasta.references:
-      chrom_tss.setdefault(transcripts[tx_id].chrom, []).append(
-          (transcripts[tx_id].tss(), tx_id))
-    else:
-      print('Missing chromosome')
+    gene_strand[transcript_genes[tx_id]] = transcripts[tx_id].strand
+
+  # cluster TSSs by gene
+  gene_tss = cluster_tss(transcript_genes, transcripts, options.pool_width/2)
+
+  # hash TSS's by chromosome
+  gene_chrom = {}
+  for tx_id in transcripts:
+    gene_id = transcript_genes[tx_id]
+    gene_chrom[gene_id] = transcripts[tx_id].chrom
+
+  chrom_tss = {}
+  for gene_id in gene_tss:
+    for tss_pos in gene_tss[gene_id]:
+      chrom_tss.setdefault(gene_chrom[gene_id],[]).append((tss_pos,gene_id))
 
   # sort TSS's by chromosome
   for chrom in chrom_tss:
     chrom_tss[chrom].sort()
 
+
   ################################################################
   # determine segments / map transcripts
+
+  # open fasta (to verify chromosome presence)
+  fasta = pysam.Fastafile(fasta_file)
 
   chrom_sizes = OrderedDict()
   for line in open(options.genome_file):
     a = line.split()
-    chrom_sizes[a[0]] = int(a[1])
+    if a[0] in fasta.references:
+      chrom_sizes[a[0]] = int(a[1])
+    elif a[0] in chrom_tss:
+      print('FASTA missing chromosome - %s' % a[0], file=sys.stderr)
+      del chrom_tss[a[0]]
 
   merge_distance = options.center_t * options.seq_length
 
   seq_coords = []
-  transcript_map = OrderedDict()
+  tss_list = []
 
   # ordering by options.genome_file allows for easier
   #  bigwig output in downstream scripts.
 
   for chrom in chrom_sizes:
-    if chrom in chrom_tss:
-      ctss = chrom_tss[chrom]
+    ctss = chrom_tss.get(chrom,[])
 
-      left_i = 0
-      while left_i < len(ctss):
-        # left TSS
-        left_tss = ctss[left_i][0]
+    left_i = 0
+    while left_i < len(ctss):
+      # left TSS
+      left_tss = ctss[left_i][0]
 
-        # right TSS
-        right_i = left_i
-        while right_i + 1 < len(
-            ctss) and ctss[right_i + 1][0] - left_tss < merge_distance:
-          right_i += 1
-        right_tss = ctss[right_i][0]
+      # right TSS
+      right_i = left_i
+      while right_i+1 < len(ctss) and ctss[right_i+1][0] - left_tss < merge_distance:
+        right_i += 1
+      right_tss = ctss[right_i][0]
 
-        # determine segment midpoint
-        seg_mid = (left_tss + right_tss) // 2
+      # determine segment midpoint
+      seg_mid = (left_tss + right_tss) // 2
 
-        # extend
-        seg_start = seg_mid - options.seq_length // 2
-        seg_end = seg_start + options.seq_length
+      # extend
+      seg_start = seg_mid - options.seq_length//2
+      seg_end = seg_start + options.seq_length
 
-        # rescue
-        if seg_start < 0 or seg_end >= chrom_sizes[chrom]:
-          if chrom_sizes[chrom] == options.seq_length:
-            seg_start = 0
-            seg_end = options.seq_length
-          elif chrom_sizes[chrom] > options.seq_length:
-            # also rescuable but not important right now
-            pass
+      # rescue
+      if seg_start < 0 or seg_end >= chrom_sizes[chrom]:
+        if chrom_sizes[chrom] == options.seq_length:
+          seg_start = 0
+          seg_end = options.seq_length
+        elif chrom_sizes[chrom] > options.seq_length:
+          # also rescuable but not important right now
+          pass
 
-        # save segment
-        if seg_start >= 0 and seg_end <= chrom_sizes[chrom]:
-          seq_coords.append((chrom, seg_start, seg_end))
+      # save segment
+      if seg_start >= 0 and seg_end <= chrom_sizes[chrom]:
+        seq_coords.append((chrom,seg_start,seg_end))
 
-          # annotate TSS to indexes
-          seg_index = len(seq_coords) - 1
-          for i in range(left_i, right_i + 1):
-            tx_tss, tx_id = ctss[i]
-            tx_pos = (tx_tss - seg_start) // options.pool_width
-            transcript_map[tx_id] = (seg_index, tx_pos)
+        # annotate TSS to indexes
+        seq_index = len(seq_coords)-1
+        for i in range(left_i,right_i+1):
+          tss_pos, gene_id = ctss[i]
+          tss = basenji.gene.TSS('TSS%d'%len(tss_list), gene_id, chrom, tss_pos, seq_index, True, gene_strand[gene_id])
+          tss_list.append(tss)
 
-        # update
-        left_i = right_i + 1
+      # update
+      left_i = right_i + 1
+
 
   ################################################################
   # extract target values
@@ -202,17 +216,17 @@ def main():
     pool = multiprocessing.Pool(options.processes)
 
     # bigwig_read parameters
-    bwt_params = [(wig_file, transcript_map, seq_coords, options.pool_width)
+    bwt_params = [(wig_file, tss_list, seq_coords, options.pool_width)
                   for wig_file in target_wigs.values()]
 
     # pull the target values in parallel
     if options.w5:
-      transcript_targets = pool.starmap(wig5_transcripts, bwt_params)
+      tss_targets = pool.starmap(wig5_tss_targets, bwt_params)
     else:
-      transcript_targets = pool.starmap(bigwig_transcripts, bwt_params)
+      tss_targets = pool.starmap(bigwig_tss_targets, bwt_params)
 
     # convert to array
-    transcript_targets = np.transpose(np.array(transcript_targets))
+    tss_targets = np.transpose(np.array(tss_targets))
 
   ################################################################
   # extract sequences
@@ -236,22 +250,32 @@ def main():
   # store pooling
   hdf5_out.create_dataset('pool_width', data=options.pool_width, dtype='int')
 
-  # store transcript map
-  transcripts = list(transcript_map.keys())
-  transcript_index = np.array(
-      [transcript_map[tx_id][0] for tx_id in transcripts])
-  transcript_pos = np.array([transcript_map[tx_id][1] for tx_id in transcripts])
-
-  hdf5_out.create_dataset('transcripts', data=np.array(transcripts, dtype='S'))
-  hdf5_out.create_dataset('transcript_index', data=transcript_index)
-  hdf5_out.create_dataset('transcript_pos', data=transcript_pos)
-
-  # store genes
-  genes = [transcript_genes[tx_id] for tx_id in transcripts]
-  hdf5_out.create_dataset('genes', data=np.array(genes, dtype='S'))
-
-  # store sequences
+  # store gene sequences
   hdf5_out.create_dataset('seqs_1hot', data=seqs_1hot, dtype='bool')
+
+  # store genesequence coordinates
+  seq_chrom = np.array([sc[0] for sc in seq_coords], dtype='S')
+  seq_start = np.array([sc[1] for sc in seq_coords])
+  seq_end = np.array([sc[2] for sc in seq_coords])
+
+  hdf5_out.create_dataset('seq_chrom', data=seq_chrom)
+  hdf5_out.create_dataset('seq_start', data=seq_start)
+  hdf5_out.create_dataset('seq_end', data=seq_end)
+
+  # store TSSs
+  tss_id = np.array([tss.identifier for tss in tss_list], dtype='S')
+  tss_gene = np.array([tss.gene_id for tss in tss_list], dtype='S')
+  tss_chrom = np.array([tss.chrom for tss in tss_list], dtype='S')
+  tss_pos = np.array([tss.pos for tss in tss_list])
+  tss_seq = np.array([tss.gene_seq for tss in tss_list])
+  tss_strand = np.array([tss.strand for tss in tss_list], dtype='S')
+
+  hdf5_out.create_dataset('tss_id', data=tss_id)
+  hdf5_out.create_dataset('tss_gene', data=tss_gene)
+  hdf5_out.create_dataset('tss_chrom', data=tss_chrom)
+  hdf5_out.create_dataset('tss_pos', data=tss_pos)
+  hdf5_out.create_dataset('tss_seq', data=tss_seq)
+  hdf5_out.create_dataset('tss_strand', data=tss_strand)
 
   # store targets
   if options.target_wigs_file:
@@ -264,152 +288,160 @@ def main():
     hdf5_out.create_dataset('target_labels', data=target_labels)
 
     # values
-    hdf5_out.create_dataset(
-        'transcript_targets', data=transcript_targets, dtype='float16')
-
-  # store sequence coordinates
-  seq_chrom = np.array([sc[0] for sc in seq_coords], dtype='S')
-  seq_start = np.array([sc[1] for sc in seq_coords])
-  seq_end = np.array([sc[2] for sc in seq_coords])
-
-  hdf5_out.create_dataset('seq_chrom', data=seq_chrom)
-  hdf5_out.create_dataset('seq_start', data=seq_start)
-  hdf5_out.create_dataset('seq_end', data=seq_end)
+    hdf5_out.create_dataset('tss_targets', data=tss_targets, dtype='float16')
 
   hdf5_out.close()
 
 
 ################################################################################
-def bigwig_transcripts(wig_file, transcript_map, seq_coords, pool_width=1):
-  """ Read gene target values from a bigwig
-
-    Args:
-      wig_file: Bigwig filename
-      transcript_map: OrderedDict mapping transcript_id to (seq index,seq pos)
-        tuples
-      seq_coords: list of (chrom,start,end) sequence coordinates
-      pool_width: average pool adjacent nucleotides of this width
-
-    Returns:
-      transcript_targets:
-    """
+def bigwig_tss_targets(wig_file, tss_list, seq_coords, pool_width=1):
+  ''' Read gene target values from a bigwig
+  Args:
+    wig_file: Bigwig filename
+    tss_list: list of TSS instances
+    seq_coords: list of (chrom,start,end) sequence coordinates
+    pool_width: average pool adjacent nucleotides of this width
+  Returns:
+    tss_targets:
+  '''
 
   # initialize target values
-  transcript_targets = np.zeros(len(transcript_map), dtype='float16')
+  tss_targets = np.zeros(len(tss_list), dtype='float16')
 
   # open wig
   wig_in = pyBigWig.open(wig_file)
 
-  # so we can warn about missing chromosomes just once
+  # warn about missing chromosomes just once
   warned_chroms = set()
 
-  # for each transcript
-  tx_i = 0
-  for transcript in transcript_map:
-    # determine sequence and position
-    seq_i, seq_pos = transcript_map[transcript]
+  # for each TSS
+  for tss_i in range(len(tss_list)):
+    tss = tss_list[tss_i]
 
     # extract sequence coordinates
-    seq_chrom, seq_start, seq_end = seq_coords[seq_i]
+    seq_chrom, seq_start, seq_end = seq_coords[tss.gene_seq]
 
-    # determine gene genomic coordinates
-    tx_start = seq_start + seq_pos * pool_width
-    tx_end = tx_start + pool_width
+    # determine bin coordinates
+    tss_bin = (tss.pos - seq_start) // pool_width
+    bin_start = seq_start + tss_bin*pool_width
+    bin_end = bin_start + pool_width
 
-    # pull sum (formerly mean value)
+    # pull values
     try:
-      # transcript_targets[tx_i] = wig_in.stats(seq_chrom, tx_start, tx_end)[0]
-      transcript_targets[tx_i] = np.array(
-          wig_in.values(seq_chrom, tx_start, tx_end), dtype='float32').sum()
+      tss_targets[tss_i] = np.array(wig_in.values(seq_chrom, bin_start, bin_end), dtype='float32').sum()
 
     except RuntimeError:
       if seq_chrom not in warned_chroms:
-        print(
-            "WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s"
-            % (wig_file, transcript, seq_chrom, seq_start, seq_end, seq_chrom),
-            file=sys.stderr)
+        print("WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,tss.identifier,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
         warned_chroms.add(seq_chrom)
 
     # check NaN
-    if np.isnan(transcript_targets[tx_i]):
-      print(
-          'WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' %
-          (transcript, seq_chrom, seq_start, seq_end, wig_file),
-          file=sys.stderr)
-      transcript_targets[tx_i] = 0
-
-    tx_i += 1
+    if np.isnan(tss_targets[tss_i]):
+      print('WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' % (tss.identifier, seq_chrom, seq_start, seq_end, wig_file), file=sys.stderr)
+      tss_targets[tss_i] = 0
 
   # close wig file
   wig_in.close()
 
-  return transcript_targets
+  return tss_targets
 
 
 ################################################################################
-def wig5_transcripts(w5_file, transcript_map, seq_coords, pool_width=1):
-  """ Read gene target values from a bigwig
+def cluster_tss(transcript_genes, transcripts, merge_distance):
+  ''' Cluster transcript TSSs and return a dict mapping gene_id
+       to a TSS list. '''
 
-    Args:
-      wig_file: wiggle HDF5 filename
-      transcript_map: OrderedDict mapping transcript_id to (seq index,seq pos)
-        tuples
-      seq_coords: list of (chrom,start,end) sequence coordinates
-      pool_width: average pool adjacent nucleotides of this width
+  # hash gene_id to all TSSs
+  gene_tss_all = {}
+  for tx_id in transcript_genes:
+    gene_id = transcript_genes[tx_id]
+    gene_tss_all.setdefault(gene_id,[]).append(transcripts[tx_id].tss())
 
-    Returns:
-      transcript_targets:
-    """
+  # initialize gene TSS dict
+  gene_tss = {}
+
+  # for each gene
+  for gene_id in gene_tss_all:
+    # initialize TSS cluster summary stats
+    cluster_mean = []
+    cluster_n = []
+
+    # for each sorted TSS
+    for tss_pos in sorted(gene_tss_all[gene_id]):
+      # if it's first, add it
+      if len(cluster_mean) == 0:
+        cluster_mean.append(tss_pos)
+        cluster_n.append(1)
+
+      else:
+        # if it's close to the previous
+        if tss_pos - cluster_mean[-1] < merge_distance:
+          # merge
+          cluster_mean[-1] = (cluster_mean[-1]*cluster_n[-1] + tss_pos) / (cluster_n[-1]+1)
+          cluster_n[-1] += 1
+
+        else:
+          # create a new cluster
+          cluster_mean.append(tss_pos)
+          cluster_n.append(1)
+
+    # map gene_id to TSS cluster means (and correct for GFF to BED index)
+    gene_tss[gene_id] = [int(cm) for cm in cluster_mean]
+
+  return gene_tss
+
+
+################################################################################
+def wig5_tss_targets(w5_file, tss_list, seq_coords, pool_width=1):
+  ''' Read gene target values from a bigwig
+  Args:
+    wig_file: wiggle HDF5 filename
+    tss_list: list of TSS instances
+    seq_coords: list of (chrom,start,end) sequence coordinates
+    pool_width: average pool adjacent nucleotides of this width
+  Returns:
+    tss_targets:
+  '''
 
   # initialize target values
-  transcript_targets = np.zeros(len(transcript_map), dtype='float16')
+  tss_targets = np.zeros(len(tss_list), dtype='float16')
 
   # open wig h5
   w5_in = h5py.File(w5_file)
 
-  # so we can warn about missing chromosomes just once
+  # warn about missing chromosomes just once
   warned_chroms = set()
 
-  # for each transcript
-  tx_i = 0
-  for transcript in transcript_map:
-    # determine sequence and position
-    seq_i, seq_pos = transcript_map[transcript]
+  # for each TSS
+  for tss_i in range(len(tss_list)):
+    tss = tss_list[tss_i]
 
     # extract sequence coordinates
-    seq_chrom, seq_start, seq_end = seq_coords[seq_i]
+    seq_chrom, seq_start, seq_end = seq_coords[tss.gene_seq]
 
-    # determine gene genomic coordinates
-    tx_start = seq_start + seq_pos * pool_width
-    tx_end = tx_start + pool_width
+    # determine bin coordinates
+    tss_bin = (tss.pos - seq_start) // pool_width
+    bin_start = seq_start + tss_bin*pool_width
+    bin_end = bin_start + pool_width
 
-    # pull sum (formerly mean value)
+    # pull values
     try:
-      transcript_targets[tx_i] = w5_in[seq_chrom][tx_start:tx_end].sum(
-          dtype='float32')
+      tss_targets[tss_i] = w5_in[seq_chrom][bin_start:bin_end].sum(dtype='float32')
 
     except RuntimeError:
       if seq_chrom not in warned_chroms:
-        print(
-            "WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s"
-            % (wig_file, transcript, seq_chrom, seq_start, seq_end, seq_chrom),
-            file=sys.stderr)
+        print("WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,tss.identifier,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
         warned_chroms.add(seq_chrom)
 
     # check NaN
-    if np.isnan(transcript_targets[tx_i]):
-      print(
-          'WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' %
-          (transcript, seq_chrom, seq_start, seq_end, wig_file),
-          file=sys.stderr)
-      transcript_targets[tx_i] = 0
-
-    tx_i += 1
+    if np.isnan(tss_targets[tss_i]):
+      print('WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' % (tss.identifier, seq_chrom, seq_start, seq_end, wig_file), file=sys.stderr)
+      tss_targets[tss_i] = 0
 
   # close w5 file
   w5_in.close()
 
-  return transcript_targets
+  return tss_targets
 
 
 ################################################################################

@@ -124,10 +124,10 @@ def main():
       help='Compute SED in the penultimate layer [Default: %default]')
   parser.add_option(
       '-x',
-      dest='transcript_table',
+      dest='tss_table',
       default=False,
       action='store_true',
-      help='Print transcript table in addition to gene [Default: %default]')
+      help='Print TSS table in addition to gene [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 4:
@@ -180,8 +180,8 @@ def main():
   # collect output
 
   collect_table_multi('sed_gene.txt', options.out_dir, options.processes, options.log_pseudo)
-  if options.transcript_table:
-    collect_table('sed_tx.txt', options.out_dir, options.processes)
+  if options.tss_table:
+    collect_table('sed_tss.txt', options.out_dir, options.processes)
 
   if options.track_indexes is not None:
     if not os.path.isdir('%s/tracks' % options.out_dir):
@@ -251,7 +251,7 @@ class MultiLine:
     ti = int(a[9])
     self.preds = {ti:([float(a[5])], [float(a[6])])}
     self.ids = {ti: a[10]}
-    self.labels = {ti: a[11]}
+    self.labels = {ti: ' '.join(a[11:])}
 
   def add(self, a):
     self.snp_dist_gene = min(self.snp_dist_gene, int(a[4]))
@@ -266,7 +266,7 @@ class MultiLine:
     else:
       self.preds[ti] = ([float(a[5])], [float(a[6])])
       self.ids[ti] = a[10]
-      self.labels[ti] = a[11]
+      self.labels[ti] = ' '.join(a[11:])
 
 
   def print_lines(self, out_open, log_pseudo):

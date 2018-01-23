@@ -14,7 +14,7 @@
 # =========================================================================
 
 __all__ = [
-    'accuracy', 'autoencoder', 'batcher', 'dna_io', 'genes', 'genome', 'gff',
+    'accuracy', 'autoencoder', 'batcher', 'dna_io', 'gene', 'genedata', 'genome', 'gff',
     'hyper', 'ops', 'seqnn', 'stream', 'vcf'
 ]
 
@@ -22,7 +22,8 @@ import basenji.accuracy
 import basenji.autoencoder
 import basenji.batcher
 import basenji.dna_io
-import basenji.genes
+import basenji.gene
+import basenji.genedata
 import basenji.genome
 import basenji.gff
 import basenji.hyper

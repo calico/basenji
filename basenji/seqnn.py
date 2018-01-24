@@ -308,65 +308,6 @@ class SeqNN(seqnn_util.SeqNNModel):
       loss_adhoc = tf.nn.log_poisson_loss(
           targets, tf.log(self.preds_adhoc), compute_full_loss=True)
 
-    elif loss_name == 'negative_binomial':
-      # define overdispersion alphas
-      self.alphas = tf.get_variable(
-          'alphas',
-          shape=[self.num_targets],
-          initializer=tf.constant_initializer(-5),
-          dtype=tf.float32)
-      self.alphas = tf.nn.softplus(tf.clip_by_value(self.alphas, -50, 50))
-      tf.summary.histogram('alphas', self.alphas)
-
-      # compute w/ inverse
-      k = 1. / self.alphas
-
-      # expand k
-      k_expand = tf.tile(k, [self.batch_size * seq_length])
-      k_expand = tf.reshape(k_expand, (self.batch_size, seq_length,
-                                       self.num_targets))
-
-      # expand lgamma(k)
-      lgk_expand = tf.tile(tf.lgamma(k), [self.batch_size * seq_length])
-      lgk_expand = tf.reshape(lgk_expand, (self.batch_size, seq_length,
-                                           self.num_targets))
-
-      # construct loss
-      loss1 = targets * tf.log(self.preds_op / (self.preds_op + k_expand))
-      loss2 = k_expand * tf.log(k_expand / (self.preds_op + k_expand))
-      loss3 = tf.lgamma(targets + k_expand) - lgk_expand
-      loss_op = -(loss1 + loss2 + loss3)
-
-      # adhoc
-      loss1 = targets * tf.log(self.preds_adhoc / (self.preds_adhoc + k_expand))
-      loss2 = k_expand * tf.log(k_expand / (self.preds_adhoc + k_expand))
-      loss_adhoc = -(loss1 + loss2 + loss3)
-
-    elif loss_name == 'negative_binomial_hilbe':
-      # define overdispersion alphas
-      self.alphas = tf.get_variable(
-          'alphas',
-          shape=[self.num_targets],
-          initializer=tf.constant_initializer(-5),
-          dtype=tf.float32)
-      self.alphas = tf.exp(tf.clip_by_value(self.alphas, -50, 50))
-
-      # expand
-      alphas_expand = tf.tile(self.alphas, [self.batch_size * seq_length])
-      alphas_expand = tf.reshape(alphas_expand, (self.batch_size, seq_length,
-                                                 self.num_targets))
-
-      # construct loss
-      loss1 = targets * tf.log(self.preds_op)
-      loss2 = (alphas_expand * targets + 1) / alphas_expand
-      loss3 = tf.log(alphas_expand * self.preds_op + 1)
-      loss_op = -loss1 + loss2 * loss3
-
-      # adhoc
-      loss1 = targets * tf.log(self.preds_adhoc)
-      loss3 = tf.log(alphas_expand * self.preds_adhoc + 1)
-      loss_adhoc = -loss1 + loss2 * loss3
-
     elif loss_name == 'gamma':
       # jchan document
       loss_op = targets / self.preds_op + tf.log(self.preds_op)
@@ -398,8 +339,8 @@ class SeqNN(seqnn_util.SeqNNModel):
     loss_adhoc = tf.reduce_mean(loss_adhoc, name='loss_adhoc')
 
     # add extraneous terms
-    loss_op += self.weights_regularizers  # + tf.reduce_mean(tf.log(self.target_sigmas))
-    loss_adhoc += self.weights_regularizers  # + tf.reduce_mean(tf.log(self.target_sigmas))
+    loss_op += self.weights_regularizers
+    loss_adhoc += self.weights_regularizers
 
     # track
     tf.summary.scalar('loss', loss_op)

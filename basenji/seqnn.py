@@ -506,7 +506,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     # other
     ###################################################
-    self.save_reprs = job.get('save_reprs', False)
     self.renorm_clipping = layers.renorm_clipping() if self.batch_renorm else {}
 
   def train_epoch(self,

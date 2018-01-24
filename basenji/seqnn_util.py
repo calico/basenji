@@ -15,64 +15,431 @@ from basenji import accuracy
 
 class SeqNNModel(object):
 
+  def build_grads(self, layers=[0]):
+    ''' Build gradient ops for predictions summed across the sequence for
+         each target with respect to some set of layers.
+    In
+      layers: Optional layer subset list
+    '''
+
+    self.grad_layers = layers
+    self.grad_ops = []
+
+    for ti in range(self.num_targets):
+      grad_ti_op = tf.gradients(self.preds_op[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
+      self.grad_ops.append(grad_ti_op)
+
+
+  def build_grads_genes(self, gene_seqs, layers=[0]):
+    ''' Build gradient ops for TSS position-specific predictions
+         for each target with respect to some set of layers.
+    In
+      gene_seqs:  GeneSeq list, from which to extract TSS positions
+      layers:     Layer subset list.
+    '''
+
+    # save layer indexes
+    self.grad_layers = layers
+
+    # initialize ops
+    self.grad_pos_ops = []
+
+    # determine TSS positions
+    tss_pos = set()
+    for gene_seq in gene_seqs:
+      for tss in gene_seq.tss_list:
+        tss_pos.add(tss.seq_bin(width=self.target_pool, pred_buffer=self.batch_buffer))
+
+    # for each position
+    for pi in range(self.preds_length):
+      self.grad_pos_ops.append([])
+
+      # if it's a TSS position
+      if pi in tss_pos:
+        # build position-specific, target-specific gradient ops
+        for ti in range(self.num_targets):
+          grad_piti_op = tf.gradients(self.preds_op[:,pi,ti], [self.layer_reprs[li] for li in self.grad_layers])
+          self.grad_pos_ops[-1].append(grad_piti_op)
+
+
   def gradients(self,
                 sess,
                 batcher,
-                target_indexes=None,
-                layers=None,
-                return_preds=False):
+                rc=False,
+                shifts=[0],
+                mc_n=0,
+                return_all=False):
     """ Compute predictions on a test set.
 
         In
          sess: TensorFlow session
          batcher: Batcher class with sequence(s)
-         target_indexes: Optional target subset list
-         layers: Optional layer subset list
+         rc: Average predictions from the forward and reverse complement sequences.
+         shifts:
+         mc_n:
+         return_all: Return all ensemble predictions.
 
         Out
-         grads: [S (sequences) x Li (layer i shape) x T (targets) array] * (L
-         layers)
+         layer_grads: [S (sequences) x T (targets) x P (seq position) x U (Units layer i) array] * (L layers)
+         layer_reprs: [S (sequences) x P (seq position) x U (Units layer i) array] * (L layers)
          preds:
         """
 
-    # initialize target_indexes
-    if target_indexes is None:
-      target_indexes = np.array(range(self.num_targets))
-    elif type(target_indexes) != np.ndarray:
-      target_indexes = np.array(target_indexes)
+    #######################################################################
+    # determine ensemble iteration parameters
+
+    ensemble_fwdrc = []
+    ensemble_shifts = []
+    for shift in shifts:
+      ensemble_fwdrc.append(True)
+      ensemble_shifts.append(shift)
+      if rc:
+        ensemble_fwdrc.append(False)
+        ensemble_shifts.append(shift)
+
+    if mc_n > 0:
+      # setup feed dict
+      fd = self.set_mode('test_mc')
+
+    else:
+      # setup feed dict
+      fd = self.set_mode('test')
+
+      # co-opt the variable to represent
+      # iterations per fwdrc/shift.
+      mc_n = 1
+
+    # total ensemble predictions
+    all_n = mc_n * len(ensemble_fwdrc)
+
+
+    #######################################################################
+    # initialize data structures
 
     # initialize gradients
     #  (I need a list for layers because the sizes are different within)
-    #  (I'm using a list for targets because I need to compute them individually)
+    #  (Targets up front, because I need to run their ops one by one)
+    layer_reprs = []
     layer_grads = []
-    for lii in range(len(layers)):
-      layer_grads.append([])
-      for tii in range(len(target_indexes)):
-        layer_grads[lii].append([])
+    layer_reprs_all = []
+    layer_grads_all = []
 
-    # initialize layers
-    if layers is None:
-      layers = range(1 + self.cnn_layers)
-    elif type(layers) != list:
-      layers = [layers]
+    for lii in range(len(self.grad_layers)):
+      li = self.grad_layers[lii]
+      layer_seq_len = self.layer_reprs[li].shape[1].value
+      layer_units = self.layer_reprs[li].shape[2].value
+
+      lr = np.zeros((batcher.num_seqs, layer_seq_len, layer_units),
+                    dtype='float16')
+      layer_reprs.append(lr)
+
+      lg = np.zeros((self.num_targets, batcher.num_seqs,
+                      layer_seq_len, layer_units),
+                      dtype='float16')
+      layer_grads.append(lg)
+
+      if return_all:
+        lra = np.zeros((batcher.num_seqs, layer_seq_len, layer_units, all_n),
+                        dtype='float16')
+        layer_reprs_all.append(lra)
+
+        lgr = np.zeros((self.num_targets, batcher.num_seqs,
+                        layer_seq_len, layer_units, all_n),
+                        dtype='float16')
+        layer_grads_all.append(lgr)
+
 
     # initialize predictions
-    preds = None
-    if return_preds:
-      # determine non-buffer region
-      buf_start = self.batch_buffer // self.target_pool
-      buf_end = (self.seq_length - self.batch_buffer) // self.target_pool
-      buf_len = buf_end - buf_start
+    preds = np.zeros((batcher.num_seqs, self.preds_length, self.num_targets),
+                      dtype='float16')
 
-      # initialize predictions
-      preds = np.zeros(
-          (batcher.num_seqs, buf_len, len(target_indexes)), dtype='float16')
+    if return_all:
+      preds_all = np.zeros((batcher.num_seqs, self.preds_length,
+                            self.num_targets, all_n),
+                            dtype='float16')
 
-      # sequence index
-      si = 0
+    #######################################################################
+    # compute
+
+    # sequence index
+    si = 0
+
+    # get first batch
+    Xb, _, _, Nb = batcher.next()
+
+    while Xb is not None:
+      # ensemble predict
+      preds_batch, layer_reprs_batch, layer_grads_batch = self._gradients_ensemble(
+        sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, return_all=return_all)
+
+      # unpack
+      if return_all:
+        preds_batch, preds_batch_all = preds_batch
+        layer_reprs_batch, layer_reprs_batch_all = layer_reprs_batch
+        layer_grads_batch, layer_grads_batch_all = layer_grads_batch
+
+      # accumulate predictions
+      preds[si:si+Nb,:,:] = preds_batch[:Nb,:,:]
+      if return_all:
+        preds_all[si:si+Nb,:,:,:] = preds_batch_all[:Nb,:,:,:]
+
+      # accumulate representations
+      for lii in range(len(self.grad_layers)):
+        layer_reprs[lii][si:si+Nb] = layer_reprs_batch[lii][:Nb]
+        if return_all:
+          layer_reprs_all[lii][si:si+Nb] = layer_reprs_batch_all[lii][:Nb]
+
+      # accumulate gradients
+      for lii in range(len(self.grad_layers)):
+        for ti in range(self.num_targets):
+          layer_grads[lii][ti,si:si+Nb,:,:] = layer_grads_batch[lii][ti,:Nb,:,:]
+          if return_all:
+            layer_grads_all[lii][ti,si:si+Nb,:,:,:] = layer_grads_batch_all[lii][ti,:Nb,:,:,:]
+
+      # update sequence index
+      si += Nb
+
+      # next batch
+      Xb, _, _, Nb = batcher.next()
+
+    # reset training batcher
+    batcher.reset()
+
+
+    #######################################################################
+    # modify and return
+
+    # move sequences to front
+    for lii in range(len(self.grad_layers)):
+      layer_grads[lii] = np.transpose(layer_grads[lii], [1,0,2,3])
+      if return_all:
+        layer_grads_all[lii] = np.transpose(layer_grads_all[lii], [1,0,2,3,4])
+
+    if return_all:
+      return layer_grads, layer_reprs, preds, layer_grads_all, layer_reprs_all, preds_all
+    else:
+      return layer_grads, layer_reprs, preds
+
+
+  def _gradients_ensemble(self, sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, return_var=False, return_all=False):
+    """ Compute gradients over an ensemble of input augmentations.
+
+      In
+       sess: TensorFlow session
+       fd: feed dict
+       Xb: input data
+       ensemble_fwdrc:
+       ensemble_shifts:
+       mc_n:
+       return_var:
+       return_all: Return all ensemble predictions.
+
+      Out
+       preds:
+       layer_reprs:
+       layer_grads
+    """
+
+    # initialize batch predictions
+    preds = np.zeros((Xb.shape[0], self.preds_length, self.num_targets), dtype='float32')
+
+    # initialize layer representations and gradients
+    layer_reprs = []
+    layer_grads = []
+    for lii in range(len(self.grad_layers)):
+      li = self.grad_layers[lii]
+      layer_seq_len = self.layer_reprs[li].shape[1].value
+      layer_units = self.layer_reprs[li].shape[2].value
+
+      lr = np.zeros((Xb.shape[0], layer_seq_len, layer_units), dtype='float16')
+      layer_reprs.append(lr)
+
+      lg = np.zeros((self.num_targets, Xb.shape[0], layer_seq_len, layer_units), dtype='float16')
+      layer_grads.append(lg)
+
+
+    # initialize variance
+    if return_var:
+      preds_var = np.zeros(preds.shape, dtype='float32')
+
+      layer_reprs_var = []
+      layer_grads_var = []
+      for lii in range(len(self.grad_layers)):
+        layer_reprs_var.append(np.zeros(layer_reprs.shape, dtype='float32'))
+        layer_grads_var.append(np.zeros(layer_grads.shape, dtype='float32'))
+    else:
+      preds_var = None
+      layer_grads_var = [None]*len(self.grad_layers)
+
+
+    # initialize all-saving arrays
+    if return_all:
+      all_n = mc_n * len(ensemble_fwdrc)
+      preds_all = np.zeros((Xb.shape[0], self.preds_length, self.num_targets, all_n), dtype='float16')
+
+      layer_reprs_all = []
+      layer_grads_all = []
+      for lii in range(len(self.grad_layers)):
+        ls = tuple(list(layer_reprs[lii].shape) + [all_n])
+        layer_reprs_all.append(np.zeros(ls, dtype='float16'))
+
+        ls = tuple(list(layer_grads[lii].shape) + [all_n])
+        layer_grads_all.append(np.zeros(ls, dtype='float16'))
+    else:
+      preds_all = None
+      layer_grads_all = [None]*len(self.grad_layers)
+
+
+    running_i = 0
+
+    for ei in range(len(ensemble_fwdrc)):
+      # construct sequence
+      Xb_ensemble = hot1_augment(Xb, ensemble_fwdrc[ei], ensemble_shifts[ei])
+
+      # update feed dict
+      fd[self.inputs] = Xb_ensemble
+
+      # for each monte carlo (or non-mc single) iteration
+      for mi in range(mc_n):
+        # print('ei=%d, mi=%d, fwdrc=%d, shifts=%d' % \
+        #       (ei, mi, ensemble_fwdrc[ei], ensemble_shifts[ei]),
+        #       flush=True)
+
+        ##################################################
+        # prediction
+
+        # predict
+        preds_ei, layer_reprs_ei = sess.run([self.preds_op, self.layer_reprs], feed_dict=fd)
+
+        # reverse
+        if ensemble_fwdrc[ei] is False:
+          preds_ei = preds_ei[:,::-1,:]
+
+        # save previous mean
+        preds1 = preds
+
+        # update mean
+        preds = self.running_mean(preds1, preds_ei, running_i+1)
+
+        # update variance sum
+        if return_var:
+          preds_var = self.running_varsum(preds_var, preds_ei, preds1, preds)
+
+        # save iteration
+        if return_all:
+          preds_all[:,:,:,running_i] = preds_ei[:,:,:]
+
+
+        ##################################################
+        # representations
+
+        for lii in range(len(self.grad_layers)):
+          li = self.grad_layers[lii]
+
+          # reverse
+          if ensemble_fwdrc[ei] is False:
+            layer_reprs_ei[li] = layer_reprs_ei[li][:,::-1,:]
+
+          # save previous mean
+          layer_reprs_lii1 = layer_reprs[lii]
+
+          # update mean
+          layer_reprs[lii] = self.running_mean(layer_reprs_lii1, layer_reprs_ei[li], running_i+1)
+
+          # update variance sum
+          if return_var:
+            layer_reprs_var[lii] = self.running_varsum(layer_reprs_var[lii], layer_reprs_ei[li],
+                                                  layer_reprs_lii1, layer_reprs[lii])
+
+          # save iteration
+          if return_all:
+            layer_reprs_all[lii][:,:,:,running_i] = layer_reprs_ei[li]
+
+
+        ##################################################
+        # gradients
+
+        # compute gradients for each target individually
+        for ti in range(self.num_targets):
+          # compute gradients
+          layer_grads_ti_ei = sess.run(self.grad_ops[ti], feed_dict=fd)
+
+          for lii in range(len(self.grad_layers)):
+            # reverse
+            if ensemble_fwdrc[ei] is False:
+              layer_grads_ti_ei[lii] = layer_grads_ti_ei[lii][:,::-1,:]
+
+            # save predious mean
+            layer_grads_lii_ti1 = layer_grads[lii][ti]
+
+            # update mean
+            layer_grads[lii][ti] = self.running_mean(layer_grads_lii_ti1, layer_grads_ti_ei[lii], running_i+1)
+
+            # update variance sum
+            if return_var:
+              layer_grads_var[lii][ti] = self.running_varsum(layer_grads_var[lii][ti], layer_grads_ti_ei[lii],
+                                                          layer_grads_lii_ti1, layer_grads[lii][ti])
+
+            # save iteration
+            if return_all:
+              layer_grads_all[lii][ti,:,:,:,running_i] = layer_grads_ti_ei[lii]
+
+        # update running index
+        running_i += 1
+
+    if return_var:
+      return (preds, preds_var), (layer_reprs, layer_reprs_var), (layer_grads, layer_grads_var)
+    elif return_all:
+      return (preds, preds_all), (layer_reprs, layer_reprs_all), (layer_grads, layer_grads_all)
+    else:
+      return preds, layer_reprs, layer_grads
+
+  def gradients_genes(self, sess, batcher, gene_seqs, rc=False):
+    ''' Compute predictions on a test set.
+    In
+     sess:       TensorFlow session
+     batcher:    Batcher class with sequence(s)
+     gene_seqs:  List of GeneSeq instances specifying gene positions in sequences.
+     rc:         Average predictions from the forward and reverse complement sequences.
+    Out
+     layer_grads: [G (TSSs) x T (targets) x P (seq position) x U (Units layer i) array] * (L layers)
+     layer_reprs: [S (sequences) x P (seq position) x U (Units layer i) array] * (L layers)
+    Notes
+     -Reverse complements aren't implemented yet. They're trickier here, because
+      I'd need to build more gradient ops to match the flipped positions.
+    '''
+
+    # count TSSs
+    tss_num = 0
+    for gene_seq in gene_seqs:
+      tss_num += len(gene_seq.tss_list)
+
+    # initialize gradients and representations
+    #  (I need a list for layers because the sizes are different within)
+    #  (TSSxTargets up front, because I need to run their ops one by one)
+    layer_grads = []
+    layer_reprs = []
+    for lii in range(len(self.grad_layers)):
+      li = self.grad_layers[lii]
+      layer_seq_len = self.layer_reprs[li].shape[1].value
+      layer_units = self.layer_reprs[li].shape[2].value
+
+      # gradients
+      lg = np.zeros((tss_num, self.num_targets, layer_seq_len, layer_units), dtype='float16')
+      layer_grads.append(lg)
+
+      # representations
+      lr = np.zeros((batcher.num_seqs, layer_seq_len, layer_units), dtype='float16')
+      layer_reprs.append(lr)
 
     # setup feed dict for dropout
     fd = self.set_mode('test')
+
+    # TSS index
+    tss_i = 0
+
+    # sequence index
+    si = 0
 
     # get first batch
     Xb, _, _, Nb = batcher.next()
@@ -82,36 +449,32 @@ class SeqNNModel(object):
       fd[self.inputs] = Xb
 
       # predict
-      preds_batch = sess.run(self.preds_op, feed_dict=fd)
+      reprs_batch, _ = sess.run([self.layer_reprs, self.preds_op], feed_dict=fd)
 
-      # compute gradients for each target individually
-      for tii in range(len(target_indexes)):
-        ti = target_indexes[tii]
+      # save representations
+      for lii in range(len(self.grad_layers)):
+        li = self.grad_layers[lii]
+        layer_reprs[lii][si:si+Nb] = reprs_batch[li][:Nb]
 
-        # compute gradients over all positions
-        grads_op = tf.gradients(self.preds_op[:, :, ti],
-                                [self.layer_reprs[li] for li in layers])
-        grads_batch_raw = sess.run(grads_op, feed_dict=fd)
+      # compute gradients for each TSS position individually
+      for bi in range(Nb):
+        for tss in gene_seqs[si+bi].tss_list:
+          # get TSS prediction bin position
+          pi = tss.seq_bin(width=self.target_pool, pred_buffer=self.batch_buffer)
 
-        for lii in range(len(layers)):
-          # clean up
-          grads_batch = grads_batch_raw[lii][:Nb].astype('float16')
-          if grads_batch.shape[1] == 1:
-            grads_batch = grads_batch.squeeze(axis=1)
+          for ti in range(self.num_targets):
+            # compute gradients over all positions
+            grads_batch = sess.run(self.grad_pos_ops[pi][ti], feed_dict=fd)
 
-          # save
-          layer_grads[lii][tii].append(grads_batch)
+            # accumulate gradients
+            for lii in range(len(self.grad_layers)):
+              layer_grads[lii][tss_i,ti,:,:] = grads_batch[lii][bi]
 
-      if return_preds:
-        # filter for specific targets
-        if target_indexes is not None:
-          preds_batch = preds_batch[:, :, target_indexes]
+          # update TSS index
+          tss_i += 1
 
-        # accumulate predictions
-        preds[si:si + Nb, :, :] = preds_batch[:Nb, :, :]
-
-        # update sequence index
-        si += Nb
+      # update sequence index
+      si += Nb
 
       # next batch
       Xb, _, _, Nb = batcher.next()
@@ -119,181 +482,8 @@ class SeqNNModel(object):
     # reset training batcher
     batcher.reset()
 
-    # stack into arrays
-    for lii in range(len(layers)):
-      for tii in range(len(target_indexes)):
-        # stack sequences
-        layer_grads[lii][tii] = np.vstack(layer_grads[lii][tii])
+    return layer_grads, layer_reprs
 
-      # transpose targets to back
-      layer_grads[lii] = np.array(layer_grads[lii])
-      if layer_grads[lii].ndim == 4:
-        # length dimension
-        layer_grads[lii] = np.transpose(layer_grads[lii], [1, 2, 3, 0])
-      else:
-        # no length dimension
-        layer_grads[lii] = np.transpose(layer_grads[lii], [1, 2, 0])
-
-    if return_preds:
-      return layer_grads, preds
-    else:
-      return layer_grads
-
-  def gradients_pos(self,
-                    sess,
-                    batcher,
-                    position_indexes,
-                    target_indexes=None,
-                    layers=None,
-                    return_preds=False):
-    """ Compute predictions on a test set.
-
-        In
-         sess: TensorFlow session
-         batcher: Batcher class with sequence(s)
-         position_indexes: Optional position subset list
-         target_indexes: Optional target subset list
-         layers: Optional layer subset list
-
-        Out
-         grads: [S (sequences) x Li (layer i shape) x T (targets) array] * (L
-         layers)
-         preds:
-        """
-
-    # initialize target_indexes
-    if target_indexes is None:
-      target_indexes = np.array(range(self.num_targets))
-    elif type(target_indexes) != np.ndarray:
-      target_indexes = np.array(target_indexes)
-
-    # initialize layers
-    if layers is None:
-      layers = range(1 + self.cnn_layers)
-    elif type(layers) != list:
-      layers = [layers]
-
-    # initialize gradients
-    #  (I need a list for layers because the sizes are different within)
-    #  (I'm using a list for positions/targets because I don't know the downstream object size)
-    layer_grads = []
-    for lii in range(len(layers)):
-      layer_grads.append([])
-      for pii in range(len(position_indexes)):
-        layer_grads[lii].append([])
-        for tii in range(len(target_indexes)):
-          layer_grads[lii][pii].append([])
-
-    # initialize layer reprs
-    layer_reprs = []
-    for lii in range(len(layers)):
-      layer_reprs.append([])
-
-    # initialize predictions
-    preds = None
-    if return_preds:
-      # determine non-buffer region
-      buf_start = self.batch_buffer // self.target_pool
-      buf_end = (self.seq_length - self.batch_buffer) // self.target_pool
-      buf_len = buf_end - buf_start
-
-      # initialize predictions
-      preds = np.zeros(
-          (batcher.num_seqs, buf_len, len(target_indexes)), dtype='float16')
-
-      # sequence index
-      si = 0
-
-    # setup feed dict for dropout
-    fd = self.set_mode('test')
-
-    # get first batch
-    Xb, _, _, Nb = batcher.next()
-
-    while Xb is not None:
-      # update feed dict
-      fd[self.inputs] = Xb
-
-      # predict (allegedly takes zero time beyond the first sequence?)
-      reprs_batch_raw, preds_batch = sess.run(
-          [self.layer_reprs, self.preds_op], feed_dict=fd)
-
-      # clean up layer repr
-      reprs_batch = reprs_batch_raw[layers[lii]][:Nb].astype('float16')
-      if reprs_batch.shape[1] == 1:
-        reprs_batch = reprs_batch.squeeze(axis=1)
-
-      # save repr
-      layer_reprs[lii].append(reprs_batch)
-
-      # for each target
-      t0 = time.time()
-      for tii in range(len(target_indexes)):
-        ti = target_indexes[tii]
-
-        # for each position
-        for pii in range(len(position_indexes)):
-          pi = position_indexes[pii]
-
-          # adjust for buffer
-          pi -= self.batch_buffer // self.target_pool
-
-          # compute gradients
-          grads_op = tf.gradients(self.preds_op[:, pi, ti],
-                                  [self.layer_reprs[li] for li in layers])
-          grads_batch_raw = sess.run(grads_op, feed_dict=fd)
-
-          for lii in range(len(layers)):
-            # clean up
-            grads_batch = grads_batch_raw[lii][:Nb].astype('float16')
-            if grads_batch.shape[1] == 1:
-              grads_batch = grads_batch.squeeze(axis=1)
-
-            # save
-            layer_grads[lii][pii][tii].append(grads_batch)
-
-      if return_preds:
-        # filter for specific targets
-        if target_indexes is not None:
-          preds_batch = preds_batch[:, :, target_indexes]
-
-        # accumulate predictions
-        preds[si:si + Nb, :, :] = preds_batch[:Nb, :, :]
-
-        # update sequence index
-        si += Nb
-
-      # next batch
-      Xb, _, _, Nb = batcher.next()
-
-    # reset training batcher
-    batcher.reset()
-    gc.collect()
-
-    # stack into arrays
-    for lii in range(len(layers)):
-      layer_reprs[lii] = np.vstack(layer_reprs[lii])
-
-      for pii in range(len(position_indexes)):
-        for tii in range(len(target_indexes)):
-          # stack sequences
-          layer_grads[lii][pii][tii] = np.vstack(layer_grads[lii][pii][tii])
-
-      # collapse position into arrays
-      layer_grads[lii] = np.array(layer_grads[lii])
-
-      # transpose positions and targets to back
-      if layer_grads[lii].ndim == 5:
-        # length dimension
-        layer_grads[lii] = np.transpose(layer_grads[lii], [2, 3, 4, 0, 1])
-      else:
-        # no length dimension
-        layer_grads[lii] = np.transpose(layer_grads[lii][2, 3, 0, 1])
-
-    if return_preds:
-      return layer_grads, layer_reprs, preds
-    else:
-      return layer_grads, layer_reprs
 
   def hidden(self, sess, batcher, layers=None):
     """ Compute hidden representations for a test set. """
@@ -346,6 +536,7 @@ class SeqNNModel(object):
     preds = np.vstack(preds)
 
     return layer_reprs, preds
+
 
   def _predict_ensemble(self,
                         sess,
@@ -531,7 +722,7 @@ class SeqNNModel(object):
 
     while Xb is not None:
       # make ensemble predictions
-      preds_batch, preds_batch_var, preds_all = self._predict_ensemble(
+      preds_batch, preds_batch_var, preds_batch_all = self._predict_ensemble(
           sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes,
           target_indexes, return_var, return_all, penultimate)
 
@@ -540,7 +731,7 @@ class SeqNNModel(object):
       if return_var:
         preds_var[si:si + Nb, :, :] = preds_batch_var[:Nb, :, :] / (all_n - 1)
       if return_all:
-        preds_all[si:si + Nb, :, :, :] = preds_all[:Nb, :, :, :]
+        preds_all[si:si + Nb, :, :, :] = preds_batch_all[:Nb, :, :, :]
 
       # update sequence index
       si += Nb
@@ -574,7 +765,7 @@ class SeqNNModel(object):
         In
          sess:            TensorFlow session
          batcher:         Batcher class with transcript-covering sequences
-         transcript_map:  OrderedDict mapping transcript id's to (sequence
+         gene_seqs        List of GeneSeq instances specifying gene positions in sequences.
          index, position) tuples marking TSSs.
          rc:              Average predictions from the forward and reverse
          complement sequences.
@@ -589,7 +780,8 @@ class SeqNNModel(object):
         """
 
     # predict gene sequences
-    gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n, target_indexes=target_indexes, penultimate=penultimate)
+    gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
+                              target_indexes=target_indexes, penultimate=penultimate)
 
     # count TSSs
     tss_num = 0

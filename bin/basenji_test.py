@@ -36,6 +36,7 @@ from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, av
 import tensorflow as tf
 
 import basenji
+
 """basenji_test.py
 
 Test the accuracy of a trained model.
@@ -45,7 +46,6 @@ Notes
   update the "full" comparison, but it's not tested. The notion of peak calls
   will need to completely change; we probably want to predict in each bin.
 """
-
 
 ################################################################################
 # main
@@ -99,8 +99,20 @@ def main():
       'Average the forward and reverse complement predictions when testing [Default: %default]'
   )
   parser.add_option(
-      '-s', dest='scent_file', help='Dimension reduction model file')
-  parser.add_option('--save', dest='save', default=False, action='store_true')
+      '-s',
+      dest='scent_file',
+      help='Dimension reduction model file')
+  parser.add_option(
+      '--sample',
+      dest='sample_pct',
+      default=1,
+      type='float',
+      help='Sample percentage')
+  parser.add_option(
+      '--save',
+      dest='save',
+      default=False,
+      action='store_true')
   parser.add_option(
       '--shifts',
       dest='shifts',
@@ -114,6 +126,12 @@ def main():
       '--ti',
       dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option(
+      '--train',
+      dest='train',
+      default=False,
+      action='store_true',
+      help='Process the training set [Default: %default]')
   parser.add_option(
       '-v',
       dest='valid',
@@ -147,19 +165,35 @@ def main():
   #######################################################
   data_open = h5py.File(test_hdf5_file)
 
-  if not options.valid:
+  if options.train:
+    test_seqs = data_open['train_in']
+    test_targets = data_open['train_out']
+    if 'train_na' in data_open:
+      test_na = data_open['train_na']
+
+  elif options.valid:
+    test_seqs = data_open['valid_in']
+    test_targets = data_open['valid_out']
+    test_na = None
+    if 'valid_na' in data_open:
+      test_na = data_open['valid_na']
+
+  else:
     test_seqs = data_open['test_in']
     test_targets = data_open['test_out']
     test_na = None
     if 'test_na' in data_open:
       test_na = data_open['test_na']
 
-  else:
-    test_seqs = data_open['valid_in']
-    test_targets = data_open['valid_out']
-    test_na = None
-    if 'test_na' in data_open:
-      test_na = data_open['valid_na']
+  if options.sample_pct < 1:
+    sample_n = int(test_seqs.shape[0]*options.sample_pct)
+    print('Sampling %d sequences' % sample_n)
+    sample_indexes = sorted(np.random.choice(np.arange(test_seqs.shape[0]),
+                                              size=sample_n, replace=False))
+    test_seqs = test_seqs[sample_indexes]
+    test_targets = test_targets[sample_indexes]
+    if test_na is not None:
+      test_na = test_na[sample_indexes]
 
   target_labels = [tl.decode('UTF-8') for tl in data_open['target_labels']]
 

@@ -119,7 +119,7 @@ class GeneData:
 
   def gene_ids(self):
     """ Return a list of gene identifiers """
-    return list(self.gene_tss().keys())
+    return list(self.gene_tss.keys())
 
 
   def subset_genes(self, gene_ids):

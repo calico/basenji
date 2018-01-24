@@ -94,6 +94,9 @@ def main():
     gtf_file = args[1]
     hdf5_file = args[2]
 
+  if options.target_wigs_file is not None:
+    check_wigs(options.target_wigs_file)
+
   ################################################################
   # organize TSS's by chromosome
 
@@ -344,6 +347,16 @@ def bigwig_tss_targets(wig_file, tss_list, seq_coords, pool_width=1):
   wig_in.close()
 
   return tss_targets
+
+
+################################################################################
+def check_wigs(target_wigs_file):
+  for line in open(target_wigs_file):
+    a = line.rstrip().split('\t')
+    wig_file = a[1]
+    if not os.path.isfile(wig_file):
+      print('Cannot find %s' % wig_file, file=sys.stderr)
+      exit(1)
 
 
 ################################################################################

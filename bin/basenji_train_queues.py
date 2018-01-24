@@ -117,7 +117,7 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch,
 
         sess.run(training_init_op)
         # train
-        train_loss = dr.train_epoch_from_data_ops(sess, train_writer,
+        train_loss, steps = dr.train_epoch_from_data_ops(sess, train_writer,
                                                   batches_per_epoch)
 
         sess.run(test_init_op)
@@ -149,11 +149,8 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch,
 
         # print update
         print(
-            'Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f,' %
-            (epoch + 1, train_loss, valid_loss),
-            end='')
-        print(
-            ' Valid R2: %7.5f, Time: %s%s' % (valid_r2, time_str, best_str),
+            'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s'
+            % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str),
             end='')
 
         # if training stagnant

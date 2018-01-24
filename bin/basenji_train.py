@@ -162,8 +162,8 @@ def run(params_file, data_file, num_train_epochs):
         shift_i = epoch % len(shifts)
 
         # train
-        train_loss = dr.train_epoch(sess, batcher_train, fwdrc, shifts[shift_i],
-                                    train_writer)
+        train_loss, steps = dr.train_epoch(sess, batcher_train, fwdrc,
+                                    shifts[shift_i], train_writer)
 
         # validate
         valid_acc = dr.test(
@@ -192,8 +192,8 @@ def run(params_file, data_file, num_train_epochs):
 
         # print update
         print(
-            'Epoch %3d: Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Time: %s%s'
-            % (epoch + 1, train_loss, valid_loss, valid_r2, time_str, best_str),
+            'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s'
+            % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str),
             end='')
 
         # if training stagnant

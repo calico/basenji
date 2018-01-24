@@ -558,7 +558,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     if batches_per_epoch == 0:
       batcher.reset()
 
-    return np.mean(train_loss)
+    return np.mean(train_loss), self.step
 
   def train_epoch_from_data_ops(self,
                                 sess,
@@ -589,7 +589,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
       self.step += 1
 
-    return np.mean(train_loss)
+    return np.mean(train_loss), self.step
 
 
 def layer_extend(var, default, layers):

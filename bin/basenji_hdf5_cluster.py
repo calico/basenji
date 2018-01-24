@@ -30,7 +30,6 @@ import joblib
 import numpy as np
 import pyBigWig
 import pysam
-import tensorflow as tf
 
 import slurm
 
@@ -251,7 +250,7 @@ def main():
       outf = '%s/%s.out' % (options.cluster_dir, target_label)
       errf = '%s/%s.err' % (options.cluster_dir, target_label)
       j = slurm.Job(
-          cmd, name, outf, errf, queue='flash', mem=16000, time='4:0:0')
+          cmd, name, outf, errf, queue='general', mem=15000, time='12:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs)

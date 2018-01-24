@@ -29,10 +29,26 @@ class GeneSeq:
     self.chrom = chrom
     self.start = start
     self.end = end
+
     if tss_list is None:
       self.tss_list = []
     else:
       self.tss_list = tss_list
+    self.num_tss = len(self.tss_list)
+
+    # map genes to TSS indexes
+    self.gene_tss = OrderedDict()
+    for tss_i in range(self.num_tss):
+      gene_id = self.tss_list[tss_i].gene_id
+      self.gene_tss.setdefault(gene_id,[]).append(tss_i)
+    self.num_genes = len(self.gene_tss)
+
+  def gene_names(self, tss=False):
+    ''' Return gene/TSS names. '''
+    if tss:
+      return [tss.identifier for tss in self.tss_list]
+    else:
+      return list(self.gene_tss.keys())
 
   def num_tss(self):
     return len(self.tss_list)

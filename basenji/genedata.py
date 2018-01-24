@@ -68,6 +68,21 @@ class GeneData:
       # append to GeneSeq
       tss_seq.tss_list.append(tss)
 
+    self.num_tss = len(self.tss)
+
+    #########################################
+    # gene information
+
+    self.gene_tss = OrderedDict()
+    self.gene_index = OrderedDict()
+
+    for tss_i in range(len(self.tss)):
+      gene_id = self.tss[tss_i].gene_id
+      self.gene_tss.setdefault(gene_id,[]).append(tss_i)
+      if gene_id not in self.gene_index:
+        self.gene_index[gene_id] = len(self.gene_index)
+
+    self.num_genes = len(self.gene_tss)
 
     #########################################
     # determine genes split across sequences
@@ -102,18 +117,9 @@ class GeneData:
       self.num_targets = None
 
 
-
   def gene_ids(self):
     """ Return a list of gene identifiers """
     return list(self.gene_tss().keys())
-
-
-  def gene_tss(self):
-    """ Return an OrderedDict mapping gene_id's to TSS indexes. """
-    gene_tss = OrderedDict()
-    for tss_i in range(len(self.tss)):
-      gene_tss.setdefault(self.tss[tss_i].gene_id,[]).append(tss_i)
-    return gene_tss
 
 
   def subset_genes(self, gene_ids):

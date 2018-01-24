@@ -406,9 +406,6 @@ def alternative_tss(tss_targets, tss_preds, gene_data, out_base, log_pseudo=1, t
   # compute
   tss_targets_var = tss_targets_qn.var(axis=1, dtype='float64')
 
-  # hash genes to TSSs
-  gene_tss = gene_data.gene_tss()
-
   # save genes for later plotting
   gene_tss12_targets = []
   gene_tss12_preds = []
@@ -420,7 +417,7 @@ def alternative_tss(tss_targets, tss_preds, gene_data, out_base, log_pseudo=1, t
 
   for gene_id in gene_tss:
     # sort TSS by variance
-    var_tss_list = [(tss_targets_var[tss_i],tss_i) for tss_i in gene_tss[gene_id]]
+    var_tss_list = [(tss_targets_var[tss_i],tss_i) for tss_i in gene_data.gene_tss[gene_id]]
     var_tss_list.sort(reverse=True)
 
     # filter for high variance

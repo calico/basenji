@@ -164,12 +164,14 @@ def main():
   ################################################################
   # get wig files and labels
   target_wigs = OrderedDict()
+  target_strands = []
   target_labels = []
   for line in open(sample_wigs_file, encoding='UTF-8'):
     a = line.rstrip().split('\t')
     target_wigs[a[0]] = a[1]
-    if len(a) > 2:
-      target_labels.append(a[2])
+    target_strands.append(a[2])
+    if len(a) > 3:
+      target_labels.append(a[3])
     else:
       target_labels.append('')
 
@@ -355,6 +357,9 @@ def main():
 
   target_labels = np.array(target_labels, dtype='S')
   hdf5_out.create_dataset('target_labels', data=target_labels)
+
+  target_strands = np.array(target_strands, dtype='S')
+  hdf5_out.create_dataset('target_strands', data=target_strands)
 
   # HDF5 train
   hdf5_out.create_dataset(

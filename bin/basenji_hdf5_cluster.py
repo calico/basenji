@@ -284,14 +284,11 @@ def main():
 
     # determine mappable sequences and update test indexes
     map_indexes = []
-    test_i = 0
 
     for i in range(seqs_na.shape[0]):
       # mappable
-      if seqs_na[i, :].mean() < options.na_t:
+      if seqs_na[i, :].mean(dtype='float64') < options.na_t:
         map_indexes.append(i)
-
-        test_i += 1
 
       # unmappable
       else:
@@ -341,9 +338,9 @@ def main():
       set(range(len(seqs_segments))) - set(valid_indexes) - set(test_indexes))
 
   # training may require shuffling
-  random.shuffle(train_indexes)
-  random.shuffle(valid_indexes)
-  random.shuffle(test_indexes)
+  random.shuffle(sorted(train_indexes))
+  random.shuffle(sorted(valid_indexes))
+  random.shuffle(sorted(test_indexes))
 
   # write to HDF5
   hdf5_out = h5py.File(hdf5_file, 'w')

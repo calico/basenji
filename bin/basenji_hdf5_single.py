@@ -31,9 +31,9 @@ import joblib
 import numpy as np
 import pyBigWig
 import pysam
-import tensorflow as tf
 
 import basenji
+import tensorflow as tf
 
 '''
 basenji_hdf5_single.py
@@ -88,6 +88,14 @@ def main():
       '-m',
       dest='params_file',
       help='Dimension reduction hyper-parameters file')
+  parser.add_option(
+      '--mult_cov',
+      dest='cov_multiplier',
+      default=1,
+      type='float',
+      help=
+      'Coverage multiplier, useful when the read extension and pool width do not match [Default: %default]'
+  )
   parser.add_option(
       '-n',
       dest='na_t',
@@ -162,17 +170,22 @@ def main():
 
   random.seed(1)
 
+  if options.stride is None:
+    options.stride = options.seq_length
+
   ################################################################
   # assess bigwigs
   ################################################################
   # get wig files and labels
   target_wigs = OrderedDict()
+  target_strands = []
   target_labels = []
   for line in open(sample_wigs_file, encoding='UTF-8'):
     a = line.rstrip().split('\t')
     target_wigs[a[0]] = a[1]
-    if len(a) > 2:
-      target_labels.append(a[2])
+    target_strands.append(a[2])
+    if len(a) > 3:
+      target_labels.append(a[3])
     else:
       target_labels.append('')
 
@@ -401,7 +414,7 @@ def main():
   else:
     # sample valid indexes (we already have test)
     valid_pct = float(options.valid_pct_or_chr)
-    valid_n = int(options.valid_pct * targets_real.shape[0])
+    valid_n = int(valid_pct * targets_real.shape[0])
     nontest_indexes = set(range(targets_real.shape[0])) - set(test_indexes)
     valid_indexes = random.sample(nontest_indexes, valid_n)
 
@@ -426,6 +439,9 @@ def main():
 
   target_labels = np.array(target_labels, dtype='S')
   hdf5_out.create_dataset('target_labels', data=target_labels)
+
+  target_strands = np.array(target_strands, dtype='S')
+  hdf5_out.create_dataset('target_strands', data=target_strands)
 
   # HDF5 train
   hdf5_out.create_dataset(
@@ -567,6 +583,19 @@ def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
 
     seg_unmap_start_i = math.floor((unmap_start - seg_start) / pool_width)
     seg_unmap_end_i = math.ceil((unmap_end - seg_start) / pool_width)
+
+    # skip minor overlaps to the first
+    first_start = seg_start + seg_unmap_start_i * pool_width
+    first_end = first_start + pool_width
+    first_overlap = first_end - unmap_start
+    if first_overlap < 0.25 * pool_width:
+      seg_unmap_start_i += 1
+
+    # skip minor overlaps to the last
+    last_start = seg_start + (seg_unmap_end_i - 1) * pool_width
+    last_overlap = unmap_end - last_start
+    if last_overlap < 0.25 * pool_width:
+      seg_unmap_end_i -= 1
 
     seqs_na[segment_indexes[seg_tup], seg_unmap_start_i:seg_unmap_end_i] = True
 

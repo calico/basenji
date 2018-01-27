@@ -307,7 +307,7 @@ def main():
       if options.test_pct_or_chr.startswith('chr'):
         test_bindexes = [
             twi for twi in range(targets_wig.shape[0])
-            if seqs_segments[ssi + twi] == options.test_pct_or_chr
+            if seqs_segments[ssi + twi][0] == options.test_pct_or_chr
         ]
       else:
         test_pct = float(options.test_pct_or_chr)

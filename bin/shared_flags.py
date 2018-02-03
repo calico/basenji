@@ -9,7 +9,7 @@ tf.flags.DEFINE_boolean('learn_rate_drop', False,
                         'Drop learning rate when training loss stalls')
 tf.flags.DEFINE_integer('mc_n', 0, 'Monte Carlo test iterations')
 tf.flags.DEFINE_integer('min_epochs', 0, 'Minimum epochs to train')
-tf.flags.DEFINE_boolean('restart', False, 'Restart training the model')
+tf.flags.DEFINE_string('restart', None, 'Restart training the model')
 tf.flags.DEFINE_boolean(
     'rc', False,
     'Average the forward and reverse complement predictions when testing')

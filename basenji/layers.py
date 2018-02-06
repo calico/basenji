@@ -30,7 +30,7 @@ def renorm_clipping():
 
 
 def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
-              cnn_strides, is_training, batch_norm, batch_renorm,
+              cnn_strides, is_training, batch_norm, bn_momentum, batch_renorm,
               renorm_clipping, cnn_pool, cnn_dropout_value, cnn_dropout_op,
               cnn_dense,name=''):
   """Construct a single (dilated) CNN block.
@@ -43,6 +43,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
     cnn_strides: strides
     is_training: whether is a training graph or not
     batch_norm: whether to use batchnorm
+    bn_momentum: batch norm momentum
     batch_renorm: whether to use batch renormalization in batchnorm
     renorm_clipping: clipping used by batch_renorm
     cnn_pool: max pooling factor
@@ -71,11 +72,11 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
   if batch_norm:
     seqs_repr_next = tf.layers.batch_normalization(
         seqs_repr_next,
-        momentum=0.9,
+        momentum=bn_momentum,
         training=is_training,
         renorm=batch_renorm,
         renorm_clipping=renorm_clipping,
-        renorm_momentum=0.9,
+        renorm_momentum=bn_momentum,
         fused=True)
     tf.logging.info('Batch normalization')
 
@@ -91,7 +92,8 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
 
   # dropout
   if cnn_dropout_value > 0:
-    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
+    # seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
+    seqs_repr_next = tf.layers.dropout(seqs_repr_next, rate=cnn_dropout_value, training=is_training)
     tf.logging.info('Dropout w/ probability %.3f' % cnn_dropout_value)
 
   if cnn_dense:

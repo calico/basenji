@@ -93,6 +93,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'cnn_strides': self.cnn_strides[layer_index],
         'is_training': self.is_training,
         'batch_norm' : self.batch_norm,
+        'bn_momentum' : self.bn_momentum,
         'batch_renorm': self.batch_renorm,
         'renorm_clipping': self.renorm_clipping,
         'cnn_pool': self.cnn_pool[layer_index],
@@ -435,6 +436,8 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.batch_norm = bool(job.get('batch_norm', True))
     self.batch_renorm = bool(job.get('batch_renorm', False))
     self.batch_renorm = bool(job.get('renorm', self.batch_renorm))
+
+    self.bn_momentum = job.get('bn_momentum', 0.9)
 
     ###################################################
     # loss

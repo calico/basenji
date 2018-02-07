@@ -104,7 +104,7 @@ def main():
   transcripts = basenji.gff.read_genes(gtf_file, key_id='transcript_id')
 
   # read transcript --> gene mapping
-  transcript_genes = basenji.gff.t2g(gtf_file)
+  transcript_genes = basenji.gff.t2g(gtf_file, feature='exon')
 
   # make gene --> strand mapping
   gene_strand = {}

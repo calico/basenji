@@ -38,7 +38,7 @@ def gtf_kv(s):
   return d
 
 
-def t2g(gtf_file):
+def t2g(gtf_file, feature=None):
   """ Given a gtf file, return a mapping of transcript to gene id's. """
   d = {}
 
@@ -49,11 +49,11 @@ def t2g(gtf_file):
   while line[:2] == '##':
     line = gtf_in.readline()
 
-  while line:
+  for line in gtf_in:
     a = line.split('\t')
-    kv = gtf_kv(a[8])
-    d[kv['transcript_id']] = kv['gene_id']
-    line = gtf_in.readline()
+    if feature is None or a[2] == feature:
+      kv = gtf_kv(a[8])
+      d[kv['transcript_id']] = kv['gene_id']
 
   return d
 

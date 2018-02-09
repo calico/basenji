@@ -408,7 +408,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.momentum = job.get('momentum', 0)
     self.decay = job.get('decay', 0.9)
     self.optimization = job.get('optimization', 'adam').lower()
-    self.grad_clip = job.get('grad_clip', None)
+    self.grad_clip = job.get('grad_clip', 1)
 
     ###################################################
     # CNN params

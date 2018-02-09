@@ -161,7 +161,7 @@ def main():
   #################################################################
   job = basenji.dna_io.read_job_params(params_file)
 
-  job['batch_length'] = seqs_1hot.shape[1]
+  job['seq_length'] = seqs_1hot.shape[1]
   job['seq_depth'] = seqs_1hot.shape[2]
 
   if targets is None:
@@ -172,7 +172,7 @@ def main():
       exit(1)
   else:
     job['num_targets'] = targets.shape[2]
-    job['target_pool'] = job['batch_length'] // targets.shape[1]
+    job['target_pool'] = job['seq_length'] // targets.shape[1]
 
   t0 = time.time()
   dr = basenji.seqnn.SeqNN()
@@ -249,7 +249,7 @@ def main():
 
         # plot predictions
         plot_predictions(ax_pred, sat_preds[0, :, ti], options.satmut_len,
-                         dr.batch_length, dr.batch_buffer)
+                         dr.seq_length, dr.batch_buffer)
 
         # plot sequence logo
         plot_seqlogo(ax_logo, seqs_1hot[si], sat_loss[:, ti], sat_gain[:, ti])

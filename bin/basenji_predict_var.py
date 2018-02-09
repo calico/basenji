@@ -132,7 +132,7 @@ def main():
 
   job = basenji.dna_io.read_job_params(params_file)
 
-  job['batch_length'] = test_seqs.shape[1]
+  job['seq_length'] = test_seqs.shape[1]
   job['seq_depth'] = test_seqs.shape[2]
   job['num_targets'] = test_targets.shape[2]
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))

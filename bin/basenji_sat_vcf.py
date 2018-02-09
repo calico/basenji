@@ -169,7 +169,7 @@ def main():
   #################################################################
   job = basenji.dna_io.read_job_params(params_file)
 
-  job['batch_length'] = seqs_1hot.shape[1]
+  job['seq_length'] = seqs_1hot.shape[1]
   job['seq_depth'] = seqs_1hot.shape[2]
 
   if 'num_targets' not in job or 'target_pool' not in job:

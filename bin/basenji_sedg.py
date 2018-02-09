@@ -160,7 +160,7 @@ def main():
 
   job = basenji.dna_io.read_job_params(params_file)
 
-  job['batch_length'] = seqs_1hot.shape[1]
+  job['seq_length'] = seqs_1hot.shape[1]
   job['seq_depth'] = seqs_1hot.shape[2]
   job['target_pool'] = int(np.array(genes_hdf5_in['pool_width']))
   job['save_reprs'] = True

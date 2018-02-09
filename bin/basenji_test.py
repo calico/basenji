@@ -202,7 +202,7 @@ def main():
 
   job = basenji.dna_io.read_job_params(params_file)
 
-  job['batch_length'] = test_seqs.shape[1]
+  job['seq_length'] = test_seqs.shape[1]
   job['seq_depth'] = test_seqs.shape[2]
   job['num_targets'] = test_targets.shape[2]
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
@@ -638,7 +638,7 @@ def compute_full_accuracy(dr, model, test_preds, test_targets_full, out_dir,
 
   # determine non-buffer region
   buf_start = dr.batch_buffer // dr.target_pool
-  buf_end = (dr.batch_length - dr.batch_buffer) // dr.target_pool
+  buf_end = (dr.seq_length - dr.batch_buffer) // dr.target_pool
   buf_len = buf_end - buf_start
 
   # uniformly sample indexes

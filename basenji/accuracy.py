@@ -13,6 +13,7 @@
 # limitations under the License.
 # =========================================================================
 
+import pdb
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import r2_score
@@ -50,8 +51,8 @@ class Accuracy:
         preds_ti = self.preds[~self.targets_na, ti].astype('float64')
         targets_ti = self.targets[~self.targets_na, ti].astype('float64')
       else:
-        preds_ti = self.preds[:, ti].astype('float64')
-        targets_ti = self.targets[:, ti].astype('float64')
+        preds_ti = self.preds[:, :, ti].flatten().astype('float64')
+        targets_ti = self.targets[:, :, ti].flatten().astype('float64')
 
       if clip is not None:
         preds_ti = np.clip(preds_ti, 0, clip)
@@ -75,8 +76,8 @@ class Accuracy:
         preds_ti = self.preds[~self.targets_na, ti].astype('float64')
         targets_ti = self.targets[~self.targets_na, ti].astype('float64')
       else:
-        preds_ti = self.preds[:, ti].astype('float64')
-        targets_ti = self.targets[:, ti].astype('float64')
+        preds_ti = self.preds[:, :, ti].flatten().astype('float64')
+        targets_ti = self.targets[:, :, ti].flatten().astype('float64')
 
       if clip is not None:
         preds_ti = np.clip(preds_ti, 0, clip)
@@ -100,8 +101,8 @@ class Accuracy:
         preds_ti = self.preds[~self.targets_na, ti]
         targets_ti = self.targets[~self.targets_na, ti]
       else:
-        preds_ti = self.preds[:, ti]
-        targets_ti = self.targets[:, ti]
+        preds_ti = self.preds[:, :, ti].flatten()
+        targets_ti = self.targets[:, :, ti].flatten()
 
       sc, _ = spearmanr(targets_ti, preds_ti)
       scor[ti] = sc

@@ -42,9 +42,9 @@ def main():
   pool = multiprocessing.Pool(options.processes)
 
   for dataset in ['train', 'valid', 'test']:
-    tfr_files = ['%s/%s-%d.tfr' % (tfr_dir,dataset,wi) for wi in range(options.processes)]
+    tfr_files = ['%s/%s-%d.tfr' % (tfr_dir,dataset,si) for si in range(options.shards)]
 
-    writer_args = [(tfr_files[wi], tf_opts, h5_file, dataset, si, options.shards) for si in range(options.shards)]
+    writer_args = [(tfr_files[si], tf_opts, h5_file, dataset, si, options.shards) for si in range(options.shards)]
 
     pool.starmap(writer_worker, writer_args)
 

@@ -36,6 +36,12 @@ def main():
       default=0.25,
       type='float',
       help='Propostion of sequencs to sample [Default: %default]')
+  parser.add_option(
+      '--test',
+      dest='test_only',
+      default=False,
+      action='store_true',
+      help='Drop the train and validation sets [Default: %default]')
   # parser.add_option('-t', dest='targets_pct', default=1, type='float', help='Proportion of targets to sample [Default: %default]')
   (options, args) = parser.parse_args()
 
@@ -51,9 +57,10 @@ def main():
   for key in in_h5_open.keys():
     print(key)
     if key[-3:] == '_in' or key[-4:] == '_out':
-      n_in = in_h5_open[key].shape[0]
-      n_out = int(n_in * options.seqs_pct)
-      out_h5_open.create_dataset(key, data=in_h5_open[key][:n_out])
+      if not options.test_only or key.startswith('test'):
+        n_in = in_h5_open[key].shape[0]
+        n_out = int(n_in * options.seqs_pct)
+        out_h5_open.create_dataset(key, data=in_h5_open[key][:n_out])
     else:
       out_h5_open.create_dataset(key, data=in_h5_open[key])
 

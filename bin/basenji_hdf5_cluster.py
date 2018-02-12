@@ -168,6 +168,10 @@ def main():
   target_labels = []
   for line in open(sample_wigs_file, encoding='UTF-8'):
     a = line.rstrip().split('\t')
+
+    if a[0] in target_wigs:
+      print('WARNING: duplicate target id %s' % a[0], file=sys.stderr)
+
     target_wigs[a[0]] = a[1]
     target_strands.append(a[2])
     if len(a) > 3:

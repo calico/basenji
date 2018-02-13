@@ -308,8 +308,8 @@ def main():
         ref_preds = batch_preds[pi]
         pi += 1
 
-        # mean across length
-        ref_preds_lmean = ref_preds.mean(axis=0)
+        # sum across length
+        ref_preds_lsum = ref_preds.sum(axis=0, dtype='float64')
 
         # print tracks
         for ti in options.track_indexes:
@@ -323,16 +323,16 @@ def main():
           alt_preds = batch_preds[pi]
           pi += 1
 
-          # mean across length
-          alt_preds_lmean = alt_preds.mean(axis=0)
+          # sum across length
+          alt_preds_lsum = alt_preds.sum(axis=0, dtype='float64')
 
           # compare reference to alternative via mean subtraction
-          sad = alt_preds_lmean - ref_preds_lmean
+          sad = alt_preds_lsum - ref_preds_lsum
           sad_matrices.setdefault(snp.index_snp, []).append(sad)
 
           # compare reference to alternative via mean log division
-          sar = np.log2(alt_preds_lmean + options.log_pseudo) \
-                  - np.log2(ref_preds_lmean + options.log_pseudo)
+          sar = np.log2(alt_preds_lsum + options.log_pseudo) \
+                  - np.log2(ref_preds_lsum + options.log_pseudo)
 
           # label as mutation from reference
           alt_label = '%s_%s>%s' % (snp.rsid,
@@ -373,8 +373,8 @@ def main():
             # print line
             cols = (snp.rsid, snp_is, snp_score,
                     basenji.vcf.cap_allele(snp.ref_allele),
-                    basenji.vcf.cap_allele(alt_al), ref_preds_lmean[ti],
-                    alt_preds_lmean[ti], sad[ti], sar[ti],
+                    basenji.vcf.cap_allele(alt_al), ref_preds_lsum[ti],
+                    alt_preds_lsum[ti], sad[ti], sar[ti],
                     ref_preds[max_li, ti], alt_preds[max_li, ti], max_sad,
                     max_sar, ti, target_ids[ti], target_labels[ti])
             if options.csv:

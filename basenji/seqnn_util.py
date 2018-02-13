@@ -130,33 +130,33 @@ class SeqNNModel(object):
       layer_units = self.layer_reprs[li].shape[2].value
 
       lr = np.zeros((batcher.num_seqs, layer_seq_len, layer_units),
-                    dtype='float16')
+                    dtype='float32')
       layer_reprs.append(lr)
 
       lg = np.zeros((self.num_targets, batcher.num_seqs,
                       layer_seq_len, layer_units),
-                      dtype='float16')
+                      dtype='float32')
       layer_grads.append(lg)
 
       if return_all:
         lra = np.zeros((batcher.num_seqs, layer_seq_len, layer_units, all_n),
-                        dtype='float16')
+                        dtype='float32')
         layer_reprs_all.append(lra)
 
         lgr = np.zeros((self.num_targets, batcher.num_seqs,
                         layer_seq_len, layer_units, all_n),
-                        dtype='float16')
+                        dtype='float32')
         layer_grads_all.append(lgr)
 
 
     # initialize predictions
     preds = np.zeros((batcher.num_seqs, self.preds_length, self.num_targets),
-                      dtype='float16')
+                      dtype='float32')
 
     if return_all:
       preds_all = np.zeros((batcher.num_seqs, self.preds_length,
                             self.num_targets, all_n),
-                            dtype='float16')
+                            dtype='float32')
 
     #######################################################################
     # compute
@@ -254,7 +254,7 @@ class SeqNNModel(object):
       lr = np.zeros((Xb.shape[0], layer_seq_len, layer_units), dtype='float16')
       layer_reprs.append(lr)
 
-      lg = np.zeros((self.num_targets, Xb.shape[0], layer_seq_len, layer_units), dtype='float16')
+      lg = np.zeros((self.num_targets, Xb.shape[0], layer_seq_len, layer_units), dtype='float32')
       layer_grads.append(lg)
 
 
@@ -275,16 +275,16 @@ class SeqNNModel(object):
     # initialize all-saving arrays
     if return_all:
       all_n = mc_n * len(ensemble_fwdrc)
-      preds_all = np.zeros((Xb.shape[0], self.preds_length, self.num_targets, all_n), dtype='float16')
+      preds_all = np.zeros((Xb.shape[0], self.preds_length, self.num_targets, all_n), dtype='float32')
 
       layer_reprs_all = []
       layer_grads_all = []
       for lii in range(len(self.grad_layers)):
         ls = tuple(list(layer_reprs[lii].shape) + [all_n])
-        layer_reprs_all.append(np.zeros(ls, dtype='float16'))
+        layer_reprs_all.append(np.zeros(ls, dtype='float32'))
 
         ls = tuple(list(layer_grads[lii].shape) + [all_n])
-        layer_grads_all.append(np.zeros(ls, dtype='float16'))
+        layer_grads_all.append(np.zeros(ls, dtype='float32'))
     else:
       preds_all = None
       layer_grads_all = [None]*len(self.grad_layers)
@@ -425,11 +425,11 @@ class SeqNNModel(object):
       layer_units = self.layer_reprs[li].shape[2].value
 
       # gradients
-      lg = np.zeros((tss_num, self.num_targets, layer_seq_len, layer_units), dtype='float16')
+      lg = np.zeros((tss_num, self.num_targets, layer_seq_len, layer_units), dtype='float32')
       layer_grads.append(lg)
 
       # representations
-      lr = np.zeros((batcher.num_seqs, layer_seq_len, layer_units), dtype='float16')
+      lr = np.zeros((batcher.num_seqs, layer_seq_len, layer_units), dtype='float32')
       layer_reprs.append(lr)
 
     # setup feed dict for dropout
@@ -576,7 +576,7 @@ class SeqNNModel(object):
     if return_all:
       all_n = mc_n * len(ensemble_fwdrc)
       preds_all = np.zeros(
-          (Xb.shape[0], preds_length, num_targets, all_n), dtype='float16')
+          (Xb.shape[0], preds_length, num_targets, all_n), dtype='float32')
     else:
       preds_all = None
 
@@ -639,7 +639,8 @@ class SeqNNModel(object):
               return_var=False,
               return_all=False,
               down_sample=1,
-              penultimate=False):
+              penultimate=False,
+              dtype='float32'):
     """ Compute predictions on a test set.
 
         In
@@ -654,6 +655,7 @@ class SeqNNModel(object):
          down_sample:    Int specifying to consider uniformly spaced sampled
          positions
          penultimate:    Predict the penultimate layer.
+         dtype:          Float resolution to return.
 
         Out
          preds: S (sequences) x L (unbuffered length) x T (targets) array
@@ -701,7 +703,7 @@ class SeqNNModel(object):
 
     # initialize prediction data structures
     preds = np.zeros(
-        (batcher.num_seqs, preds_length, num_targets), dtype='float16')
+        (batcher.num_seqs, preds_length, num_targets), dtype=dtype)
     if return_var:
       if all_n == 1:
         print(
@@ -709,10 +711,10 @@ class SeqNNModel(object):
             file=sys.stderr)
         exit(1)
       preds_var = np.zeros(
-          (batcher.num_seqs, preds_length, num_targets), dtype='float16')
+          (batcher.num_seqs, preds_length, num_targets), dtype=dtype)
     if return_all:
       preds_all = np.zeros(
-          (batcher.num_seqs, preds_length, num_targets, all_n), dtype='float16')
+          (batcher.num_seqs, preds_length, num_targets, all_n), dtype=dtype)
 
     # sequence index
     si = 0
@@ -759,7 +761,8 @@ class SeqNNModel(object):
                     mc_n=0,
                     target_indexes=None,
                     tss_radius=0,
-                    penultimate=False):
+                    penultimate=False,
+                    dtype='float32'):
     """ Compute predictions on a test set.
 
         In
@@ -774,6 +777,7 @@ class SeqNNModel(object):
          target_indexes:  Optional target subset list
          tss_radius:      Radius of bins to quantify TSS.
          penultimate:     Predict the penultimate layer.
+         dtype:           Float resolution to return.
 
         Out
          transcript_preds: G (gene transcripts) X T (targets) array
@@ -789,7 +793,7 @@ class SeqNNModel(object):
       tss_num += len(gene_seq.tss_list)
 
     # initialize TSS preds
-    tss_preds = np.zeros( (tss_num, gseq_preds.shape[-1]) , dtype='float16')
+    tss_preds = np.zeros( (tss_num, gseq_preds.shape[-1]), dtype=dtype)
 
     # slice TSSs
     tss_i = 0

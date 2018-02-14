@@ -267,7 +267,7 @@ def main():
     test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
     test_pcor = test_acc.pearsonr(clip=options.target_clip)
     test_log_pcor = test_acc.pearsonr(log=True, clip=options.target_clip)
-    test_scor = test_acc.spearmanr()
+    #test_scor = test_acc.spearmanr()  # too slow; mostly driven by low values
 
     # print
     print('Test Loss:         %7.5f' % test_acc.loss)
@@ -275,7 +275,7 @@ def main():
     print('Test log R2:       %7.5f' % test_log_r2.mean())
     print('Test PearsonR:     %7.5f' % test_pcor.mean())
     print('Test log PearsonR: %7.5f' % test_log_pcor.mean())
-    print('Test SpearmanR:    %7.5f' % test_scor.mean())
+    # print('Test SpearmanR:    %7.5f' % test_scor.mean())
 
     acc_out = open('%s/acc.txt' % options.out_dir, 'w')
     for ti in range(len(test_r2)):

@@ -245,6 +245,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # targets
     tstart = self.batch_buffer // self.target_pool
     tend = (self.seq_length - self.batch_buffer) // self.target_pool
+    self.target_length = tend - tstart
 
     targets = data_ops['label']
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')

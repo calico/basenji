@@ -86,6 +86,12 @@ def main():
       type='int',
       help='Monte carlo test iterations [Default: %default]')
   parser.add_option(
+      '--peak','--peaks',
+      dest='peaks',
+      default=False,
+      action='store_true',
+      help='Compute expensive peak accuracy [Default: %default]')
+  parser.add_option(
       '-o',
       dest='out_dir',
       default='test_out',
@@ -96,8 +102,7 @@ def main():
       default=False,
       action='store_true',
       help=
-      'Average the forward and reverse complement predictions when testing [Default: %default]'
-  )
+      'Average the fwd and rc predictions [Default: %default]')
   parser.add_option(
       '-s',
       dest='scent_file',
@@ -144,7 +149,7 @@ def main():
       default=1,
       type='int',
       help=
-      'Max pool width for regressing nucleotide predictions to predict peak calls [Default: %default]'
+      'Max pool width for regressing nt predictions to predict peak calls [Default: %default]'
   )
   (options, args) = parser.parse_args()
 
@@ -246,14 +251,8 @@ def main():
 
     # test
     t0 = time.time()
-    # test_loss, test_r2, test_cor, test_preds = dr.test(sess, batcher_test, rc_avg=options.rc, return_preds=True, down_sample=options.down_sample)
-    # test_acc = dr.test(sess, batcher_test, rc_avg=options.rc, down_sample=options.down_sample)
-    test_acc = dr.test(
-        sess,
-        batcher_test,
-        rc=options.rc,
-        shifts=options.shifts,
-        mc_n=options.mc_n)
+    test_acc = dr.test(sess, batcher_test, rc=options.rc,
+                        shifts=options.shifts, mc_n=options.mc_n)
 
     if options.save:
       np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
@@ -263,11 +262,13 @@ def main():
     print('SeqNN test: %ds' % (time.time() - t0))
 
     # compute stats
+    t0 = time.time()
     test_r2 = test_acc.r2(clip=options.target_clip)
     test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
     test_pcor = test_acc.pearsonr(clip=options.target_clip)
     test_log_pcor = test_acc.pearsonr(log=True, clip=options.target_clip)
     #test_scor = test_acc.spearmanr()  # too slow; mostly driven by low values
+    print('Compute stats: %ds' % (time.time()-t0))
 
     # print
     print('Test Loss:         %7.5f' % test_acc.loss)
@@ -297,52 +298,52 @@ def main():
   #######################################################
   # peak call accuracy
 
-  # sample every few bins to decrease correlations
-  ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
-  ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
+  if options.peaks:
+    # sample every few bins to decrease correlations
+    ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
+    ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
 
-  aurocs = []
-  auprcs = []
+    aurocs = []
+    auprcs = []
 
-  peaks_out = open('%s/peaks.txt' % options.out_dir, 'w')
-  for ti in range(test_targets.shape[2]):
-    if options.scent_file is not None:
-      test_targets_ti = test_targets_full[:, :, ti]
-    else:
-      test_targets_ti = test_targets[:, :, ti]
+    peaks_out = open('%s/peaks.txt' % options.out_dir, 'w')
+    for ti in range(test_targets.shape[2]):
+      if options.scent_file is not None:
+        test_targets_ti = test_targets_full[:, :, ti]
+      else:
+        test_targets_ti = test_targets[:, :, ti]
 
-    # subset and flatten
-    test_targets_ti_flat = test_targets_ti[:, ds_indexes_targets].flatten(
-    ).astype('float32')
-    test_preds_ti_flat = test_preds[:, ds_indexes_preds, ti].flatten().astype(
-        'float32')
+      # subset and flatten
+      test_targets_ti_flat = test_targets_ti[:, ds_indexes_targets].flatten(
+      ).astype('float32')
+      test_preds_ti_flat = test_preds[:, ds_indexes_preds, ti].flatten().astype(
+          'float32')
 
-    # call peaks
-    test_targets_ti_lambda = np.mean(test_targets_ti_flat)
-    test_targets_pvals = 1 - poisson.cdf(
-        np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda)
-    test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
-    test_targets_peaks = test_targets_qvals < 0.01
+      # call peaks
+      test_targets_ti_lambda = np.mean(test_targets_ti_flat)
+      test_targets_pvals = 1 - poisson.cdf(
+          np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda)
+      test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
+      test_targets_peaks = test_targets_qvals < 0.01
 
-    if test_targets_peaks.sum() == 0:
-      aurocs.append(0.5)
-      auprcs.append(0)
+      if test_targets_peaks.sum() == 0:
+        aurocs.append(0.5)
+        auprcs.append(0)
 
-    else:
-      # compute prediction accuracy
-      aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
-      auprcs.append(
-          average_precision_score(test_targets_peaks, test_preds_ti_flat))
+      else:
+        # compute prediction accuracy
+        aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
+        auprcs.append(
+            average_precision_score(test_targets_peaks, test_preds_ti_flat))
 
-    print(
-        '%4d  %6d  %.5f  %.5f' % (ti, test_targets_peaks.sum(), aurocs[-1],
-                                  auprcs[-1]),
-        file=peaks_out)
+      print('%4d  %6d  %.5f  %.5f' % (ti, test_targets_peaks.sum(),
+                                      aurocs[-1], auprcs[-1]),
+                                      file=peaks_out)
 
-  peaks_out.close()
+    peaks_out.close()
 
-  print('Test AUROC:     %7.5f' % np.mean(aurocs))
-  print('Test AUPRC:     %7.5f' % np.mean(auprcs))
+    print('Test AUROC:     %7.5f' % np.mean(aurocs))
+    print('Test AUPRC:     %7.5f' % np.mean(auprcs))
 
   #######################################################
   # BigWig tracks

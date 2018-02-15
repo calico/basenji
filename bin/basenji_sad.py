@@ -121,7 +121,7 @@ def main():
   parser.add_option(
       '--pseudo',
       dest='log_pseudo',
-      default=0.125,
+      default=0.25,
       type='float',
       help='Log2 pseudocount [Default: %default]')
   parser.add_option(
@@ -365,6 +365,11 @@ def main():
           sar = np.log2(alt_preds_sum + options.log_pseudo) \
                   - np.log2(ref_preds_sum + options.log_pseudo)
 
+          # compare geometric means
+          geo_sad = np.log2(alt_preds.astype('float64') + options.log_pseudo) \
+                      - np.log2(ref_preds.astype('float64') + options.log_pseudo)
+          geo_sad = geo_sad.sum(axis=0)
+
           # sum locally
           ref_preds_loc = ref_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
           alt_preds_loc = alt_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
@@ -372,7 +377,7 @@ def main():
           # compute SAD locally
           sad_loc = alt_preds_loc - ref_preds_loc
           sar_loc = np.log2(alt_preds_loc + options.log_pseudo) \
-                      - np.log(ref_preds_loc + options.log_pseudo)
+                      - np.log2(ref_preds_loc + options.log_pseudo)
 
           # label as mutation from reference
           alt_label = '%s_%s>%s' % (snp.rsid,
@@ -413,7 +418,7 @@ def main():
             # print line
             cols = (snp.rsid, snp_is, snp_score,
                     bvcf.cap_allele(snp.ref_allele), bvcf.cap_allele(alt_al),
-                    ref_preds_sum[ti], alt_preds_sum[ti], sad[ti], sar[ti],
+                    ref_preds_sum[ti], alt_preds_sum[ti], sad[ti], sar[ti], geo_sad[ti],
                     ref_preds_loc[ti], alt_preds_loc[ti], sad_loc[ti], sar_loc[ti],
                     ref_preds[max_li, ti], alt_preds[max_li, ti], max_sad, max_sar,
                     ti, target_ids[ti], target_labels[ti])
@@ -421,7 +426,7 @@ def main():
               print(','.join([str(c) for c in cols]), file=sad_out)
             else:
               print(
-                  '%-13s %s %5s %6s %6s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %4d %12s %s'
+                  '%-13s %s %5s %6s %6s | %7.3f %7.3f %7.4f %7.4f %7.4f | %7.3f %7.3f %7.4f %7.4f | %7.3f %7.3f %7.4f %7.4f | %4d %12s %s'
                   % cols,
                   file=sad_out)
 

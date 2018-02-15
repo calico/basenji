@@ -31,7 +31,7 @@ import pysam
 import tensorflow as tf
 
 import basenji.dna_io
-import basenji.vcf
+import basenji.vcf as bvcf
 
 from basenji_test import bigwig_open
 
@@ -87,14 +87,26 @@ def main():
       '-l',
       dest='seq_len',
       type='int',
-      default=1024,
+      default=131072,
       help='Sequence length provided to the model [Default: %default]')
+  parser.add_option(
+      '--local',
+      dest='local',
+      default=1024,
+      type='int',
+      help='Local SAD score [Default: %default]')
   parser.add_option(
       '-m',
       dest='min_limit',
       default=0.1,
       type='float',
       help='Minimum heatmap limit [Default: %default]')
+  parser.add_option(
+      '-n',
+      dest='norm_file',
+      default=None,
+      help='Normalize SAD scores',
+      )
   parser.add_option(
       '-o',
       dest='out_dir',
@@ -193,13 +205,13 @@ def main():
 
   if 'num_targets' not in job:
     print(
-        "Must specify number of targets (num_targets) in the parameters file. I know, it's annoying. Sorry.",
+        "Must specify number of targets (num_targets) in the parameters file.",
         file=sys.stderr)
     exit(1)
 
   if 'target_pool' not in job:
     print(
-        "Must specify target pooling (target_pool) in the parameters file. I know it's annoying. Sorry",
+        "Must specify target pooling (target_pool) in the parameters file.",
         file=sys.stderr)
     exit(1)
 
@@ -237,11 +249,18 @@ def main():
     target_ids = ['']*model.cnn_filters[-1]
     target_labels = target_ids
 
+  # read target normalization factors
+  target_norms = np.ones(len(target_labels))
+  if options.norm_file is not None:
+    ti = 0
+    for line in open(options.norm_file):
+      target_norms[ti] = float(line.strip())
+
 
   #################################################################
   # load SNPs
 
-  snps = basenji.vcf.vcf_snps(vcf_file, options.index_snp, options.score)
+  snps = bvcf.vcf_snps(vcf_file, options.index_snp, options.score)
 
   # filter for worker SNPs
   if options.processes is not None:
@@ -253,9 +272,12 @@ def main():
   #################################################################
   # setup output
 
-  header_cols = ('rsid', 'index', 'score', 'ref', 'alt', 'ref_upred',
-                 'alt_upred', 'usad', 'usar', 'ref_xpred', 'alt_xpred', 'xsad',
-                 'xsar', 'target_index', 'target_id', 'target_label')
+  header_cols = ('rsid', 'index', 'score', 'ref', 'alt',
+                  'ref_pred', 'alt_pred', 'sad', 'sar',
+                  'ref_lpred', 'alt_lpred', 'lsad', 'lsar',
+                  'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
+                  'target_index', 'target_id', 'target_label')
+
   if options.csv:
     sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
     print(','.join(header_cols), file=sad_out)
@@ -273,6 +295,12 @@ def main():
 
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
+
+  # determine local start and end
+
+  loc_mid = model.target_length // 2
+  loc_start = loc_mid - (options.local//2) // model.target_pool
+  loc_end = loc_start + options.local // model.target_pool
 
   snp_i = 0
 
@@ -299,6 +327,9 @@ def main():
                       rc=options.rc, shifts=options.shifts,
                       penultimate=options.penultimate)
 
+      # normalize
+      batch_preds /= target_norms
+
       ###################################################
       # collect and print SADs
 
@@ -309,7 +340,7 @@ def main():
         pi += 1
 
         # sum across length
-        ref_preds_lsum = ref_preds.sum(axis=0, dtype='float64')
+        ref_preds_sum = ref_preds.sum(axis=0, dtype='float64')
 
         # print tracks
         for ti in options.track_indexes:
@@ -324,37 +355,46 @@ def main():
           pi += 1
 
           # sum across length
-          alt_preds_lsum = alt_preds.sum(axis=0, dtype='float64')
+          alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
 
           # compare reference to alternative via mean subtraction
-          sad = alt_preds_lsum - ref_preds_lsum
+          sad = alt_preds_sum - ref_preds_sum
           sad_matrices.setdefault(snp.index_snp, []).append(sad)
 
           # compare reference to alternative via mean log division
-          sar = np.log2(alt_preds_lsum + options.log_pseudo) \
-                  - np.log2(ref_preds_lsum + options.log_pseudo)
+          sar = np.log2(alt_preds_sum + options.log_pseudo) \
+                  - np.log2(ref_preds_sum + options.log_pseudo)
+
+          # sum locally
+          ref_preds_loc = ref_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
+          alt_preds_loc = alt_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
+
+          # compute SAD locally
+          sad_loc = alt_preds_loc - ref_preds_loc
+          sar_loc = np.log2(alt_preds_loc + options.log_pseudo) \
+                      - np.log(ref_preds_loc + options.log_pseudo)
 
           # label as mutation from reference
           alt_label = '%s_%s>%s' % (snp.rsid,
-                                    basenji.vcf.cap_allele(snp.ref_allele),
-                                    basenji.vcf.cap_allele(alt_al))
+                                    bvcf.cap_allele(snp.ref_allele),
+                                    bvcf.cap_allele(alt_al))
           sad_labels.setdefault(snp.index_snp, []).append(alt_label)
 
           # save scores
           sad_scores.setdefault(snp.index_snp, []).append(snp.score)
 
+          # set index SNP
+          snp_is = '%-13s' % '.'
+          if options.index_snp:
+            snp_is = '%-13s' % snp.index_snp
+
+          # set score
+          snp_score = '%5s' % '.'
+          if options.score:
+            snp_score = '%5.3f' % snp.score
+
           # print table lines
           for ti in range(len(sad)):
-            # set index SNP
-            snp_is = '%-13s' % '.'
-            if options.index_snp:
-              snp_is = '%-13s' % snp.index_snp
-
-            # set score
-            snp_score = '%5s' % '.'
-            if options.score:
-              snp_score = '%5.3f' % snp.score
-
             # profile the max difference position
             max_li = 0
             max_sad = alt_preds[max_li, ti] - ref_preds[max_li, ti]
@@ -372,16 +412,16 @@ def main():
 
             # print line
             cols = (snp.rsid, snp_is, snp_score,
-                    basenji.vcf.cap_allele(snp.ref_allele),
-                    basenji.vcf.cap_allele(alt_al), ref_preds_lsum[ti],
-                    alt_preds_lsum[ti], sad[ti], sar[ti],
-                    ref_preds[max_li, ti], alt_preds[max_li, ti], max_sad,
-                    max_sar, ti, target_ids[ti], target_labels[ti])
+                    bvcf.cap_allele(snp.ref_allele), bvcf.cap_allele(alt_al),
+                    ref_preds_sum[ti], alt_preds_sum[ti], sad[ti], sar[ti],
+                    ref_preds_loc[ti], alt_preds_loc[ti], sad_loc[ti], sar_loc[ti],
+                    ref_preds[max_li, ti], alt_preds[max_li, ti], max_sad, max_sar,
+                    ti, target_ids[ti], target_labels[ti])
             if options.csv:
               print(','.join([str(c) for c in cols]), file=sad_out)
             else:
               print(
-                  '%-13s %s %5s %6s %6s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %4d %12s %s'
+                  '%-13s %s %5s %6s %6s %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %6.3f %6.3f %7.4f %7.4f %4d %12s %s'
                   % cols,
                   file=sad_out)
 

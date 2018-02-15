@@ -264,7 +264,7 @@ def main():
     # compute stats
     t0 = time.time()
     test_r2 = test_acc.r2(clip=options.target_clip)
-    test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
+    # test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
     test_pcor = test_acc.pearsonr(clip=options.target_clip)
     test_log_pcor = test_acc.pearsonr(log=True, clip=options.target_clip)
     #test_scor = test_acc.spearmanr()  # too slow; mostly driven by low values
@@ -273,7 +273,7 @@ def main():
     # print
     print('Test Loss:         %7.5f' % test_acc.loss)
     print('Test R2:           %7.5f' % test_r2.mean())
-    print('Test log R2:       %7.5f' % test_log_r2.mean())
+    # print('Test log R2:       %7.5f' % test_log_r2.mean())
     print('Test PearsonR:     %7.5f' % test_pcor.mean())
     print('Test log PearsonR: %7.5f' % test_log_pcor.mean())
     # print('Test SpearmanR:    %7.5f' % test_scor.mean())
@@ -281,11 +281,18 @@ def main():
     acc_out = open('%s/acc.txt' % options.out_dir, 'w')
     for ti in range(len(test_r2)):
       print(
-        '%4d  %7.5f  %.5f  %.5f  %.5f  %.5f  %.5f  %s' %
-        (ti, test_acc.target_losses[ti], test_r2[ti], test_log_r2[ti],
-          test_pcor[ti], test_log_pcor[ti], test_scor[ti], target_labels[ti]),
-        file=acc_out)
+        '%4d  %7.5f  %.5f  %.5f  %.5f  %s' %
+        (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti],
+          test_log_pcor[ti], target_labels[ti]), file=acc_out)
     acc_out.close()
+
+    # print normalization factors
+    target_means = test_preds.mean(axis=(0,1), dtype='float64')
+    target_means_median = np.median(target_means)
+    target_means /= target_means_median
+    norm_out = open('%s/normalization.txt' % options.out_dir, 'w')
+    print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
+    norm_out.close()
 
     # clean up
     del test_acc

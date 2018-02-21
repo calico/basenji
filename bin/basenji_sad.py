@@ -60,12 +60,6 @@ def main():
       action='store_true',
       help='Print table as CSV [Default: %default]')
   parser.add_option(
-      '-e',
-      dest='heatmaps',
-      default=False,
-      action='store_true',
-      help='Draw score heatmaps, grouped by index SNP [Default: %default]')
-  parser.add_option(
       '-f',
       dest='genome_fasta',
       default='%s/assembly/hg19.fa' % os.environ['HG19'],
@@ -76,13 +70,6 @@ def main():
       dest='genome_file',
       default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option(
-      '-i',
-      dest='index_snp',
-      default=False,
-      action='store_true',
-      help=
-      'SNPs are labeled with their index SNP as column 6 [Default: %default]')
   parser.add_option(
       '-l',
       dest='seq_len',
@@ -121,7 +108,7 @@ def main():
   parser.add_option(
       '--pseudo',
       dest='log_pseudo',
-      default=0.25,
+      default=1,
       type='float',
       help='Log2 pseudocount [Default: %default]')
   parser.add_option(
@@ -132,12 +119,6 @@ def main():
       help=
       'Average the forward and reverse complement predictions when testing [Default: %default]'
   )
-  parser.add_option(
-      '-s',
-      dest='score',
-      default=False,
-      action='store_true',
-      help='SNPs are labeled with scores as column 7 [Default: %default]')
   parser.add_option(
       '--shifts',
       dest='shifts',
@@ -151,6 +132,7 @@ def main():
   parser.add_option(
       '--ti',
       dest='track_indexes',
+      default=None,
       help='Comma-separated list of target indexes to output BigWig tracks')
   parser.add_option(
       '-u',
@@ -255,12 +237,13 @@ def main():
     ti = 0
     for line in open(options.norm_file):
       target_norms[ti] = float(line.strip())
+      ti += 1
 
 
   #################################################################
   # load SNPs
 
-  snps = bvcf.vcf_snps(vcf_file, options.index_snp, options.score)
+  snps = bvcf.vcf_snps(vcf_file)
 
   # filter for worker SNPs
   if options.processes is not None:
@@ -272,8 +255,8 @@ def main():
   #################################################################
   # setup output
 
-  header_cols = ('rsid', 'index', 'score', 'ref', 'alt',
-                  'ref_pred', 'alt_pred', 'sad', 'sar',
+  header_cols = ('rsid', 'ref', 'alt',
+                  'ref_pred', 'alt_pred', 'sad', 'sar', 'geo_sad',
                   'ref_lpred', 'alt_lpred', 'lsad', 'lsar',
                   'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
                   'target_index', 'target_id', 'target_label')
@@ -285,10 +268,6 @@ def main():
     sad_out = open('%s/sad_table.txt' % options.out_dir, 'w')
     print(' '.join(header_cols), file=sad_out)
 
-  # hash by index snp
-  sad_matrices = {}
-  sad_labels = {}
-  sad_scores = {}
 
   #################################################################
   # process
@@ -297,7 +276,6 @@ def main():
   genome_open = pysam.Fastafile(options.genome_fasta)
 
   # determine local start and end
-
   loc_mid = model.target_length // 2
   loc_start = loc_mid - (options.local//2) // model.target_pool
   loc_end = loc_start + options.local // model.target_pool
@@ -330,6 +308,7 @@ def main():
       # normalize
       batch_preds /= target_norms
 
+
       ###################################################
       # collect and print SADs
 
@@ -358,17 +337,17 @@ def main():
           alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
 
           # compare reference to alternative via mean subtraction
+          sad_vec = alt_preds - ref_preds
           sad = alt_preds_sum - ref_preds_sum
-          sad_matrices.setdefault(snp.index_snp, []).append(sad)
 
           # compare reference to alternative via mean log division
           sar = np.log2(alt_preds_sum + options.log_pseudo) \
                   - np.log2(ref_preds_sum + options.log_pseudo)
 
           # compare geometric means
-          geo_sad = np.log2(alt_preds.astype('float64') + options.log_pseudo) \
+          sar_vec = np.log2(alt_preds.astype('float64') + options.log_pseudo) \
                       - np.log2(ref_preds.astype('float64') + options.log_pseudo)
-          geo_sad = geo_sad.sum(axis=0)
+          geo_sad = sar_vec.sum(axis=0)
 
           # sum locally
           ref_preds_loc = ref_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
@@ -379,54 +358,22 @@ def main():
           sar_loc = np.log2(alt_preds_loc + options.log_pseudo) \
                       - np.log2(ref_preds_loc + options.log_pseudo)
 
-          # label as mutation from reference
-          alt_label = '%s_%s>%s' % (snp.rsid,
-                                    bvcf.cap_allele(snp.ref_allele),
-                                    bvcf.cap_allele(alt_al))
-          sad_labels.setdefault(snp.index_snp, []).append(alt_label)
-
-          # save scores
-          sad_scores.setdefault(snp.index_snp, []).append(snp.score)
-
-          # set index SNP
-          snp_is = '%-13s' % '.'
-          if options.index_snp:
-            snp_is = '%-13s' % snp.index_snp
-
-          # set score
-          snp_score = '%5s' % '.'
-          if options.score:
-            snp_score = '%5.3f' % snp.score
+          # compute max difference position
+          max_li = np.argmax(np.abs(sar_vec), axis=0)
 
           # print table lines
           for ti in range(len(sad)):
-            # profile the max difference position
-            max_li = 0
-            max_sad = alt_preds[max_li, ti] - ref_preds[max_li, ti]
-            max_sar = np.log2(alt_preds[max_li, ti] + options.log_pseudo) \
-                        - np.log2(ref_preds[max_li, ti] + options.log_pseudo)
-            for li in range(ref_preds.shape[0]):
-              sad_li = alt_preds[li, ti] - ref_preds[li, ti]
-              sar_li = np.log2(alt_preds[li, ti] + options.log_pseudo) \
-                        - np.log2(ref_preds[li, ti] + options.log_pseudo)
-              # if abs(sad_li) > abs(max_sad):
-              if abs(sar_li) > abs(max_sar):
-                max_li = li
-                max_sad = sad_li
-                max_sar = sar_li
-
             # print line
-            cols = (snp.rsid, snp_is, snp_score,
-                    bvcf.cap_allele(snp.ref_allele), bvcf.cap_allele(alt_al),
+            cols = (snp.rsid, bvcf.cap_allele(snp.ref_allele), bvcf.cap_allele(alt_al),
                     ref_preds_sum[ti], alt_preds_sum[ti], sad[ti], sar[ti], geo_sad[ti],
                     ref_preds_loc[ti], alt_preds_loc[ti], sad_loc[ti], sar_loc[ti],
-                    ref_preds[max_li, ti], alt_preds[max_li, ti], max_sad, max_sar,
+                    ref_preds[max_li[ti], ti], alt_preds[max_li[ti], ti], sad_vec[max_li[ti],ti], sar_vec[max_li[ti],ti],
                     ti, target_ids[ti], target_labels[ti])
             if options.csv:
               print(','.join([str(c) for c in cols]), file=sad_out)
             else:
               print(
-                  '%-13s %s %5s %6s %6s | %7.3f %7.3f %7.4f %7.4f %7.4f | %7.3f %7.3f %7.4f %7.4f | %7.3f %7.3f %7.4f %7.4f | %4d %12s %s'
+                  '%-13s %6s %6s | %8.2f %8.2f %8.3f %7.4f %7.3f | %7.3f %7.3f %7.3f %7.4f | %7.3f %7.3f %7.3f %7.4f | %4d %12s %s'
                   % cols,
                   file=sad_out)
 
@@ -445,60 +392,6 @@ def main():
 
   sad_out.close()
 
-  #################################################################
-  # plot SAD heatmaps
-  #################################################################
-  if options.heatmaps:
-    for ii in sad_matrices:
-      # convert fully to numpy arrays
-      sad_matrix = abs(np.array(sad_matrices[ii]))
-      print(ii, sad_matrix.shape)
-
-      if sad_matrix.shape[0] > 1:
-        vlim = max(options.min_limit, sad_matrix.max())
-        score_mat = np.reshape(np.array(sad_scores[ii]), (-1, 1))
-
-        # plot heatmap
-        plt.figure(figsize=(20, 0.5 + 0.5 * sad_matrix.shape[0]))
-
-        if options.score:
-          # lay out scores
-          cols = 12
-          ax_score = plt.subplot2grid((1, cols), (0, 0))
-          ax_sad = plt.subplot2grid((1, cols), (0, 1), colspan=(cols - 1))
-
-          sns.heatmap(
-              score_mat,
-              xticklabels=False,
-              yticklabels=False,
-              vmin=0,
-              vmax=1,
-              cmap='Reds',
-              cbar=False,
-              ax=ax_score)
-        else:
-          ax_sad = plt.gca()
-
-        sns.heatmap(
-            sad_matrix,
-            xticklabels=target_labels,
-            yticklabels=sad_labels[ii],
-            vmin=0,
-            vmax=vlim,
-            ax=ax_sad)
-
-        for tick in ax_sad.get_xticklabels():
-          tick.set_rotation(-45)
-          tick.set_horizontalalignment('left')
-          tick.set_fontsize(5)
-
-        plt.tight_layout()
-        if ii == '.':
-          out_pdf = '%s/sad_heat.pdf' % options.out_dir
-        else:
-          out_pdf = '%s/sad_%s_heat.pdf' % (options.out_dir, ii)
-        plt.savefig(out_pdf)
-        plt.close()
 
 
 def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):

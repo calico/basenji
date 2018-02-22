@@ -17,6 +17,6 @@ setup(
     license=license,
     packages=find_packages(exclude=('tests', 'docs')),
     install_requires=[
-        'h5py', 'joblib', 'matplotlib', 'numpy', 'pandas', 'pyBigWig', 'pysam',
-        'scipy', 'seaborn', 'sklearn', 'statsmodels', 'tensorflow'
+        'h5py', 'joblib', 'matplotlib', 'networkx', 'numpy', 'pandas', 'pyBigWig',
+        'pysam', 'scipy', 'seaborn', 'sklearn', 'statsmodels', 'tensorflow'
     ])

@@ -22,7 +22,7 @@ import sys
 
 import h5py
 import matplotlib
-matplotlib.use('PDF')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns

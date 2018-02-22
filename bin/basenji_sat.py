@@ -25,7 +25,7 @@ import time
 
 import h5py
 import matplotlib
-matplotlib.use('PDF')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np

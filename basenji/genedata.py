@@ -25,7 +25,7 @@ import basenji.dna_io
 from basenji.gene import TSS, GeneSeq
 
 class GeneData:
-  def __init__(self, genes_hdf5_file, worker_index=None, workers=None):
+  def __init__(self, genes_hdf5_file, worker_index=None, workers=None, read_1hot=True):
     # open HDF5
     self.genes_hdf5_in = h5py.File(genes_hdf5_file)
 
@@ -43,7 +43,10 @@ class GeneData:
                          self.genes_hdf5_in['seq_end'][si])
       self.gene_seqs.append(gene_seq)
 
-    self.seqs_1hot = np.array(self.genes_hdf5_in['seqs_1hot'])
+    if read_1hot:
+      self.seqs_1hot = np.array(self.genes_hdf5_in['seqs_1hot'])
+    else:
+      self.seqs_1hot = None
 
     #########################################
     # TSS information
@@ -143,7 +146,8 @@ class GeneData:
 
     # filter sequences for those with a match
     self.gene_seqs = [self.gene_seqs[si] for si in range(self.num_seqs) if seq_mask[si]]
-    self.seqs_1hot = self.seqs_1hot[seq_mask]
+    if self.seqs_1hot is not None:
+      self.seqs_1hot = self.seqs_1hot[seq_mask]
     self.num_seqs = len(self.gene_seqs)
 
     if self.tss_targets is not None:
@@ -163,7 +167,8 @@ class GeneData:
         [si % worker_num == wi for si in range(self.num_seqs)])
 
     # filter gene sequences
-    self.seqs_1hot = self.seqs_1hot[worker_mask, :, :]
+    if self.seqs_1hot is not None:
+      self.seqs_1hot = self.seqs_1hot[worker_mask, :, :]
     self.gene_seqs = [self.gene_seqs[si] for si in range(self.num_seqs) if worker_mask[si]]
     self.num_seqs = len(self.gene_seqs)
 

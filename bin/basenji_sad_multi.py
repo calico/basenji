@@ -68,24 +68,22 @@ def main():
       default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
       help='Chromosome lengths file [Default: %default]')
   parser.add_option(
-      '-i',
-      dest='index_snp',
-      default=False,
-      action='store_true',
-      help=
-      'SNPs are labeled with their index SNP as column 6 [Default: %default]')
-  parser.add_option(
       '-l',
       dest='seq_len',
       type='int',
-      default=1024,
+      default=131072,
       help='Sequence length provided to the model [Default: %default]')
   parser.add_option(
-      '-m',
-      dest='min_limit',
-      default=0.1,
-      type='float',
-      help='Minimum heatmap limit [Default: %default]')
+      '--local',
+      dest='local',
+      default=1024,
+      type='int',
+      help='Local SAD score [Default: %default]')
+  parser.add_option(
+      '-n',
+      dest='norm_file',
+      default=None,
+      help='Normalize SAD scores')
   parser.add_option(
       '-o',
       dest='out_dir',
@@ -100,7 +98,7 @@ def main():
   parser.add_option(
       '--pseudo',
       dest='log_pseudo',
-      default=0.125,
+      default=1,
       type='float',
       help='Log2 pseudocount [Default: %default]')
   parser.add_option(
@@ -116,12 +114,6 @@ def main():
       help=
       'Average the forward and reverse complement predictions when testing [Default: %default]'
   )
-  parser.add_option(
-      '-s',
-      dest='score',
-      default=False,
-      action='store_true',
-      help='SNPs are labeled with scores as column 7 [Default: %default]')
   parser.add_option(
       '--shifts',
       dest='shifts',
@@ -180,8 +172,8 @@ def main():
         outf,
         errf,
         queue=options.queue,
-        mem=16000,
-        time='24:0:0',
+        mem=15000,
+        time='7-0:0:0',
         gpu=1)
     jobs.append(j)
 

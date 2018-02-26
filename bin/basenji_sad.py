@@ -21,11 +21,6 @@ import os
 import sys
 import time
 
-import matplotlib
-matplotlib.use('PDF')
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 import numpy as np
 import pysam
 import tensorflow as tf
@@ -83,17 +78,10 @@ def main():
       type='int',
       help='Local SAD score [Default: %default]')
   parser.add_option(
-      '-m',
-      dest='min_limit',
-      default=0.1,
-      type='float',
-      help='Minimum heatmap limit [Default: %default]')
-  parser.add_option(
       '-n',
       dest='norm_file',
       default=None,
-      help='Normalize SAD scores',
-      )
+      help='Normalize SAD scores')
   parser.add_option(
       '-o',
       dest='out_dir',

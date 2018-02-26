@@ -14,6 +14,7 @@
 # =========================================================================
 
 from __future__ import print_function
+import gzip
 import os
 import subprocess
 import sys
@@ -215,6 +216,7 @@ def snp_seq1(snp, seq_len, genome_open):
 
   # verify that ref allele matches ref sequence
   seq_ref = seq[left_len:left_len + len(snp.ref_allele)]
+  ref_found = True
   if seq_ref != snp.ref_allele:
 
     # search for reference allele in alternatives
@@ -239,22 +241,21 @@ def snp_seq1(snp, seq_len, genome_open):
         seq = seq[:left_len] + snp.ref_allele + seq[left_len + len(alt_al):]
         break
 
-    if not ref_found:
-      raise Exception(
-          'WARNING: %s - reference genome does not match any allele' %
-          (snp.rsid))
+  if not ref_found:
+    print('WARNING: %s - reference genome does not match any allele' % snp.rsid, file=sys.stderr)
 
-  # one hot code ref allele
-  seq_vecs_ref, seq_ref = dna_length_1hot(seq, seq_len)
-  seq_vecs_list.append(seq_vecs_ref)
+  else:
+    # one hot code ref allele
+    seq_vecs_ref, seq_ref = dna_length_1hot(seq, seq_len)
+    seq_vecs_list.append(seq_vecs_ref)
 
-  for alt_al in snp.alt_alleles:
-    # remove ref allele and include alt allele
-    seq_alt = seq[:left_len] + alt_al + seq[left_len + len(snp.ref_allele):]
+    for alt_al in snp.alt_alleles:
+      # remove ref allele and include alt allele
+      seq_alt = seq[:left_len] + alt_al + seq[left_len + len(snp.ref_allele):]
 
-    # one hot code
-    seq_vecs_alt, seq_alt = dna_length_1hot(seq_alt, seq_len)
-    seq_vecs_list.append(seq_vecs_alt)
+      # one hot code
+      seq_vecs_alt, seq_alt = dna_length_1hot(seq_alt, seq_len)
+      seq_vecs_list.append(seq_vecs_alt)
 
   return seq_vecs_list
 
@@ -533,7 +534,10 @@ def filter_positive(pos_vcf, uneg_vcf, neg_vcf, dist_t=100):
 
 def vcf_snps(vcf_file, index_snp=False, score=False, pos2=False):
   """ Load SNPs from a VCF file """
-  vcf_in = open(vcf_file)
+  if vcf_file[-3:] == '.gz':
+    vcf_in = gzip.open(vcf_file, 'rt')
+  else:
+    vcf_in = open(vcf_file)
 
   # read through header
   line = vcf_in.readline()
@@ -545,6 +549,8 @@ def vcf_snps(vcf_file, index_snp=False, score=False, pos2=False):
   while line:
     snps.append(SNP(line, index_snp, score, pos2))
     line = vcf_in.readline()
+
+  vcf_in.close()
 
   return snps
 
@@ -585,6 +591,9 @@ class SNP:
     self.rsid = a[2]
     self.ref_allele = a[3]
     self.alt_alleles = a[4].split(',')
+
+    if self.rsid == '.':
+      self.rsid = '%s:%d' % (self.chrom, self.pos)
 
     self.index_snp = '.'
     if index_snp:

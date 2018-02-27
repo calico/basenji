@@ -435,9 +435,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     self.cnn_dropout = layer_extend(
         job.get('cnn_dropout', []), 0, self.cnn_layers)
-    self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0, self.cnn_layers)
+    self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0., self.cnn_layers)
 
-    self.final_l1 = job.get('final_l1', 0)
+    self.final_l1 = job.get('final_l1', 0.)
     self.batch_norm = bool(job.get('batch_norm', True))
     self.batch_renorm = bool(job.get('batch_renorm', False))
     self.batch_renorm = bool(job.get('renorm', self.batch_renorm))

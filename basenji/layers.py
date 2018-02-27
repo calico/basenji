@@ -33,8 +33,8 @@ def renorm_clipping():
 
 def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
               cnn_strides, is_training, batch_norm, bn_momentum, batch_renorm,
-              renorm_clipping, cnn_pool, cnn_dropout_value, cnn_dropout_op,
-              cnn_dense,name=''):
+              renorm_clipping, cnn_pool, cnn_l2, cnn_dropout_value,
+              cnn_dropout_op, cnn_dense, name=''):
   """Construct a single (dilated) CNN block.
 
   Args:
@@ -49,6 +49,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
     batch_renorm: whether to use batch renormalization in batchnorm
     renorm_clipping: clipping used by batch_renorm
     cnn_pool: max pooling factor
+    cnn_l2: L2 weight regularization scale
     cnn_droput_value: scalar dropout rate
     cnn_dropout_op: dropout Tensor (useful if setting dropout by placeholder)
     cnn_dense: if True, concat outputs to inputs
@@ -66,7 +67,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
       dilation_rate=[cnn_dilation],
       use_bias=False,
       kernel_initializer=tf.contrib.layers.xavier_initializer(),
-      kernel_regularizer=None)
+      kernel_regularizer=tf.contrib.layers.l2_regularizer(cnn_l2))
   tf.logging.info('Convolution w/ %d %dx%d filters strided %d, dilated %d' %
         (cnn_filters, seqs_repr.shape[2], cnn_filter_sizes, cnn_strides,
          cnn_dilation))

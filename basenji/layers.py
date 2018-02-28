@@ -94,8 +94,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
 
   # dropout
   if cnn_dropout_value > 0:
-    # seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
-    seqs_repr_next = tf.layers.dropout(seqs_repr_next, rate=cnn_dropout_value, training=is_training)
+    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
     tf.logging.info('Dropout w/ probability %.3f' % cnn_dropout_value)
 
   if cnn_dense:

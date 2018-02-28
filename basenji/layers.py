@@ -19,10 +19,9 @@ def renorm_clipping():
   DMAX_START_VALUE = 0
   DMAX_END_VALUE = 5
 
-  # RMAX_decay = ops.adjust_max(RMAX_START_STEP, RMAX_END_STEP, RMAX_START_VALUE, RMAX_END_VALUE, name='RMAXDECAY')
-  # DMAX_decay = ops.adjust_max(DMAX_START_STEP, DMAX_END_STEP, DMAX_START_VALUE, DMAX_END_VALUE, name='DMAXDECAY')
-  RMAX_decay = 3
-  DMAX_decay = 5
+  RMAX_decay = ops.adjust_max(RMAX_START_STEP, RMAX_END_STEP, RMAX_START_VALUE, RMAX_END_VALUE, name='RMAXDECAY')
+  DMAX_decay = ops.adjust_max(DMAX_START_STEP, DMAX_END_STEP, DMAX_START_VALUE, DMAX_END_VALUE, name='DMAXDECAY')
+
   renorm_clipping = {
       'rmin': 1. / RMAX_decay,
       'rmax': RMAX_decay,

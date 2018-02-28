@@ -15,8 +15,8 @@ import pdb
 
 import tensorflow as tf
 
-import basenji.dna_io
-import basenji.ops
+from basenji import dna_io
+from basenji import ops
 
 
 def shift_sequence(seq, shift_amount, pad_value):
@@ -62,7 +62,7 @@ def rc_data_augmentation(dataset):
   seq, label, na = [dataset[k] for k in ['sequence', 'label', 'na']]
 
   do_flip = tf.random_uniform(shape=[]) > 0.5
-  seq, label, na = tf.cond(do_flip, lambda: basenji.ops.reverse_complement_transform(seq, label, na),
+  seq, label, na = tf.cond(do_flip, lambda: ops.reverse_complement_transform(seq, label, na),
                            lambda: (seq, label, na))
 
   def process_predictions_fn(predictions):
@@ -327,7 +327,7 @@ class TFRecordBatcher(object):
       # reverse complement
       if rc:
         if Xb is not None:
-          Xb = basenji.dna_io.hot1_augment(Xb, rc, shift)
+          Xb = dna_io.hot1_augment(Xb, rc, shift)
         if Yb is not None:
           Yb = Yb[:, ::-1, :]
         if NAb is not None:

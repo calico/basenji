@@ -32,9 +32,9 @@ def renorm_clipping():
 
 
 def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
-              cnn_strides, is_training, batch_norm, bn_momentum, batch_renorm,
+              cnn_strides, is_training, batch_norm, batch_renorm,
               renorm_clipping, cnn_pool, cnn_dropout_value, cnn_dropout_op,
-              cnn_dense,name=''):
+              cnn_dense,  bn_momentum=.9, name=''):
   """Construct a single (dilated) CNN block.
 
   Args:

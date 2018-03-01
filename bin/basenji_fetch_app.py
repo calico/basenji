@@ -3,6 +3,7 @@ from optparse import OptionParser
 import collections
 import functools
 import pdb
+import sys
 
 import numpy as np
 import pandas as pd
@@ -71,10 +72,10 @@ def main():
                     id='dataset',
                     options=[
                         {'label':'CAGE', 'value':'CAGE'},
-                        {'label':'DNase', 'value':'DNase'},
-                        {'label':'H3K4me3', 'value':'H3K4me3'}
+                        {'label':'DNase', 'value':'DNASE'},
+                        {'label':'H3K4me3', 'value':'HISTONE:H3K4me3'}
                     ],
-                    value='DNase'
+                    value='DNASE'
                 )
             ], style={'width': '30%', 'display': 'inline-block'}),
 
@@ -84,11 +85,11 @@ def main():
                     id='population',
                     options=[
                         {'label':'-', 'value':'-'},
-                        {'label':'1kG African', 'value':'1kG_AFR'},
-                        {'label':'1kG American', 'value':'1kG_AMR'},
-                        {'label':'1kG East Asian', 'value':'1kg_EAS'},
-                        {'label':'1kG European', 'value':'1kg_EUR'},
-                        {'label':'1kG South Asian', 'value':'1kg_SAS'}
+                        {'label':'1kG African', 'value':'AFR'},
+                        {'label':'1kG American', 'value':'AMR'},
+                        {'label':'1kG East Asian', 'value':'EAS'},
+                        {'label':'1kG European', 'value':'EUR'},
+                        {'label':'1kG South Asian', 'value':'SAS'}
                     ],
                     value='-'
                 )
@@ -111,12 +112,12 @@ def main():
                 id='table',
                 rows=[],
                 columns=['SNP', 'Association', 'Score', 'R2', 'Experiment', 'Description'],
-                column_widths=[200],
+                column_widths=[150, 125, 125, 125, 200],
                 editable=False,
                 filterable=True,
                 sortable=True,
                 resizable=True,
-                sortColumn='Score',
+                sortColumn='Association',
                 row_selectable=True,
                 selected_row_indices=[],
                 max_rows_in_viewport=20
@@ -129,53 +130,77 @@ def main():
     # callback helpers
 
     @memoized
+    def query_ld(snp_id, population):
+        bq_path = 'genomics-public-data.linkage_disequilibrium_1000G_phase_3'
+
+        # construct query
+        query = 'SELECT tname, corr'
+        query += ' FROM `%s.super_pop_%s`' % (bq_path,population)
+        query += ' WHERE qname = "%s"' % snp_id
+
+        # run query
+        print('Running a BigQuery!', file=sys.stderr)
+        query_results = client.query(query)
+
+        return query_results
+
+    @memoized
     def read_sad(snp_i):
+        print('Reading SAD!', file=sys.stderr)
         return sad_zarr_in['sad'][snp_i,:].astype('float64')
 
-    def snp_rows(input_snp, ld_r2=1.):
+    def snp_rows(snp_id, dataset, ld_r2=1.):
         rows = []
 
         # search for SNP
-        if input_snp in snp_indexes:
-            snp_i = snp_indexes[input_snp]
+        if snp_id in snp_indexes:
+            snp_i = snp_indexes[snp_id]
+
+            # round floats
             snp_sad = np.around(read_sad(snp_i),4)
             snp_assoc = np.around(snp_sad*ld_r2, 4)
+            ld_r2_round = np.around(ld_r2, 4)
 
             # extract target scores and info
             for ti, tid in enumerate(target_ids):
-                rows.append({
-                    'SNP': input_snp,
-                    'Association': snp_assoc[ti],
-                    'Score': snp_sad[ti],
-                    'R2': ld_r2,
-                    'Experiment': tid,
-                    'Description': target_labels[ti]})
+                if target_labels[ti].startswith(dataset):
+                    rows.append({
+                        'SNP': snp_id,
+                        'Association': snp_assoc[ti],
+                        'Score': snp_sad[ti],
+                        'R2': ld_r2_round,
+                        'Experiment': tid,
+                        'Description': target_labels[ti]})
 
         return rows
 
     #############################################
     # callbacks
 
+    # @app.callback(
+    #     dd.Output('table', 'rows'),
+    #     [dd.Input('snp_submit', 'n_clicks')],
+    #     [
+    #         dd.State('snp_id','value'),
+    #         dd.State('dataset','value'),
+    #         dd.State('population','value')
+    #     ]
+    # )
+
     @app.callback(
-        dd.Output('table', 'rows'),
-        [dd.Input('snp_submit', 'n_clicks')],
-        [dd.State('snp_id', 'value'), dd.State('population', 'value')]
+        dd.Output('table','rows'),
+        [dd.Input('snp_submit','n_clicks'), dd.Input('dataset','value'), dd.Input('population','value')],
+        [dd.State('snp_id','value')]
     )
-    def update_table(n_clicks, input_snp, population):
-        # add input_snp rows
-        rows = snp_rows(input_snp)
+    def update_table(n_clicks, dataset, population, snp_id):
+        # add snp_id rows
+        rows = snp_rows(snp_id, dataset)
 
         if population != '-':
-            # construct LD query
-            query = 'SELECT tname, corr'
-            query += ' FROM `genomics-public-data.linkage_disequilibrium_1000G_phase_3.super_pop_EAS`'
-            query += ' WHERE qname = "%s"' % input_snp
-
-            # query to DataFrame
-            query_results = client.query(query)
+            query_results = query_ld(snp_id, population)
 
             for ld_snp, ld_corr in query_results:
-                rows += snp_rows(ld_snp, ld_corr)
+                rows += snp_rows(ld_snp, dataset, ld_corr)
 
         return rows
 

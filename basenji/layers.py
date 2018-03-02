@@ -19,10 +19,9 @@ def renorm_clipping():
   DMAX_START_VALUE = 0
   DMAX_END_VALUE = 5
 
-  # RMAX_decay = ops.adjust_max(RMAX_START_STEP, RMAX_END_STEP, RMAX_START_VALUE, RMAX_END_VALUE, name='RMAXDECAY')
-  # DMAX_decay = ops.adjust_max(DMAX_START_STEP, DMAX_END_STEP, DMAX_START_VALUE, DMAX_END_VALUE, name='DMAXDECAY')
-  RMAX_decay = 3
-  DMAX_decay = 5
+  RMAX_decay = ops.adjust_max(RMAX_START_STEP, RMAX_END_STEP, RMAX_START_VALUE, RMAX_END_VALUE, name='RMAXDECAY')
+  DMAX_decay = ops.adjust_max(DMAX_START_STEP, DMAX_END_STEP, DMAX_START_VALUE, DMAX_END_VALUE, name='DMAXDECAY')
+
   renorm_clipping = {
       'rmin': 1. / RMAX_decay,
       'rmax': RMAX_decay,
@@ -32,9 +31,9 @@ def renorm_clipping():
 
 
 def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
-              cnn_strides, is_training, batch_norm, bn_momentum, batch_renorm,
+              cnn_strides, is_training, batch_norm, batch_renorm,
               renorm_clipping, cnn_pool, cnn_dropout_value, cnn_dropout_op,
-              cnn_dense,name=''):
+              cnn_dense,  bn_momentum=.9, name=''):
   """Construct a single (dilated) CNN block.
 
   Args:
@@ -94,8 +93,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
 
   # dropout
   if cnn_dropout_value > 0:
-    # seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
-    seqs_repr_next = tf.layers.dropout(seqs_repr_next, rate=cnn_dropout_value, training=is_training)
+    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
     tf.logging.info('Dropout w/ probability %.3f' % cnn_dropout_value)
 
   if cnn_dense:

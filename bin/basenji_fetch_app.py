@@ -16,6 +16,7 @@ import dash.dependencies as dd
 import dash_core_components as dcc
 import dash_html_components as html
 import dash_table_experiments as dt
+import plotly.graph_objs as go
 
 '''
 basenji_fetch_app.py
@@ -48,8 +49,8 @@ def main():
         snp_indexes[snp_id] = i
 
     # easy access to target information
-    target_ids = sad_zarr_in['target_ids']
-    target_labels = sad_zarr_in['target_labels']
+    target_ids = np.array(sad_zarr_in['target_ids'])
+    target_labels = np.array(sad_zarr_in['target_labels'])
 
     # initialize BigQuery client
     client = bigquery.Client('seqnn-170614')
@@ -77,7 +78,7 @@ def main():
                     ],
                     value='DNASE'
                 )
-            ], style={'width': '30%', 'display': 'inline-block'}),
+            ], style={'width': '250', 'display': 'inline-block'}),
 
             html.Div([
                 html.Label('Population'),
@@ -93,7 +94,7 @@ def main():
                     ],
                     value='-'
                 )
-            ], style={'width': '30%', 'display': 'inline-block'}),
+            ], style={'width': '250', 'display': 'inline-block'}),
 
             html.Div([
                 html.Label('SNP ID'),
@@ -106,6 +107,8 @@ def main():
             'backgroundColor': 'rgb(250, 250, 250)',
             'padding': '10px 5px'
         }),
+
+        dcc.Graph(id='assoc_plot'),
 
         html.Div([
             dt.DataTable(
@@ -174,25 +177,44 @@ def main():
 
         return rows
 
+    def make_data_mask(dataset):
+        dataset_mask = []
+        for ti, tid in enumerate(target_ids):
+            dataset_mask.append(target_labels[ti].startswith(dataset))
+        return np.array(dataset_mask, dtype='bool')
+
+    def snp_scores(snp_id, dataset, ld_r2=1.):
+        dataset_mask = make_data_mask(dataset)
+
+        scores = np.zeros(dataset_mask.sum(), dtype='float64')
+
+        # search for SNP
+        if snp_id in snp_indexes:
+            snp_i = snp_indexes[snp_id]
+
+            # read SAD
+            snp_sad = read_sad(snp_i)[dataset_mask]
+
+            # add
+            scores += snp_sad*ld_r2
+
+        return scores
+
     #############################################
     # callbacks
 
-    # @app.callback(
-    #     dd.Output('table', 'rows'),
-    #     [dd.Input('snp_submit', 'n_clicks')],
-    #     [
-    #         dd.State('snp_id','value'),
-    #         dd.State('dataset','value'),
-    #         dd.State('population','value')
-    #     ]
-    # )
-
     @app.callback(
-        dd.Output('table','rows'),
-        [dd.Input('snp_submit','n_clicks'), dd.Input('dataset','value'), dd.Input('population','value')],
-        [dd.State('snp_id','value')]
+        dd.Output('table', 'rows'),
+        [dd.Input('snp_submit', 'n_clicks')],
+        [
+            dd.State('snp_id','value'),
+            dd.State('dataset','value'),
+            dd.State('population','value')
+        ]
     )
-    def update_table(n_clicks, dataset, population, snp_id):
+    def update_table(n_clicks, snp_id, dataset, population):
+        print('Tabling')
+
         # add snp_id rows
         rows = snp_rows(snp_id, dataset)
 
@@ -204,6 +226,50 @@ def main():
 
         return rows
 
+    @app.callback(
+        dd.Output('assoc_plot', 'figure'),
+        [dd.Input('snp_submit', 'n_clicks')],
+        [
+            dd.State('snp_id','value'),
+            dd.State('dataset','value'),
+            dd.State('population','value')
+        ]
+    )
+    def update_plot(n_clicks, snp_id, dataset, population):
+        print('Plotting')
+
+        target_mask = make_data_mask(dataset)
+
+        # add snp_id rows
+        query_scores = snp_scores(snp_id, dataset)
+
+        if population != '-':
+            query_results = query_ld(snp_id, population)
+
+            for ld_snp, ld_corr in query_results:
+                query_scores += snp_scores(ld_snp, dataset, ld_corr)
+
+        # sort
+        sorted_indexes = np.argsort(query_scores)
+
+        # range
+        ymax = np.abs(query_scores).max()
+        ymax *= 1.2
+
+        return {
+            'data': [go.Scatter(
+                x=np.arange(len(query_scores)),
+                y=query_scores[sorted_indexes],
+                text=target_ids[target_mask][sorted_indexes],
+                mode='markers'
+            )],
+            'layout': {
+                'height': 400,
+                'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
+                'yaxis': {'range': [-ymax,ymax]},
+                'xaxis': {'range': [-1,1+len(query_scores)]}
+            }
+        }
 
     #############################################
     # run

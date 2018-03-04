@@ -97,6 +97,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'batch_renorm': self.batch_renorm,
         'renorm_clipping': self.renorm_clipping,
         'cnn_pool': self.cnn_pool[layer_index],
+        'cnn_l2': self.cnn_l2[layer_index],
         'cnn_dropout_value': self.cnn_dropout[layer_index],
         'cnn_dropout_op': self.cnn_dropout_ph[layer_index],
         'cnn_dense': self.cnn_dense[layer_index],
@@ -123,7 +124,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     # convolution layers
     ###################################################
-    self.weights_regularizers = 0
     self.filter_weights = []
     self.layer_reprs = [inputs]
 
@@ -169,7 +169,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         inputs=seqs_repr,
         units=final_filters,
         activation=None,
-        kernel_initializer=tf.contrib.layers.xavier_initializer())
+        kernel_initializer=tf.contrib.layers.xavier_initializer(),
+        kernel_regularizer=tf.contrib.layers.l1_regularizer(self.final_l1))
       print('Convolution w/ %d %dx1 filters to final targets' %
             (final_filters, seqs_repr.shape[2]))
 
@@ -341,8 +342,11 @@ class SeqNN(seqnn_util.SeqNNModel):
     loss_adhoc = tf.reduce_mean(loss_adhoc, name='loss_adhoc')
 
     # add extraneous terms
-    loss_op += self.weights_regularizers
-    loss_adhoc += self.weights_regularizers
+    reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    reg_sum = tf.reduce_sum(reg_losses)
+    tf.summary.scalar('regularizers', reg_sum)
+    loss_op += reg_sum
+    loss_adhoc += reg_sum
 
     # track
     tf.summary.scalar('loss', loss_op)
@@ -431,9 +435,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     self.cnn_dropout = layer_extend(
         job.get('cnn_dropout', []), 0, self.cnn_layers)
-    self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0, self.cnn_layers)
+    self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0., self.cnn_layers)
 
-    self.final_l1 = job.get('final_l1', 0)
+    self.final_l1 = job.get('final_l1', 0.)
     self.batch_norm = bool(job.get('batch_norm', True))
     self.batch_renorm = bool(job.get('batch_renorm', False))
     self.batch_renorm = bool(job.get('renorm', self.batch_renorm))

@@ -93,11 +93,12 @@ class SeqNN(seqnn_util.SeqNNModel):
         'cnn_strides': self.cnn_strides[layer_index],
         'is_training': self.is_training,
         'batch_norm' : self.batch_norm,
-        'bn_momentum' : self.bn_momentum,
+        'batch_norm_momentum' : self.batch_norm_momentum,
         'batch_renorm': self.batch_renorm,
+        'batch_renorm_momentum' : self.batch_renorm_momentum,
         'renorm_clipping': self.renorm_clipping,
         'cnn_pool': self.cnn_pool[layer_index],
-        'cnn_l2': self.cnn_l2[layer_index],
+        'cnn_l2_scale': self.cnn_l2_scale[layer_index],
         'cnn_dropout_value': self.cnn_dropout[layer_index],
         'cnn_dropout_op': self.cnn_dropout_ph[layer_index],
         'cnn_dense': self.cnn_dense[layer_index],
@@ -170,7 +171,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         units=final_filters,
         activation=None,
         kernel_initializer=tf.contrib.layers.xavier_initializer(),
-        kernel_regularizer=tf.contrib.layers.l1_regularizer(self.final_l1))
+        kernel_regularizer=tf.contrib.layers.l1_regularizer(self.final_l1_scale))
       print('Convolution w/ %d %dx1 filters to final targets' %
             (final_filters, seqs_repr.shape[2]))
 
@@ -435,14 +436,15 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     self.cnn_dropout = layer_extend(
         job.get('cnn_dropout', []), 0, self.cnn_layers)
-    self.cnn_l2 = layer_extend(job.get('cnn_l2', []), 0., self.cnn_layers)
+    self.cnn_l2_scale = layer_extend(job.get('cnn_l2_scale', []), 0., self.cnn_layers)
 
-    self.final_l1 = job.get('final_l1', 0.)
+    self.final_l1_scale = job.get('final_l1_scale', 0.)
     self.batch_norm = bool(job.get('batch_norm', True))
     self.batch_renorm = bool(job.get('batch_renorm', False))
     self.batch_renorm = bool(job.get('renorm', self.batch_renorm))
 
-    self.bn_momentum = job.get('bn_momentum', 0.9)
+    self.batch_norm_momentum = job.get('batch_norm_momentum', 0.9)
+    self.batch_renorm_momentum = job.get('batch_renorm_momentum', 0.9)
 
     ###################################################
     # loss
@@ -452,10 +454,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.target_clip = job.get('target_clip', None)
     self.target_sqrt = bool(job.get('target_sqrt', False))
 
-    ###################################################
-    # other
-    ###################################################
-    self.renorm_clipping = layers.renorm_clipping() if self.batch_renorm else {}
 
   def train_epoch(self,
                   sess,

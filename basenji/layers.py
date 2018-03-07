@@ -31,9 +31,9 @@ def renorm_clipping():
 
 
 def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
-              cnn_strides, is_training, batch_norm, bn_momentum, batch_renorm,
-              renorm_clipping, cnn_pool, cnn_l2, cnn_dropout_value,
-              cnn_dropout_op, cnn_dense, name=''):
+              cnn_strides, is_training, batch_norm, batch_norm_momentum,
+              batch_renorm, batch_renorm_momentum, cnn_pool, cnn_l2_scale,
+              cnn_dropout_value, cnn_dropout_op, cnn_dense, name=''):
   """Construct a single (dilated) CNN block.
 
   Args:
@@ -46,9 +46,8 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
     batch_norm: whether to use batchnorm
     bn_momentum: batch norm momentum
     batch_renorm: whether to use batch renormalization in batchnorm
-    renorm_clipping: clipping used by batch_renorm
     cnn_pool: max pooling factor
-    cnn_l2: L2 weight regularization scale
+    cnn_l2_scale: L2 weight regularization scale
     cnn_droput_value: scalar dropout rate
     cnn_dropout_op: dropout Tensor (useful if setting dropout by placeholder)
     cnn_dense: if True, concat outputs to inputs
@@ -66,7 +65,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
       dilation_rate=[cnn_dilation],
       use_bias=False,
       kernel_initializer=tf.contrib.layers.xavier_initializer(),
-      kernel_regularizer=tf.contrib.layers.l2_regularizer(cnn_l2))
+      kernel_regularizer=tf.contrib.layers.l2_regularizer(cnn_l2_scale))
   tf.logging.info('Convolution w/ %d %dx%d filters strided %d, dilated %d' %
         (cnn_filters, seqs_repr.shape[2], cnn_filter_sizes, cnn_strides,
          cnn_dilation))
@@ -74,11 +73,11 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
   if batch_norm:
     seqs_repr_next = tf.layers.batch_normalization(
         seqs_repr_next,
-        momentum=bn_momentum,
+        momentum=batch_norm_momentum,
         training=is_training,
         renorm=batch_renorm,
-        renorm_clipping=renorm_clipping,
-        renorm_momentum=bn_momentum,
+        renorm_clipping={'rmin': 1/4., 'rmax':4, 'dmax':6},
+        renorm_momentum=batch_renorm_momentum,
         fused=True)
     tf.logging.info('Batch normalization')
 

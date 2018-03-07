@@ -256,7 +256,7 @@ def main():
       outf = '%s/%s.out' % (options.cluster_dir, target_label)
       errf = '%s/%s.err' % (options.cluster_dir, target_label)
       j = slurm.Job(
-          cmd, name, outf, errf, queue='general', mem=15000, time='12:0:0')
+          cmd, name, outf, errf, queue='standard,tbdisk', mem=15000, time='12:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs)

@@ -85,8 +85,6 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
         renorm=batch_renorm,
         renorm_clipping={'rmin': 1/4., 'rmax':4, 'dmax':6},
         renorm_momentum=batch_renorm_momentum,
-        renorm_clipping=renorm_clipping,
-        renorm_momentum=rn_momentum,
         fused=True)
     tf.logging.info('Batch normalization')
 

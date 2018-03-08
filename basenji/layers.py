@@ -57,9 +57,13 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
   Returns:
     updated representation for the sequence
   """
+  # ReLU
+  seqs_repr_next = tf.nn.relu(seqs_repr)
+  tf.logging.info('ReLU')
+
   # Convolution
   seqs_repr_next = tf.layers.conv1d(
-      seqs_repr,
+      seqs_repr_next,
       filters=cnn_filters,
       kernel_size=[cnn_filter_sizes],
       strides=cnn_strides,
@@ -88,8 +92,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
 
   # Dropout
   if cnn_dropout_value > 0:
-    # seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
-    seqs_repr_next = tf.layers.dropout(seqs_repr_next, rate=cnn_dropout_value, training=is_training)
+    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
     tf.logging.info('Dropout w/ probability %.3f' % cnn_dropout_value)
 
   # Skip
@@ -98,12 +101,8 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
     seqs_repr_next += layer_reprs[-cnn_skip]
 
   # Dense
-  # if cnn_dense:
-  #   seqs_repr_next = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
-
-  # ReLU
-  seqs_repr_next = tf.nn.relu(seqs_repr_next)
-  tf.logging.info('ReLU')
+  elif cnn_dense:
+    seqs_repr_next = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
 
   # Pool
   if cnn_pool > 1:

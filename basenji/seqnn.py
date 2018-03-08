@@ -21,6 +21,9 @@ import time
 
 import numpy as np
 import tensorflow as tf
+import memory_saving_gradients
+# monkey patch tf.gradients to point to our custom version, with automatic checkpoint selection
+tf.__dict__["gradients"] = memory_saving_gradients.gradients_memory
 
 from basenji.dna_io import hot1_augment
 from basenji import seqnn_util
@@ -160,6 +163,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.preds_length = seq_length
 
     # save penultimate representation
+    seqs_repr = tf.nn.relu(seqs_repr)
     self.penultimate_op = seqs_repr
 
 

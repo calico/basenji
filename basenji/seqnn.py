@@ -96,7 +96,6 @@ class SeqNN(seqnn_util.SeqNNModel):
         'batch_norm_momentum' : self.batch_norm_momentum,
         'batch_renorm': self.batch_renorm,
         'batch_renorm_momentum' : self.batch_renorm_momentum,
-        'renorm_clipping': self.renorm_clipping,
         'cnn_pool': self.cnn_pool[layer_index],
         'cnn_l2_scale': self.cnn_l2_scale[layer_index],
         'cnn_dropout_value': self.cnn_dropout[layer_index],

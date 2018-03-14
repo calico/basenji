@@ -183,7 +183,10 @@ def main():
   for line in open(sample_wigs_file, encoding='UTF-8'):
     a = line.rstrip().split('\t')
     target_wigs[a[0]] = a[1]
-    target_strands.append(a[2])
+    if len(a) > 2:
+      target_strands.append(a[2])
+    else:
+      target_strands.append('*')
     if len(a) > 3:
       target_labels.append(a[3])
     else:

@@ -30,7 +30,7 @@ from basenji import layers
 class SeqNN(seqnn_util.SeqNNModel):
 
   def __init__(self):
-    tf.train.get_or_create_global_step()
+    self.global_step = tf.train.get_or_create_global_step()
     self.params_set = False
 
   def build(self, job, target_subset=None):
@@ -230,15 +230,13 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # apply gradients
     self.step_op = self.opt.apply_gradients(
-        self.gvs, global_step=tf.train.get_or_create_global_step())
+        self.gvs, global_step=self.global_step)
 
     self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
     # summary
     self.merged_summary = tf.summary.merge_all()
 
-    # initialize steps
-    self.step = 0
 
   def build_loss(self, seqs_repr, data_ops, target_subset=None):
     """Convert per-location real-valued predictions to a loss."""
@@ -487,13 +485,13 @@ class SeqNN(seqnn_util.SeqNNModel):
       fd[self.targets_na] = NAb
 
       run_returns = sess.run(
-          [self.merged_summary, self.loss_op, self.step_op] + self.update_ops,
+          [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops,
           feed_dict=fd)
-      summary, loss_batch = run_returns[:2]
+      summary, loss_batch, global_step = run_returns[:3]
 
       # add summary
       if sum_writer is not None:
-        sum_writer.add_summary(summary, self.step)
+        sum_writer.add_summary(summary, global_step)
 
       # accumulate loss
       # avail_sum = np.logical_not(NAb[:Nb,:]).sum()
@@ -502,13 +500,12 @@ class SeqNN(seqnn_util.SeqNNModel):
 
       # next batch
       Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
-      self.step += 1
 
     # reset training batcher if epoch considered all of the data
     if batches_per_epoch == 0:
       batcher.reset()
 
-    return np.mean(train_loss), self.step
+    return np.mean(train_loss), global_step
 
   def train_epoch_from_data_ops(self,
                                 sess,

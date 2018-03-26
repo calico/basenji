@@ -285,7 +285,7 @@ class SeqNN(seqnn_util.SeqNNModel):
           name='preds')
 
     elif self.link == 'softplus':
-      seqs_repr_clip = tf.clip_by_value(seqs_repr, -exp_max, 0.5*tf.float32.max)
+      seqs_repr_clip = tf.clip_by_value(seqs_repr, -20, 10000)
       self.preds_op = tf.nn.softplus(seqs_repr_clip, name='preds')
 
     elif self.link == 'softmax':

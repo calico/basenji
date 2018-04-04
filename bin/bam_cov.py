@@ -42,8 +42,6 @@ from sklearn.linear_model import Ridge
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 
-import basenji
-
 '''
 bam_cov.py
 
@@ -401,7 +399,7 @@ def regplot_gc(vals1, vals2, model, out_pdf):
   ax.plot(svals1, preds2)
 
   # adjust axis
-  ymin, ymax = basenji.plots.scatter_lims(vals2)
+  ymin, ymax = scatter_lims(vals2)
   ax.set_xlim(0.2, 0.8)
   ax.set_xlabel('GC%')
   ax.set_ylim(ymin, ymax)
@@ -433,7 +431,7 @@ def regplot_shift(vals1, vals2, preds2, out_pdf):
   ax.plot(vals1, preds2)
 
   # adjust axis
-  ymin, ymax = basenji.plots.scatter_lims(vals2)
+  ymin, ymax = scatter_lims(vals2)
   ax.set_xlabel('Shift')
   ax.set_ylim(ymin, ymax)
   ax.set_ylabel('Covariance')
@@ -1606,6 +1604,24 @@ def cigar_len(cigar_str):
 
     return clen
 
+
+def scatter_lims(vals1, vals2=None, buffer=.05):
+  if vals2 is not None:
+    vals = np.concatenate((vals1, vals2))
+  else:
+    vals = vals1
+  vmin = np.nanmin(vals)
+  vmax = np.nanmax(vals)
+
+  buf = .05 * (vmax - vmin)
+
+  if vmin == 0:
+    vmin -= buf / 2
+  else:
+    vmin -= buf
+  vmax += buf
+
+  return vmin, vmax
 
 ################################################################################
 # __main__

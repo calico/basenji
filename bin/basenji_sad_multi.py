@@ -26,7 +26,8 @@ import numpy as np
 
 import slurm
 
-"""basenji_sad_multi.py
+"""
+basenji_sad_multi.py
 
 Compute SNP expression difference scores for variants in a VCF file,
 using multiple processes.

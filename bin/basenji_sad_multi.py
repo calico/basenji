@@ -38,102 +38,57 @@ using multiple processes.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-b',
-      dest='batch_size',
-      default=256,
-      type='int',
+  parser.add_option('-b',dest='batch_size',
+      default=256, type='int',
       help='Batch size [Default: %default]')
-  parser.add_option(
-      '-c',
-      dest='csv',
-      default=False,
-      action='store_true',
+  parser.add_option('-c', dest='csv',
+      default=False, action='store_true',
       help='Print table as CSV [Default: %default]')
-  parser.add_option(
-      '-e',
-      dest='heatmaps',
-      default=False,
-      action='store_true',
-      help='Draw score heatmaps, grouped by index SNP [Default: %default]')
-  parser.add_option(
-      '-f',
-      dest='genome_fasta',
+  parser.add_option('-f', dest='genome_fasta',
       default='%s/assembly/hg19.fa' % os.environ['HG19'],
-      help='Genome FASTA from which sequences will be drawn [Default: %default]'
-  )
-  parser.add_option(
-      '-g',
-      dest='genome_file',
+      help='Genome FASTA for sequences [Default: %default]')
+  parser.add_option('-g', dest='genome_file',
       default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option(
-      '-l',
-      dest='seq_len',
-      type='int',
-      default=131072,
+  parser.add_option('-l', dest='seq_len',
+      default=131072, type='int',
       help='Sequence length provided to the model [Default: %default]')
-  parser.add_option(
-      '--local',
-      dest='local',
-      default=1024,
-      type='int',
+  parser.add_option('--local',dest='local',
+      default=1024, type='int',
       help='Local SAD score [Default: %default]')
-  parser.add_option(
-      '-n',
-      dest='norm_file',
+  parser.add_option('-n', dest='norm_file',
       default=None,
       help='Normalize SAD scores')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
+  parser.add_option('-o',dest='out_dir',
       default='sad',
       help='Output directory for tables and plots [Default: %default]')
-  parser.add_option(
-      '-p',
-      dest='processes',
-      default=2,
-      type='int',
-      help='Number of parallel processes to run.')
-  parser.add_option(
-      '--pseudo',
-      dest='log_pseudo',
-      default=1,
-      type='float',
+  parser.add_option('-p', dest='processes',
+      default=None, type='int',
+      help='Number of processes, passed by multi script')
+  parser.add_option('--pseudo', dest='log_pseudo',
+      default=1, type='float',
       help='Log2 pseudocount [Default: %default]')
-  parser.add_option(
-      '-q',
-      dest='queue',
-      default='p100',
+  parser.add_option('-q', dest='queue',
+      default='k80',
       help='SLURM queue on which to run the jobs [Default: %default]')
-  parser.add_option(
-      '--rc',
-      dest='rc',
-      default=False,
-      action='store_true',
-      help=
-      'Average the forward and reverse complement predictions when testing [Default: %default]'
-  )
-  parser.add_option(
-      '--shifts',
-      dest='shifts',
-      default='0',
+  parser.add_option('--rc', dest='rc',
+      default=False, action='store_true',
+      help='Average forward and reverse complement predictions [Default: %default]')
+  parser.add_option('--shifts', dest='shifts',
+      default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option(
-      '-t',
-      dest='targets_file',
-      default=None,
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
       help='File specifying target indexes and labels in table format')
-  parser.add_option(
-      '--ti',
-      dest='track_indexes',
+  parser.add_option('--ti', dest='track_indexes',
+      default=None, type='str',
       help='Comma-separated list of target indexes to output BigWig tracks')
-  parser.add_option(
-      '-u',
-      dest='penultimate',
-      default=False,
-      action='store_true',
+  parser.add_option('-u', dest='penultimate',
+      default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
+  parser.add_option('-z', dest='zarr',
+      default=False, action='store_true',
+      help='Output max SAR to sad.zarr [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -166,15 +121,10 @@ def main():
     name = 'sad_p%d' % pi
     outf = '%s/job%d.out' % (options.out_dir, pi)
     errf = '%s/job%d.err' % (options.out_dir, pi)
-    j = slurm.Job(
-        cmd,
-        name,
-        outf,
-        errf,
-        queue=options.queue,
-        mem=15000,
-        time='7-0:0:0',
-        gpu=1)
+    j = slurm.Job(cmd, name,
+        outf, errf,
+        queue=options.queue, gpu=1,
+        mem=15000, time='7-0:0:0')
     jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
@@ -182,7 +132,11 @@ def main():
   #######################################################
   # collect output
 
-  collect_table('sad_table.txt', options.out_dir, options.processes)
+  if options.zarr:
+    collect_zarr('sad_table.zarr', options.out_dir, options.processes)
+
+  else:
+    collect_table('sad_table.txt', options.out_dir, options.processes)
 
   # for pi in range(options.processes):
   #     shutil.rmtree('%s/job%d' % (options.out_dir,pi))
@@ -195,6 +149,25 @@ def collect_table(file_name, out_dir, num_procs):
         'tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, pi, file_name, out_dir,
                                              file_name),
         shell=True)
+
+def collect_zarr(file_name, out_dir, num_procs):
+  final_zarr_file = '%s/%s' % (out_dir, file_name)
+
+  # seed w/ job0
+  job_zarr_file = '%s/job0/%s' % (out_dir, file_name)
+  shutil.copytree(job_zarr_file, final_zarr_file)
+
+  # open final
+  final_zarr_open = zarr.open_group(final_zarr_file)
+
+  for pi in range(1, num_procs):
+    # open job
+    job_zarr_file = '%s/job%d/%s' % (out_dir, pi, file_name)
+    job_zarr_open = zarr.open_group(job_zarr_file, 'r')
+
+    # append to final
+    for key in final_zarr_open.keys():
+      final_zarr_open[key].append(job_zarr_open[key])
 
 
 ################################################################################

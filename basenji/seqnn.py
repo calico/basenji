@@ -21,6 +21,9 @@ import time
 
 import numpy as np
 import tensorflow as tf
+import memory_saving_gradients
+# monkey patch tf.gradients to point to our custom version, with automatic checkpoint selection
+tf.__dict__["gradients"] = memory_saving_gradients.gradients_memory
 
 from basenji.dna_io import hot1_augment
 from basenji import seqnn_util
@@ -101,6 +104,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         'cnn_dropout_value': self.cnn_dropout[layer_index],
         'cnn_dropout_op': self.cnn_dropout_ph[layer_index],
         'cnn_dense': self.cnn_dense[layer_index],
+        'cnn_skip': self.cnn_skip[layer_index],
+        'layer_reprs': self.layer_reprs,
         'name' : 'conv-%d' % layer_index
     }
 
@@ -130,6 +135,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     seqs_repr = inputs
     for layer_index in range(self.cnn_layers):
       with tf.variable_scope('cnn%d' % layer_index) as vs:
+        # convolution block
         args_for_block = self._make_cnn_block_args(layer_index)
         seqs_repr = layers.cnn_block(seqs_repr=seqs_repr, **args_for_block)
 
@@ -157,6 +163,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.preds_length = seq_length
 
     # save penultimate representation
+    seqs_repr = tf.nn.relu(seqs_repr)
     self.penultimate_op = seqs_repr
 
 
@@ -257,7 +264,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         tf.float32, shape=seqs_repr.shape, name='preds-adhoc')
 
     # float 32 exponential clip max
-    exp_max = np.floor(np.log(tf.float32.max))
+    exp_max = np.floor(np.log(0.5*tf.float32.max))
 
     # choose link
     if self.link in ['identity', 'linear']:
@@ -278,7 +285,7 @@ class SeqNN(seqnn_util.SeqNNModel):
           name='preds')
 
     elif self.link == 'softplus':
-      seqs_repr_clip = tf.clip_by_value(seqs_repr, -exp_max, tf.float32.max)
+      seqs_repr_clip = tf.clip_by_value(seqs_repr, -20, 10000)
       self.preds_op = tf.nn.softplus(seqs_repr_clip, name='preds')
 
     elif self.link == 'softmax':
@@ -431,6 +438,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         job.get('cnn_dense', []), False, self.cnn_layers)
     self.cnn_dilation = layer_extend(
         job.get('cnn_dilation', []), 1, self.cnn_layers)
+    self.cnn_skip = layer_extend(
+        job.get('cnn_skip', []), 0, self.cnn_layers)
 
     ###################################################
     # regularization

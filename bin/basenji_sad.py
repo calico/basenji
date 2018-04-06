@@ -24,6 +24,7 @@ import time
 import numpy as np
 import pysam
 import tensorflow as tf
+import zarr
 
 import basenji.dna_io
 import basenji.vcf as bvcf
@@ -42,92 +43,54 @@ Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-b',
-      dest='batch_size',
-      default=256,
-      type='int',
+  parser.add_option('-b',dest='batch_size',
+      default=256, type='int',
       help='Batch size [Default: %default]')
-  parser.add_option(
-      '-c',
-      dest='csv',
-      default=False,
-      action='store_true',
+  parser.add_option('-c', dest='csv',
+      default=False, action='store_true',
       help='Print table as CSV [Default: %default]')
-  parser.add_option(
-      '-f',
-      dest='genome_fasta',
+  parser.add_option('-f', dest='genome_fasta',
       default='%s/assembly/hg19.fa' % os.environ['HG19'],
-      help='Genome FASTA from which sequences will be drawn [Default: %default]'
-  )
-  parser.add_option(
-      '-g',
-      dest='genome_file',
+      help='Genome FASTA for sequences [Default: %default]')
+  parser.add_option('-g', dest='genome_file',
       default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option(
-      '-l',
-      dest='seq_len',
-      type='int',
-      default=131072,
+  parser.add_option('-l', dest='seq_len',
+      default=131072, type='int',
       help='Sequence length provided to the model [Default: %default]')
-  parser.add_option(
-      '--local',
-      dest='local',
-      default=1024,
-      type='int',
+  parser.add_option('--local',dest='local',
+      default=1024, type='int',
       help='Local SAD score [Default: %default]')
-  parser.add_option(
-      '-n',
-      dest='norm_file',
+  parser.add_option('-n', dest='norm_file',
       default=None,
       help='Normalize SAD scores')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
+  parser.add_option('-o',dest='out_dir',
       default='sad',
       help='Output directory for tables and plots [Default: %default]')
-  parser.add_option(
-      '-p',
-      dest='processes',
-      default=None,
-      type='int',
+  parser.add_option('-p', dest='processes',
+      default=None, type='int',
       help='Number of processes, passed by multi script')
-  parser.add_option(
-      '--pseudo',
-      dest='log_pseudo',
-      default=1,
-      type='float',
+  parser.add_option('--pseudo', dest='log_pseudo',
+      default=1, type='float',
       help='Log2 pseudocount [Default: %default]')
-  parser.add_option(
-      '--rc',
-      dest='rc',
-      default=False,
-      action='store_true',
-      help=
-      'Average the forward and reverse complement predictions when testing [Default: %default]'
-  )
-  parser.add_option(
-      '--shifts',
-      dest='shifts',
-      default='0',
+  parser.add_option('--rc', dest='rc',
+      default=False, action='store_true',
+      help='Average forward and reverse complement predictions [Default: %default]')
+  parser.add_option('--shifts', dest='shifts',
+      default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option(
-      '-t',
-      dest='targets_file',
-      default=None,
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
       help='File specifying target indexes and labels in table format')
-  parser.add_option(
-      '--ti',
-      dest='track_indexes',
-      default=None,
+  parser.add_option('--ti', dest='track_indexes',
+      default=None, type='str',
       help='Comma-separated list of target indexes to output BigWig tracks')
-  parser.add_option(
-      '-u',
-      dest='penultimate',
-      default=False,
-      action='store_true',
+  parser.add_option('-u', dest='penultimate',
+      default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
+  parser.add_option('-z', dest='zarr',
+      default=False, action='store_true',
+      help='Output max SAR to sad.zarr [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -227,6 +190,8 @@ def main():
       target_norms[ti] = float(line.strip())
       ti += 1
 
+  num_targets = len(target_ids)
+
 
   #################################################################
   # load SNPs
@@ -240,6 +205,8 @@ def main():
         if si % options.processes == worker_index
     ]
 
+  num_snps = len(snps)
+
   #################################################################
   # setup output
 
@@ -249,12 +216,28 @@ def main():
                   'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
                   'target_index', 'target_id', 'target_label')
 
-  if options.csv:
-    sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
-    print(','.join(header_cols), file=sad_out)
+  if options.zarr:
+    sad_out = zarr.open_group('%s/sad_table.zarr' % options.out_dir, 'w')
+
+    # write SNPs
+    sad_out.create_dataset('snp', data=[snp.rsid for snp in snps], chunks=(1024,))
+
+    # write targets
+    sad_out.create_dataset('target_ids', data=target_ids, chunks=(1024,))
+    sad_out.create_dataset('target_labels', data=target_labels, chunks=(1024,))
+
+    # initialize xSAR
+    sad_out.create_dataset('xSAR',
+        shape=(num_snps, num_targets),
+        chunks=(256, num_targets),
+        dtype='float16')
   else:
-    sad_out = open('%s/sad_table.txt' % options.out_dir, 'w')
-    print(' '.join(header_cols), file=sad_out)
+    if options.csv:
+      sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
+      print(','.join(header_cols), file=sad_out)
+    else:
+      sad_out = open('%s/sad_table.txt' % options.out_dir, 'w')
+      print(' '.join(header_cols), file=sad_out)
 
 
   #################################################################
@@ -269,6 +252,7 @@ def main():
   loc_end = loc_start + options.local // model.target_pool
 
   snp_i = 0
+  szi = 0
 
   # initialize saver
   saver = tf.train.Saver()
@@ -349,21 +333,27 @@ def main():
           # compute max difference position
           max_li = np.argmax(np.abs(sar_vec), axis=0)
 
-          # print table lines
-          for ti in range(len(sad)):
-            # print line
-            cols = (snp.rsid, bvcf.cap_allele(snp.ref_allele), bvcf.cap_allele(alt_al),
-                    ref_preds_sum[ti], alt_preds_sum[ti], sad[ti], sar[ti], geo_sad[ti],
-                    ref_preds_loc[ti], alt_preds_loc[ti], sad_loc[ti], sar_loc[ti],
-                    ref_preds[max_li[ti], ti], alt_preds[max_li[ti], ti], sad_vec[max_li[ti],ti], sar_vec[max_li[ti],ti],
-                    ti, target_ids[ti], target_labels[ti])
-            if options.csv:
-              print(','.join([str(c) for c in cols]), file=sad_out)
-            else:
-              print(
-                  '%-13s %6s %6s | %8.2f %8.2f %8.3f %7.4f %7.3f | %7.3f %7.3f %7.3f %7.4f | %7.3f %7.3f %7.3f %7.4f | %4d %12s %s'
-                  % cols,
-                  file=sad_out)
+          if options.zarr:
+            # write to zarr
+            sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)])
+            szi += 1
+
+          else:
+            # print table lines
+            for ti in range(len(sad)):
+              # print line
+              cols = (snp.rsid, bvcf.cap_allele(snp.ref_allele), bvcf.cap_allele(alt_al),
+                      ref_preds_sum[ti], alt_preds_sum[ti], sad[ti], sar[ti], geo_sad[ti],
+                      ref_preds_loc[ti], alt_preds_loc[ti], sad_loc[ti], sar_loc[ti],
+                      ref_preds[max_li[ti], ti], alt_preds[max_li[ti], ti], sad_vec[max_li[ti],ti], sar_vec[max_li[ti],ti],
+                      ti, target_ids[ti], target_labels[ti])
+              if options.csv:
+                print(','.join([str(c) for c in cols]), file=sad_out)
+              else:
+                print(
+                    '%-13s %6s %6s | %8.2f %8.2f %8.3f %7.4f %7.3f | %7.3f %7.3f %7.3f %7.4f | %7.3f %7.3f %7.3f %7.4f | %4d %12s %s'
+                    % cols,
+                    file=sad_out)
 
           # print tracks
           for ti in options.track_indexes:
@@ -378,8 +368,8 @@ def main():
       batch_1hot, batch_snps, snp_i = snps_next_batch(
           snps, snp_i, options.batch_size, options.seq_len, genome_open)
 
-  sad_out.close()
-
+  if not options.zarr:
+    sad_out.close()
 
 
 def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
@@ -410,7 +400,7 @@ def snps_next_batch(snps, snp_i, batch_size, seq_len, genome_open):
 
   while len(batch_1hot) < batch_size and snp_i < len(snps):
     # get SNP sequences
-    snp_1hot = basenji.vcf.snp_seq1(snps[snp_i], seq_len, genome_open)
+    snp_1hot = bvcf.snp_seq1(snps[snp_i], seq_len, genome_open)
 
     # if it was valid
     if len(snp_1hot) > 0:

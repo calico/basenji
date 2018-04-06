@@ -33,7 +33,8 @@ def renorm_clipping():
 def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
               cnn_strides, is_training, batch_norm, batch_norm_momentum,
               batch_renorm, batch_renorm_momentum, cnn_pool, cnn_l2_scale,
-              cnn_dropout_value, cnn_dropout_op, cnn_dense, name=''):
+              cnn_dropout_value, cnn_dropout_op, cnn_dense, cnn_skip,
+              layer_reprs, name=''):
   """Construct a single (dilated) CNN block.
 
   Args:
@@ -56,8 +57,13 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
   Returns:
     updated representation for the sequence
   """
+  # ReLU
+  seqs_repr_next = tf.nn.relu(seqs_repr)
+  tf.logging.info('ReLU')
+
+  # Convolution
   seqs_repr_next = tf.layers.conv1d(
-      seqs_repr,
+      seqs_repr_next,
       filters=cnn_filters,
       kernel_size=[cnn_filter_sizes],
       strides=cnn_strides,
@@ -70,6 +76,7 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
         (cnn_filters, seqs_repr.shape[2], cnn_filter_sizes, cnn_strides,
          cnn_dilation))
 
+  # Batch norm
   if batch_norm:
     seqs_repr_next = tf.layers.batch_normalization(
         seqs_repr_next,
@@ -81,26 +88,24 @@ def cnn_block(seqs_repr, cnn_filters, cnn_filter_sizes, cnn_dilation,
         fused=True)
     tf.logging.info('Batch normalization')
 
-  # ReLU
-  seqs_repr_next = tf.nn.relu(seqs_repr_next)
-  tf.logging.info('ReLU')
+  # Dropout
+  if cnn_dropout_value > 0:
+    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
+    tf.logging.info('Dropout w/ probability %.3f' % cnn_dropout_value)
 
-  # pooling
+  # Skip
+  if cnn_skip > 0:
+    # Add
+    seqs_repr_next += layer_reprs[-cnn_skip]
+
+  # Dense
+  elif cnn_dense:
+    seqs_repr_next = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
+
+  # Pool
   if cnn_pool > 1:
     seqs_repr_next = tf.layers.max_pooling1d(
         seqs_repr_next, pool_size=cnn_pool, strides=cnn_pool, padding='same')
     tf.logging.info('Max pool %d' % cnn_pool)
 
-  # dropout
-  if cnn_dropout_value > 0:
-    seqs_repr_next = tf.nn.dropout(seqs_repr_next, 1.0 - cnn_dropout_op)
-    tf.logging.info('Dropout w/ probability %.3f' % cnn_dropout_value)
-
-  if cnn_dense:
-    # concat layer repr
-    seqs_repr = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
-  else:
-    # update layer repr
-    seqs_repr = seqs_repr_next
-
-  return seqs_repr
+  return seqs_repr_next

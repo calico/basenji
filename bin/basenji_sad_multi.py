@@ -23,6 +23,7 @@ import shutil
 import subprocess
 
 import numpy as np
+import zarr
 
 import slurm
 
@@ -104,7 +105,8 @@ def main():
 
   # output directory
   if os.path.isdir(options.out_dir):
-    shutil.rmtree(options.out_dir)
+    print('Please remove %s' % options.out_dir, file=sys.stderr)
+    exit(1)
   os.mkdir(options.out_dir)
 
   # pickle options

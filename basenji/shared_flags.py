@@ -3,6 +3,7 @@
 
 import tensorflow as tf
 
+tf.flags.DEFINE_boolean('check_all', False, 'Checkpoint every epoch')
 tf.flags.DEFINE_string('logdir', '/tmp/zrl',
                        'directory to keep checkpoints and summaries in')
 tf.flags.DEFINE_boolean('learn_rate_drop', False,

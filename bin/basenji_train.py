@@ -196,6 +196,9 @@ def run(params_file, data_file, num_train_epochs):
             % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str),
             end='')
 
+        if FLAGS.check_all:
+          saver.save(sess, '%s/%s_check%d.tf' % (FLAGS.logdir, FLAGS.save_prefix, epoch))
+
         # if training stagnant
         if FLAGS.learn_rate_drop and num_drops < max_drops and undroppable_counter == 0 and (
             train_loss_last - train_loss) / train_loss_last < 0.0002:

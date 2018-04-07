@@ -36,7 +36,7 @@ import slurm
 import basenji
 
 '''
-basenji_hdf5.py
+basenji_data.py
 
 Tile the genome and project the full functional profile to latent space
 using a given model. Save the result in HDF5 for Basenji learning.
@@ -49,115 +49,55 @@ To Do:
 
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <fasta_file> <sample_wigs_file> <hdf5_file>'
+  usage = 'usage: %prog [options] <fasta_file> <sample_wigs_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-b',
-      dest='limit_bed',
+  parser.add_option('-b', dest='limit_bed',
       help='Limit to segments that overlap regions in a BED file')
-  parser.add_option(
-      '-c',
-      dest='clip',
-      default=None,
-      type='float',
+  parser.add_option('-c', dest='clip',
+      default=None, type='float',
       help='Clip target values to have minimum [Default: %default]')
-  parser.add_option('--cluster_dir', dest='cluster_dir', default='basenji_hdf5')
-  parser.add_option(
-      '-d',
-      dest='sample_pct',
-      default=1.0,
-      type='float',
+  parser.add_option('-d', dest='sample_pct',
+      default=1.0, type='float',
       help='Down-sample the segments')
-  parser.add_option(
-      '-f',
-      dest='fourier_dim',
-      default=None,
-      type='int',
-      help='Fourier transform dimension [Default: %default]')
-  parser.add_option(
-      '-g',
-      dest='gaps_file',
+  parser.add_option('-g', dest='gaps_file',
       help='Genome assembly gaps BED [Default: %default]')
-  parser.add_option(
-      '-l',
-      dest='seq_length',
-      default=1024,
-      type='int',
+  parser.add_option('-l', dest='seq_length',
+      default=131072, type='int',
       help='Sequence length [Default: %default]')
-  parser.add_option(
-      '--log2',
-      dest='log10to2',
-      default=False,
-      action='store_true',
-      help='Transform values from log10 to log2 [Default: %default]')
-  parser.add_option(
-      '--mult_cov',
-      dest='cov_multiplier',
-      default=1,
-      type='float',
-      help=
-      'Coverage multiplier, useful when the read extension and pool width do not match [Default: %default]'
-  )
-  parser.add_option(
-      '-n',
-      dest='na_t',
-      default=0.25,
-      type='float',
-      help=
-      'Remove sequences with an NA% greater than this threshold [Default: %default]'
-  )
-  parser.add_option(
-      '-o',
-      dest='out_bed_file',
-      help='Output the train/valid/test sequences as a BED file')
-  parser.add_option(
-      '-p',
-      dest='processes',
-      default=1,
-      type='int',
-      help='Number parallel processes to load data [Default: %default]')
-  parser.add_option(
-      '-s',
-      dest='stride',
-      type='int',
+  parser.add_option('--unmap_t', dest='unmap_t',
+      default=0.3, type='float',
+      help='Remove sequences with more than this unmappable bin % [Default: %default]')
+  parser.add_option('-o', dest='out_dir',
+      default='data_out',
+      help='Output directory [Default: %default]')
+  parser.add_option('-p', dest='processes',
+      default=1, type='int',
+      help='Number parallel processes [Default: %default]')
+  parser.add_option('-s', dest='stride_train',
+      type='float', default=1.,
       help='Stride to advance segments [Default: seq_length]')
-  parser.add_option(
-      '-t',
-      dest='test_pct_or_chr',
-      type='str',
-      default=0.05,
+  parser.add_option('-t', dest='test_pct_or_chr',
+      type='str', default=0.05,
       help='Proportion of the data for testing [Default: %default]')
-  parser.add_option(
-      '-u', dest='unmap_bed', help='Unmappable segments to set to NA')
-  parser.add_option(
-      '-w',
-      dest='pool_width',
-      type='int',
-      default=1,
-      help='Average pooling width [Default: %default]')
-  parser.add_option(
-      '-v',
-      dest='valid_pct_or_chr',
-      type='str',
-      default=0.05,
+  parser.add_option('-u', dest='unmap_bed',
+      help='Unmappable segments to set to NA')
+  parser.add_option('-w', dest='pool_width',
+      type='int', default=128,
+      help='Sum pool width [Default: %default]')
+  parser.add_option('-v', dest='valid_pct_or_chr',
+      type='str', default=0.05,
       help='Proportion of the data for validation [Default: %default]')
-  parser.add_option(
-      '-z', dest='compression', help='h5py compression [Default: %default]')
+  parser.add_option('-z', dest='compression',
+      help='h5py compression [Default: %default]')
   (options, args) = parser.parse_args()
 
-  if len(args) != 3:
-    parser.error(
-        'Must provide genome FASTA file, sample Wig/BigWig labels and paths, '
-        'and model output file')
+  if len(args) != 2:
+    parser.error('Must provide FASTA and sample coverage labels and paths.)
   else:
     fasta_file = args[0]
     sample_wigs_file = args[1]
-    hdf5_file = args[2]
 
   random.seed(1)
-
-  if options.stride is None:
-    options.stride = options.seq_length
 
   ################################################################
   # assess bigwigs
@@ -181,13 +121,6 @@ def main():
       target_labels.append(a[3])
     else:
       target_labels.append('')
-
-  if options.fourier_dim is not None and 2 * options.fourier_dim >= options.seq_length / options.pool_width:
-    print(
-        "Fourier transform to %d dims won't compress %d length sequences with %d pooling"
-        % (options.fourier_dim, options.seq_length, options.pool_width),
-        file=sys.stderr)
-    exit(1)
 
   ################################################################
   # prepare genomic segments
@@ -237,7 +170,6 @@ def main():
       flush=True)
 
   targets_real = []
-  targets_imag = []
 
   # generate numpy arrays on cluster
   jobs = []
@@ -264,7 +196,7 @@ def main():
 
   slurm.multi_run(jobs)
 
-  # load into targets_real, targets_imag
+  # load into targets_real
   for target_label in target_wigs.keys():
     npy_file = '%s/%s.npy' % (options.cluster_dir, target_label)
     wig_targets = np.load(npy_file)
@@ -304,8 +236,6 @@ def main():
 
     # update data structures
     targets_real = targets_real[map_indexes]
-    if options.fourier_dim is not None:
-      targets_imag = targets_imag[map_indexes]
 
     seqs_1hot = seqs_1hot[map_indexes]
     seqs_segments = [seqs_segments[mi] for mi in map_indexes]
@@ -376,12 +306,6 @@ def main():
       data=targets_real[train_indexes],
       dtype='float16',
       compression=options.compression)
-  if options.fourier_dim is not None:
-    hdf5_out.create_dataset(
-        'train_out_imag',
-        data=targets_imag[train_indexes],
-        dtype='float16',
-        compression=options.compression)
   hdf5_out.create_dataset(
       'train_na',
       data=seqs_na[train_indexes],
@@ -399,12 +323,6 @@ def main():
       data=targets_real[valid_indexes],
       dtype='float16',
       compression=options.compression)
-  if options.fourier_dim is not None:
-    hdf5_out.create_dataset(
-        'valid_out_imag',
-        data=targets_imag[valid_indexes],
-        dtype='float16',
-        compression=options.compression)
   hdf5_out.create_dataset(
       'valid_na',
       data=seqs_na[valid_indexes],
@@ -422,12 +340,6 @@ def main():
       data=targets_real[test_indexes],
       dtype='float16',
       compression=options.compression)
-  if options.fourier_dim is not None:
-    hdf5_out.create_dataset(
-        'test_out_imag',
-        data=targets_imag[test_indexes],
-        dtype='float16',
-        compression=options.compression)
   hdf5_out.create_dataset(
       'test_na',
       data=seqs_na[test_indexes],
@@ -577,46 +489,6 @@ def limit_segments(segments, filter_bed):
   os.remove(seg_bed_file)
 
   return fsegments
-
-
-################################################################################
-def filter_boring(targets, var_t=.01):
-  """ Filter boring segments without signal variance.
-
-    Args
-     targets: SxLxT array of target values
-     var_t: Average variance threshold
-
-    Returns:
-     targets_exciting: SxLxT array of target values
-    """
-  target_lvar_max = targets.var(axis=1).max(axis=1)
-  exciting_mask = (target_lvar_max > var_t)
-  return targets[exciting_mask]
-
-
-################################################################################
-def fourier_transform(targets, dim):
-  """ Fourier transform.
-
-    Args
-     targets: SxLxT array of target values
-     dim: # of fourier dimensions
-
-    Returns:
-     fourier_real: transformed targets, real component
-     fourier_imag: transformed targets, imaginary component
-    """
-  tn = targets.shape[2]
-  fourier_real = np.zeros((targets.shape[0], dim, tn), dtype='float16')
-  fourier_imag = np.zeros((targets.shape[0], dim, tn), dtype='float16')
-
-  for ti in range(tn):
-    fourier_ti = np.fft.rfft(targets[:, :, ti])[:, :dim]
-    fourier_real[:, :, ti] = fourier_ti.real.astype('float16')
-    fourier_imag[:, :, ti] = fourier_ti.imag.astype('float16')
-
-  return fourier_real, fourier_imag
 
 
 ################################################################################

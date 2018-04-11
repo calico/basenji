@@ -163,11 +163,11 @@ def run(params_file, data_file, num_train_epochs):
 
         # train
         train_loss, steps = dr.train_epoch(sess, batcher_train, fwdrc,
-                                    shifts[shift_i], train_writer)
+                                    shifts[shift_i], train_writer, FLAGS.no_steps)
 
         # validate
-        valid_acc = dr.test(
-            sess, batcher_valid, mc_n=FLAGS.mc_n, rc=FLAGS.rc, shifts=shifts)
+        valid_acc = dr.test(sess, batcher_valid,
+                            mc_n=FLAGS.mc_n, rc=FLAGS.rc, shifts=shifts)
         valid_loss = valid_acc.loss
         valid_r2 = valid_acc.r2().mean()
         del valid_acc

@@ -471,7 +471,8 @@ class SeqNN(seqnn_util.SeqNNModel):
                   fwdrc=True,
                   shift=0,
                   sum_writer=None,
-                  batches_per_epoch=0):
+                  batches_per_epoch=0,
+                  no_steps=False):
     """Execute one training epoch."""
 
     # initialize training loss
@@ -493,10 +494,15 @@ class SeqNN(seqnn_util.SeqNNModel):
       fd[self.targets] = Yb
       fd[self.targets_na] = NAb
 
-      run_returns = sess.run(
+      if no_steps:
+        run_returns = sess.run([self.merged_summary, self.loss_op] + \
+                                self.update_ops, feed_dict=fd)
+        summary, loss_batch = run_returns[:2]
+      else:
+        run_returns = sess.run(
           [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops,
           feed_dict=fd)
-      summary, loss_batch, global_step = run_returns[:3]
+        summary, loss_batch, global_step = run_returns[:3]
 
       # add summary
       if sum_writer is not None:

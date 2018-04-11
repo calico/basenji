@@ -64,23 +64,26 @@ def main():
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
-  parser.add_option('--unmap_t', dest='unmap_t',
-      default=0.3, type='float',
-      help='Remove sequences with more than this unmappable bin % [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='data_out',
       help='Output directory [Default: %default]')
   parser.add_option('-p', dest='processes',
       default=1, type='int',
       help='Number parallel processes [Default: %default]')
-  parser.add_option('-s', dest='stride_train',
+  parser.add_option('--stride_train', dest='stride_train',
       type='float', default=1.,
-      help='Stride to advance segments [Default: seq_length]')
+      help='Stride to advance train sequences [Default: seq_length]')
+  parser.add_option('--stride_test', dest='stride_test',
+      type='float', default=1.,
+      help='Stride to advance valid and test sequences [Default: seq_length]')
   parser.add_option('-t', dest='test_pct_or_chr',
       type='str', default=0.05,
       help='Proportion of the data for testing [Default: %default]')
   parser.add_option('-u', dest='unmap_bed',
       help='Unmappable segments to set to NA')
+  parser.add_option('--unmap_t', dest='unmap_t',
+      default=0.3, type='float',
+      help='Remove sequences with more than this unmappable bin % [Default: %default]')
   parser.add_option('-w', dest='pool_width',
       type='int', default=128,
       help='Sum pool width [Default: %default]')
@@ -92,12 +95,15 @@ def main():
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
-    parser.error('Must provide FASTA and sample coverage labels and paths.)
+    parser.error('Must provide FASTA and sample coverage labels and paths.')
   else:
     fasta_file = args[0]
     sample_wigs_file = args[1]
 
   random.seed(1)
+
+  if not os.path.isdir(options.out_dir):
+    os.mkdir(options.out_dir)
 
   ################################################################
   # assess bigwigs
@@ -123,82 +129,126 @@ def main():
       target_labels.append('')
 
   ################################################################
-  # prepare genomic segments
+  # define genomic contigs
   ################################################################
-  chrom_segments = basenji.genome.load_chromosomes(fasta_file)
+  chrom_contigs = basenji.genome.load_chromosomes(fasta_file)
 
   # remove gaps
   if options.gaps_file:
-    chrom_segments = basenji.genome.split_contigs(chrom_segments,
-                                                  options.gaps_file)
+    chrom_contigs = basenji.genome.split_contigs(chrom_contigs,
+                                                 options.gaps_file)
 
-  # ditch the chromosomes
-  segments = []
-  for chrom in chrom_segments:
-    segments += [(chrom, seg_start, seg_end)
-                 for seg_start, seg_end in chrom_segments[chrom]]
-
-  # standardize order
-  segments.sort()
-
-  # filter for large enough
-  segments = [cse for cse in segments if cse[2] - cse[1] >= options.seq_length]
-
-  # down-sample
-  if options.sample_pct < 1.0:
-    segments = random.sample(segments, int(options.sample_pct * len(segments)))
+  # ditch the chromosomes for contigs
+  contigs = []
+  for chrom in chrom_contigs:
+    contigs += [Contig(chrom, ctg_start, ctg_end)
+                 for ctg_start, ctg_end in chrom_contigs[chrom]]
 
   # limit to a BED file
   if options.limit_bed is not None:
-    segments = limit_segments(segments, options.limit_bed)
+    contigs = limit_contigs(contigs, options.limit_bed)
 
-  if not os.path.isdir(options.cluster_dir):
-    os.mkdir(options.cluster_dir)
+  # filter for large enough
+  contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
 
-  # print segments to BED file
-  seg_bed_file = '%s/segments.bed' % options.cluster_dir
-  seg_bed_out = open(seg_bed_file, 'w')
-  for chrom, seg_start, seg_end in segments:
-    print('%s\t%d\t%d' % (chrom, seg_start, seg_end), file=seg_bed_out)
-  seg_bed_out.close()
+  # down-sample
+  if options.sample_pct < 1.0:
+    contigs = random.sample(contigs, int(options.sample_pct= * len(contigs)))
+
+  # print contigs to BED file
+  ctg_bed_file = '%s/contigs.bed' % options.out_dir
+  write_seqs_bed(ctg_bed_file, contigs)
+
 
   ################################################################
-  # bigwig read and process
+  # divide between train/valid/test
   ################################################################
-  print(
-      'Reading and pre-processing bigwigs for %d segments' % len(segments),
-      flush=True)
+  contig_sets = divide_contigs(contigs, options.test_pct_or_chr, options.valid_pct_or_chr)
+  train_contigs, valid_contigs, test_contigs = contig_sets
 
-  targets_real = []
+  ################################################################
+  # define model sequences
+  ################################################################
+
+  # stride sequences across contig
+  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train)
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test)
+  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test)
+
+
+  # TODO: shuffle?
+  # TODO: merge back together with a list of labels?
+
+
+  if options.unmap_bed is not None:
+    # annotate unmappable positions
+    train_unmap = annotate_unmap(train_mseqs, options.unmap_bed,
+                                 options.seq_length, options.pool_width)
+    valid_unmap = annotate_unmap(valid_mseqs, options.unmap_bed,
+                                 options.seq_length, options.pool_width)
+    test_unmap = annotate_unmap(test_mseqs, options.unmap_bed,
+                                 options.seq_length, options.pool_width)
+
+    # filter unmappable
+    train_map_mask = (train_unmap.mean(axis=1, dtype='float64') < options.unmap_t)
+    train_mseqs = [train_mseqs[i] for i in range(len(train_mseqs)) if train_map_mask[i]]
+    train_unmap = train_unmap[train_map_mask,:]
+
+    valid_map_mask = (valid_unmap.mean(axis=1, dtype='float64') < options.unmap_t)
+    valid_mseqs = [valid_mseqs[i] for i in range(len(valid_mseqs)) if valid_map_mask[i]]
+    valid_unmap = valid_unmap[valid_map_mask,:]
+
+    test_map_mask = (test_unmap.mean(axis=1, dtype='float64') < options.unmap_t)
+    test_mseqs = [test_mseqs[i] for i in range(len(test_mseqs)) if test_map_mask[i]]
+    test_unmap = test_unmap[test_map_mask,:]
+
+  # write sequences to BED
+  mseqs_bed_file = '%s/sequences.bed' % options.out_dir
+  mseq_labels = ['train']*len(train_mseqs) + ['valid']*len(valid_mseqs) + ['test']*len(test_mseqs)
+  write_seqs_bed(mseqs_bed_file, train_mseqs+valid_mseqs+test_mseqs, mseq_labels)
+
+  ################################################################
+  # read sequence coverage values
+  ################################################################
+
+  seqs_cov_dir = '%s/seqs_cov' % options.out_dir
+  if not os.path.isdir(seqs_cov_dir):
+    os.mkdir(seqs_cov_dir)
 
   # generate numpy arrays on cluster
   jobs = []
   for target_label in target_wigs.keys():
-    wig_file = target_wigs[target_label]
-    npy_file = '%s/%s' % (options.cluster_dir, target_label)
-    if not os.path.isfile(npy_file) and not os.path.isfile('%s.npy' % npy_file):
-      print(npy_file)
+    genome_cov_file = target_wigs[target_label]
+    seqs_cov_file = '%s/%s.h5' % (seqs_cov_dir, target_label)
+    if not os.path.isfile(seq_cov_file):
+      cmd = 'echo $HOSTNAME; basenji_data_read.py %s %s %s' %
+          (genome_cov_file, seqs_bed_file, seqs_cov_file)
 
-      if os.path.splitext(wig_file)[1] == '.h5':
-        script = 'seqs_hdf5.py'
-      else:
-        script = 'bigwig_hdf5.py'
-
-      cmd = 'echo $HOSTNAME; %s -l %d -s %d -w %d %s %s %s' % (
-          script, options.seq_length, options.stride, options.pool_width,
-          wig_file, seg_bed_file, npy_file)
-      name = 'hdf5_%s' % target_label
-      outf = '%s/%s.out' % (options.cluster_dir, target_label)
-      errf = '%s/%s.err' % (options.cluster_dir, target_label)
-      j = slurm.Job(
-          cmd, name, outf, errf, queue='standard,tbdisk', mem=15000, time='12:0:0')
+      j = slurm.Job(cmd,
+          name='cov_%s' % target_label,
+          out_file='%s/%s.out' % (seqs_cov_dir, target_label),
+          err_file='%s/%s.err' % (seqs_cov_dir, target_label),
+          queue='standard,tbdisk', mem=15000, time='12:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs)
 
+  ################################################################
+  # write TF Records
+  ################################################################
+
+
+
+
+
+
+
+
   # load into targets_real
+  targets_real = []
+
   for target_label in target_wigs.keys():
-    npy_file = '%s/%s.npy' % (options.cluster_dir, target_label)
+    npy_file = '%s/%s.npy' % (options.out_dir, target_label)
     wig_targets = np.load(npy_file)
     targets_real.append(wig_targets)
 
@@ -214,32 +264,6 @@ def main():
                                            options.seq_length, options.stride)
   print('%d sequences one hot coded' % seqs_1hot.shape[0])
 
-  ################################################################
-  # correct for unmappable regions
-  ################################################################
-  if options.unmap_bed is not None:
-    seqs_na = annotate_na(seqs_segments, options.unmap_bed, options.seq_length,
-                          options.pool_width)
-
-    # determine mappable sequences and update test indexes
-    map_indexes = []
-
-    for i in range(seqs_na.shape[0]):
-      # mappable
-      if seqs_na[i, :].mean(dtype='float64') < options.na_t:
-        map_indexes.append(i)
-
-      # unmappable
-      else:
-        # forget it
-        pass
-
-    # update data structures
-    targets_real = targets_real[map_indexes]
-
-    seqs_1hot = seqs_1hot[map_indexes]
-    seqs_segments = [seqs_segments[mi] for mi in map_indexes]
-    seqs_na = seqs_na[map_indexes]
 
   ################################################################
   # write to train, valid, test HDF5
@@ -361,73 +385,72 @@ def main():
 
 
 ################################################################################
-def annotate_na(seqs_segments, unmap_bed, seq_length, pool_width):
+def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
   """ Intersect the sequence segments with unmappable regions
          and annoate the segments as NaN to possible be ignored.
 
     Args:
-      seqs_segments: list of (chrom,start,end) sequence segments
+      mseqs: list of ModelSeq's
       unmap_bed: unmappable regions BED file
       seq_length: sequence length
       pool_width: pooled bin width
 
     Returns:
-      seqs_na: NxL binary NA indicators
+      seqs_unmap: NxL binary NA indicators
     """
 
   # print sequence segments to file
-  segs_temp = tempfile.NamedTemporaryFile()
-  segs_bed = segs_temp.name
-  segs_out = open(segs_bed, 'w')
-  for (chrom, start, end) in seqs_segments:
-    print('%s\t%d\t%d' % (chrom, start, end), file=segs_out)
-  segs_out.close()
+  seqs_temp = tempfile.NamedTemporaryFile()
+  seqs_bed = seqs_temp.name
+  seqs_out = open(seqs_bed, 'w')
+  for mseq in mseqs:
+    print('%s\t%d\t%d' % (mseq.chr, mseq.start, mseq.end), file=seqs_out)
+  seqs_out.close()
 
   # hash segments to indexes
-  segment_indexes = {}
-  for i in range(len(seqs_segments)):
-    segment_indexes[seqs_segments[i]] = i
+  chr_start_indexes = {}
+  for i in range(len(mseqs)):
+    chr_start_indexes[(mseqs[i].chr,mseqs[i].start)] = i
 
-  # initialize NA array
-  seqs_na = np.zeros(
-      (len(seqs_segments), seq_length // pool_width), dtype='bool')
+  # initialize unmappable array
+  pool_seq_length = seq_length // pool_width
+  seqs_unmap = np.zeros((len(mseqs), pool_seq_length), dtype='bool')
 
   # intersect with unmappable regions
   p = subprocess.Popen(
-      'bedtools intersect -wo -a %s -b %s' % (segs_bed, unmap_bed),
+      'bedtools intersect -wo -a %s -b %s' % (seqs_bed, unmap_bed),
       shell=True,
       stdout=subprocess.PIPE)
   for line in p.stdout:
     line = line.decode('utf-8')
     a = line.split()
 
-    seg_chrom = a[0]
-    seg_start = int(a[1])
-    seg_end = int(a[2])
-    seg_tup = (seg_chrom, seg_start, seg_end)
+    seq_chrom = a[0]
+    seq_start = int(a[1])
+    seq_key = (seq_chrom, seq_start)
 
     unmap_start = int(a[4])
     unmap_end = int(a[5])
 
-    seg_unmap_start_i = math.floor((unmap_start - seg_start) / pool_width)
-    seg_unmap_end_i = math.ceil((unmap_end - seg_start) / pool_width)
+    pool_seq_unmap_start = math.floor((unmap_start - seq_start) / pool_width)
+    pool_seq_unmap_end = math.ceil((unmap_end - seq_start) / pool_width)
 
     # skip minor overlaps to the first
-    first_start = seg_start + seg_unmap_start_i * pool_width
+    first_start = seq_start + pool_seq_unmap_start * pool_width
     first_end = first_start + pool_width
     first_overlap = first_end - unmap_start
-    if first_overlap < 0.25 * pool_width:
-      seg_unmap_start_i += 1
+    if first_overlap < 0.2 * pool_width:
+      pool_seq_unmap_start += 1
 
     # skip minor overlaps to the last
-    last_start = seg_start + (seg_unmap_end_i - 1) * pool_width
+    last_start = seq_start + (pool_seq_unmap_end - 1) * pool_width
     last_overlap = unmap_end - last_start
-    if last_overlap < 0.25 * pool_width:
-      seg_unmap_end_i -= 1
+    if last_overlap < 0.2 * pool_width:
+      pool_seq_unmap_end -= 1
 
-    seqs_na[segment_indexes[seg_tup], seg_unmap_start_i:seg_unmap_end_i] = True
+    seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end] = True
 
-  return seqs_na
+  return seqs_unmap
 
 
 ################################################################################
@@ -452,43 +475,134 @@ def batch_end(segments, bstart, batch_max):
 
 
 ################################################################################
-def limit_segments(segments, filter_bed):
-  """ Limit to segments overlapping the given BED.
+def contig_sequences(contigs, seq_length, stride):
+  ''' Break up a list of Contig's into a list of ModelSeq's. '''
+  mseqs = []
+
+  for chrom, ctg_start, ctg_end in contigs:
+    seq_start = ctg_start
+    seq_end = seq_start + seq_length
+
+    while seq_end < ctg_end:
+      # record sequence
+      mseqs.append(ModelSeq(chrom, seq_start, seq_end))
+
+      # update
+      bstart += stride
+      bend += stride
+
+  return mseqs
+
+
+################################################################################
+def divide_contigs(contigs, test_pct, valid_pct, first_train=100):
+  """Divide list of contigs intro train/valid/test lists,
+     aiming for the specified nucleotide percentages."""
+
+  # sort contigs descending by length
+  length_contigs = [(ctg.end-ctg.start,ctg) for ctg in contigs]
+  length_contigs.sort(reverse=True)
+
+  # compute total nucleotides
+  total_nt = sum([lc[0] for lc in length_contigs])
+
+  # compute aimed train/valid/test nucleotides
+  test_nt_aim = test_pct * total_nt
+  valid_nt_aim = valid_pct * total_nt
+  train_nt_aim = total_nt - valid_nt_aim - test_nt_aim
+
+  # initialize current train/valid/test nucleotides
+  train_nt = 0
+  valid_nt = 0
+  test_nt = 0
+
+  # initialie train/valid/test contig lists
+  train_contigs = []
+  valid_contigs = []
+  test_contigs = []
+
+  # add the longest contigs to the training set
+  ci = 0
+  while ci < first_train and ci < len(length_contigs):
+    ctg_len, ctg = length_contigs[ci]
+
+    train_contigs.append(ctg)
+    train_nt += ctg_len
+    ci += 1
+
+  # sample the remainder
+  while ci < len(length_contigs):
+    ctg_len, ctg = length_contigs[ci]
+
+    # compute new train/valid/test sample %'s
+    remaining_nt = total_nt - train_nt - valid_nt - test_nt
+    test_pct_aim = max(0, (test_nt_aim - test_nt) / remaining_nt)
+    valid_pct_aim = max(0, (valid_nt_aim - valid_nt) / remaining_nt)
+    train_pct_aim = 1.0 - valid_pct_aim - test_pct_aim
+
+    # sample train/valid/test
+    ri = np.random.choice(range(3), 1, [train_pct_aim, valid_pct_aim, test_pct_aim])
+    if ri == 0:
+      train_contigs.append(ctg)
+      train_nt += ctg_len
+    elif ri == 1:
+      valid_contigs.append(ctg)
+      valid_nt += ctg_len
+    elif ri == 2:
+      test_contigs.append(ctg)
+      test_nt += ctg_len
+    else:
+      print('TVT random number beyond 0,1,2', file=sys.stderr)
+      exit(1)
+
+    ci += 1
+
+  print('Contigs divided into')
+  print(' Train: %9d (%.4f)' % (train_nt, train_nt/total_nt))
+  print(' Valid: %9d (%.4f)' % (valid_nt, valid_nt/valid_nt))
+  print(' Test:  %9d (%.4f)' % (test_nt, test_nt/total_nt))
+
+  return train_contigs, valid_contigs, test_contigs
+
+
+################################################################################
+def limit_contigs(contigs, filter_bed):
+  """ Limit to contigs overlapping the given BED.
 
     Args
-     segments: list of (chrom,start,end) genomic segments
+     contigs: list of Contigs
      filter_bed: BED file to filter by
 
     Returns:
-     fsegments: list of (chrom,start,end) genomic segments
+     fcontigs: list of Contigs
     """
 
-  # print segments to BED
-  seg_fd, seg_bed_file = tempfile.mkstemp()
-  seg_bed_out = open(seg_bed_file, 'w')
-  for chrom, seg_start, seg_end in segments:
-    print('%s\t%d\t%d' % (chrom, seg_start, seg_end), file=seg_bed_out)
-  seg_bed_out.close()
+  # print ctgments to BED
+  ctg_fd, ctg_bed_file = tempfile.mkstemp()
+  ctg_bed_out = open(ctg_bed_file, 'w')
+  for ctg in contigs:
+    print('%s\t%d\t%d' % (ctg.chrom, ctg.start, ctg.end), file=ctg_bed_out)
+  ctg_bed_out.close()
 
   # intersect w/ filter_bed
-  fsegments = []
+  fcontigs = []
   p = subprocess.Popen(
-      'bedtools intersect -u -a %s -b %s' % (seg_bed_file, filter_bed),
+      'bedtools intersect -u -a %s -b %s' % (ctg_bed_file, filter_bed),
       shell=True,
       stdout=subprocess.PIPE)
   for line in p.stdout:
     a = line.decode('utf-8').split()
     chrom = a[0]
-    seg_start = int(a[1])
-    seg_end = int(a[2])
-    fsegments.append((chrom, seg_start, seg_end))
+    ctg_start = int(a[1])
+    ctg_end = int(a[2])
+    fcontigs.append(Contig(chrom, ctg_start, ctg_end))
 
   p.communicate()
 
-  os.close(seg_fd)
-  os.remove(seg_bed_file)
+  os.close(ctg_fd)
+  os.remove(ctg_bed_file)
 
-  return fsegments
+  return fcontigs
 
 
 ################################################################################
@@ -533,6 +647,22 @@ def segments_1hot(fasta_file, segments, seq_length, stride):
       bend += stride
 
   return np.array(seqs_1hot), seqs_segments
+
+
+################################################################################
+def write_seqs_bed(bed_file, seqs, labels=None):
+  '''Write sequences to BED file.'''
+  bed_out = open(bed_file, 'w')
+  for i in range(len(seqs)):
+    line = '%s\t%d\t%d' % (seqs[i].chr, seqs[i].start, seqs[i].end)
+    if labels is not None:
+      line += '\t%s' % labels[i]
+    print(line, file=bed_out)
+  bed_out.close()
+
+################################################################################
+Contig = collections.namedtuple('chr', 'start', 'end')
+ModelSeq = collections.namedtuple('chr', 'start', 'end')
 
 
 ################################################################################

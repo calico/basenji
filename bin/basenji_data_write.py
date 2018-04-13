@@ -38,13 +38,16 @@ def main():
   usage = 'usage: %prog [options] <fasta_file> <seqs_bed_file> <seqs_cov_dir> <tfr_file>'
   parser = OptionParser(usage)
   parser.add_option('-s', dest='start_i',
-      type='int', default=0,
+      default=0, type='int',
       help='Sequence start index [Default: %default]')
   parser.add_option('-e', dest='end_i',
-      type='int', default=None,
+      default=None, type='int',
       help='Sequence end index [Default: %default]')
   parser.add_option('-u', dest='unmap_npy',
       help='Unmappable array numpy file')
+  parser.add_option('--unmap_pct', dest='unmap_pct',
+      default=0.25, type='float',
+      help='Sequence distribution value to set unmappable positions to.')
   (options, args) = parser.parse_args()
 
   if len(args) != 4:
@@ -104,7 +107,7 @@ def main():
       msi = option.start_i + si
 
       # set unmappable positions to their sequence 25th percentile
-      seq_target_null = np.percentile(targets[si], q=[25], axis=0)[0]
+      seq_target_null = np.percentile(targets[si], q=[100*options.unmap_pct], axis=0)[0]
       targets[si,unmap_mask[msi,:],:] = seq_target_null
 
   ################################################################

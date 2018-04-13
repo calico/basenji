@@ -206,22 +206,37 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def build_optimizer(self, loss_op):
     """Construct optimization op that minimizes loss_op."""
-    # define optimization
 
-    if self.optimization == 'adam':
+    # adaptive learning rate
+    self.learning_rate_adapt = tf.train.exponential_decay(
+        learning_rate=self.learning_rate,
+        global_step=self.global_step,
+        decay_steps=self.learning_decay_steps,
+        decay_rate=self.learning_decay_rate,
+        staircase=True)
+    tf.summary.scalar('learning_rate', self.learning_rate_adapt)
+
+    # optimizer
+    if self.optimizer == 'adam':
       self.opt = tf.train.AdamOptimizer(
-          self.learning_rate,
+          learning_rate=self.learning_rate_adapt,
           beta1=self.adam_beta1,
           beta2=self.adam_beta2,
           epsilon=self.adam_eps)
-    elif self.optimization == 'rmsprop':
+
+    elif self.optimizer == 'rmsprop':
       self.opt = tf.train.RMSPropOptimizer(
-          self.learning_rate, decay=self.decay, momentum=self.momentum)
-    elif self.optimization in ['sgd', 'momentum']:
+          learning_rate=self.learning_rate_adapt,
+          decay=self.rmsprop_decay,
+          momentum=self.momentum)
+
+    elif self.optimizer in ['sgd', 'momentum']:
       self.opt = tf.train.MomentumOptimizer(
-          self.learning_rate, momentum=self.momentum)
+          learning_rate=self.learning_rate_adapt,
+          momentum=self.momentum)
+
     else:
-      print('Cannot recognize optimization algorithm %s' % self.optimization)
+      print('Unrecognized optimizer %s' % self.optimizer)
       exit(1)
 
     # compute gradients
@@ -416,12 +431,15 @@ class SeqNN(seqnn_util.SeqNNModel):
     # training
     ###################################################
     self.learning_rate = job.get('learning_rate', 0.001)
+    self.learning_decay_steps = job.get('learning_decay_steps', 262144)
+    self.learning_decay_rate = job.get('learning_decay_rate', 0.2)
+
     self.adam_beta1 = job.get('adam_beta1', 0.9)
     self.adam_beta2 = job.get('adam_beta2', 0.999)
     self.adam_eps = job.get('adam_eps', 1e-8)
     self.momentum = job.get('momentum', 0)
-    self.decay = job.get('decay', 0.9)
-    self.optimization = job.get('optimization', 'adam').lower()
+    self.rmsprop_decay = job.get('rmsprop_decay', 0.9)
+    self.optimizer = job.get('optimizer', 'adam').lower()
     self.grad_clip = job.get('grad_clip', 1)
 
     ###################################################

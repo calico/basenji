@@ -1,0 +1,33 @@
+target_id	file	target_label
+CNhs11846	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11846.h5	CAGE:carcinoid cell line:SK-PN-DW
+CNhs12184	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12184.h5	CAGE:CD8+ T Cells (pluriselect), donor090612, donation2
+CNhs12590	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12590.h5	CAGE:Perineurial Cells, donor2
+CNhs13513	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs13513.h5	CAGE:CD4+CD25+CD45RA+ naive regulatory T cells, donor3
+CNhs12326	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12326.h5	CAGE:epitheloid carcinoma cell line: HelaS3 ENCODE, biol_rep2
+CNhs13818	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs13818.h5	CAGE:Olfactory epithelial cells, donor3
+CNhs11838	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11838.h5	CAGE:alveolar cell carcinoma cell line:SW 1573
+CNhs11350	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11350.h5	CAGE:Multipotent Cord Blood Unrestricted Somatic Stem Cells, donor1
+CNhs10874	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs10874.h5	CAGE:Fibroblast - Aortic Adventitial, donor1
+CNhs12031	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12031.h5	CAGE:Keratinocyte - epidermal, donor3
+CNhs10853	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs10853.h5	CAGE:CD4+ T Cells, donor1
+CNhs11872	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11872.h5	CAGE:thyroid carcinoma cell line:TCO-1
+CNhs11880	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11880.h5	CAGE:keratoacanthoma cell line:HKA-1
+CNhs12229	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12229.h5	CAGE:pituitary gland, adult, donor10252
+CNhs12350	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12350.h5	CAGE:Cardiac Myocyte, donor2
+CNhs11286	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11286.h5	CAGE:gastric cancer cell line:AZ521
+CNhs11811	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11811.h5	CAGE:neuroblastoma cell line:NH-12
+CNhs12996	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12996.h5	CAGE:temporal lobe, fetal, donor1, tech_rep2
+CNhs10728	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs10728.h5	CAGE:extraskeletal myxoid chondrosarcoma cell line:H-EMC-SS
+CNhs11891	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11891.h5	CAGE:hereditary spherocytic anemia cell line:WIL2-NS
+CNhs14193	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs14193.h5	CAGE:Smooth muscle cells - airway, control, donor4
+CNhs13508	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs13508.h5	CAGE:serous adenocarcinoma cell line:SK-OV-3-R after co-culture with SOC-57-02-G, biol_rep1
+CNhs11818	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11818.h5	CAGE:neuroblastoma cell line:NBsusSR
+CNhs10879	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs10879.h5	CAGE:Keratinocyte - oral, donor1
+CNhs12849	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12849.h5	CAGE:parotid gland, adult
+CNhs12227	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12227.h5	CAGE:spinal cord, adult, donor10252
+CNhs12838	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12838.h5	CAGE:merkel cell carcinoma cell line:MKL-1
+CNhs12199	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12199.h5	CAGE:CD8+ T Cells (pluriselect), donor090325, donation2
+CNhs11324	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11324.h5	CAGE:Smooth Muscle Cells - Esophageal, donor1
+CNhs11934	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11934.h5	CAGE:myelodysplastic syndrome cell line:SKM-1
+CNhs10630	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs10630.h5	CAGE:small intestine, adult, pool1
+CNhs11852	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs11852.h5	CAGE:lymphangiectasia cell line:DS-1

@@ -559,17 +559,15 @@ class SeqNN(seqnn_util.SeqNNModel):
       run_returns = sess.run(
           [self.merged_summary, self.loss_op, self.step_op] + self.update_ops,
           feed_dict=fd)
-      summary, loss_batch = run_returns[:2]
+      summary, loss_batch, global_step = run_returns[:3]
 
       # add summary
       if sum_writer is not None:
-        sum_writer.add_summary(summary, self.step)
+        sum_writer.add_summary(summary, global_step)
 
       train_loss.append(loss_batch)
 
-      self.step += 1
-
-    return np.mean(train_loss), self.step
+    return np.mean(train_loss), global_step
 
 
 def layer_extend(var, default, layers):

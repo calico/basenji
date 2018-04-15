@@ -100,7 +100,7 @@ class TestData(unittest.TestCase):
     fasta_open = pysam.Fastafile(self.fasta_file)
 
     # check random sequences
-    seq_indexes = random.sample(range(seqs_1hot.shape[0]), 10)
+    seq_indexes = random.sample(range(seqs_1hot.shape[0]), 32)
     for si in seq_indexes:
       sc = seq_coords[si]
 
@@ -123,8 +123,8 @@ class TestData(unittest.TestCase):
     _, targets = self.read_tfrecords(train_tfrs_str)
 
     # check random sequences
-    seq_indexes = random.sample(range(targets.shape[0]), 5)
-    target_indexes = random.sample(range(targets_df.shape[0]), 5)
+    seq_indexes = random.sample(range(targets.shape[0]), 8)
+    target_indexes = random.sample(range(targets_df.shape[0]), 8)
     for si in seq_indexes:
       sc = seq_coords[si]
       for ti in target_indexes:
@@ -145,7 +145,7 @@ class TestData(unittest.TestCase):
         # compute close mask
         close_mask = (cov_targets_diff < atol)
 
-        # guess that non-close were unmappable and set to median
+        # guess that non-close were unmappable and set to null
         seq_cov_unmap = seq_cov.copy()
         seq_cov_unmap[~close_mask] = np.percentile(seq_cov, q=[25])[0]
 

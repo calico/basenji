@@ -104,11 +104,13 @@ def main():
     unmap_mask = np.load(options.unmap_npy)
 
     for si in range(num_seqs):
-      msi = option.start_i + si
+      msi = options.start_i + si
 
-      # set unmappable positions to their sequence 25th percentile
+      # determine unmappable null value
       seq_target_null = np.percentile(targets[si], q=[100*options.unmap_pct], axis=0)[0]
-      targets[si,unmap_mask[msi,:],:] = seq_target_null
+
+      # set unmappable positions to null
+      targets[si,unmap_mask[msi,:],:] = np.minimum(targets[si,unmap_mask[msi,:],:], seq_target_null)
 
   ################################################################
   # write TFRecords

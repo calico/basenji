@@ -171,30 +171,33 @@ j   mode: a tf.estimator.ModeKeys instance
       label: [batch_size, num_targets, target_length]
       na: [batch_size, num_targets]
   """
-  inputs_name = 'sequence'
-  targets_name = 'target'
 
-  training_dataset = (mode == tf.estimator.ModeKeys.TRAIN)
+  #############################################################
+  # collecting and shuffling files
 
   dataset = tf.data.Dataset.list_files(tfr_data_files_pattern)
 
   def file_to_records(filename):
     return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
 
-  if training_dataset:  # Shuffle, repeat, and parallelize.
+  if mode == tf.estimator.ModeKeys.TRAIN:  # Shuffle, repeat, and parallelize.
     # This shuffles just the filenames, not the examples.
     dataset = dataset.shuffle(buffer_size=100000)
-    dataset = dataset.repeat()
+
+    # abstaining from repeat makes it easier to separate epochs
+    # dataset = dataset.repeat()
+
     dataset = dataset.apply(
         # Interleaving allows us to pull one element from one file,
         # and then switch to pulling from another file, without fully reading
         # the first.
-        tf.contrib.data.sloppy_interleave(
+        tf.contrib.data.parallel_interleave(
             map_func=file_to_records,
             # Magic number for cycle-length chosen by trying 64 (mentioned as a
             # best practice) and then noticing a significant bump in memory
             # usage. Reducing to 10 alleviated some of the memory pressure.
-            cycle_length=10))
+            cycle_length=10, sloppy=True))
+
     # Shuffle elements within a file.
     dataset = dataset.shuffle(buffer_size=150)
   else:
@@ -203,9 +206,18 @@ j   mode: a tf.estimator.ModeKeys instance
     # so with (non-flat) map, we'd have a dataset of datasets.
     dataset = dataset.flat_map(file_to_records)
 
+
+  #############################################################
+  # batching
+
   if batch_size is None:
     raise ValueError('batch_size is None')
-  dataset = dataset.batch(batch_size)
+  # dataset = dataset.batch(batch_size)
+  dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
+
+
+  #############################################################
+  # parsing protobufs
 
   def _parse(example_protos):
     features = {

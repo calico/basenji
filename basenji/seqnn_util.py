@@ -809,26 +809,22 @@ class SeqNNModel(object):
     return tss_preds
 
 
-  def test_from_data_ops(self,
-                         sess,
-                         num_test_batches=0):
+  def test_from_data_ops(self, sess, num_test_batches=None):
     """ Compute model accuracy on a test set, where data is loaded from a queue.
 
         Args:
-          sess:         TensorFlow session
-          num_test_batches: if > 0, only use this many test batches
+          sess:             TensorFlow session
+          num_test_batches: Number of test batches to use.
 
         Returns:
-          acc:          Accuracy object
+          acc:              Accuracy object
         """
 
     # TODO(dbelanger) this ignores rc and shift ensembling for now.
     # Accuracy will be slightly lower than if we had used this.
     # The rc and shift data augmentation need to be pulled into the graph.
 
-
     fd = self.set_mode('test')
-
 
     # initialize prediction and target arrays
     preds = []
@@ -839,28 +835,31 @@ class SeqNNModel(object):
     batch_target_losses = []
 
     # sequence index
-    si = 0
-    Nb = self.batch_size
+    data_available = True
     batch_count = 0
-    while batch_count < num_test_batches:
+    while data_available and (num_test_batches is None or
+                              batch_count < num_test_batches):
       batch_count += 1
-      # make non-ensembled predictions
-      targets_batch, preds_batch, loss_batch, Yb, NAb = sess.run(
-          [
-              self.targets_op, self.preds_op, self.loss_op, self.targets,
-              self.targets_na
-          ],
-          feed_dict=fd)
-      target_losses_batch = loss_batch
-      targets_na.append(np.zeros([Nb, self.preds_length], dtype='bool'))
+      try:
+        # make non-ensembled predictions
+        run_ops = [self.targets_op, self.preds_op, self.loss_op,
+                   self.target_losses, self.targets, self.targets_na]
+        run_returns = sess.run(run_ops, feed_dict=fd)
+        targets_batch, preds_batch, loss_batch, target_losses_batch, Yb, NAb = run_returns
 
-      preds.append(preds_batch[:Nb, :, :].astype('float16'))
-      targets.append(targets_batch[:Nb, :, :].astype('float16'))
+        # accumulate predictions and targets
+        preds.append(preds_batch.astype('float16'))
+        targets.append(targets_batch.astype('float16'))
+        targets_na.append(np.zeros([self.batch_size, self.preds_length], dtype='bool'))
 
-      # accumulate loss
-      batch_losses.append(loss_batch)
-      batch_target_losses.append(target_losses_batch)
+        # accumulate loss
+        batch_losses.append(loss_batch)
+        batch_target_losses.append(target_losses_batch)
 
+      except tf.errors.OutOfRangeError:
+        data_available = False
+
+    # construct arrays
     targets = np.concatenate(targets, axis=0)
     preds = np.concatenate(preds, axis=0)
     targets_na = np.concatenate(targets_na, axis=0)
@@ -881,7 +880,7 @@ class SeqNNModel(object):
            rc=False,
            shifts=[0],
            mc_n=0,
-           num_test_batches=0):
+           num_test_batches=None):
     """ Compute model accuracy on a test set.
 
         Args:
@@ -891,7 +890,7 @@ class SeqNNModel(object):
             complement sequences.
           shifts:         Average predictions from sequence shifts left/right.
           mc_n:           Monte Carlo iterations per rc/shift.
-          num_test_batches: if > 0, only use this many test batches
+          num_test_batches: Number of test batches to use.
 
         Returns:
           acc:          Accuracy object
@@ -934,7 +933,7 @@ class SeqNNModel(object):
     Xb, Yb, NAb, Nb = batcher.next()
 
     batch_count = 0
-    while Xb is not None and (num_test_batches == 0 or
+    while Xb is not None and (num_test_batches is None or
                               batch_count < num_test_batches):
       batch_count += 1
 

@@ -543,29 +543,34 @@ class SeqNN(seqnn_util.SeqNNModel):
   def train_epoch_from_data_ops(self,
                                 sess,
                                 sum_writer=None,
-                                batches_per_epoch=0):
+                                batches_per_epoch=None):
     """ Execute one training epoch """
-    assert batches_per_epoch > 0, ('not implemented for taking a full pass '
-                                   'through the data')
+
     # initialize training loss
     train_loss = []
 
     # setup feed dict
     fd = self.set_mode('train')
 
+    data_available = True
     num_batches = 0
-    while num_batches < batches_per_epoch:
+    while data_available and (batches_per_epoch is None or num_batches < batches_per_epoch):
       num_batches += 1
-      run_returns = sess.run(
-          [self.merged_summary, self.loss_op, self.step_op] + self.update_ops,
-          feed_dict=fd)
-      summary, loss_batch, global_step = run_returns[:3]
 
-      # add summary
-      if sum_writer is not None:
-        sum_writer.add_summary(summary, global_step)
+      try:
+        run_returns = sess.run(
+            [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops,
+            feed_dict=fd)
+        summary, loss_batch, global_step = run_returns[:3]
 
-      train_loss.append(loss_batch)
+        # add summary
+        if sum_writer is not None:
+          sum_writer.add_summary(summary, global_step)
+
+        train_loss.append(loss_batch)
+
+      except tf.errors.OutOfRangeError:
+        data_available = False
 
     return np.mean(train_loss), global_step
 

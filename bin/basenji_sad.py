@@ -226,11 +226,12 @@ def main():
     sad_out.create_dataset('target_ids', data=target_ids, chunks=(1024,))
     sad_out.create_dataset('target_labels', data=target_labels, chunks=(1024,))
 
-    # initialize xSAR
-    sad_out.create_dataset('xSAR',
-        shape=(num_snps, num_targets),
-        chunks=(256, num_targets),
-        dtype='float16')
+    # initialize SAD, xSAR
+    for score in ['SAD','xSAR']:
+      sad_out.create_dataset(score,
+          shape=(num_snps, num_targets),
+          chunks=(256, num_targets),
+          dtype='float16')
   else:
     if options.csv:
       sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
@@ -335,6 +336,7 @@ def main():
 
           if options.zarr:
             # write to zarr
+            sad_out['SAD'][szi,:] = sad
             sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)])
             szi += 1
 

@@ -4,3 +4,4 @@ params.txt
 hg19_mini.fa*
 hg19_mini_gaps.bed
 unmap.bed
+*tmp.h5

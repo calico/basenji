@@ -380,7 +380,14 @@ def main():
   # compute SAD distributions across variants
 
   if options.zarr:
-    percentiles = np.concatenate([np.arange(0., 0.9, 0.01), np.arange(0.9, 1, 0.001)])
+    # define percentiles
+    d_fine = 0.001
+    d_coarse = 0.01
+    percentiles_neg = np.arange(d_fine, 0.1, d_fine)
+    percentiles_base = np.arange(0.1, 0.9, d_coarse)
+    percentiles_pos = np.arange(0.9, 1, d_fine)
+
+    percentiles = np.concatenate([percentiles_neg, percentiles_base, percentiles_pos])
     sad_out.create_dataset('percentiles', data=percentiles)
     pct_len = len(percentiles)
 
@@ -392,9 +399,7 @@ def main():
           shape=(num_targets, pct_len), chunks=(1, pct_len))
 
       # compute
-      for ti in range(num_targets):
-        sad_ti_abs = np.abs(sad_out[sad_stat][:,ti])
-        sad_out[sad_stat_pct][ti,:] = np.percentile(sad_ti_abs, 100*percentiles)
+      sad_out[sad_stat_pct] = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
 
 
 def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):

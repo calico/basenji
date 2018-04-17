@@ -41,16 +41,20 @@ def main():
     #############################################
     # precursors
 
-    sad_zarr_in = zarr.open_group(sad_zarr_file)
+    sad_zarr_in = zarr.open_group(sad_zarr_file, 'r')
 
     # hash SNP ids to indexes
+    snps = np.array(sad_zarr_in['snp'])
     snp_indexes = {}
-    for i, snp_id in enumerate(sad_zarr_in['snps']):
+    for i, snp_id in enumerate(snps):
         snp_indexes[snp_id] = i
 
     # easy access to target information
     target_ids = np.array(sad_zarr_in['target_ids'])
     target_labels = np.array(sad_zarr_in['target_labels'])
+
+    # read SAD percentile indexes into memory
+    sad_pct = np.array(sad_zarr_in['SAD_pct'])
 
     # initialize BigQuery client
     client = bigquery.Client('seqnn-170614')
@@ -74,9 +78,10 @@ def main():
                     options=[
                         {'label':'CAGE', 'value':'CAGE'},
                         {'label':'DNase', 'value':'DNASE'},
-                        {'label':'H3K4me3', 'value':'HISTONE:H3K4me3'}
+                        {'label':'H3K4me3', 'value':'HISTONE:H3K4me3'},
+                        {'label':'All', 'value':'All'}
                     ],
-                    value='DNASE'
+                    value='CAGE'
                 )
             ], style={'width': '250', 'display': 'inline-block'}),
 
@@ -114,8 +119,8 @@ def main():
             dt.DataTable(
                 id='table',
                 rows=[],
-                columns=['SNP', 'Association', 'Score', 'R2', 'Experiment', 'Description'],
-                column_widths=[150, 125, 125, 125, 200],
+                columns=['SNP', 'Association', 'Score', 'ScoreQ', 'R2', 'Experiment', 'Description'],
+                column_widths=[150, 125, 125, 125, 125, 200],
                 editable=False,
                 filterable=True,
                 sortable=True,
@@ -150,27 +155,43 @@ def main():
     @memoized
     def read_sad(snp_i):
         print('Reading SAD!', file=sys.stderr)
-        return sad_zarr_in['sad'][snp_i,:].astype('float64')
+
+        # read SAD
+        snp_sad = sad_zarr_in['SAD'][snp_i,:].astype('float64')
+
+        # compute percentile indexes
+        snp_sadq = []
+        for ti in range(len(snp_sad)):
+            snp_sadq.append(int(np.searchsorted(sad_pct[ti], snp_sad[ti])))
+
+        return snp_sad, snp_sadq
 
     def snp_rows(snp_id, dataset, ld_r2=1.):
         rows = []
+
+        percentiles = np.around(sad_zarr_in['percentiles'], 3)
+        percentiles = np.append(percentiles, percentiles[-1])
 
         # search for SNP
         if snp_id in snp_indexes:
             snp_i = snp_indexes[snp_id]
 
+            # SAD
+            snp_sad, snp_sadq = read_sad(snp_i)
+
             # round floats
-            snp_sad = np.around(read_sad(snp_i),4)
+            snp_sad = np.around(snp_sad,4)
             snp_assoc = np.around(snp_sad*ld_r2, 4)
             ld_r2_round = np.around(ld_r2, 4)
 
             # extract target scores and info
             for ti, tid in enumerate(target_ids):
-                if target_labels[ti].startswith(dataset):
+                if dataset == 'All' or target_labels[ti].startswith(dataset):
                     rows.append({
                         'SNP': snp_id,
                         'Association': snp_assoc[ti],
                         'Score': snp_sad[ti],
+                        'ScoreQ': percentiles[snp_sadq[ti]],
                         'R2': ld_r2_round,
                         'Experiment': tid,
                         'Description': target_labels[ti]})
@@ -180,7 +201,10 @@ def main():
     def make_data_mask(dataset):
         dataset_mask = []
         for ti, tid in enumerate(target_ids):
-            dataset_mask.append(target_labels[ti].startswith(dataset))
+            if dataset == 'All':
+                dataset_mask.append(True)
+            else:
+                dataset_mask.append(target_labels[ti].startswith(dataset))
         return np.array(dataset_mask, dtype='bool')
 
     def snp_scores(snp_id, dataset, ld_r2=1.):
@@ -193,7 +217,10 @@ def main():
             snp_i = snp_indexes[snp_id]
 
             # read SAD
-            snp_sad = read_sad(snp_i)[dataset_mask]
+            snp_sad, _ = read_sad(snp_i)
+
+            # filter datasets
+            snp_sad = snp_sad[dataset_mask]
 
             # add
             scores += snp_sad*ld_r2

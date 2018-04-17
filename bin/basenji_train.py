@@ -20,7 +20,6 @@ import time
 
 import h5py
 import numpy as np
-from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
 from basenji import batcher
@@ -71,7 +70,6 @@ def run(params_file, data_file, num_train_epochs):
   job['num_targets'] = train_targets.shape[2]
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
   job['early_stop'] = job.get('early_stop', 16)
-  job['rate_drop'] = job.get('rate_drop', 3)
 
   t0 = time.time()
   dr = seqnn.SeqNN()
@@ -141,9 +139,6 @@ def run(params_file, data_file, num_train_epochs):
     train_loss = None
     best_loss = None
     early_stop_i = 0
-    undroppable_counter = 3
-    max_drops = 8
-    num_drops = 0
 
     for epoch in range(num_train_epochs):
       if early_stop_i < job['early_stop'] or epoch < FLAGS.min_epochs:
@@ -192,24 +187,12 @@ def run(params_file, data_file, num_train_epochs):
         # print update
         print(
             'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s'
-            % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str),
-            end='')
+            % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str))
+        sys.stdout.flush()
 
         if FLAGS.check_all:
           saver.save(sess, '%s/%s_check%d.tf' % (FLAGS.logdir, FLAGS.save_prefix, epoch))
 
-        # if training stagnant
-        if FLAGS.learn_rate_drop and num_drops < max_drops and undroppable_counter == 0 and (
-            train_loss_last - train_loss) / train_loss_last < 0.0002:
-          print(', rate drop', end='')
-          dr.drop_rate(2 / 3)
-          undroppable_counter = 1
-          num_drops += 1
-        else:
-          undroppable_counter = max(0, undroppable_counter - 1)
-
-        print('')
-        sys.stdout.flush()
 
     if FLAGS.logdir:
       train_writer.close()

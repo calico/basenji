@@ -6,8 +6,6 @@ import tensorflow as tf
 tf.flags.DEFINE_boolean('check_all', False, 'Checkpoint every epoch')
 tf.flags.DEFINE_string('logdir', '/tmp/zrl',
                        'directory to keep checkpoints and summaries in')
-tf.flags.DEFINE_boolean('learn_rate_drop', False,
-                        'Drop learning rate when training loss stalls')
 tf.flags.DEFINE_integer('mc_n', 0, 'Monte Carlo test iterations')
 tf.flags.DEFINE_integer('min_epochs', 0, 'Minimum epochs to train')
 tf.flags.DEFINE_boolean('no_steps', False, 'Update ops but no step ops')

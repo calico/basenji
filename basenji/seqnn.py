@@ -374,9 +374,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.targets_op = targets
     return loss_op, loss_adhoc
 
-  def drop_rate(self, drop_mult=0.5):
-    """ Drop the optimizer learning rate. """
-    self.opt._lr *= drop_mult
 
   def set_mode(self, mode):
     """ Construct a feed dictionary to specify the model's mode. """

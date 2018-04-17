@@ -45,7 +45,6 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
   job = dna_io.read_job_params(params_file)
 
   job['early_stop'] = job.get('early_stop', 16)
-  job['rate_drop'] = job.get('rate_drop', 3)
 
   data_ops, training_init_op, test_init_op = make_data_ops(
       job, train_file, test_file)
@@ -77,9 +76,6 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
     train_loss = None
     best_loss = None
     early_stop_i = 0
-    undroppable_counter = 3
-    max_drops = 8
-    num_drops = 0
 
     for epoch in range(num_train_epochs):
       if early_stop_i < job['early_stop'] or epoch < FLAGS.min_epochs:
@@ -90,8 +86,7 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
 
         # train epoch
         sess.run(training_init_op)
-        train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer,
-                                                  None) # batches_per_epoch)
+        train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer)
 
         # test validation
         sess.run(test_init_op)
@@ -120,20 +115,7 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
 
         # print update
         print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch + 1, steps, train_loss), end='')
-        print(' Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s' %  (valid_loss, valid_r2, time_str, best_str), end='')
-
-        # if training stagnant
-        if FLAGS.learn_rate_drop and (
-            num_drops < max_drops) and undroppable_counter == 0 and (
-                train_loss_last - train_loss) / train_loss_last < 0.0002:
-          print(', rate drop', end='')
-          model.drop_rate(2 / 3)
-          undroppable_counter = 1
-          num_drops += 1
-        else:
-          undroppable_counter = max(0, undroppable_counter - 1)
-
-        print('')
+        print(' Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s' %  (valid_loss, valid_r2, time_str, best_str))
         sys.stdout.flush()
 
     if FLAGS.logdir:

@@ -41,8 +41,6 @@ def main(_):
 
 
 def run(params_file, data_file, num_train_epochs):
-  shifts = [int(shift) for shift in FLAGS.shifts.split(',')]
-
   #######################################################
   # load data
   #######################################################
@@ -71,8 +69,8 @@ def run(params_file, data_file, num_train_epochs):
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
   t0 = time.time()
-  dr = seqnn.SeqNN()
-  dr.build(job)
+  model = seqnn.SeqNN()
+  model.build(job)
   print('Model building time %f' % (time.time() - t0))
 
   # adjust for fourier
@@ -82,32 +80,37 @@ def run(params_file, data_file, num_train_epochs):
     valid_targets_imag = data_open['valid_out_imag']
 
   #######################################################
-  # train
+  # prepare batcher
   #######################################################
-  # initialize batcher
   if job['fourier']:
     batcher_train = batcher.BatcherF(
         train_seqs,
         train_targets,
         train_targets_imag,
         train_na,
-        dr.batch_size,
-        dr.target_pool,
+        model.batch_size,
+        model.target_pool,
         shuffle=True)
     batcher_valid = batcher.BatcherF(valid_seqs, valid_targets,
                                      valid_targets_imag, valid_na,
-                                     dr.batch_size, dr.target_pool)
+                                     model.batch_size, model.target_pool)
   else:
     batcher_train = batcher.Batcher(
         train_seqs,
         train_targets,
         train_na,
-        dr.batch_size,
-        dr.target_pool,
+        model.batch_size,
+        model.target_pool,
         shuffle=True)
     batcher_valid = batcher.Batcher(valid_seqs, valid_targets, valid_na,
-                                    dr.batch_size, dr.target_pool)
+                                    model.batch_size, model.target_pool)
   print('Batcher initialized')
+
+  #######################################################
+  # train
+  #######################################################
+  augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
+  ensemble_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
 
   # checkpoints
   saver = tf.train.Saver()
@@ -148,19 +151,19 @@ def run(params_file, data_file, num_train_epochs):
 
         # alternate forward and reverse batches
         fwdrc = True
-        if FLAGS.rc and epoch % 2 == 1:
+        if FLAGS.augment_rc and epoch % 2 == 1:
           fwdrc = False
 
         # cycle shifts
-        shift_i = epoch % len(shifts)
+        shift_i = epoch % len(augment_shifts)
 
         # train
-        train_loss, steps = dr.train_epoch(sess, batcher_train, fwdrc,
-                                    shifts[shift_i], train_writer, FLAGS.no_steps)
+        train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc,
+                                    augment_shifts[shift_i], train_writer, FLAGS.no_steps)
 
         # validate
-        valid_acc = dr.test(sess, batcher_valid,
-                            mc_n=FLAGS.mc_n, rc=FLAGS.rc, shifts=shifts)
+        valid_acc = model.test(sess, batcher_valid,
+                               mc_n=FLAGS.ensemble_mc, rc=FLAGS.ensemble_rc, shifts=ensemble_shifts)
         valid_loss = valid_acc.loss
         valid_r2 = valid_acc.r2().mean()
         del valid_acc

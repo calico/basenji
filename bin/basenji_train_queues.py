@@ -40,15 +40,14 @@ def main(_):
 
 
 def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch):
-  shifts = [int(shift) for shift in FLAGS.shifts.split(',')]
-
+  # read parameters
   job = dna_io.read_job_params(params_file)
 
-  job['early_stop'] = job.get('early_stop', 16)
-
+  # load data
   data_ops, training_init_op, test_init_op = make_data_ops(
       job, train_file, test_file)
 
+  # initialize model
   model = seqnn.SeqNN()
   model.build_from_data_ops(job, data_ops)
 

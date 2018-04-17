@@ -11,13 +11,11 @@ tf.flags.DEFINE_string('test_data', '', 'test tfrecord file')
 
 
 # ensembling/augmentation
-tf.flags.DEFINE_string('shifts', '0', 'Ensemble prediction shifts.')
-tf.flags.DEFINE_boolean('rc', False,
-                        'Ensemble forward and reverse complement predictions.')
-tf.flags.DEFINE_boolean('augment_with_rc', False,
-                        'Do data augmentation with reverse complement.')
-tf.flags.DEFINE_integer('mc_n', 0, 'Monte Carlo test iterations')
-
+tf.flags.DEFINE_boolean('augment_rc', False, 'Augment training with reverse complement.')
+tf.flags.DEFINE_boolean('ensemble_rc', False, 'Ensemble prediction with reverse complement.')
+tf.flags.DEFINE_string('augment_shifts', '0', 'Augment training with shifted sequences.')
+tf.flags.DEFINE_string('ensemble_shifts', '0', 'Ensemble prediction with shifted sequences.')
+tf.flags.DEFINE_integer('ensemble_mc', 0, 'Ensemble monte carlo samples.')
 
 # logging
 tf.flags.DEFINE_boolean('check_all', False, 'Checkpoint every epoch')

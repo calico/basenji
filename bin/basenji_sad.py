@@ -220,17 +220,17 @@ def main():
     sad_out = zarr.open_group('%s/sad_table.zarr' % options.out_dir, 'w')
 
     # write SNPs
-    sad_out.create_dataset('snp', data=[snp.rsid for snp in snps], chunks=(1024,))
+    sad_out.create_dataset('snp', data=[snp.rsid for snp in snps], chunks=(32768,))
 
     # write targets
-    sad_out.create_dataset('target_ids', data=target_ids, chunks=(1024,))
-    sad_out.create_dataset('target_labels', data=target_labels, chunks=(1024,))
+    sad_out.create_dataset('target_ids', data=target_ids, compressor=None)
+    sad_out.create_dataset('target_labels', data=target_labels, compressor=None)
 
     # initialize SAD, xSAR
     for score in ['SAD','xSAR']:
       sad_out.create_dataset(score,
           shape=(num_snps, num_targets),
-          chunks=(256, num_targets),
+          chunks=(128, num_targets),
           dtype='float16')
   else:
     if options.csv:

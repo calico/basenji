@@ -226,12 +226,14 @@ def main():
     sad_out.create_dataset('target_ids', data=target_ids, compressor=None)
     sad_out.create_dataset('target_labels', data=target_labels, compressor=None)
 
-    # initialize SAD, xSAR
-    for score in ['SAD','xSAR']:
-      sad_out.create_dataset(score,
+    # initialize SAD stats
+    sad_stats = ['SAD', 'xSAR']
+    for sad_stat in sad_stats:
+      sad_out.create_dataset(sad_stat,
           shape=(num_snps, num_targets),
           chunks=(128, num_targets),
           dtype='float16')
+
   else:
     if options.csv:
       sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
@@ -372,6 +374,32 @@ def main():
 
   if not options.zarr:
     sad_out.close()
+
+
+  ###################################################
+  # compute SAD distributions across variants
+
+  if options.zarr:
+    # define percentiles
+    d_fine = 0.001
+    d_coarse = 0.01
+    percentiles_neg = np.arange(d_fine, 0.1, d_fine)
+    percentiles_base = np.arange(0.1, 0.9, d_coarse)
+    percentiles_pos = np.arange(0.9, 1, d_fine)
+
+    percentiles = np.concatenate([percentiles_neg, percentiles_base, percentiles_pos])
+    sad_out.create_dataset('percentiles', data=percentiles)
+    pct_len = len(percentiles)
+
+    for sad_stat in sad_stats:
+      sad_stat_pct = '%s_pct' % sad_stat
+
+      # initialize
+      sad_out.create_dataset(sad_stat_pct, dtype='float16',
+          shape=(num_targets, pct_len), chunks=(1, pct_len))
+
+      # compute
+      sad_out[sad_stat_pct] = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
 
 
 def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):

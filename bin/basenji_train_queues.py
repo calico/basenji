@@ -100,7 +100,7 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
           best_loss = valid_loss
           best_str = ', best!'
           early_stop_i = 0
-          saver.save(sess, '%s/%s_best.tf' % (FLAGS.logdir, FLAGS.save_prefix))
+          saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
         else:
           early_stop_i += 1
 

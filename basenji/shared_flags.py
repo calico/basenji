@@ -13,7 +13,6 @@ tf.flags.DEFINE_string('restart', None, 'Restart training the model')
 tf.flags.DEFINE_boolean(
     'rc', False,
     'Average the forward and reverse complement predictions when testing')
-tf.flags.DEFINE_string('save_prefix', 'model', 'Prefix for save files')
 tf.flags.DEFINE_integer('seed', 1, 'Random seed')
 tf.flags.DEFINE_string('shifts', '0', 'Ensemble prediction shifts.')
 tf.flags.DEFINE_string('params', '', 'File containing parameter config')

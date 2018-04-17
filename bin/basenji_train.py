@@ -171,7 +171,7 @@ def run(params_file, data_file, num_train_epochs):
           best_loss = valid_loss
           best_str = ', best!'
           early_stop_i = 0
-          saver.save(sess, '%s/%s_best.tf' % (FLAGS.logdir, FLAGS.save_prefix))
+          saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
         else:
           early_stop_i += 1
 
@@ -191,7 +191,7 @@ def run(params_file, data_file, num_train_epochs):
         sys.stdout.flush()
 
         if FLAGS.check_all:
-          saver.save(sess, '%s/%s_check%d.tf' % (FLAGS.logdir, FLAGS.save_prefix, epoch))
+          saver.save(sess, '%s/model_check%d.tf' % (FLAGS.logdir, epoch))
 
 
     if FLAGS.logdir:

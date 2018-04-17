@@ -69,7 +69,6 @@ def run(params_file, data_file, num_train_epochs):
   job['seq_depth'] = train_seqs.shape[2]
   job['num_targets'] = train_targets.shape[2]
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
-  job['early_stop'] = job.get('early_stop', 16)
 
   t0 = time.time()
   dr = seqnn.SeqNN()
@@ -141,7 +140,7 @@ def run(params_file, data_file, num_train_epochs):
     early_stop_i = 0
 
     for epoch in range(num_train_epochs):
-      if early_stop_i < job['early_stop'] or epoch < FLAGS.min_epochs:
+      if early_stop_i < FLAGS.early_stop or epoch < FLAGS.min_epochs:
         t0 = time.time()
 
         # save previous

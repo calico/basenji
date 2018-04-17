@@ -78,7 +78,7 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
     early_stop_i = 0
 
     for epoch in range(num_train_epochs):
-      if early_stop_i < job['early_stop'] or epoch < FLAGS.min_epochs:
+      if early_stop_i < FLAGS.early_stop or epoch < FLAGS.min_epochs:
         t0 = time.time()
 
         # save previous

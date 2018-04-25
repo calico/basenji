@@ -110,7 +110,7 @@ def run(params_file, data_file, num_train_epochs):
   # train
   #######################################################
   augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
-  ensemble_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
+  ensemble_shifts = [int(shift) for shift in FLAGS.ensemble_shifts.split(',')]
 
   # checkpoints
   saver = tf.train.Saver()

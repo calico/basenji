@@ -31,7 +31,7 @@ tf.flags.DEFINE_integer('train_steps_per_iteration', None,
                         'if > 0, use this many steps for an epoch')
 tf.flags.DEFINE_integer('num_test_batches', None,
                         'if > 0, use this many test examples when evaluating')
-tf.flags.DEFINE_integer('num_train_epochs', None,
+tf.flags.DEFINE_integer('num_train_epochs', 1000,
                         'number of full data passes for which to run training.')
 tf.flags.DEFINE_integer('min_epochs', 0, 'Minimum epochs to train')
 

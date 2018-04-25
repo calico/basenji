@@ -159,7 +159,8 @@ def run(params_file, data_file, num_train_epochs):
 
         # train
         train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc,
-                                    augment_shifts[shift_i], train_writer, FLAGS.no_steps)
+                                              augment_shifts[shift_i], train_writer,
+                                              no_steps=FLAGS.no_steps)
 
         # validate
         valid_acc = model.test(sess, batcher_valid,

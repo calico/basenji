@@ -276,7 +276,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         tf.float32, shape=seqs_repr.shape, name='preds-adhoc')
 
     # float 32 exponential clip max
-    exp_max = np.floor(np.log(0.5*tf.float32.max))
+    # exp_max = np.floor(np.log(0.5*tf.float32.max))
+    exp_max = 100
 
     # choose link
     if self.link in ['identity', 'linear']:
@@ -297,7 +298,7 @@ class SeqNN(seqnn_util.SeqNNModel):
           name='preds')
 
     elif self.link == 'softplus':
-      seqs_repr_clip = tf.clip_by_value(seqs_repr, -20, 10000)
+      seqs_repr_clip = tf.clip_by_value(seqs_repr, -exp_max, 10000)
       self.preds_op = tf.nn.softplus(seqs_repr_clip, name='preds')
 
     elif self.link == 'softmax':

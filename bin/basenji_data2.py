@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import collections
+import heapq
 import math
 import pdb
 import os
@@ -30,6 +31,7 @@ import h5py
 import networkx as nx
 import numpy as np
 import pandas as pd
+import pybedtools
 
 import util
 import slurm
@@ -47,12 +49,18 @@ def main():
   usage = 'usage: %prog [options] <fasta1_file> <targets1_file> <fasta2_file> <targets2_file>'
   parser = OptionParser(usage)
   parser.add_option('-a', dest='align_net', help='Alignment .net file')
+  parser.add_option('-b', dest='break_t',
+      default=None, type='int',
+      help='Break in half contigs above length [Default: %default]')
   # parser.add_option('-c', dest='clip',
   #     default=None, type='float',
   #     help='Clip target values to have minimum [Default: %default]')
   parser.add_option('-d', dest='sample_pct',
       default=1.0, type='float',
       help='Down-sample the segments')
+  parser.add_option('-f', dest='fill_min',
+    default=3000000, type='int',
+    help='Alignment net fill size minimum [Default: %default]')
   parser.add_option('--g1', dest='gaps1_file',
       help='Genome1 assembly gaps BED [Default: %default]')
   parser.add_option('--g2', dest='gaps2_file',
@@ -115,7 +123,7 @@ def main():
   # define genomic contigs
   ################################################################
   genome1_chr_contigs = genome.load_chromosomes(fasta1_file)
-  genome2_chr_contigs = genome.load_chromosomes(fasta1_file)
+  genome2_chr_contigs = genome.load_chromosomes(fasta2_file)
 
   # remove gaps
   if options.gaps1_file:
@@ -129,29 +137,21 @@ def main():
   contigs = []
   for chrom in genome1_chr_contigs:
     contigs += [Contig(0, chrom, ctg_start, ctg_end)
-                for ctg_start, ctg_end in genome_chr1_contigs[chrom]]
+                for ctg_start, ctg_end in genome1_chr_contigs[chrom]]
   for chrom in genome2_chr_contigs:
     contigs += [Contig(1, chrom, ctg_start, ctg_end)
-                for ctg_start, ctg_end in genome_chr2_contigs[chrom]]
-  # contigs1 = []
-  # for chrom in genome1_chr_contigs:
-  #   contigs1 += [Contig(chrom, ctg_start, ctg_end)
-  #                for ctg_start, ctg_end in genome_chr1_contigs[chrom]]
-  # contigs2 = []
-  # for chrom in genome2_chr_contigs:
-  #   contigs2 += [Contig(chrom, ctg_start, ctg_end)
-  #                for ctg_start, ctg_end in genome_chr2_contigs[chrom]]
+                for ctg_start, ctg_end in genome2_chr_contigs[chrom]]
 
   # filter for large enough
   contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
-  # contigs1 = [ctg for ctg in contigs1 if ctg.end - ctg.start >= options.seq_length]
-  # contigs2 = [ctg for ctg in contigs2 if ctg.end - ctg.start >= options.seq_length]
+
+  # break up large contigs
+  if options.break_t is not None:
+    contigs = break_large_contigs(contigs, options.break_t)
 
   # down-sample
   if options.sample_pct < 1.0:
     contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
-    # contigs1 = random.sample(contigs1, int(options.sample_pct*len(contigs1)))
-    # contigs2 = random.sample(contigs2, int(options.sample_pct*len(contigs2)))
 
   # print contigs to BED file
   for genome_i in range(2):
@@ -164,7 +164,7 @@ def main():
   ################################################################
 
   # connect contigs across genomes by alignment
-  contig_components = connect_contigs(contigs, options.align_net, options.out_dir)
+  contig_components = connect_contigs(contigs, options.align_net, options.fill_min, options.out_dir)
 
   # divide contig connected components between train/valid/test
   contig_sets = divide_contig_components(contig_components,
@@ -179,9 +179,7 @@ def main():
 
   # data2 notes
   #
-  # just run contig_sequences on each list independently
-  #
-  # when shuffling though, I think we're going to want to carefully
+  # when shuffling, I think we're going to want to carefully
   # evenly distribute the sequences. so shuffle within genome,
   # and then interleave.
 
@@ -413,18 +411,59 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
   return seqs_unmap
 
 
+def break_large_contigs(contigs, break_t, verbose=False):
+  """Break large contigs in half until all contigs are under
+     the size threshold."""
+
+  # initialize a heapq of contigs and lengths
+  contig_heapq = []
+  for ctg in contigs:
+    ctg_len = ctg.end - ctg.start
+    heapq.heappush(contig_heapq, (-ctg_len, ctg))
+
+  ctg_len = break_t + 1
+  while ctg_len > break_t:
+
+    # pop largest contig
+    ctg_nlen, ctg = heapq.heappop(contig_heapq)
+    ctg_len = -ctg_nlen
+
+    # if too large
+    if ctg_len > break_t:
+      if verbose:
+        print('Breaking %s:%d-%d (%d nt)' % (ctg.chr,ctg.start,ctg.end,ctg_len))
+
+      # break in two
+      ctg_mid = ctg.start + ctg_len//2
+
+      # add left
+      ctg_left = Contig(ctg.genome, ctg.chr, ctg.start, ctg_mid)
+      ctg_left_len = ctg_left.end - ctg_left.start
+      heapq.heappush(contig_heapq, (-ctg_left_len, ctg_left))
+
+      # add right
+      ctg_right = Contig(ctg.genome, ctg.chr, ctg_mid, ctg.end)
+      ctg_right_len = ctg_right.end - ctg_right.start
+      heapq.heappush(contig_heapq, (-ctg_right_len, ctg_right))
+
+  # return to list
+  contigs = [len_ctg[1] for len_ctg in contig_heapq]
+
+  return contigs
+
+
 ################################################################################
 def contig_sequences(contigs, seq_length, stride):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
 
-  for chrom, ctg_start, ctg_end in contigs:
-    seq_start = ctg_start
+  for ctg in contigs:
+    seq_start = ctg.start
     seq_end = seq_start + seq_length
 
-    while seq_end < ctg_end:
+    while seq_end < ctg.end:
       # record sequence
-      mseqs.append(ModelSeq(chrom, seq_start, seq_end))
+      mseqs.append(ModelSeq(ctg.genome, ctg.chr, seq_start, seq_end))
 
       # update
       seq_start += int(stride*seq_length)
@@ -434,45 +473,60 @@ def contig_sequences(contigs, seq_length, stride):
 
 
 ################################################################################
-def connect_contigs(contigs, align_net_file, out_dir):
+def connect_contigs(contigs, align_net_file, fill_min, out_dir):
   """Connect contigs across genomes by forming a graph that includes
      net format aligning regions and contigs. Compute contig components
      as connected components of that graph."""
 
-  # construct align net graph
-  graph_contigs_nets = make_net_graph(align_net_file)
+  # construct align net graph and write net BEDs
+  graph_contigs_nets = make_net_graph(align_net_file, fill_min, out_dir)
 
   # add contig nodes
   for ctg in contigs:
-    ctg_node = GraphSeq(ctg.genome, False, ctg.chrom, ctg.start, ctg.end)
+    ctg_node = GraphSeq(ctg.genome, False, ctg.chr, ctg.start, ctg.end)
     graph_contigs_nets.add_node(ctg_node)
 
-  # write net regions to BEDs
-  write_net_beds(align_net_file, out_dir)
-
   # intersect contigs BED w/ nets BED, adding graph edges.
-  intersect_contigs_nets(graph_contigs_nets, 0)
-  intersect_contigs_nets(graph_contigs_nets, 1)
+  intersect_contigs_nets(graph_contigs_nets, 0, out_dir)
+  intersect_contigs_nets(graph_contigs_nets, 1, out_dir)
 
   # find connected components
   contig_components = []
-  for contig_net_component in graph_contigs_nets:
+  for contig_net_component in nx.connected_components(graph_contigs_nets):
     # extract only the contigs
-    cc_contigs = []
+    cc_contigs = [contig_or_net for contig_or_net in contig_net_component if contig_or_net.net is False]
 
-    # add to list
-    contig_components.append(component_contigs)
+    if cc_contigs:
+      # add to list
+      contig_components.append(cc_contigs)
+
+  # write summary stats
+  comp_out = open('%s/contig_components.txt' % out_dir, 'w')
+  for ctg_comp in contig_components:
+    ctg_comp0 = [ctg for ctg in ctg_comp if ctg.genome == 0]
+    ctg_comp1 = [ctg for ctg in ctg_comp if ctg.genome == 1]
+    ctg_comp0_nt = sum([ctg.end-ctg.start for ctg in ctg_comp0])
+    ctg_comp1_nt = sum([ctg.end-ctg.start for ctg in ctg_comp1])
+    ctg_comp_nt = ctg_comp0_nt + ctg_comp1_nt
+    cols = [len(ctg_comp), len(ctg_comp0), len(ctg_comp1)]
+    cols += [ctg_comp0_nt, ctg_comp1_nt, ctg_comp_nt]
+    cols = [str(c) for c in cols]
+    print('\t'.join(cols), file=comp_out)
+  comp_out.close()
 
   return contig_components
 
 
 ################################################################################
-def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain=0.2):
+def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain=0.5):
   """Divide contig connected components into train/valid/test,
      and aiming for the specified nucleotide percentages."""
 
   # sort contig components descending by length
   length_contig_components = []
+  for cc_contigs in contig_components:
+    cc_len = sum([ctg.end-ctg.start for ctg in cc_contigs])
+    length_contig_components.append((cc_len, cc_contigs))
   length_contig_components.sort(reverse=True)
 
   # compute total nucleotides
@@ -494,7 +548,7 @@ def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain
   test_contigs = []
 
   # process contigs
-  for ctg_comp_len, ctg_comp in length_cont ig_components:
+  for ctg_comp_len, ctg_comp in length_contig_components:
 
     # compute gap between current and aim
     test_nt_gap = max(0, test_nt_aim - test_nt)
@@ -516,17 +570,17 @@ def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain
     # sample train/valid/test
     ri = np.random.choice(range(3), 1, p=[train_pct_gap, valid_pct_gap, test_pct_gap])[0]
     if ri == 0:
-      # TODO: add each contig of the connected component
-      train_contigs.append(ctg)
-      train_nt += ctg_len
+      for ctg in ctg_comp:
+        train_contigs.append(ctg)
+      train_nt += ctg_comp_len
     elif ri == 1:
-      # TODO: add each contig of the connected component
-      valid_contigs.append(ctg)
-      valid_nt += ctg_len
+      for ctg in ctg_comp:
+        valid_contigs.append(ctg)
+      valid_nt += ctg_comp_len
     elif ri == 2:
-      # TODO: add each contig of the connected component
-      test_contigs.append(ctg)
-      test_nt += ctg_len
+      for ctg in ctg_comp:
+        test_contigs.append(ctg)
+      test_nt += ctg_comp_len
     else:
       print('TVT random number beyond 0,1,2', file=sys.stderr)
       exit(1)
@@ -545,6 +599,12 @@ def report_divide_stats(train_contigs, valid_contigs, test_contigs):
   train_count_genome, train_nt_genome = contig_stats_genome(train_contigs)
   valid_count_genome, valid_nt_genome = contig_stats_genome(valid_contigs)
   test_count_genome, test_nt_genome = contig_stats_genome(test_contigs)
+
+  # sum nt across genomes
+  train_nt = sum(train_nt_genome)
+  valid_nt = sum(valid_nt_genome)
+  test_nt = sum(test_nt_genome)
+  total_nt = train_nt + valid_nt + test_nt
 
   # compute total sum nt per genome
   total_nt_genome = []
@@ -577,22 +637,21 @@ def contig_stats_genome(contigs):
   contigs_nt_genome = []
 
   for gi in range(2):
-    contigs_genome = [ctg for ctg in train_contigs if ctg.genome == gi]
-    contigs_nt = [ctg.end-ctg.start for ctg in train_contigs0]
+    contigs_genome = [ctg for ctg in contigs if ctg.genome == gi]
+    contigs_nt = [ctg.end-ctg.start for ctg in contigs_genome]
 
     contigs_count_genome.append(len(contigs_genome))
-    contigs_nt_genome.append(sum(contigs_genome_nt))
+    contigs_nt_genome.append(sum(contigs_nt))
 
   return contigs_count_genome, contigs_nt_genome
 
 
-def make_net_graph(align_net_file):
+def make_net_graph(align_net_file, fill_min, out_dir):
   """Construct a Graph with aligned net intervals connected
      by edges."""
 
-  # does networkx let me store the additional information
-  # with the nodes that I'd need to categorize them later
-  # as net intervals, rather than contigs?
+  nets1_bed_out = open('%s/nets0.bed' % out_dir, 'w')
+  nets2_bed_out = open('%s/nets1.bed' % out_dir, 'w')
 
   graph_nets = nx.Graph()
 
@@ -604,30 +663,40 @@ def make_net_graph(align_net_file):
     elif net_line.startswith(' fill'):
       net_a = net_line.split()
 
-      # add genome1 node
+      # extract genome1 interval
       start1 = int(net_a[1])
       size1 = int(net_a[2])
       end1 = start1+size1
-      net1_node = GraphSeq(0, True, chrom1, start1, end1)
-      graph_nets.add_node(net1_node)
 
-      # add genome2 node
+      # extract genome2 interval
       chrom2 = net_a[3]
       start2 = int(net_a[5])
       size2 = int(net_a[6])
       end2 = start2+size2
-      net2_node = GraphSeq(1, True, chrom2, start2, end2)
-      graph_nets.add_node(net2_node)
 
-      # add edge
-      graph_nets.add_edge(net1_node, net2_node)
+      if min(size1, size2) >= fill_min:
+        # add edge
+        net1_node = GraphSeq(0, True, chrom1, start1, end1)
+        net2_node = GraphSeq(1, True, chrom2, start2, end2)
+        graph_nets.add_edge(net1_node, net2_node)
+
+        # write interval1
+        cols = [chrom1, str(start1), str(end1)]
+        print('\t'.join(cols), file=nets1_bed_out)
+
+        # write interval2
+        cols = [chrom2, str(start2), str(end2)]
+        print('\t'.join(cols), file=nets2_bed_out)
+
+  nets1_bed_out.close()
+  nets2_bed_out.close()
 
   return graph_nets
 
 
 def write_net_beds(align_net_file, out_dir):
-  nets1_bed_out = open('%s/nets0.bed' % options.out_dir, 'w')
-  nets2_bed_out = open('%s/nets1.bed' % options.out_dir, 'w')
+  nets1_bed_out = open('%s/nets0.bed' % out_dir, 'w')
+  nets2_bed_out = open('%s/nets1.bed' % out_dir, 'w')
 
   for net_line in open(align_net_file):
     if net_line.startswith('net'):
@@ -657,6 +726,9 @@ def write_net_beds(align_net_file, out_dir):
 
 
 def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir):
+  """Intersect the contigs and nets from genome_i, adding the
+     overlaps as edges to graph_contigs_nets."""
+
   contigs_file = '%s/contigs%d.bed' % (out_dir, genome_i)
   nets_file = '%s/nets%d.bed' % (out_dir, genome_i)
 
@@ -664,20 +736,22 @@ def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir):
   nets_bed = pybedtools.BedTool(nets_file)
 
   for overlap in contigs_bed.intersect(nets_bed, wo=True):
-    pdb.set_trace()
     ctg_chr = overlap[0]
-    ctg_start = overlap[1]
-    ctg_end = overlap[2]
+    ctg_start = int(overlap[1])
+    ctg_end = int(overlap[2])
     net_chr = overlap[3]
-    net_start = overlap[4]
-    net_end = overlap[5]
+    net_start = int(overlap[4])
+    net_end = int(overlap[5])
 
     # create node objects
     ctg_node = GraphSeq(genome_i, False, ctg_chr, ctg_start, ctg_end)
     net_node = GraphSeq(genome_i, True, net_chr, net_start, net_end)
 
-    # add edge
+    # add edge / verify we found nodes
+    gcn_size_pre = graph_contigs_nets.number_of_nodes()
     graph_contigs_nets.add_edge(ctg_node, net_node)
+    gcn_size_post = graph_contigs_nets.number_of_nodes()
+    assert(gcn_size_pre == gcn_size_post)
 
 
 ################################################################################

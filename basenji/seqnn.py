@@ -277,7 +277,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # float 32 exponential clip max
     # exp_max = np.floor(np.log(0.5*tf.float32.max))
-    exp_max = 100
+    exp_max = 50
 
     # choose link
     if self.link in ['identity', 'linear']:

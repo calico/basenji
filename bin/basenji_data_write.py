@@ -133,10 +133,8 @@ def main():
       # one hot code
       seq_1hot = dna_1hot(seq_dna)
 
-      # example = tf.train.Example(features=tf.train.Features(feature={
-      #     'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-      #     'target': _float_feature(targets[si,:,:].flatten())}))
       example = tf.train.Example(features=tf.train.Features(feature={
+          'genome': _int_feature(0),
           'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
           'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
 
@@ -150,6 +148,9 @@ def main():
 
 def _bytes_feature(value):
   return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+def _int_feature(value):
+  return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
 ################################################################################
 # __main__

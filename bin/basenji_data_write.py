@@ -20,10 +20,11 @@ import h5py
 import numpy as np
 import pdb
 import pysam
-import tensorflow as tf
 
 from basenji_data import ModelSeq
 from basenji.dna_io import dna_1hot
+
+import tensorflow as tf
 
 """
 basenji_data_write.py
@@ -137,7 +138,7 @@ def main():
       #     'target': _float_feature(targets[si,:,:].flatten())}))
       example = tf.train.Example(features=tf.train.Features(feature={
           'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-          'targets': _bytes_feature(targets[si,:,:].flatten().tostring())}))
+          'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
 
       writer.write(example.SerializeToString())
 

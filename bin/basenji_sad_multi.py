@@ -21,6 +21,7 @@ import os
 import pickle
 import shutil
 import subprocess
+import sys
 
 import numpy as np
 import zarr
@@ -73,6 +74,9 @@ def main():
   parser.add_option('-q', dest='queue',
       default='k80',
       help='SLURM queue on which to run the jobs [Default: %default]')
+  parser.add_option('-r', dest='restart',
+      default=False, action='store_true',
+      help='Restart a partially completed job [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -104,10 +108,11 @@ def main():
   # prep work
 
   # output directory
-  if os.path.isdir(options.out_dir):
-    print('Please remove %s' % options.out_dir, file=sys.stderr)
-    exit(1)
-  os.mkdir(options.out_dir)
+  if not options.restart:
+    if os.path.isdir(options.out_dir):
+      print('Please remove %s' % options.out_dir, file=sys.stderr)
+      exit(1)
+    os.mkdir(options.out_dir)
 
   # pickle options
   options_pkl_file = '%s/options.pkl' % options.out_dir
@@ -119,16 +124,17 @@ def main():
   # launch worker threads
   jobs = []
   for pi in range(options.processes):
-    cmd = 'source activate py3_gpu; basenji_sad.py %s %s %d' % (
-        options_pkl_file, ' '.join(args), pi)
-    name = 'sad_p%d' % pi
-    outf = '%s/job%d.out' % (options.out_dir, pi)
-    errf = '%s/job%d.err' % (options.out_dir, pi)
-    j = slurm.Job(cmd, name,
-        outf, errf,
-        queue=options.queue, gpu=1,
-        mem=15000, time='7-0:0:0')
-    jobs.append(j)
+    if not options.restart or not job_completed(options.out_dir, pi, options.zarr, options.csv):
+      cmd = 'source activate py3_gpu; basenji_sad.py %s %s %d' % (
+          options_pkl_file, ' '.join(args), pi)
+      name = 'sad_p%d' % pi
+      outf = '%s/job%d.out' % (options.out_dir, pi)
+      errf = '%s/job%d.err' % (options.out_dir, pi)
+      j = slurm.Job(cmd, name,
+          outf, errf,
+          queue=options.queue, gpu=1,
+          mem=15000, time='7-0:0:0')
+      jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
 
@@ -153,6 +159,7 @@ def collect_table(file_name, out_dir, num_procs):
                                              file_name),
         shell=True)
 
+
 def collect_zarr(file_name, out_dir, num_procs):
   final_zarr_file = '%s/%s' % (out_dir, file_name)
 
@@ -171,6 +178,18 @@ def collect_zarr(file_name, out_dir, num_procs):
     # append to final
     for key in final_zarr_open.keys():
       final_zarr_open[key].append(job_zarr_open[key])
+
+
+def job_completed(out_dir, pi, opt_zarr, opt_csv):
+  """Check whether a specific job has generated its
+     output file."""
+  if opt_zarr:
+    out_file = '%s/job%d/sad_table.zarr' % (out_dir,pi)
+  elif opt_csv:
+    out_file = '%s/job%d/sad_table.csv' % (out_dir,pi)
+  else:
+    out_file = '%s/job%d/sad_table.txt' % (out_dir,pi)
+  return os.path.isfile(out_file) or os.path.isdir(out_file)
 
 
 ################################################################################

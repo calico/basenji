@@ -1,0 +1,2 @@
+The cage data was created by running basenji_data.py on 1 random targets, with
+pooling across the entire sequence.

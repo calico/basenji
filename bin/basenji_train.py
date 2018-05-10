@@ -23,7 +23,7 @@ import numpy as np
 import tensorflow as tf
 
 from basenji import batcher
-from basenji import dna_io
+from basenji import params
 from basenji import seqnn
 from basenji import shared_flags
 
@@ -37,10 +37,13 @@ def main(_):
 
   run(params_file=FLAGS.params,
       data_file=FLAGS.data,
-      num_train_epochs=FLAGS.num_train_epochs)
+      train_epochs=FLAGS.train_epochs,
+      train_epoch_batches=FLAGS.train_epoch_batches,
+      test_epoch_batches=FLAGS.test_epoch_batches)
 
 
-def run(params_file, data_file, num_train_epochs):
+def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_batches):
+
   #######################################################
   # load data
   #######################################################
@@ -61,7 +64,7 @@ def run(params_file, data_file, num_train_epochs):
   #######################################################
   # model parameters and placeholders
   #######################################################
-  job = dna_io.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   job['seq_length'] = train_seqs.shape[1]
   job['seq_depth'] = train_seqs.shape[2]
@@ -88,8 +91,8 @@ def run(params_file, data_file, num_train_epochs):
         train_targets,
         train_targets_imag,
         train_na,
-        model.batch_size,
-        model.target_pool,
+        model.hp.batch_size,
+        model.hp.target_pool,
         shuffle=True)
     batcher_valid = batcher.BatcherF(valid_seqs, valid_targets,
                                      valid_targets_imag, valid_na,
@@ -99,11 +102,11 @@ def run(params_file, data_file, num_train_epochs):
         train_seqs,
         train_targets,
         train_na,
-        model.batch_size,
-        model.target_pool,
+        model.hp.batch_size,
+        model.hp.target_pool,
         shuffle=True)
     batcher_valid = batcher.Batcher(valid_seqs, valid_targets, valid_na,
-                                    model.batch_size, model.target_pool)
+                                    model.hp.batch_size, model.hp.target_pool)
   print('Batcher initialized')
 
   #######################################################
@@ -142,12 +145,9 @@ def run(params_file, data_file, num_train_epochs):
     best_loss = None
     early_stop_i = 0
 
-    for epoch in range(num_train_epochs):
+    for epoch in range(train_epochs):
       if early_stop_i < FLAGS.early_stop or epoch < FLAGS.min_epochs:
         t0 = time.time()
-
-        # save previous
-        train_loss_last = train_loss
 
         # alternate forward and reverse batches
         fwdrc = True
@@ -158,13 +158,16 @@ def run(params_file, data_file, num_train_epochs):
         shift_i = epoch % len(augment_shifts)
 
         # train
-        train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc,
-                                              augment_shifts[shift_i], train_writer,
+        train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc=fwdrc,
+                                              shift=augment_shifts[shift_i],
+                                              sum_writer=train_writer,
+                                              epoch_batches=train_epoch_batches,
                                               no_steps=FLAGS.no_steps)
 
         # validate
-        valid_acc = model.test(sess, batcher_valid,
-                               mc_n=FLAGS.ensemble_mc, rc=FLAGS.ensemble_rc, shifts=ensemble_shifts)
+        valid_acc = model.test(sess, batcher_valid, mc_n=FLAGS.ensemble_mc,
+                               rc=FLAGS.ensemble_rc, shifts=ensemble_shifts,
+                               test_batches=test_epoch_batches)
         valid_loss = valid_acc.loss
         valid_r2 = valid_acc.r2().mean()
         del valid_acc

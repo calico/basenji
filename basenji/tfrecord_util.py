@@ -10,6 +10,8 @@ from google3.pyglib import flags
 import numpy as np
 import tensorflow as tf
 
+TFR_INPUT = 'sequence'
+TFR_OUTPUT = 'target'
 
 def _float_feature(value):
   return tf.train.Feature(float_list=tf.train.FloatList(value=value))
@@ -54,9 +56,9 @@ def write_tfrecord(seqs, targets, output_file):
       example = tf.train.Example(
           features=tf.train.Features(
               feature={
-                  'sequence':
+                  TFR_INPUT:
                       _bytes_feature(seqs[d, :, :].flatten().tostring()),
-                  'target':
-                      _float_feature(targets[d, :, :].flatten())
+                  TFR_OUTPUT:
+                      _bytes_feature(targets[d, :, :].flatten().tostring())
               }))
       writer.write(example.SerializeToString())

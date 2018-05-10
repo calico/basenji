@@ -205,7 +205,7 @@ def main():
   #######################################################
   # model parameters and placeholders
 
-  job = basenji.dna_io.read_job_params(params_file)
+  job = basenji.params.read_job_params(params_file)
 
   job['seq_length'] = test_seqs.shape[1]
   job['seq_depth'] = test_seqs.shape[2]

@@ -6,8 +6,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
 import numpy as np
+import tensorflow as tf
 
 from basenji.dna_io import hot1_augment
 from basenji import accuracy
@@ -48,7 +48,8 @@ class SeqNNModel(object):
     tss_pos = set()
     for gene_seq in gene_seqs:
       for tss in gene_seq.tss_list:
-        tss_pos.add(tss.seq_bin(width=self.target_pool, pred_buffer=self.batch_buffer))
+        tss_pos.add(tss.seq_bin(width=self.hp.target_pool,
+                                pred_buffer=self.hp.batch_buffer))
 
     # for each position
     for pi in range(self.preds_length):
@@ -57,8 +58,9 @@ class SeqNNModel(object):
       # if it's a TSS position
       if pi in tss_pos:
         # build position-specific, target-specific gradient ops
-        for ti in range(self.num_targets):
-          grad_piti_op = tf.gradients(self.preds_op[:,pi,ti], [self.layer_reprs[li] for li in self.grad_layers])
+        for ti in range(self.hp.num_targets):
+          grad_piti_op = tf.gradients(self.preds_op[:,pi,ti],
+                                      [self.layer_reprs[li] for li in self.grad_layers])
           self.grad_pos_ops[-1].append(grad_piti_op)
 
 
@@ -133,7 +135,7 @@ class SeqNNModel(object):
                     dtype='float32')
       layer_reprs.append(lr)
 
-      lg = np.zeros((self.num_targets, batcher.num_seqs,
+      lg = np.zeros((self.hp.num_targets, batcher.num_seqs,
                       layer_seq_len, layer_units),
                       dtype='float32')
       layer_grads.append(lg)
@@ -143,19 +145,19 @@ class SeqNNModel(object):
                         dtype='float32')
         layer_reprs_all.append(lra)
 
-        lgr = np.zeros((self.num_targets, batcher.num_seqs,
+        lgr = np.zeros((self.hp.num_targets, batcher.num_seqs,
                         layer_seq_len, layer_units, all_n),
                         dtype='float32')
         layer_grads_all.append(lgr)
 
 
     # initialize predictions
-    preds = np.zeros((batcher.num_seqs, self.preds_length, self.num_targets),
+    preds = np.zeros((batcher.num_seqs, self.preds_length, self.hp.num_targets),
                       dtype='float32')
 
     if return_all:
       preds_all = np.zeros((batcher.num_seqs, self.preds_length,
-                            self.num_targets, all_n),
+                            self.hp.num_targets, all_n),
                             dtype='float32')
 
     #######################################################################
@@ -191,7 +193,7 @@ class SeqNNModel(object):
 
       # accumulate gradients
       for lii in range(len(self.grad_layers)):
-        for ti in range(self.num_targets):
+        for ti in range(self.hp.num_targets):
           layer_grads[lii][ti,si:si+Nb,:,:] = layer_grads_batch[lii][ti,:Nb,:,:]
           if return_all:
             layer_grads_all[lii][ti,si:si+Nb,:,:,:] = layer_grads_batch_all[lii][ti,:Nb,:,:,:]
@@ -241,7 +243,7 @@ class SeqNNModel(object):
     """
 
     # initialize batch predictions
-    preds = np.zeros((Xb.shape[0], self.preds_length, self.num_targets), dtype='float32')
+    preds = np.zeros((Xb.shape[0], self.preds_length, self.hp.num_targets), dtype='float32')
 
     # initialize layer representations and gradients
     layer_reprs = []
@@ -254,7 +256,7 @@ class SeqNNModel(object):
       lr = np.zeros((Xb.shape[0], layer_seq_len, layer_units), dtype='float16')
       layer_reprs.append(lr)
 
-      lg = np.zeros((self.num_targets, Xb.shape[0], layer_seq_len, layer_units), dtype='float32')
+      lg = np.zeros((self.hp.num_targets, Xb.shape[0], layer_seq_len, layer_units), dtype='float32')
       layer_grads.append(lg)
 
 
@@ -275,7 +277,7 @@ class SeqNNModel(object):
     # initialize all-saving arrays
     if return_all:
       all_n = mc_n * len(ensemble_fwdrc)
-      preds_all = np.zeros((Xb.shape[0], self.preds_length, self.num_targets, all_n), dtype='float32')
+      preds_all = np.zeros((Xb.shape[0], self.preds_length, self.hp.num_targets, all_n), dtype='float32')
 
       layer_reprs_all = []
       layer_grads_all = []
@@ -360,7 +362,7 @@ class SeqNNModel(object):
         # gradients
 
         # compute gradients for each target individually
-        for ti in range(self.num_targets):
+        for ti in range(self.hp.num_targets):
           # compute gradients
           layer_grads_ti_ei = sess.run(self.grad_ops[ti], feed_dict=fd)
 
@@ -425,7 +427,7 @@ class SeqNNModel(object):
       layer_units = self.layer_reprs[li].shape[2].value
 
       # gradients
-      lg = np.zeros((tss_num, self.num_targets, layer_seq_len, layer_units), dtype='float32')
+      lg = np.zeros((tss_num, self.hp.num_targets, layer_seq_len, layer_units), dtype='float32')
       layer_grads.append(lg)
 
       # representations
@@ -460,9 +462,9 @@ class SeqNNModel(object):
       for bi in range(Nb):
         for tss in gene_seqs[si+bi].tss_list:
           # get TSS prediction bin position
-          pi = tss.seq_bin(width=self.target_pool, pred_buffer=self.batch_buffer)
+          pi = tss.seq_bin(width=self.hp.target_pool, pred_buffer=self.hp.batch_buffer)
 
-          for ti in range(self.num_targets):
+          for ti in range(self.hp.num_targets):
             # compute gradients over all positions
             grads_batch = sess.run(self.grad_pos_ops[pi][ti], feed_dict=fd)
 
@@ -489,7 +491,7 @@ class SeqNNModel(object):
     """ Compute hidden representations for a test set. """
 
     if layers is None:
-      layers = list(range(self.cnn_layers))
+      layers = list(range(self.hp.cnn_layers))
 
     # initialize layer representation data structure
     layer_reprs = []
@@ -558,9 +560,9 @@ class SeqNNModel(object):
 
     # determine num targets
     if penultimate:
-      num_targets = self.cnn_filters[-1]
+      num_targets = self.hp.cnn_params[-1].filters
     else:
-      num_targets = self.num_targets
+      num_targets = self.hp.num_targets
       if target_indexes is not None:
         num_targets = len(target_indexes)
 
@@ -670,9 +672,9 @@ class SeqNNModel(object):
 
     # initialize prediction arrays
     if penultimate:
-      num_targets = self.cnn_filters[-1]
+      num_targets = self.hp.cnn_params[-1].filters
     else:
-      num_targets = self.num_targets
+      num_targets = self.hp.num_targets
       if target_indexes is not None:
         num_targets = len(target_indexes)
 
@@ -799,7 +801,7 @@ class SeqNNModel(object):
     tss_i = 0
     for si in range(len(gene_seqs)):
       for tss in gene_seqs[si].tss_list:
-        bi = tss.seq_bin(width=self.target_pool, pred_buffer=self.batch_buffer)
+        bi = tss.seq_bin(width=self.hp.target_pool, pred_buffer=self.hp.batch_buffer)
         tss_preds[tss_i,:] = gseq_preds[si,bi-tss_radius:bi+1+tss_radius,:].sum(axis=0)
         tss_i += 1
 
@@ -809,16 +811,16 @@ class SeqNNModel(object):
     return tss_preds
 
 
-  def test_from_data_ops(self, sess, num_test_batches=None):
+  def test_from_data_ops(self, sess, test_batches=None):
     """ Compute model accuracy on a test set, where data is loaded from a queue.
 
         Args:
-          sess:             TensorFlow session
-          num_test_batches: Number of test batches to use.
+          sess:         TensorFlow session
+          test_batches: Number of test batches to use.
 
         Returns:
-          acc:              Accuracy object
-        """
+          acc:          Accuracy object
+      """
 
     # TODO(dbelanger) this ignores rc and shift ensembling for now.
     # Accuracy will be slightly lower than if we had used this.
@@ -836,10 +838,8 @@ class SeqNNModel(object):
 
     # sequence index
     data_available = True
-    batch_count = 0
-    while data_available and (num_test_batches is None or
-                              batch_count < num_test_batches):
-      batch_count += 1
+    batch_num = 0
+    while data_available and (test_batches is None or batch_num < test_batches):
       try:
         # make non-ensembled predictions
         run_ops = [self.targets_op, self.preds_op, self.loss_op,
@@ -850,11 +850,13 @@ class SeqNNModel(object):
         # accumulate predictions and targets
         preds.append(preds_batch.astype('float16'))
         targets.append(targets_batch.astype('float16'))
-        targets_na.append(np.zeros([self.batch_size, self.preds_length], dtype='bool'))
+        targets_na.append(np.zeros([self.hp.batch_size, self.preds_length], dtype='bool'))
 
         # accumulate loss
         batch_losses.append(loss_batch)
         batch_target_losses.append(target_losses_batch)
+
+        batch_num += 1
 
       except tf.errors.OutOfRangeError:
         data_available = False
@@ -880,7 +882,7 @@ class SeqNNModel(object):
            rc=False,
            shifts=[0],
            mc_n=0,
-           num_test_batches=None):
+           test_batches=None):
     """ Compute model accuracy on a test set.
 
         Args:
@@ -890,7 +892,7 @@ class SeqNNModel(object):
             complement sequences.
           shifts:         Average predictions from sequence shifts left/right.
           mc_n:           Monte Carlo iterations per rc/shift.
-          num_test_batches: Number of test batches to use.
+          test_batches: Number of test batches
 
         Returns:
           acc:          Accuracy object
@@ -932,11 +934,9 @@ class SeqNNModel(object):
     # get first batch
     Xb, Yb, NAb, Nb = batcher.next()
 
-    batch_count = 0
-    while Xb is not None and (num_test_batches is None or
-                              batch_count < num_test_batches):
-      batch_count += 1
-
+    batch_num = 0
+    while Xb is not None and (test_batches is None or
+                              batch_num < test_batches):
       # make ensemble predictions
       preds_batch, preds_batch_var, preds_all = self._predict_ensemble(
           sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n)
@@ -984,6 +984,7 @@ class SeqNNModel(object):
 
       # next batch
       Xb, Yb, NAb, Nb = batcher.next()
+      batch_num += 1
 
     targets = np.concatenate(targets, axis=0)
     preds = np.concatenate(preds, axis=0)

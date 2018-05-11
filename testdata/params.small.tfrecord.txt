@@ -1,4 +1,5 @@
 batch_size  2
+eval_batch_size  2
 seq_length  262144
 seq_depth    4
 target_length 2048
@@ -8,6 +9,9 @@ batch_buffer    16384
 
 batch_norm  1
 batch_renorm  1
+
+cnn_l2_scale  1e-9
+final_l1_scale  1e-9
 
 link  softplus
 loss  poisson

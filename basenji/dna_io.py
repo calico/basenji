@@ -300,39 +300,3 @@ def hot1_set(seq_1hot, pos, nt):
     seq_1hot[pos, 3] = 1
   else:
     print('Invalid nucleotide set %s' % nt, file=sys.stderr)
-
-
-def read_job_params(job_file):
-  """ Read job parameters from table. """
-
-  job = {}
-
-  if job_file is not None:
-    for line in open(job_file):
-      if line.strip():
-        param, val = line.split()
-
-        # require a decimal for floats
-        try:
-          if val.find('e') != -1:
-            val = float(val)
-          elif val.find('.') == -1:
-            val = int(val)
-          else:
-            val = float(val)
-        except ValueError:
-          pass
-
-        if param in job:
-          # change to a list
-          if type(job[param]) != list:
-            job[param] = [job[param]]
-
-          # append new value
-          job[param].append(val)
-        else:
-          job[param] = val
-
-    print(job)
-
-  return job

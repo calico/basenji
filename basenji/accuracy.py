@@ -15,8 +15,9 @@
 
 import pdb
 import numpy as np
-from scipy.stats import pearsonr, spearmanr
-from sklearn.metrics import r2_score
+import scipy.stats as stats
+import sklearn.metrics as metrics
+
 
 """accuracy.py
 
@@ -62,7 +63,7 @@ class Accuracy:
         preds_ti = np.log2(preds_ti + pseudocount)
         targets_ti = np.log2(targets_ti + pseudocount)
 
-      pc, _ = pearsonr(targets_ti, preds_ti)
+      pc, _ = stats.pearsonr(targets_ti, preds_ti)
       pcor[ti] = pc
 
     return pcor
@@ -87,7 +88,7 @@ class Accuracy:
         preds_ti = np.log2(preds_ti + pseudocount)
         targets_ti = np.log2(targets_ti + pseudocount)
 
-      r2_vec[ti] = r2_score(targets_ti, preds_ti)
+      r2_vec[ti] = metrics.r2_score(targets_ti, preds_ti)
 
     return r2_vec
 
@@ -104,7 +105,7 @@ class Accuracy:
         preds_ti = self.preds[:, :, ti].flatten()
         targets_ti = self.targets[:, :, ti].flatten()
 
-      sc, _ = spearmanr(targets_ti, preds_ti)
+      sc, _ = stats.spearmanr(targets_ti, preds_ti)
       scor[ti] = sc
 
     return scor

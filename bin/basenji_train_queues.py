@@ -15,19 +15,20 @@
 # =========================================================================
 from __future__ import print_function
 
-import pdb
+
 import sys
 import time
 
 import numpy as np
 import tensorflow as tf
 
-from basenji import dna_io
+from basenji import params
 from basenji import seqnn
-from basenji import tfrecord_batcher
 from basenji import shared_flags
+from basenji import tfrecord_batcher
 
 FLAGS = tf.app.flags.FLAGS
+
 
 def main(_):
   np.random.seed(FLAGS.seed)
@@ -35,13 +36,15 @@ def main(_):
   run(params_file=FLAGS.params,
       train_file=FLAGS.train_data,
       test_file=FLAGS.test_data,
-      num_train_epochs=FLAGS.num_train_epochs,
-      batches_per_epoch=FLAGS.train_steps_per_iteration)
+      train_epochs=FLAGS.train_epochs,
+      train_epoch_batches=FLAGS.train_epoch_batches,
+      test_epoch_batches=FLAGS.test_epoch_batches)
 
 
-def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch):
+def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
+        test_epoch_batches):
   # read parameters
-  job = dna_io.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   # load data
   data_ops, training_init_op, test_init_op = make_data_ops(
@@ -76,7 +79,7 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
     best_loss = None
     early_stop_i = 0
 
-    for epoch in range(num_train_epochs):
+    for epoch in range(train_epochs):
       if early_stop_i < FLAGS.early_stop or epoch < FLAGS.min_epochs:
         t0 = time.time()
 
@@ -85,11 +88,11 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
 
         # train epoch
         sess.run(training_init_op)
-        train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer)
+        train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer, train_epoch_batches)
 
         # test validation
         sess.run(test_init_op)
-        valid_acc = model.test_from_data_ops(sess)
+        valid_acc = model.test_from_data_ops(sess, test_epoch_batches)
         valid_loss = valid_acc.loss
         valid_r2 = valid_acc.r2().mean()
         del valid_acc
@@ -113,8 +116,9 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
           time_str = '%3.1fh' % (et / 3600)
 
         # print update
-        print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch + 1, steps, train_loss), end='')
-        print(' Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s' %  (valid_loss, valid_r2, time_str, best_str))
+        print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
+        print(' Valid loss: %7.5f,  Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
+        print(' Time: %s%s' % (time_str, best_str))
         sys.stdout.flush()
 
     if FLAGS.logdir:
@@ -122,17 +126,16 @@ def run(params_file, train_file, test_file, num_train_epochs, batches_per_epoch)
 
 
 def make_data_ops(job, train_file, test_file):
-  """Make input data operations."""
-
   def make_dataset(filename, mode):
     return tfrecord_batcher.tfrecord_dataset(
         filename,
         job['batch_size'],
         job['seq_length'],
-        job.get('seq_depth',4),
-        job['num_targets'],
+        job.get('seq_depth', 4),
         job['target_length'],
-        mode=mode)
+        job['num_targets'],
+        mode=mode,
+        repeat=False)
 
   training_dataset = make_dataset(train_file, mode=tf.estimator.ModeKeys.TRAIN)
   test_dataset = make_dataset(test_file, mode=tf.estimator.ModeKeys.EVAL)

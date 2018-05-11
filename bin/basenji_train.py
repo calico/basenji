@@ -145,59 +145,62 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
     best_loss = None
     early_stop_i = 0
 
-    for epoch in range(train_epochs):
-      if early_stop_i < FLAGS.early_stop or epoch < FLAGS.min_epochs:
-        t0 = time.time()
+    epoch = 0
+    while (train_epochs is None or epochs < train_epochs) and early_stop_i < FLAGS.early_stop:
+      t0 = time.time()
 
-        # alternate forward and reverse batches
-        fwdrc = True
-        if FLAGS.augment_rc and epoch % 2 == 1:
-          fwdrc = False
+      # alternate forward and reverse batches
+      fwdrc = True
+      if FLAGS.augment_rc and epoch % 2 == 1:
+        fwdrc = False
 
-        # cycle shifts
-        shift_i = epoch % len(augment_shifts)
+      # cycle shifts
+      shift_i = epoch % len(augment_shifts)
 
-        # train
-        train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc=fwdrc,
-                                              shift=augment_shifts[shift_i],
-                                              sum_writer=train_writer,
-                                              epoch_batches=train_epoch_batches,
-                                              no_steps=FLAGS.no_steps)
+      # train
+      train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc=fwdrc,
+                                            shift=augment_shifts[shift_i],
+                                            sum_writer=train_writer,
+                                            epoch_batches=train_epoch_batches,
+                                            no_steps=FLAGS.no_steps)
 
-        # validate
-        valid_acc = model.test(sess, batcher_valid, mc_n=FLAGS.ensemble_mc,
-                               rc=FLAGS.ensemble_rc, shifts=ensemble_shifts,
-                               test_batches=test_epoch_batches)
-        valid_loss = valid_acc.loss
-        valid_r2 = valid_acc.r2().mean()
-        del valid_acc
+      # validate
+      valid_acc = model.test(sess, batcher_valid, mc_n=FLAGS.ensemble_mc,
+                             rc=FLAGS.ensemble_rc, shifts=ensemble_shifts,
+                             test_batches=test_epoch_batches)
+      valid_loss = valid_acc.loss
+      valid_r2 = valid_acc.r2().mean()
+      del valid_acc
 
-        best_str = ''
-        if best_loss is None or valid_loss < best_loss:
-          best_loss = valid_loss
-          best_str = ', best!'
-          early_stop_i = 0
-          saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
-        else:
-          early_stop_i += 1
+      best_str = ''
+      if best_loss is None or valid_loss < best_loss:
+        best_loss = valid_loss
+        best_str = ', best!'
+        early_stop_i = 0
+        saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
+      else:
+        early_stop_i += 1
 
-        # measure time
-        et = time.time() - t0
-        if et < 600:
-          time_str = '%3ds' % et
-        elif et < 6000:
-          time_str = '%3dm' % (et / 60)
-        else:
-          time_str = '%3.1fh' % (et / 3600)
+      # measure time
+      et = time.time() - t0
+      if et < 600:
+        time_str = '%3ds' % et
+      elif et < 6000:
+        time_str = '%3dm' % (et / 60)
+      else:
+        time_str = '%3.1fh' % (et / 3600)
 
-        # print update
-        print(
-            'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s'
-            % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str))
-        sys.stdout.flush()
+      # print update
+      print(
+          'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s'
+          % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str))
+      sys.stdout.flush()
 
-        if FLAGS.check_all:
-          saver.save(sess, '%s/model_check%d.tf' % (FLAGS.logdir, epoch))
+      if FLAGS.check_all:
+        saver.save(sess, '%s/model_check%d.tf' % (FLAGS.logdir, epoch))
+
+      # update epoch
+      epoch += 1
 
 
     if FLAGS.logdir:

@@ -35,7 +35,10 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
 import tensorflow as tf
 
-import basenji
+from basenji import batcher
+from basenji import params
+from basenji import plots
+from basenji import seqnn
 
 """basenji_test.py
 
@@ -205,7 +208,7 @@ def main():
   #######################################################
   # model parameters and placeholders
 
-  job = basenji.params.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   job['seq_length'] = test_seqs.shape[1]
   job['seq_depth'] = test_seqs.shape[2]
@@ -213,7 +216,7 @@ def main():
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
   t0 = time.time()
-  dr = basenji.seqnn.SeqNN()
+  dr = seqnn.SeqNN()
   dr.build(job)
   print('Model building time %ds' % (time.time() - t0))
 
@@ -235,12 +238,12 @@ def main():
 
   # initialize batcher
   if job['fourier']:
-    batcher_test = basenji.batcher.BatcherF(test_seqs, test_targets,
-                                            test_targets_imag, test_na,
-                                            dr.batch_size, dr.target_pool)
+    batcher_test = batcher.BatcherF(test_seqs, test_targets,
+                                    test_targets_imag, test_na,
+                                    dr.hp.batch_size, dr.hp.target_pool)
   else:
-    batcher_test = basenji.batcher.Batcher(test_seqs, test_targets, test_na,
-                                           dr.batch_size, dr.target_pool)
+    batcher_test = batcher.Batcher(test_seqs, test_targets, test_na,
+                                   dr.hp.batch_size, dr.hp.target_pool)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -452,7 +455,7 @@ def main():
       # plot log2
       sns.set(font_scale=1.2, style='ticks')
       out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir, ti)
-      basenji.plots.regplot(
+      plots.regplot(
           test_targets_ti_log,
           test_preds_ti_log,
           out_pdf,

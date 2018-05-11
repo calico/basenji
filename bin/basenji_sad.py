@@ -200,10 +200,8 @@ def main():
 
   # filter for worker SNPs
   if options.processes is not None:
-    snps = [
-        snps[si] for si in range(len(snps))
-        if si % options.processes == worker_index
-    ]
+    worker_bounds = np.linspace(0, len(snps), options.processes+1, dtype='int')
+    snps = snps[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
 
   num_snps = len(snps)
 

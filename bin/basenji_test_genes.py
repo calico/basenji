@@ -165,7 +165,7 @@ def main():
     #######################################################
     # setup model
 
-    job = basenji.dna_io.read_job_params(params_file)
+    job = basenji.params.read_job_params(params_file)
 
     job['seq_length'] = gene_data.seq_length
     job['seq_depth'] = gene_data.seq_depth

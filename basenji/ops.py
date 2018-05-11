@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 
+
 ################################################################################
 # shiyemin code - https://github.com/tensorflow/tensorflow/issues/7476
 def adjust_max(start, stop, start_value, stop_value, name=None):
@@ -40,83 +41,6 @@ def adjust_max(start, stop, start_value, stop_value, name=None):
     else:
       return None
 
-
-################################################################################
-def bidirectional_rnn_tied(cell_fw,
-                           cell_bw,
-                           inputs,
-                           initial_state_fw=None,
-                           initial_state_bw=None,
-                           dtype=None,
-                           sequence_length=None,
-                           scope=None):
-  name = scope or "BiRNN"
-  with tf.variable_scope(name) as fw_scope:
-    # Forward direction
-    output_fw, output_state_fw = tf.nn.rnn(
-        cell_fw,
-        inputs,
-        initial_state_fw,
-        dtype,
-        sequence_length,
-        scope=fw_scope)
-
-  with tf.variable_scope(name, reuse=True) as bw_scope:
-    # Backward direction
-    tmp, output_state_bw = tf.nn.rnn(
-        cell_bw,
-        tf.reverse(inputs, sequence_length),
-        initial_state_bw,
-        dtype,
-        sequence_length,
-        scope=bw_scope)
-
-  output_bw = tf.reverse(tmp, sequence_length)
-
-  # Concat each of the forward/backward outputs
-  outputs = [tf.concat(1, [fw, bw]) for fw, bw in zip(output_fw, output_bw)]
-
-  return (outputs, output_state_fw, output_state_bw)
-
-
-################################################################################
-def bidirectional_rnn_rc(cell_fw,
-                         cell_bw,
-                         inputs,
-                         initial_state_fw=None,
-                         initial_state_bw=None,
-                         dtype=None,
-                         sequence_length=None,
-                         scope=None):
-  name = scope or "BiRNN"
-  with tf.variable_scope(name) as fw_scope:
-    # Forward direction
-    output_fw, output_state_fw = tf.nn.rnn(
-        cell_fw,
-        inputs,
-        initial_state_fw,
-        dtype,
-        sequence_length,
-        scope=fw_scope)
-
-  with tf.variable_scope(name, reuse=True) as bw_scope:
-    # Backward direction
-    tmp, output_state_bw = tf.nn.rnn(
-        cell_bw,
-        reverse_complement(inputs, sequence_length),
-        initial_state_bw,
-        dtype,
-        sequence_length,
-        scope=bw_scope)
-
-  output_bw = tf.reverse(tmp, sequence_length)
-
-  # Concat each of the forward/backward outputs
-  outputs = [tf.concat(1, [fw, bw]) for fw, bw in zip(output_fw, output_bw)]
-
-  return (outputs, output_state_fw, output_state_bw)
-
-
 def reverse_complement_transform(seq, label, na):
   """Reverse complement of batched onehot seq and corresponding label and na."""
   rank = seq.shape.ndims
@@ -124,8 +48,7 @@ def reverse_complement_transform(seq, label, na):
     raise ValueError("input seq must be rank 3.")
 
   complement = tf.gather(seq, [3, 2, 1, 0], axis=-1)
-  return (tf.reverse(complement, axis=[1]),
-          tf.reverse(label, axis=[1]),
+  return (tf.reverse(complement, axis=[1]), tf.reverse(label, axis=[1]),
           tf.reverse(na, axis=[1]))
 
 
@@ -150,6 +73,7 @@ def reverse_complement(input_seq, lengths=None):
         dtype="float32")
     return [tf.matmul(ris, nt_rc) for ris in reversed(input_seq)]
 
+
 def variance(data, weights=None):
   """Returns the variance of input tensor t, each entry weighted by the
   corresponding index in weights.
@@ -171,10 +95,11 @@ def variance(data, weights=None):
 
   tsquared_mean, tsquared_update = tf.metrics.mean(tf.square(data), weights)
   mean_t, t_update = tf.metrics.mean(data, weights)
-  variance_value = tsquared_mean - mean_t*mean_t
+  variance_value = tsquared_mean - mean_t * mean_t
   update_op = tf.group(tsquared_update, t_update)
 
   return variance_value, update_op
+
 
 def r2_metric(preds, targets, weights):
   """Returns ops for R2 statistic following the tf.metrics API.
@@ -196,8 +121,67 @@ def r2_metric(preds, targets, weights):
   update_op = tf.group(res_ss_update, tot_ss_update)
   return r2, update_op
 
+
+def _per_target_mean(values, weights, name='per-target-mean'):
+  """Compute weighted mean across all but final dimension.
+
+  Args:
+    values: [..., num_targets] Tensor
+    weights: Tensor. Either the same shape as values or broadcastable to it.
+    name: string
+  Returns:
+    tuple containing tf.metrics-compatible value op and update_op.
+    The value_op has shape [num_targets].
+  """
+
+  # First, reduce over all but the final dimension
+
+  values = tf.convert_to_tensor(values)
+  weights = tf.convert_to_tensor(weights)
+
+  weights_dtype = tf.float64 if values.dtype == tf.float64 else tf.float32
+  weights = tf.cast(weights, weights_dtype)
+
+  reduction_axes = list(range(values.shape.ndims - 1))
+
+  reduced_weights = tf.reduce_mean(weights, axis=reduction_axes)
+  reduced_weighted_values = tf.reduce_mean(
+      values * weights, axis=reduction_axes)
+
+  return tf.metrics.mean_tensor(reduced_weighted_values *
+                                (1. / reduced_weights), reduced_weights)
+
+
+def _per_target_variance(data, weights=None):
+  """Returns the variance of input tensor t, each entry weighted by the
+  corresponding index in weights.
+
+  Follows the tf.metrics API for an idempotent tensor and an update tensor.
+
+  Args:
+    data: input tensor of arbitrary shape.
+    weights: input tensor of same shape as `t`. When None, use a weight of 1 for
+      all inputs.
+
+  Returns:
+    variance_value: idempotent tensor containing the variance of `t`, whose
+      shape is `[1]`
+    update_op: A (non-idempotent) op to update the variance value
+  """
+  if weights is None:
+    weights = tf.ones(shape=data.shape, dtype=tf.float32)
+
+  tsquared_mean, tsquared_update = _per_target_mean(tf.square(data), weights)
+  mean_t, t_update = _per_target_mean(data, weights)
+  variance_value = tsquared_mean - mean_t * mean_t
+  update_op = tf.group(tsquared_update, t_update)
+
+  return variance_value, update_op
+
+
 def per_target_r2(preds, targets, weights):
   """Returns ops for per-target R2 statistic following the tf.metrics API.
+
   Args:
     preds: arbitrary shaped predictions, with final dimension
            indexing distinct targets
@@ -208,24 +192,19 @@ def per_target_r2(preds, targets, weights):
     r2: idempotent [preds.shape[-1]] tensor of r2 values for each target.
     update_op: op for updating the value given new data
   """
-  preds_split = tf.unstack(preds, axis=-1)
-  targets_split = tf.unstack(targets, axis=-1)
-  weights_split = tf.unstack(weights, axis=-1)
 
-  r2_metrics = [
-      r2_metric(p, t, w)
-      for p, t, w in zip(preds_split, targets_split, weights_split)
-  ]
+  res_ss, res_ss_update = _per_target_mean(tf.square(preds - targets), weights)
 
-  r2_values = [r[0] for r in r2_metrics]
-  stacked_r2 = tf.stack(r2_values)
-  update_ops = tf.group(*[r[1] for r in r2_metrics])
-  return stacked_r2, update_ops
+  tot_ss, tot_ss_update = _per_target_variance(targets, weights)
+  r2 = 1. - res_ss / tot_ss
 
+  update_op = tf.group(res_ss_update, tot_ss_update)
+  return r2, update_op
 
 
 def r2_averaged_over_all_prediction_tasks(preds, targets, weights):
   """Returns ops for multi-task R2 statistic following the tf.metrics API.
+
   Args:
     preds: predictions, with final dimension indexing distinct targets.
     targets: targets (same shape as predictions)

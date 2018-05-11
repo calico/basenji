@@ -7,6 +7,8 @@ import os
 import h5py
 import tensorflow as tf
 
+from basenji import tfrecord_util
+
 '''
 h5_tfr.py
 
@@ -64,8 +66,8 @@ def writer_worker(tfr_file, tf_opts, h5_file, dataset, shard_i, num_shards):
     for si in range(data_in.shape[0]):
       if si % num_shards == shard_i:
         example = tf.train.Example(features=tf.train.Features(feature={
-            'sequence': _bytes_feature(data_in[si,:,:].flatten().tostring()),
-            'target': _float_feature(data_out[si,:,:].flatten())}))
+            tfrecord_util.TFR_INPUT: _bytes_feature(data_in[si,:,:].flatten().tostring()),
+            tfrecord_util.TFR_OUTPUT: _bytes_feature(data_out[si,:,:].flatten().tostring())}))
         writer.write(example.SerializeToString())
 
   h5_open.close()

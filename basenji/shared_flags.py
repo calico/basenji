@@ -1,6 +1,5 @@
 """Common flags for various basenji training functions."""
 
-
 import tensorflow as tf
 
 # parameters and data
@@ -27,14 +26,12 @@ tf.flags.DEFINE_integer('seed', 1, 'Random seed')
 
 
 # step counts
-tf.flags.DEFINE_integer('train_steps_per_iteration', None,
-                        'if > 0, use this many steps for an epoch')
-tf.flags.DEFINE_integer('num_test_batches', None,
-                        'if > 0, use this many test examples when evaluating')
-tf.flags.DEFINE_integer('num_train_epochs', 1000,
-                        'number of full data passes for which to run training.')
-tf.flags.DEFINE_integer('min_epochs', 0, 'Minimum epochs to train')
-
+tf.flags.DEFINE_integer('train_epochs', None,
+                        'Number of training epochs.')
+tf.flags.DEFINE_integer('train_epoch_batches', None,
+                        'Number of batches per training epoch.')
+tf.flags.DEFINE_integer('test_epoch_batches', None,
+                        'Number of batches per test epoch.')
 
 # training modes
 tf.flags.DEFINE_boolean('no_steps', False, 'Update ops but no step ops')

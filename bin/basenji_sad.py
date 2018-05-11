@@ -133,7 +133,7 @@ def main():
   #################################################################
   # setup model
 
-  job = basenji.dna_io.read_job_params(params_file)
+  job = basenji.params.read_job_params(params_file)
   job['seq_length'] = options.seq_len
 
   if 'num_targets' not in job:

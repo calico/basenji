@@ -1,0 +1,113 @@
+batch_size  2
+eval_batch_size  2
+
+seq_length  131072
+seq_depth    4
+target_length 1024
+num_targets  32
+target_pool  128
+batch_buffer    4096
+
+batch_norm  1
+batch_renorm  1
+
+cnn_l2_scale  1e-9
+final_l1_scale  1e-9
+
+link  softplus
+loss  poisson
+
+adam_beta1  0.970000
+adam_beta2  0.980000
+learning_rate  0.002063
+
+cnn_filter_sizes  5
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  1
+cnn_dropout  0.05
+cnn_dense  0
+
+cnn_filter_sizes  1
+cnn_filters  2
+cnn_pool  2
+cnn_dilation  1
+cnn_dropout  0.05
+cnn_dense  0
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  4
+cnn_dilation  1
+cnn_dropout  0.05
+cnn_dense  0
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  4
+cnn_dilation  1
+cnn_dropout  0.05
+cnn_dense  0
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  4
+cnn_dilation  1
+cnn_dropout  0.05
+cnn_dense  0
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  1
+cnn_dropout  0.05
+cnn_dense  0
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  2
+cnn_dropout  0.1
+cnn_dense  1
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  4
+cnn_dropout  0.1
+cnn_dense  1
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  8
+cnn_dropout  0.1
+cnn_dense  1
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  16
+cnn_dropout  0.1
+cnn_dense  1
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  32
+cnn_dropout  0.1
+cnn_dense  1
+
+cnn_filter_sizes  3
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  64
+cnn_dropout  0.1
+cnn_dense  1
+
+cnn_filter_sizes  1
+cnn_filters  2
+cnn_pool  1
+cnn_dilation  1
+cnn_dropout  0.05
+cnn_dense  0

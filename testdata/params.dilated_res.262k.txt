@@ -1,0 +1,53 @@
+seq_length  262144
+num_targets	4259
+target_pool	128
+target_length	2048
+
+batch_size	2
+batch_buffer	16384
+
+link		softplus
+loss		poisson
+
+optimization	sgd
+learning_rate	0.02
+momentum	0.995
+early_stop	24
+
+batch_norm_momentum	0.9
+
+shift_augment_offsets	-3
+shift_augment_offsets	-2
+shift_augment_offsets	-1
+shift_augment_offsets	1
+shift_augment_offsets	2
+shift_augment_offsets	3
+
+augment_with_complement 1
+
+ensemble_during_training 0
+ensemble_during_prediction 1
+
+conv_l2_scale		1e-9
+final_l1_scale		1e-9
+
+architecture  dilated_residual
+
+conv_dna_filter_size  16
+conv_dna_filters		256
+conv_dna_pool		2
+conv_dna_dropout  0
+
+conv_reduce_filters_mult  1.25
+conv_reduce_filter_size  7
+conv_reduce_pool  4
+conv_reduce_dropout  0.05
+conv_reduce_width_max  128
+
+conv_dilate_filters  96
+conv_dilate_dropout  0.1
+conv_dilate_rate_mult  2
+conv_dilate_rate_max  128
+
+conv_final_filters  768
+conv_final_dropout  0.2

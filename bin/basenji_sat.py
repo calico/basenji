@@ -33,6 +33,7 @@ import seaborn as sns
 import tensorflow as tf
 
 import basenji.dna_io
+import basenji.params
 from seq_logo import seq_logo
 
 '''
@@ -169,7 +170,7 @@ def main():
   #################################################################
   # setup model
   #################################################################
-  job = basenji.dna_io.read_job_params(params_file)
+  job = basenji.params.read_job_params(params_file)
 
   job['seq_length'] = seqs_1hot.shape[1]
   job['seq_depth'] = seqs_1hot.shape[2]

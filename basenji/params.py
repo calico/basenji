@@ -251,7 +251,7 @@ def add_hparams_dres(params, job):
   params.add_hparam('conv_dna_filter_size', job.get('conv_dna_filter_size', 13))
   params.add_hparam('conv_dna_stride', job.get('conv_dna_stride', 1))
   params.add_hparam('conv_dna_pool', job.get('conv_dna_pool', 2))
-  params.add_hparam('conv_dna_dropout', job.get('conv_dna_dropout', 0))
+  params.add_hparam('conv_dna_dropout', job.get('conv_dna_dropout', 0.))
 
   # reduce
   params.add_hparam('conv_reduce_filters_mult', job.get('conv_reduce_filters_mult', 1.25))

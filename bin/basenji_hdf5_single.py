@@ -32,7 +32,10 @@ import numpy as np
 import pyBigWig
 import pysam
 
-import basenji
+from basenji import autoencoder
+from basenji import batcher
+from basenji import dna_io
+from basenji import genome
 import tensorflow as tf
 
 '''
@@ -202,12 +205,11 @@ def main():
   ################################################################
   # prepare genomic segments
   ################################################################
-  chrom_segments = basenji.genome.load_chromosomes(fasta_file)
+  chrom_segments = genome.load_chromosomes(fasta_file)
 
   # remove gaps
   if options.gaps_file:
-    chrom_segments = basenji.genome.split_contigs(chrom_segments,
-                                                  options.gaps_file)
+    chrom_segments = genome.split_contigs(chrom_segments, options.gaps_file)
 
   # ditch the chromosomes
   segments = []
@@ -240,13 +242,13 @@ def main():
   # load model
   ################################################################
   if options.params_file:
-    job = basenji.dna_io.read_job_params(options.params_file)
+    job = dna_io.read_job_params(options.params_file)
     job['num_targets'] = len(target_wigs)
     job['batch_size'] = 1024
     job['model'] = job.get('model', 'autoencoder')
 
     if job['model'] == 'autoencoder':
-      model = basenji.autoencoder.AE(job)
+      model = autoencoder.AE(job)
       saver = tf.train.Saver()
     else:
       model = joblib.load(options.scent_file)
@@ -466,11 +468,12 @@ def main():
         data=targets_imag[train_indexes],
         dtype='float16',
         compression=options.compression)
-  hdf5_out.create_dataset(
-      'train_na',
-      data=seqs_na[train_indexes],
-      dtype='bool',
-      compression=options.compression)
+  if options.unmap_bed is not None:
+    hdf5_out.create_dataset(
+        'train_na',
+        data=seqs_na[train_indexes],
+        dtype='bool',
+        compression=options.compression)
 
   # HDF5 valid
   hdf5_out.create_dataset(
@@ -489,11 +492,12 @@ def main():
         data=targets_imag[valid_indexes],
         dtype='float16',
         compression=options.compression)
-  hdf5_out.create_dataset(
-      'valid_na',
-      data=seqs_na[valid_indexes],
-      dtype='bool',
-      compression=options.compression)
+  if options.unmap_bed is not None:
+    hdf5_out.create_dataset(
+        'valid_na',
+        data=seqs_na[valid_indexes],
+        dtype='bool',
+        compression=options.compression)
 
   # HDF5 test
   hdf5_out.create_dataset(
@@ -518,11 +522,12 @@ def main():
         data=targets_test,
         dtype='float16',
         compression=options.compression)
-  hdf5_out.create_dataset(
-      'test_na',
-      data=seqs_na[test_indexes],
-      dtype='bool',
-      compression=options.compression)
+  if options.unmap_bed is not None:
+    hdf5_out.create_dataset(
+        'test_na',
+        data=seqs_na[test_indexes],
+        dtype='bool',
+        compression=options.compression)
 
   hdf5_out.close()
 
@@ -796,8 +801,8 @@ def latent_transform(sess, model, job, targets_wig):
   if job['model'] == 'pca':
     targets_length_latent = model.transform(targets_length)
   else:
-    batcher = basenji.batcher.BatcherT(targets_length, model.batch_size)
-    targets_length_latent = model.latent(sess, batcher)
+    batcher_data = batcher.BatcherT(targets_length, model.batch_size)
+    targets_length_latent = model.latent(sess, batcher_data)
 
   targets_latent = targets_length_latent.reshape((S, L, job['latent_dim']))
 
@@ -836,7 +841,7 @@ def segments_1hot(fasta_file, segments, seq_length, stride):
     bend = bstart + seq_length
     while bend < len(seg_seq):
       # append
-      seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[bstart:bend]))
+      seqs_1hot.append(dna_io.dna_1hot(seg_seq[bstart:bend]))
 
       seqs_segments.append((chrom, seg_start + bstart, seg_start + bend))
 

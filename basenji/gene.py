@@ -25,15 +25,12 @@ class Gene:
 
 
 class GeneSeq:
-  def __init__(self, chrom, start, end, tss_list=None):
+  def __init__(self, chrom, start, end, tss_list=[]):
     self.chrom = chrom
     self.start = start
     self.end = end
 
-    if tss_list is None:
-      self.tss_list = []
-    else:
-      self.tss_list = tss_list
+    self.tss_list = tss_list
     self.num_tss = len(self.tss_list)
 
     # map genes to TSS indexes
@@ -43,6 +40,7 @@ class GeneSeq:
       self.gene_tss.setdefault(gene_id,[]).append(tss_i)
     self.num_genes = len(self.gene_tss)
 
+
   def gene_names(self, tss=False):
     ''' Return gene/TSS names. '''
     if tss:
@@ -50,11 +48,19 @@ class GeneSeq:
     else:
       return list(self.gene_tss.keys())
 
-  def num_tss(self):
-    return len(self.tss_list)
+  def append_tss(self, tss):
+    self.tss_list.append(tss)
+    self.num_tss += 1
+
+    tss_i = self.num_tss - 1
+    self.gene_tss.setdefault(tss.gene_id,[]).append(tss_i)
+    self.num_genes = len(self.gene_tss)
+
+  # def num_tss(self):
+  #   return len(self.tss_list)
 
   def __str__(self):
-    return '%s:%d-%s %d TSSs' % (self.chrom, self.start, self.end, self.num_tss())
+    return '%s:%d-%d %d TSSs' % (self.chrom, self.start, self.end, self.num_tss)
 
 
 class TSS:

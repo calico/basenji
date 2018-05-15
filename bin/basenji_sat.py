@@ -32,9 +32,11 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 
-import basenji.dna_io
-import basenji.params
-from seq_logo import seq_logo
+from basenji import batcher
+from basenji import dna_io
+from basenji import params
+from basenji import plots
+from basenji import seqnn
 
 '''
 basenji_sat.py
@@ -170,7 +172,7 @@ def main():
   #################################################################
   # setup model
   #################################################################
-  job = basenji.params.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   job['seq_length'] = seqs_1hot.shape[1]
   job['seq_depth'] = seqs_1hot.shape[2]
@@ -186,12 +188,12 @@ def main():
     job['target_pool'] = job['seq_length'] // targets.shape[1]
 
   t0 = time.time()
-  dr = basenji.seqnn.SeqNN()
+  dr = seqnn.SeqNN()
   dr.build(job, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.batch_size is not None:
-    dr.batch_size = options.batch_size
+    dr.hp.batch_size = options.batch_size
 
   # initialize saver
   saver = tf.train.Saver()
@@ -220,8 +222,8 @@ def main():
         sat_seqs_1hot = satmut_seqs(seqs_1hot[si:si + 1], options.satmut_len)
 
         # initialize batcher
-        batcher_sat = basenji.batcher.Batcher(
-            sat_seqs_1hot, batch_size=dr.batch_size)
+        batcher_sat = batcher.Batcher(
+            sat_seqs_1hot, batch_size=dr.hp.batch_size)
 
         # predict
         sat_preds = dr.predict(
@@ -282,7 +284,7 @@ def main():
 
         # plot predictions
         plot_predictions(ax_pred, sat_preds[0, :, tii], options.satmut_len,
-                         dr.seq_length, dr.batch_buffer)
+                         dr.hp.seq_length, dr.hp.batch_buffer)
 
         # plot sequence logo
         plot_seqlogo(ax_logo_loss, seqs_1hot[si], -sat_loss[:, tii])
@@ -464,7 +466,7 @@ def parse_input(input_file, sample):
     # one hot code sequences
     seqs_1hot = []
     for seq in seqs:
-      seqs_1hot.append(basenji.dna_io.dna_1hot(seq))
+      seqs_1hot.append(dna_io.dna_1hot(seq))
     seqs_1hot = np.array(seqs_1hot)
 
     # sample
@@ -497,7 +499,7 @@ def parse_input(input_file, sample):
         # seq_headers = seq_headers[sample_i]
 
       # convert to ACGT sequences
-      seqs = basenji.dna_io.hot1_dna(seqs_1hot)
+      seqs = dna_io.hot1_dna(seqs_1hot)
 
     except IOError:
       parser.error('Could not parse input file as FASTA or HDF5.')
@@ -592,9 +594,10 @@ def plot_seqlogo(ax, seq_1hot, sat_score_ti, pseudo_pct=0.05):
   # expand
   sat_score_4l = expand_4l(sat_score_ti, seq_1hot)
 
-  basenji.plots.seqlogo(sat_score_4l, ax)
+  plots.seqlogo(sat_score_4l, ax)
 
 
+'''
 def plot_weblogo(ax, seq, sat_loss_ti, min_limit):
   """ Plot height-weighted weblogo sequence.
 
@@ -632,7 +635,7 @@ def plot_weblogo(ax, seq, sat_loss_ti, min_limit):
   os.remove(eps_file)
   os.close(png_fd)
   os.remove(png_file)
-
+'''
 
 def satmut_seqs(seqs_1hot, satmut_len):
   """ Construct a new array with the given sequences and saturated

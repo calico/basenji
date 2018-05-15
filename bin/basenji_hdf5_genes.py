@@ -27,7 +27,10 @@ import numpy as np
 import pyBigWig
 import pysam
 
-import basenji
+from basenji import dna_io
+from basenji import gff
+from basenji import gene
+
 """basenji_hdf5_genes.py
 
 Tile a set of genes and save the result in HDF5 for Basenji processing.
@@ -101,10 +104,10 @@ def main():
   # organize TSS's by chromosome
 
   # read transcripts
-  transcripts = basenji.gff.read_genes(gtf_file, key_id='transcript_id')
+  transcripts = gff.read_genes(gtf_file, key_id='transcript_id')
 
   # read transcript --> gene mapping
-  transcript_genes = basenji.gff.t2g(gtf_file, feature='exon')
+  transcript_genes = gff.t2g(gtf_file, feature='exon')
 
   # make gene --> strand mapping
   gene_strand = {}
@@ -191,7 +194,7 @@ def main():
         seq_index = len(seq_coords)-1
         for i in range(left_i,right_i+1):
           tss_pos, gene_id = ctss[i]
-          tss = basenji.gene.TSS('TSS%d'%len(tss_list), gene_id, chrom, tss_pos, seq_index, True, gene_strand[gene_id])
+          tss = gene.TSS('TSS%d'%len(tss_list), gene_id, chrom, tss_pos, seq_index, True, gene_strand[gene_id])
           tss_list.append(tss)
 
       # update
@@ -238,7 +241,7 @@ def main():
 
   for chrom, start, end in seq_coords:
     seq = fasta.fetch(chrom, start, end)
-    seqs_1hot.append(basenji.dna_io.dna_1hot(seq))
+    seqs_1hot.append(dna_io.dna_1hot(seq))
 
   seqs_1hot = np.array(seqs_1hot)
 

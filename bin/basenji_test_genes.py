@@ -39,8 +39,14 @@ import tensorflow as tf
 
 import stats
 
-import basenji
+from basenji import batcher
+from basenji import gene
+from basenji import genedata
+from basenji import seqnn
+from basenji import params
+from basenji import plots
 from basenji_test_reps import infer_replicates
+
 """basenji_test_genes.py
 
 Compute accuracy statistics for a trained model at gene TSSs.
@@ -150,7 +156,7 @@ def main():
   #################################################################
   # read in genes and targets
 
-  gene_data = basenji.genedata.GeneData(genes_hdf5_file)
+  gene_data = genedata.GeneData(genes_hdf5_file)
 
 
   #################################################################
@@ -165,7 +171,7 @@ def main():
     #######################################################
     # setup model
 
-    job = basenji.params.read_job_params(params_file)
+    job = params.read_job_params(params_file)
 
     job['seq_length'] = gene_data.seq_length
     job['seq_depth'] = gene_data.seq_depth
@@ -174,11 +180,11 @@ def main():
       job['num_targets'] = gene_data.num_targets
 
     # build model
-    model = basenji.seqnn.SeqNN()
+    model = seqnn.SeqNN()
     model.build(job)
 
     if options.batch_size is not None:
-      model.batch_size = options.batch_size
+      model.hp.batch_size = options.batch_size
 
 
     #######################################################
@@ -189,8 +195,8 @@ def main():
     sys.stdout.flush()
 
     # initialize batcher
-    batcher = basenji.batcher.Batcher(
-        gene_data.seqs_1hot, batch_size=model.batch_size)
+    gene_batcher = batcher.Batcher(
+        gene_data.seqs_1hot, batch_size=model.hp.batch_size)
 
     # initialie saver
     saver = tf.train.Saver()
@@ -200,13 +206,8 @@ def main():
       saver.restore(sess, model_file)
 
       # predict
-      tss_preds = model.predict_genes(
-          sess,
-          batcher,
-          gene_data.gene_seqs,
-          rc=options.rc,
-          shifts=options.shifts,
-          tss_radius=options.tss_radius)
+      tss_preds = model.predict_genes(sess, gene_batcher, gene_data.gene_seqs,
+          rc=options.rc, shifts=options.shifts, tss_radius=options.tss_radius)
 
     # save to file
     np.save('%s/preds' % options.out_dir, tss_preds)
@@ -216,10 +217,10 @@ def main():
   #################################################################
   # convert to genes
 
-  gene_targets, _ = basenji.gene.map_tss_genes(gene_data.tss_targets, gene_data.tss,
-                                            tss_radius=options.tss_radius)
-  gene_preds, _ = basenji.gene.map_tss_genes(tss_preds, gene_data.tss,
-                                          tss_radius=options.tss_radius)
+  gene_targets, _ = gene.map_tss_genes(gene_data.tss_targets, gene_data.tss,
+                                       tss_radius=options.tss_radius)
+  gene_preds, _ = gene.map_tss_genes(tss_preds, gene_data.tss,
+                                     tss_radius=options.tss_radius)
 
 
   #################################################################
@@ -484,12 +485,12 @@ def alternative_tss(tss_targets, tss_preds, gene_data, out_base, log_pseudo=1, t
     cor_i = cor_indexes[pct_i]
 
     out_pdf = '%s/tss12_q%d.pdf' % (out_base, qi)
-    basenji.plots.regplot(gene_tss12_targets[cor_i], gene_tss12_preds[cor_i],
-                            out_pdf, poly_order=1, alpha=0.8, point_size=8,
-                            square=False, figsize=(4,4),
-                            x_label='log2 Experiment TSS1/TSS2',
-                            y_label='log2 Prediction TSS1/TSS2',
-                            title=gene_ids[cor_i])
+    plots.regplot(gene_tss12_targets[cor_i], gene_tss12_preds[cor_i],
+                  out_pdf, poly_order=1, alpha=0.8, point_size=8,
+                  square=False, figsize=(4,4),
+                  x_label='log2 Experiment TSS1/TSS2',
+                  y_label='log2 Prediction TSS1/TSS2',
+                  title=gene_ids[cor_i])
 
     print(qi, gene_ids[cor_i], file=genes_out)
 
@@ -521,7 +522,7 @@ def cor_table(gene_targets,
               target_labels,
               target_indexes,
               out_file,
-              plots=False):
+              draw_plots=False):
   """ Print a table and plot the distribution of target correlations. """
 
   table_out = open(out_file, 'w')
@@ -556,7 +557,7 @@ def cor_table(gene_targets,
   cors_nz = np.array(cors_nz)
   table_out.close()
 
-  if plots:
+  if draw_plots:
     # plot correlation distribution
     out_base = os.path.splitext(out_file)[0]
     sns.set(style='ticks', font_scale=1.3)
@@ -564,7 +565,7 @@ def cor_table(gene_targets,
     # plot correlations versus target signal
     gene_targets_log = np.log2(gene_targets[:, target_indexes] + 1)
     target_signal = gene_targets_log.sum(axis=0)
-    basenji.plots.jointplot(
+    plots.jointplot(
         target_signal,
         cors,
         '%s_sig.pdf' % out_base,
@@ -574,7 +575,7 @@ def cor_table(gene_targets,
         table=True)
 
     # plot nonzero correlations versus target signal
-    basenji.plots.jointplot(
+    plots.jointplot(
         target_signal,
         cors_nz,
         '%s_nz_sig.pdf' % out_base,
@@ -603,7 +604,7 @@ def gene_table(gene_targets, gene_preds, gene_iter, target_labels,
       sns.set(font_scale=1.3, style='ticks')
       out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
       ri = np.random.choice(range(num_genes), 2000, replace=False)
-      basenji.plots.regplot(
+      plots.regplot(
           gti[ri],
           gpi[ri],
           out_pdf,
@@ -731,7 +732,7 @@ def replicate_correlations(replicate_lists,
       if scatter_plots:
         out_pdf = '%s_s%d.pdf' % (out_prefix, li)
         gene_indexes = np.random.choice(range(num_genes), 1000, replace=False)
-        basenji.plots.regplot(
+        plots.regplot(
             gene_targets_rep1[gene_indexes],
             gene_targets_rep2[gene_indexes],
             out_pdf,
@@ -753,7 +754,7 @@ def replicate_correlations(replicate_lists,
       if scatter_plots:
         # scatter plot rep vs pred
         out_pdf = '%s_s%d_rep1.pdf' % (out_prefix, li)
-        basenji.plots.regplot(
+        plots.regplot(
             gene_targets_rep1[gene_indexes],
             gene_preds_rep1[gene_indexes],
             out_pdf,
@@ -764,7 +765,7 @@ def replicate_correlations(replicate_lists,
 
         # scatter plot rep vs pred
         out_pdf = '%s_s%d_rep2.pdf' % (out_prefix, li)
-        basenji.plots.regplot(
+        plots.regplot(
             gene_targets_rep2[gene_indexes],
             gene_preds_rep2[gene_indexes],
             out_pdf,
@@ -792,7 +793,7 @@ def replicate_correlations(replicate_lists,
   pred_cors = np.array(pred_cors)
 
   out_pdf = '%s_scatter.pdf' % out_prefix
-  basenji.plots.jointplot(
+  plots.jointplot(
       rep_cors,
       pred_cors,
       out_pdf,
@@ -884,7 +885,7 @@ def quantile_accuracy(gene_targets, gene_preds, gene_stat, out_pdf, numq=4):
       print(qi, pqi, ti, target_ratios[ti], file=table_out)
 
       qout_pdf = '%s_pq%d_q%d.pdf' % (out_pdf[:-4], pqi, qi)
-      basenji.plots.jointplot(gene_targets_quant[:,ti], gene_preds_quant[:,ti],
+      plots.jointplot(gene_targets_quant[:,ti], gene_preds_quant[:,ti],
                               qout_pdf, alpha=0.8, point_size=8, kind='reg',
                               figsize=5, x_label='log2 Experiment',
                               y_label='log2 Prediction')
@@ -923,23 +924,23 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix, log_pseudo=None):
 
   # plot mean vs std
   out_pdf = '%s_mean-std.pdf' % out_prefix
-  basenji.plots.jointplot(gene_mean[ri], gene_std[ri], out_pdf, point_size=10,
+  plots.jointplot(gene_mean[ri], gene_std[ri], out_pdf, point_size=10,
     cor='spearmanr', x_label='Mean across experiments', y_label='Std Dev across experiments')
 
   # plot mean vs MSE
   out_pdf = '%s_mean.pdf' % out_prefix
-  basenji.plots.jointplot(gene_mean[ri], gene_mse[ri], out_pdf, point_size=10,
+  plots.jointplot(gene_mean[ri], gene_mse[ri], out_pdf, point_size=10,
     cor='spearmanr', x_label='Mean across experiments', y_label='Mean squared prediction error')
 
   # plot std vs MSE
   out_pdf = '%s_std.pdf' % out_prefix
-  basenji.plots.jointplot(gene_std[ri], gene_mse[ri], out_pdf, point_size=10,
+  plots.jointplot(gene_std[ri], gene_mse[ri], out_pdf, point_size=10,
     cor='spearmanr', x_label='Std Dev across experiments', y_label='Mean squared prediction error')
 
   # plot CV vs MSE
   gene_cv = np.divide(gene_std, gene_mean)
   out_pdf = '%s_cv.pdf' % out_prefix
-  basenji.plots.jointplot(gene_cv[ri], gene_mse[ri], out_pdf, point_size=10,
+  plots.jointplot(gene_cv[ri], gene_mse[ri], out_pdf, point_size=10,
     cor='spearmanr', x_label='Coef Var across experiments', y_label='Mean squared prediction error')
 
 

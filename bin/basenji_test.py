@@ -311,7 +311,7 @@ def main():
   if options.peaks:
     # sample every few bins to decrease correlations
     ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
-    ds_indexes_targets = ds_indexes_preds + (dr.batch_buffer // dr.target_pool)
+    ds_indexes_targets = ds_indexes_preds + (dr.hp.batch_buffer // dr.hp.target_pool)
 
     aurocs = []
     auprcs = []
@@ -398,7 +398,7 @@ def main():
           test_preds[:, :, ti],
           options.track_bed,
           options.genome_file,
-          dr.batch_buffer,
+          dr.hp.batch_buffer,
           bed_set=bed_set)
 
     # make NA bigwig
@@ -440,7 +440,7 @@ def main():
       # sample every few bins (adjust to plot the # points I want)
       ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
       ds_indexes_targets = ds_indexes_preds + (
-          dr.batch_buffer // dr.target_pool)
+          dr.hp.batch_buffer // dr.hp.target_pool)
 
       # subset and flatten
       test_targets_ti_flat = test_targets_ti[:, ds_indexes_targets].flatten(
@@ -648,8 +648,8 @@ def compute_full_accuracy(dr, model, test_preds, test_targets_full, out_dir,
   full_targets = test_targets_full.shape[2]
 
   # determine non-buffer region
-  buf_start = dr.batch_buffer // dr.target_pool
-  buf_end = (dr.seq_length - dr.batch_buffer) // dr.target_pool
+  buf_start = dr.hp.batch_buffer // dr.hp.target_pool
+  buf_end = (dr.seq_length - dr.hp.batch_buffer) // dr.hp.target_pool
   buf_len = buf_end - buf_start
 
   # uniformly sample indexes

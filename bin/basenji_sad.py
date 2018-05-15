@@ -179,7 +179,7 @@ def main():
 
   if options.penultimate:
     # labels become inappropriate
-    target_ids = ['']*model.cnn_filters[-1]
+    target_ids = ['']*model.hp.cnn_filters[-1]
     target_labels = target_ids
 
   # read target normalization factors
@@ -249,8 +249,8 @@ def main():
 
   # determine local start and end
   loc_mid = model.target_length // 2
-  loc_start = loc_mid - (options.local//2) // model.target_pool
-  loc_end = loc_start + options.local // model.target_pool
+  loc_start = loc_mid - (options.local//2) // model.hp.target_pool
+  loc_end = loc_start + options.local // model.hp.target_pool
 
   snp_i = 0
   szi = 0
@@ -271,7 +271,7 @@ def main():
       # predict
 
       # initialize batcher
-      batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.batch_size)
+      batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.hp.batch_size)
 
       # predict
       batch_preds = model.predict(sess, batcher,
@@ -408,10 +408,10 @@ def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
 
   bw_chroms = [seq_chrom] * len(preds)
   bw_starts = [
-      int(seq_start + model.batch_buffer + bi * model.target_pool)
+      int(seq_start + model.hp.batch_buffer + bi * model.hp.target_pool)
       for bi in range(len(preds))
   ]
-  bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
+  bw_ends = [int(bws + model.hp.target_pool) for bws in bw_starts]
 
   preds_list = [float(p) for p in preds]
   bw_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=preds_list)

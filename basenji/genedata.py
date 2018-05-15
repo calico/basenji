@@ -69,7 +69,7 @@ class GeneData:
       self.tss.append(tss)
 
       # append to GeneSeq
-      tss_seq.tss_list.append(tss)
+      tss_seq.append_tss(tss)
 
     self.num_tss = len(self.tss)
 

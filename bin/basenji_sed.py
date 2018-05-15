@@ -27,8 +27,13 @@ import h5py
 import numpy as np
 import pyBigWig
 
-import basenji
-from basenji.gene import map_tss_genes
+from basenji import batcher
+from basenji import dna_io
+from basenji import gene
+from basenji import genedata
+from basenji import params
+from basenji import seqnn
+from basenji import vcf as bvcf
 from basenji_test import bigwig_open
 
 import tensorflow as tf
@@ -37,7 +42,6 @@ import tensorflow as tf
 
 Compute SNP expression difference (SED) scores for SNPs in a VCF file.
 """
-
 
 ################################################################################
 # main
@@ -161,7 +165,7 @@ def main():
   #################################################################
   # reads in genes HDF5
 
-  gene_data = basenji.genedata.GeneData(genes_hdf5_file)
+  gene_data = genedata.GeneData(genes_hdf5_file)
 
   # filter for worker sequences
   if options.processes is not None:
@@ -171,12 +175,12 @@ def main():
   # prep SNPs
 
   # load SNPs
-  snps = basenji.vcf.vcf_snps(vcf_file)
+  snps = bvcf.vcf_snps(vcf_file)
 
   # intersect w/ segments
   print('Intersecting gene sequences with SNPs...', end='')
   sys.stdout.flush()
-  seqs_snps = basenji.vcf.intersect_seqs_snps(
+  seqs_snps = bvcf.intersect_seqs_snps(
       vcf_file, gene_data.gene_seqs, vision_p=0.5)
   print('%d sequences w/ SNPs' % len(seqs_snps))
 
@@ -184,7 +188,7 @@ def main():
   #################################################################
   # setup model
 
-  job = basenji.params.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   job['seq_length'] = gene_data.seq_length
   job['seq_depth'] = gene_data.seq_depth
@@ -225,12 +229,12 @@ def main():
         target_subset = None
 
   # build model
-  model = basenji.seqnn.SeqNN()
+  model = seqnn.SeqNN()
   model.build(job, target_subset=target_subset)
 
   if options.penultimate:
     # labels become inappropriate
-    target_ids = ['']*model.cnn_filters[-1]
+    target_ids = ['']*model.hp.cnn_filters[-1]
     target_labels = target_ids
 
   #################################################################
@@ -254,7 +258,7 @@ def main():
       print(' '.join(header_cols), file=sed_tss_out)
 
   # helper variables
-  pred_buffer = model.batch_buffer // model.target_pool
+  pred_buffer = model.hp.batch_buffer // model.hp.target_pool
 
   # initialize saver
   saver = tf.train.Saver()
@@ -276,19 +280,19 @@ def main():
         aseqs_1hot = alleles_1hot(gene_seq, gene_data.seqs_1hot[seq_i], seq_snps)
 
         # initialize batcher
-        batcher = basenji.batcher.Batcher(aseqs_1hot, batch_size=model.batch_size)
+        batcher_gene = batcher.Batcher(aseqs_1hot, batch_size=model.hp.batch_size)
 
         # construct allele gene_seq's
         allele_gene_seqs = [gene_seq] * aseqs_1hot.shape[0]
 
         # predict alleles
-        allele_tss_preds = model.predict_genes(sess, batcher, allele_gene_seqs,
+        allele_tss_preds = model.predict_genes(sess, batcher_gene, allele_gene_seqs,
                                                 rc=options.rc, shifts=options.shifts,
                                                 penultimate=options.penultimate,
                                                 tss_radius=options.tss_radius)
 
         # reshape (Alleles x TSSs) x Targets to Alleles x TSSs x Targets
-        allele_tss_preds = allele_tss_preds.reshape((aseqs_1hot.shape[0], gene_seq.num_tss(), -1))
+        allele_tss_preds = allele_tss_preds.reshape((aseqs_1hot.shape[0], gene_seq.num_tss, -1))
 
         # extract reference and SNP alt predictions
         ref_tss_preds = allele_tss_preds[0] # TSSs x Targets
@@ -300,10 +304,10 @@ def main():
                         - np.log2(ref_tss_preds + options.log_pseudo)
 
         # compute gene-level predictions
-        ref_gene_preds, gene_ids = map_tss_genes(ref_tss_preds, gene_seq.tss_list, options.tss_radius)
+        ref_gene_preds, gene_ids = gene.map_tss_genes(ref_tss_preds, gene_seq.tss_list, options.tss_radius)
         alt_gene_preds = []
         for snp_i in range(len(seq_snps)):
-          agp, _ = map_tss_genes(alt_tss_preds[snp_i], gene_seq.tss_list, options.tss_radius)
+          agp, _ = gene.map_tss_genes(alt_tss_preds[snp_i], gene_seq.tss_list, options.tss_radius)
           alt_gene_preds.append(agp)
         alt_gene_preds = np.array(alt_gene_preds)
 
@@ -320,7 +324,7 @@ def main():
           snp_dist_gene = {}
 
           # for each TSS
-          for tss_i in range(gene_seq.num_tss()):
+          for tss_i in range(gene_seq.num_tss):
             tss = gene_seq.tss_list[tss_i]
 
             # SNP distance to TSS
@@ -338,8 +342,8 @@ def main():
                 if options.all_sed or not np.isclose(tss_sed[snp_i,tss_i,ti], 0, atol=1e-4):
 
                   # print
-                  cols = (snp.rsid, basenji.vcf.cap_allele(snp.ref_allele),
-                          basenji.vcf.cap_allele(snp.alt_alleles[0]),
+                  cols = (snp.rsid, bvcf.cap_allele(snp.ref_allele),
+                          bvcf.cap_allele(snp.alt_alleles[0]),
                           tss.identifier, snp_dist, ref_tss_preds[tss_i,ti], alt_tss_preds[snp_i,tss_i,ti],
                           tss_sed[snp_i,tss_i,ti], tss_ser[snp_i,tss_i,ti], ti, target_ids[ti], target_labels[ti])
                   if options.csv:
@@ -365,8 +369,8 @@ def main():
                 # print
                 cols = [
                     snp.rsid,
-                    basenji.vcf.cap_allele(snp.ref_allele),
-                    basenji.vcf.cap_allele(snp.alt_alleles[0]), gene_str,
+                    bvcf.cap_allele(snp.ref_allele),
+                    bvcf.cap_allele(snp.alt_alleles[0]), gene_str,
                     snp_dist_gene[gene_ids[gi]], ref_gene_preds[gi,ti], alt_gene_preds[snp_i,gi,ti],
                     gene_sed[snp_i,gi,ti], gene_ser[snp_i,gi,ti], ti, target_ids[ti], target_labels[ti]
                 ]
@@ -402,25 +406,25 @@ def alleles_1hot(gene_seq, seq_1hot, seq_snps):
     snp_seq_pos = snp.pos - 1 - gene_seq.start
 
     # verify that the reference allele matches the reference
-    seq_ref = basenji.dna_io.hot1_dna(aseqs_1hot[0][
+    seq_ref = dna_io.hot1_dna(aseqs_1hot[0][
       snp_seq_pos:snp_seq_pos + len(snp.ref_allele), :])
     if seq_ref != snp.ref_allele:
       print('WARNING: %s - ref allele %s does not match reference genome %s; changing reference genome to match.' % (snp.rsid, snp.ref_allele, seq_ref), file=sys.stderr)
 
       if len(seq_ref) == len(snp.ref_allele):
         # SNP
-        basenji.dna_io.hot1_set(aseqs_1hot[0], snp_seq_pos, snp.ref_allele)
+        dna_io.hot1_set(aseqs_1hot[0], snp_seq_pos, snp.ref_allele)
 
       # not confident in these operations
 
       # elif len(seq_ref) > len(snp.ref_allele):
       #   # deletion
       #   delete_len = len(seq_ref) - len(snp.ref_allele)
-      #   basenji.dna_io.hot1_delete(aseqs_1hot[0], snp_seq_pos + 1, delete_len)
+      #   dna_io.hot1_delete(aseqs_1hot[0], snp_seq_pos + 1, delete_len)
 
       # else:
       #   # insertion
-      #   basenji.dna_io.hot1_insert(aseqs_1hot[0], snp_seq_pos + 1, snp.ref_allele[1:])
+      #   dna_io.hot1_insert(aseqs_1hot[0], snp_seq_pos + 1, snp.ref_allele[1:])
 
       else:
         raise Exception('ERROR: reference mismatch indels cannot yet be handled.')
@@ -436,21 +440,18 @@ def alleles_1hot(gene_seq, seq_1hot, seq_snps):
     aseqs_1hot.append(np.copy(aseqs_1hot[0]))
     if len(snp.ref_allele) == len(snp.alt_alleles[0]):
       # SNP
-      basenji.dna_io.hot1_set(aseqs_1hot[-1], snp_seq_pos,
-                              snp.alt_alleles[0])
+      dna_io.hot1_set(aseqs_1hot[-1], snp_seq_pos, snp.alt_alleles[0])
 
     elif len(snp.ref_allele) > len(snp.alt_alleles[0]):
       # deletion
       delete_len = len(snp.ref_allele) - len(snp.alt_alleles[0])
       assert (snp.ref_allele[0] == snp.alt_alleles[0][0])
-      basenji.dna_io.hot1_delete(aseqs_1hot[-1], snp_seq_pos + 1,
-                                 delete_len)
+      dna_io.hot1_delete(aseqs_1hot[-1], snp_seq_pos + 1, delete_len)
 
     else:
       # insertion
       assert (snp.ref_allele[0] == snp.alt_alleles[0][0])
-      basenji.dna_io.hot1_insert(aseqs_1hot[-1], snp_seq_pos + 1,
-                                 snp.alt_alleles[0][1:])
+      dna_io.hot1_insert(aseqs_1hot[-1], snp_seq_pos + 1, snp.alt_alleles[0][1:])
 
   # finalize
   aseqs_1hot = np.array(aseqs_1hot)

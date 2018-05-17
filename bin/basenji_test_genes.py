@@ -262,7 +262,7 @@ def main():
 
   cor_table(gene_targets, gene_preds, gene_data.target_ids,
             gene_data.target_labels, options.target_indexes,
-            '%s/gene_cors.txt' % options.out_dir, plots=True)
+            '%s/gene_cors.txt' % options.out_dir, draw_plots=True)
 
   print(' Done in %ds.' % (time.time() - t0))
 
@@ -603,7 +603,10 @@ def gene_table(gene_targets, gene_preds, gene_iter, target_labels,
     if plot_scatter:
       sns.set(font_scale=1.3, style='ticks')
       out_pdf = '%s_scatter%d.pdf' % (out_prefix, ti)
-      ri = np.random.choice(range(num_genes), 2000, replace=False)
+      if num_genes < 2000:
+        ri = np.arange(num_genes)
+      else:
+        ri = np.random.choice(range(num_genes), 2000, replace=False)
       plots.regplot(
           gti[ri],
           gpi[ri],
@@ -731,7 +734,10 @@ def replicate_correlations(replicate_lists,
       # scatter plot rep vs rep
       if scatter_plots:
         out_pdf = '%s_s%d.pdf' % (out_prefix, li)
-        gene_indexes = np.random.choice(range(num_genes), 1000, replace=False)
+        if num_genes < 1000:
+          gene_indexes = np.arange(num_genes)
+        else:
+          gene_indexes = np.random.choice(range(num_genes), 1000, replace=False)
         plots.regplot(
             gene_targets_rep1[gene_indexes],
             gene_targets_rep2[gene_indexes],

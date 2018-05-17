@@ -402,13 +402,13 @@ def main():
           bed_set=bed_set)
 
     # make NA bigwig
-    bw_file = '%s/tracks/na.bw' % options.out_dir
-    bigwig_write(
-        bw_file,
-        test_na,
-        options.track_bed,
-        options.genome_file,
-        bed_set=bed_set)
+    # bw_file = '%s/tracks/na.bw' % options.out_dir
+    # bigwig_write(
+    #     bw_file,
+    #     test_na,
+    #     options.track_bed,
+    #     options.genome_file,
+    #     bed_set=bed_set)
 
   #######################################################
   # accuracy plots

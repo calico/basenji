@@ -25,12 +25,15 @@ class Gene:
 
 
 class GeneSeq:
-  def __init__(self, chrom, start, end, tss_list=[]):
+  def __init__(self, chrom, start, end, tss_list=None):
     self.chrom = chrom
     self.start = start
     self.end = end
 
-    self.tss_list = tss_list
+    if tss_list is None:
+      self.tss_list = []
+    else:
+      self.tss_list = tss_list
     self.num_tss = len(self.tss_list)
 
     # map genes to TSS indexes

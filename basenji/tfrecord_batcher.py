@@ -140,6 +140,110 @@ j   mode: a tf.estimator.ModeKeys instance
 
   return dataset
 
+
+def tfrecord_dataset_multi(tfr_data_files_pattern, batch_size, seq_length, seq_depth,
+                           genome_targets, target_length, mode):
+  """Load TFRecord format data.
+
+  The tf.Example assumed to be ZLIB compressed with fields:
+    sequence: tf.string FixedLenFeature of length seq_length * seq_depth.
+    label: tf.float32 FixedLenFeature of target_length * num_targets.
+
+  Args:
+   tfr_data_file_pattern: Pattern (potentially with globs) for TFRecord
+     format files. See `tf.gfile.Glob` for more information.
+    batch_size: batch_size
+    seq_length: length of input sequence
+    seq_depth: vocabulary size of the inputs (4 for raw DNA)
+    genome_targets: number of targets for each genome
+    target_length: length of the target sequence
+j   mode: a tf.estimator.ModeKeys instance
+
+  Returns:
+    A Dataset which will produce a dict with the following tensors:
+      sequence: [batch_size, sequence_length, seq_depth]
+      label: [batch_size, num_targets, target_length]
+      na: [batch_size, num_targets]
+  """
+
+  #############################################################
+  # collecting and shuffling files
+
+  dataset = tf.data.Dataset.list_files(tfr_data_files_pattern)
+
+  def file_to_records(filename):
+    return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
+
+  if mode == tf.estimator.ModeKeys.TRAIN:  # Shuffle, repeat, and parallelize.
+    # This shuffles just the filenames, not the examples.
+    dataset = dataset.shuffle(buffer_size=100000)
+
+    # abstaining from repeat makes it easier to separate epochs
+    # dataset = dataset.repeat()
+
+    dataset = dataset.apply(
+        # Interleaving allows us to pull one element from one file,
+        # and then switch to pulling from another file, without fully reading
+        # the first.
+        tf.contrib.data.parallel_interleave(
+            map_func=file_to_records,
+            # Magic number for cycle-length chosen by trying 64 (mentioned as a
+            # best practice) and then noticing a significant bump in memory
+            # usage. Reducing to 10 alleviated some of the memory pressure.
+            cycle_length=10, sloppy=True))
+
+    # Shuffle elements within a file.
+    dataset = dataset.shuffle(buffer_size=150)
+  else:
+    # Don't parallelize, shuffle, or repeat.
+    # Use flat_map as opposed to map because file_to_records produces a dataset,
+    # so with (non-flat) map, we'd have a dataset of datasets.
+    dataset = dataset.flat_map(file_to_records)
+
+
+  #############################################################
+  # batching
+
+  if batch_size is None:
+    raise ValueError('batch_size is None')
+  # dataset = dataset.batch(batch_size)
+  dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
+
+
+  #############################################################
+  # parsing protobufs
+
+  def _parse(example_protos):
+    features = {
+        'genome': tf.FixedLenFeature([1], tf.int64)
+        'sequence': tf.FixedLenFeature([], tf.string),
+        'target': tf.FixedLenFeature([], tf.string),
+    }
+
+    parsed_features = tf.parse_example(example_protos, features=features)
+
+    genome = parsed_features['genome']
+
+    seq = tf.decode_raw(parsed_features[tfrecord_util.TFR_INPUT], tf.uint8)
+    seq = tf.reshape(seq, [static_batch_size, seq_length, seq_depth])
+    seq = tf.cast(seq, tf.float32)
+
+    label = tf.decode_raw(parsed_features[tfrecord_util.TFR_OUTPUT], tf.float16)
+    label = tf.reshape(label, [static_batch_size, target_length, genome_targets[genome]])
+    label = tf.cast(label, tf.float32)
+
+    if use_static_batch_size:
+      na = tf.zeros(label.shape[:-1], dtype=tf.bool)
+    else:
+      na = tf.zeros(tf.shape(label)[:-1], dtype=tf.bool)
+
+    return {'sequence': seq, 'label': label, 'na': na}
+
+  dataset = dataset.map(_parse)
+
+  return dataset
+
+
 def make_data_ops(job,
                   files_pattern,
                   mode,

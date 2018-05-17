@@ -55,6 +55,7 @@ class SeqNN(seqnn_util.SeqNNModel):
                           ensemble_rc=False, ensemble_shifts=[0],
                           embed_penultimate=False, target_subset=None):
     """Build training ops from input data ops."""
+
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
       self.hparams_set = True
@@ -239,41 +240,48 @@ class SeqNN(seqnn_util.SeqNNModel):
     if embed_penultimate:
       final_repr = seqs_repr
     else:
-      with tf.variable_scope('final', reuse=tf.AUTO_REUSE):
-        final_filters = self.hp.num_targets * self.hp.target_classes
-        final_repr = tf.layers.dense(
-            inputs=seqs_repr,
-            units=final_filters,
-            activation=None,
-            kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
-            kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
-        print('Convolution w/ %d %dx1 filters to final targets' %
-            (final_filters, seqs_repr.shape[2]))
+      final_reprs = []
+      for gi in range(self.num_genomes):
+        with tf.variable_scope('final%d' % gi, reuse=tf.AUTO_REUSE):
+          final_filters = self.hp.num_targets[gi] * self.hp.target_classes[gi]
+          final_repr = tf.layers.dense(
+              inputs=seqs_repr,
+              units=final_filters,
+              activation=None,
+              kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
+              kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
+          print('Convolution w/ %d %dx1 filters to final genome %d targets' %
+              (final_filters, seqs_repr.shape[2], gi))
 
-        if target_subset is not None:
-          # get convolution parameters
-          filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
-          bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
+          if target_subset is not None:
+            # TODO: decide how multiple genomes ought to handle this
 
-          # subset to specific targets
-          filters_subset = tf.gather(filters_full, target_subset, axis=1)
-          bias_subset = tf.gather(bias_full, target_subset, axis=0)
+            # get convolution parameters
+            filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/kernel'%gi)[0]
+            bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/bias'%gi)[0]
 
-          # substitute a new limited convolution
-          final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
-          final_repr = tf.nn.bias_add(final_repr, bias_subset)
+            # subset to specific targets
+            filters_subset = tf.gather(filters_full, target_subset, axis=1)
+            bias_subset = tf.gather(bias_full, target_subset, axis=0)
 
-        # expand length back out
-        if self.hp.target_classes > 1:
-          final_repr = tf.reshape(final_repr,
-                                  (-1, seq_length, self.hp.num_targets,
-                                   self.hp.target_classes))
+            # substitute a new limited convolution
+            final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
+            final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
-    # transform for reverse complement
-    if reverse_preds is not None:
-      final_repr = tf.cond(reverse_preds,
-                           lambda: tf.reverse(final_repr, axis=[1]),
-                           lambda: final_repr)
+          # expand length back out
+          if self.hp.target_classes > 1:
+            final_repr = tf.reshape(final_repr,
+                                    (-1, seq_length, self.hp.num_targets[gi],
+                                     self.hp.target_classes[gi]))
+
+      # transform for reverse complement
+      if reverse_preds is not None:
+        final_repr = tf.cond(reverse_preds,
+                             lambda: tf.reverse(final_repr, axis=[1]),
+                             lambda: final_repr)
+
+      # append to genome list
+      final_reprs.append(final_repr)
 
     ###################################################
     # link function
@@ -323,6 +331,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         predictions = tf.sqrt(predictions)
 
     return predictions
+
 
   def build_optimizer(self, loss_op):
     """Construct optimization op that minimizes loss_op."""
@@ -459,6 +468,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       exit(1)
 
     return fd
+
 
   def train_epoch_h5_manual(self,
                   sess,

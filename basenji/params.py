@@ -105,8 +105,15 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
   # data
 
   hp.add_hparam('seq_depth', job.get('seq_depth', 4))
-  hp.add_hparam('num_targets', job['num_targets'])
-  hp.add_hparam('target_classes', job.get('target_classes', 1))
+  hp.add_hparam('num_genomes', job.get('num_genomes', 1))
+  if hp.num_genomes == 1:
+    hp.add_hparam('num_targets', [job['num_targets']])
+    hp.add_hparam('target_classes', [job.get('target_classes', 1)])
+  else:
+    hp.add_hparam('num_targets', job['num_targets'])
+    hp.add_hparam('target_classes',
+        layer_extend(job.get('target_classes', []), 1, hp.num_genomes))
+
   hp.add_hparam('target_pool', job.get('target_pool', 1))
 
   ###################################################

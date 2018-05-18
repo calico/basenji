@@ -64,7 +64,7 @@ def main():
   model_seqs = []
   for line in open(seqs_bed_file):
     a = line.split()
-    model_seqs.append(ModelSeq(a[0],int(a[1]),int(a[2])))
+    model_seqs.append(ModelSeq(a[0],int(a[1]),int(a[2]),None))
 
   # read blacklist regions
   black_chr_trees = read_blacklist(options.blacklist_bed)

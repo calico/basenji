@@ -173,9 +173,9 @@ def main():
   # define model sequences
   ################################################################
   # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train)
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test)
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test)
+  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, label='train')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -184,7 +184,6 @@ def main():
 
   # merge
   mseqs = train_mseqs + valid_mseqs + test_mseqs
-  mseqs_labels = ['train']*len(train_mseqs) + ['valid']*len(valid_mseqs) + ['test']*len(test_mseqs)
 
 
   ################################################################
@@ -198,7 +197,6 @@ def main():
     # filter unmappable
     mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
     mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_labels = [mseqs_labels[i] for i in range(len(mseqs_labels)) if mseqs_map_mask[i]]
     mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
 
     # write to file
@@ -207,7 +205,7 @@ def main():
 
   # write sequences to BED
   seqs_bed_file = '%s/sequences.bed' % options.out_dir
-  write_seqs_bed(seqs_bed_file, mseqs, mseqs_labels)
+  write_seqs_bed(seqs_bed_file, mseqs, True)
 
 
   ################################################################
@@ -278,7 +276,7 @@ def main():
   write_jobs = []
 
   for tvt_set in ['train', 'valid', 'test']:
-    tvt_set_indexes = [i for i in range(len(mseqs_labels)) if mseqs_labels[i] == tvt_set]
+    tvt_set_indexes = [i for i in range(len(mseqs)) if mseqs[i].label == tvt_set]
     tvt_set_start = tvt_set_indexes[0]
     tvt_set_end = tvt_set_indexes[-1] + 1
 
@@ -395,19 +393,18 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
 
   return seqs_unmap
 
-
 ################################################################################
-def contig_sequences(contigs, seq_length, stride):
+def contig_sequences(contigs, seq_length, stride, label=None):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
 
-  for chrom, ctg_start, ctg_end in contigs:
-    seq_start = ctg_start
+  for ctg in contigs:
+    seq_start = ctg.start
     seq_end = seq_start + seq_length
 
-    while seq_end < ctg_end:
+    while seq_end < ctg.end:
       # record sequence
-      mseqs.append(ModelSeq(chrom, seq_start, seq_end))
+      mseqs.append(ModelSeq(ctg.genome, ctg.chr, seq_start, seq_end, label))
 
       # update
       seq_start += int(stride*seq_length)
@@ -570,21 +567,20 @@ def limit_contigs(contigs, filter_bed):
 
   return fcontigs
 
-
 ################################################################################
-def write_seqs_bed(bed_file, seqs, labels=None):
+def write_seqs_bed(bed_file, seqs, labels=False):
   '''Write sequences to BED file.'''
   bed_out = open(bed_file, 'w')
   for i in range(len(seqs)):
     line = '%s\t%d\t%d' % (seqs[i].chr, seqs[i].start, seqs[i].end)
-    if labels is not None:
-      line += '\t%s' % labels[i]
+    if labels:
+      line += '\t%s' % seqs[i].label
     print(line, file=bed_out)
   bed_out.close()
 
 ################################################################################
 Contig = collections.namedtuple('Contig', ['chr', 'start', 'end'])
-ModelSeq = collections.namedtuple('ModelSeq', ['chr', 'start', 'end'])
+ModelSeq = collections.namedtuple('ModelSeq', ['chr', 'start', 'end', 'label'])
 
 
 ################################################################################

@@ -39,14 +39,14 @@ import slurm
 import basenji.genome as genome
 
 '''
-basenji_data.py
+basenji_data2.py
 
 Compute model sequences from the genome, extracting DNA coverage values.
 '''
 
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <fasta1_file> <targets1_file> <fasta2_file> <targets2_file>'
+  usage = 'usage: %prog [options] <fasta0_file,fasta1_file> <targets0_file,targets1_file>'
   parser = OptionParser(usage)
   parser.add_option('-a', dest='align_net', help='Alignment .net file')
   parser.add_option('-b', dest='break_t',
@@ -61,10 +61,8 @@ def main():
   parser.add_option('-f', dest='fill_min',
     default=3000000, type='int',
     help='Alignment net fill size minimum [Default: %default]')
-  parser.add_option('--g1', dest='gaps1_file',
-      help='Genome1 assembly gaps BED [Default: %default]')
-  parser.add_option('--g2', dest='gaps2_file',
-      help='Genome2 assembly gaps BED [Default: %default]')
+  parser.add_option('-g', dest='gap_files',
+      help='Comma-separated list of assembly gaps BED files [Default: %default]')
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
@@ -92,8 +90,10 @@ def main():
   parser.add_option('-t', dest='test_pct',
       default=0.05, type='float',
       help='Proportion of the data for testing [Default: %default]')
-  parser.add_option('-u', dest='unmap_bed',
-      help='Unmappable segments to set to NA')
+  parser.add_option('--u1', dest='unmap1_bed',
+      help='Genome1 unmappable segments to set to NA')
+  parser.add_option('--u2', dest='unmap2_bed',
+      help='Genome2 unmappable segments to set to NA')
   parser.add_option('--unmap_t', dest='unmap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
@@ -105,13 +105,11 @@ def main():
       help='Proportion of the data for validation [Default: %default]')
   (options, args) = parser.parse_args()
 
-  if len(args) != 4:
+  if len(args) != 2:
     parser.error('Must provide FASTA and sample coverage label and path files for two genomes.')
   else:
-    fasta1_file = args[0]
-    targets1_file = args[1]
-    fasta2_file = args[2]
-    targets2_file = args[3]
+    fasta_files = args[0].split(',')
+    targets_files = args[1].split(',')
 
   random.seed(options.seed)
   np.random.seed(options.seed)
@@ -119,28 +117,27 @@ def main():
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
+  if options.gap_files is not None:
+    options.gap_files = options.gap_files.split(',')
+
   ################################################################
   # define genomic contigs
   ################################################################
-  genome1_chr_contigs = genome.load_chromosomes(fasta1_file)
-  genome2_chr_contigs = genome.load_chromosomes(fasta2_file)
+  genome_chr_contigs = []
+  for gi in range(2):
+    genome_chr_contigs.append(genome.load_chromosomes(fasta_files[gi]))
 
-  # remove gaps
-  if options.gaps1_file:
-    genome1_chr_contigs = genome.split_contigs(genome1_chr_contigs,
-                                               options.gaps1_file)
-  if options.gaps2_file:
-    genome2_chr_contigs = genome.split_contigs(genome2_chr_contigs,
-                                               options.gaps2_file)
+    # remove gaps
+    if options.gap_files[gi]:
+      genome_chr_contigs[gi] = genome.split_contigs(genome_chr_contigs[gi],
+                                                    options.gap_files[gi])
 
   # ditch the chromosomes
   contigs = []
-  for chrom in genome1_chr_contigs:
-    contigs += [Contig(0, chrom, ctg_start, ctg_end)
-                for ctg_start, ctg_end in genome1_chr_contigs[chrom]]
-  for chrom in genome2_chr_contigs:
-    contigs += [Contig(1, chrom, ctg_start, ctg_end)
-                for ctg_start, ctg_end in genome2_chr_contigs[chrom]]
+  for gi in range(2):
+    for chrom in genome_chr_contigs[gi]:
+      contigs += [Contig(gi, chrom, ctg_start, ctg_end)
+                  for ctg_start, ctg_end in genome_chr_contigs[gi][chrom]]
 
   # filter for large enough
   contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
@@ -154,9 +151,9 @@ def main():
     contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
 
   # print contigs to BED file
-  for genome_i in range(2):
-    contigs_i = [ctg for ctg in contigs if ctg.genome == genome_i]
-    ctg_bed_file = '%s/contigs%d.bed' % (options.out_dir, genome_i)
+  for gi in range(2):
+    contigs_i = [ctg for ctg in contigs if ctg.genome == gi]
+    ctg_bed_file = '%s/contigs%d.bed' % (options.out_dir, gi)
     write_seqs_bed(ctg_bed_file, contigs_i)
 
   ################################################################
@@ -167,26 +164,17 @@ def main():
   contig_components = connect_contigs(contigs, options.align_net, options.fill_min, options.out_dir)
 
   # divide contig connected components between train/valid/test
-  contig_sets = divide_contig_components(contig_components,
-                                         options.test_pct,
-                                         options.valid_pct)
-
+  contig_sets = divide_contig_components(contig_components, options.test_pct, options.valid_pct)
   train_contigs, valid_contigs, test_contigs = contig_sets
 
   ################################################################
   # define model sequences
   ################################################################
 
-  # data2 notes
-  #
-  # when shuffling, I think we're going to want to carefully
-  # evenly distribute the sequences. so shuffle within genome,
-  # and then interleave.
-
   # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train)
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test)
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test)
+  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, label='train')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -195,79 +183,56 @@ def main():
 
   # merge
   mseqs = train_mseqs + valid_mseqs + test_mseqs
-  mseqs_labels = ['train']*len(train_mseqs) + ['valid']*len(valid_mseqs) + ['test']*len(test_mseqs)
 
+  ################################################################
+  # separate sequences by genome
+  ################################################################
+  mseqs_genome = []
+  for gi in range(2):
+    mseqs_gi = [mseqs[si] for si in range(len(mseqs)) if mseqs[si].genome == gi]
+    mseqs_genome.append(mseqs_gi)
 
   ################################################################
   # mappability
   ################################################################
 
-  # data2 notes
-  #
-  # given two unmap bed files, this is easy
+  unmap_beds = [options.unmap1_bed, options.unmap2_bed]
+  unmap_npys = [None, None]
 
-  if options.unmap_bed is not None:
-    # annotate unmappable positions
-    mseqs_unmap = annotate_unmap(mseqs, options.unmap_bed,
-                                 options.seq_length, options.pool_width)
+  for gi in range(2):
+    if unmap_beds[gi] is not None:
+      # annotate unmappable positions
+      mseqs_unmap = annotate_unmap(mseqs_genome[gi], unmap_beds[gi],
+                                   options.seq_length, options.pool_width)
 
-    # filter unmappable
-    mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.unmap_t)
-    mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_labels = [mseqs_labels[i] for i in range(len(mseqs_labels)) if mseqs_map_mask[i]]
-    mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
+      # filter unmappable
+      mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.unmap_t)
+      mseqs_genome[gi] = [mseqs_genome[gi][si] for si in range(len(mseqs_genome[gi])) if mseqs_map_mask[si]]
+      mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
 
-    # write to file
-    unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
-    np.save(unmap_npy, mseqs_unmap)
+      # write to file
+      unmap_npys[gi] = '%s/mseqs%d_unmap.npy' % (options.out_dir, gi)
+      np.save(unmap_npys[gi], mseqs_unmap)
 
-  # write sequences to BED
-  seqs_bed_file = '%s/sequences.bed' % options.out_dir
-  write_seqs_bed(seqs_bed_file, mseqs, mseqs_labels)
+  seqs_bed_files = []
+  for gi in range(2):
+    # write sequences to BED
+    seqs_bed_files.append('%s/sequences%d.bed' % (options.out_dir, gi))
+    write_seqs_bed(seqs_bed_files[gi], mseqs_genome[gi], True)
 
 
   ################################################################
   # read sequence coverage values
   ################################################################
 
-  # data2 notes
-  #
-  # move this to a function that takes seqs_bed_file and targets_file
-  # separately for each genome
-
-  # read target datasets
-  targets_df = pd.read_table(targets_file)
-
   seqs_cov_dir = '%s/seqs_cov' % options.out_dir
   if not os.path.isdir(seqs_cov_dir):
     os.mkdir(seqs_cov_dir)
 
   read_jobs = []
-
-  for ti in range(targets_df.shape[0]):
-    genome_cov_file = targets_df['file'].iloc[ti]
-    seqs_cov_stem = '%s/%d' % (seqs_cov_dir, ti)
-    seqs_cov_file = '%s.h5' % seqs_cov_stem
-
-    if os.path.isfile(seqs_cov_file):
-      print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
-    else:
-      cmd = 'basenji_data_read.py'
-      cmd += ' -w %d' % options.pool_width
-      cmd += ' %s' % genome_cov_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_file
-
-      if options.run_local:
-        cmd += ' &> %s.err' % seqs_cov_stem
-        read_jobs.append(cmd)
-      else:
-        j = slurm.Job(cmd,
-            name='read_t%d' % ti,
-            out_file='%s.out' % seqs_cov_stem,
-            err_file='%s.err' % seqs_cov_stem,
-            queue='standard,tbdisk', mem=15000, time='12:0:0')
-        read_jobs.append(j)
+  for gi in range(2):
+    read_jobs += make_read_jobs(targets_files[gi], seqs_bed_files[gi], gi,
+                                seqs_cov_dir, options.pool_width, options.run_local)
 
   if options.run_local:
     util.exec_par(read_jobs, options.processes, verbose=True)
@@ -278,61 +243,20 @@ def main():
   # write TF Records
   ################################################################
 
-  # data2 notes
-  #
-  # every TFRecord file should have the same proportion of sequences
-  # from each genome.
-  # that can be accomplished by sorting mseqs accordingly
-  #
-  # the TFRecord itself needs a 'genome' int variable added that will be used
-  # to gate the final model layer. it can read it out of seqs_bed_file
-  #
-  # well, that will only work if the 'targets' byteslist can have variable size.
-
   tfr_dir = '%s/tfrecords' % options.out_dir
   if not os.path.isdir(tfr_dir):
     os.mkdir(tfr_dir)
 
+  max_targets = 0
+  for gi in range(2):
+    targets_df = pd.read_table(targets_files[gi])
+    max_targets = max(max_targets, targets_df.shape[0])
+
   write_jobs = []
-
-  for tvt_set in ['train', 'valid', 'test']:
-    tvt_set_indexes = [i for i in range(len(mseqs_labels)) if mseqs_labels[i] == tvt_set]
-    tvt_set_start = tvt_set_indexes[0]
-    tvt_set_end = tvt_set_indexes[-1]
-
-    tfr_i = 0
-    tfr_start = tvt_set_start
-    tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
-
-    while tfr_start <= tvt_set_end:
-      tfr_stem = '%s/%s-%d' % (tfr_dir, tvt_set, tfr_i)
-
-      cmd = 'basenji_data_write.py'
-      cmd += ' -s %d' % tfr_start
-      cmd += ' -e %d' % tfr_end
-      if options.unmap_bed is not None:
-        cmd += ' -u %s' % unmap_npy
-
-      cmd += ' %s' % fasta_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_dir
-      cmd += ' %s.tfr' % tfr_stem
-
-      if options.run_local:
-        cmd += ' &> %s.err' % tfr_stem
-        write_jobs.append(cmd)
-      else:
-        j = slurm.Job(cmd,
-              name='write_%s-%d' % (tvt_set, tfr_i),
-              out_file='%s.out' % tfr_stem,
-              err_file='%s.err' % tfr_stem,
-              queue='standard,tbdisk', mem=15000, time='12:0:0')
-        write_jobs.append(j)
-
-      # update
-      tfr_i += 1
-      tfr_start += options.seqs_per_tfr
-      tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
+  for gi in range(2):
+    write_jobs += make_write_jobs(mseqs_genome[gi], fasta_files[gi], seqs_bed_files[gi],
+                                  seqs_cov_dir, gi, unmap_npys[gi], options.seqs_per_tfr,
+                                  max_targets, tfr_dir, options.run_local)
 
   if options.run_local:
     util.exec_par(write_jobs, options.processes, verbose=True)
@@ -411,6 +335,7 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
   return seqs_unmap
 
 
+################################################################################
 def break_large_contigs(contigs, break_t, verbose=False):
   """Break large contigs in half until all contigs are under
      the size threshold."""
@@ -453,7 +378,7 @@ def break_large_contigs(contigs, break_t, verbose=False):
 
 
 ################################################################################
-def contig_sequences(contigs, seq_length, stride):
+def contig_sequences(contigs, seq_length, stride, label=None):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
 
@@ -463,7 +388,7 @@ def contig_sequences(contigs, seq_length, stride):
 
     while seq_end < ctg.end:
       # record sequence
-      mseqs.append(ModelSeq(ctg.genome, ctg.chr, seq_start, seq_end))
+      mseqs.append(ModelSeq(ctg.genome, ctg.chr, seq_start, seq_end, label))
 
       # update
       seq_start += int(stride*seq_length)
@@ -515,6 +440,22 @@ def connect_contigs(contigs, align_net_file, fill_min, out_dir):
   comp_out.close()
 
   return contig_components
+
+
+################################################################################
+def contig_stats_genome(contigs):
+  """Compute contig statistics within each genome."""
+  contigs_count_genome = []
+  contigs_nt_genome = []
+
+  for gi in range(2):
+    contigs_genome = [ctg for ctg in contigs if ctg.genome == gi]
+    contigs_nt = [ctg.end-ctg.start for ctg in contigs_genome]
+
+    contigs_count_genome.append(len(contigs_genome))
+    contigs_nt_genome.append(sum(contigs_nt))
+
+  return contigs_count_genome, contigs_nt_genome
 
 
 ################################################################################
@@ -591,61 +532,37 @@ def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain
   return train_contigs, valid_contigs, test_contigs
 
 
-def report_divide_stats(train_contigs, valid_contigs, test_contigs):
-  """ Report genome-specific statistics about the division of contigs
-      between train/valid/test sets."""
+################################################################################
+def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir):
+  """Intersect the contigs and nets from genome_i, adding the
+     overlaps as edges to graph_contigs_nets."""
 
-  # compute genome-specific stats
-  train_count_genome, train_nt_genome = contig_stats_genome(train_contigs)
-  valid_count_genome, valid_nt_genome = contig_stats_genome(valid_contigs)
-  test_count_genome, test_nt_genome = contig_stats_genome(test_contigs)
+  contigs_file = '%s/contigs%d.bed' % (out_dir, genome_i)
+  nets_file = '%s/nets%d.bed' % (out_dir, genome_i)
 
-  # sum nt across genomes
-  train_nt = sum(train_nt_genome)
-  valid_nt = sum(valid_nt_genome)
-  test_nt = sum(test_nt_genome)
-  total_nt = train_nt + valid_nt + test_nt
+  contigs_bed = pybedtools.BedTool(contigs_file)
+  nets_bed = pybedtools.BedTool(nets_file)
 
-  # compute total sum nt per genome
-  total_nt_genome = []
-  for gi in range(2):
-    total_nt_gi = train_nt_genome[gi] + valid_nt_genome[gi] + test_nt_genome[gi]
-    total_nt_genome.append(total_nt_gi)
+  for overlap in contigs_bed.intersect(nets_bed, wo=True):
+    ctg_chr = overlap[0]
+    ctg_start = int(overlap[1])
+    ctg_end = int(overlap[2])
+    net_chr = overlap[3]
+    net_start = int(overlap[4])
+    net_end = int(overlap[5])
 
-  print('Contigs divided into')
-  print(' Train: %5d contigs, %10d nt (%.4f)' % \
-       (len(train_contigs), train_nt, train_nt/total_nt))
-  for gi in range(2):
-    print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
-         (gi, train_count_genome[gi], train_nt_genome[gi], train_nt_genome[gi]/total_nt_genome[gi]))
+    # create node objects
+    ctg_node = GraphSeq(genome_i, False, ctg_chr, ctg_start, ctg_end)
+    net_node = GraphSeq(genome_i, True, net_chr, net_start, net_end)
 
-  print(' Valid: %5d contigs, %10d nt (%.4f)' % \
-      (len(valid_contigs), valid_nt, valid_nt/total_nt))
-  for gi in range(2):
-    print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
-         (gi, valid_count_genome[gi], valid_nt_genome[gi], valid_nt_genome[gi]/total_nt_genome[gi]))
-
-  print(' Test:  %5d contigs, %10d nt (%.4f)' % \
-      (len(test_contigs), test_nt, test_nt/total_nt))
-  for gi in range(2):
-    print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
-         (gi, test_count_genome[gi], test_nt_genome[gi], test_nt_genome[gi]/total_nt_genome[gi]))
+    # add edge / verify we found nodes
+    gcn_size_pre = graph_contigs_nets.number_of_nodes()
+    graph_contigs_nets.add_edge(ctg_node, net_node)
+    gcn_size_post = graph_contigs_nets.number_of_nodes()
+    assert(gcn_size_pre == gcn_size_post)
 
 
-def contig_stats_genome(contigs):
-  contigs_count_genome = []
-  contigs_nt_genome = []
-
-  for gi in range(2):
-    contigs_genome = [ctg for ctg in contigs if ctg.genome == gi]
-    contigs_nt = [ctg.end-ctg.start for ctg in contigs_genome]
-
-    contigs_count_genome.append(len(contigs_genome))
-    contigs_nt_genome.append(sum(contigs_nt))
-
-  return contigs_count_genome, contigs_nt_genome
-
-
+################################################################################
 def make_net_graph(align_net_file, fill_min, out_dir):
   """Construct a Graph with aligned net intervals connected
      by edges."""
@@ -694,153 +611,150 @@ def make_net_graph(align_net_file, fill_min, out_dir):
   return graph_nets
 
 
-def write_net_beds(align_net_file, out_dir):
-  nets1_bed_out = open('%s/nets0.bed' % out_dir, 'w')
-  nets2_bed_out = open('%s/nets1.bed' % out_dir, 'w')
+################################################################################
+def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, pool_width, run_local):
+  """Make basenji_data_read.py jobs for one genome."""
 
-  for net_line in open(align_net_file):
-    if net_line.startswith('net'):
-      net_a = net_line.split()
-      chrom1 = net_a[1]
+  # read target datasets
+  targets_df = pd.read_table(targets_file)
 
-    elif net_line.startswith(' fill'):
-      net_a = net_line.split()
+  read_jobs = []
 
-      # write genome1 interval
-      start1 = int(net_a[1])
-      size1 = int(net_a[2])
-      end1 = start1+size1
-      cols = [chrom1, str(start1), str(end1)]
-      print('\t'.join(cols), file=nets1_bed_out)
+  for ti in range(targets_df.shape[0]):
+    genome_cov_file = targets_df['file'].iloc[ti]
+    seqs_cov_stem = '%s/%d-%d' % (seqs_cov_dir, gi, ti)
+    seqs_cov_file = '%s.h5' % seqs_cov_stem
 
-      # write genome2 interval
-      chrom2 = net_a[3]
-      start2 = int(net_a[5])
-      size2 = int(net_a[6])
-      end2 = start2+size2
-      cols = [chrom2, str(start2), str(end2)]
-      print('\t'.join(cols), file=nets2_bed_out)
+    if os.path.isfile(seqs_cov_file):
+      print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
+    else:
+      cmd = 'basenji_data_read.py'
+      cmd += ' -w %d' % pool_width
+      cmd += ' %s' % genome_cov_file
+      cmd += ' %s' % seqs_bed_file
+      cmd += ' %s' % seqs_cov_file
 
-  nets1_bed_out.close()
-  nets2_bed_out.close()
+      if run_local:
+        cmd += ' &> %s.err' % seqs_cov_stem
+        read_jobs.append(cmd)
+      else:
+        j = slurm.Job(cmd,
+            name='read_t%d' % ti,
+            out_file='%s.out' % seqs_cov_stem,
+            err_file='%s.err' % seqs_cov_stem,
+            queue='standard,tbdisk', mem=15000, time='12:0:0')
+        read_jobs.append(j)
 
+  return read_jobs
 
-def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir):
-  """Intersect the contigs and nets from genome_i, adding the
-     overlaps as edges to graph_contigs_nets."""
+################################################################################
+def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, gi,
+                    unmap_npy, seqs_per_tfr, max_targets, tfr_dir, run_local):
+  """Make basenji_data_write.py jobs for one genome."""
 
-  contigs_file = '%s/contigs%d.bed' % (out_dir, genome_i)
-  nets_file = '%s/nets%d.bed' % (out_dir, genome_i)
+  write_jobs = []
 
-  contigs_bed = pybedtools.BedTool(contigs_file)
-  nets_bed = pybedtools.BedTool(nets_file)
+  for tvt_set in ['train', 'valid', 'test']:
+    tvt_set_indexes = [i for i in range(len(mseqs)) if mseqs[i].label == tvt_set]
+    tvt_set_start = tvt_set_indexes[0]
+    tvt_set_end = tvt_set_indexes[-1]
 
-  for overlap in contigs_bed.intersect(nets_bed, wo=True):
-    ctg_chr = overlap[0]
-    ctg_start = int(overlap[1])
-    ctg_end = int(overlap[2])
-    net_chr = overlap[3]
-    net_start = int(overlap[4])
-    net_end = int(overlap[5])
+    tfr_i = 0
+    tfr_start = tvt_set_start
+    tfr_end = min(tfr_start+seqs_per_tfr, tvt_set_end)
 
-    # create node objects
-    ctg_node = GraphSeq(genome_i, False, ctg_chr, ctg_start, ctg_end)
-    net_node = GraphSeq(genome_i, True, net_chr, net_start, net_end)
+    while tfr_start <= tvt_set_end:
+      tfr_stem = '%s/%s-%d-%d' % (tfr_dir, tvt_set, gi, tfr_i)
 
-    # add edge / verify we found nodes
-    gcn_size_pre = graph_contigs_nets.number_of_nodes()
-    graph_contigs_nets.add_edge(ctg_node, net_node)
-    gcn_size_post = graph_contigs_nets.number_of_nodes()
-    assert(gcn_size_pre == gcn_size_post)
+      cmd = 'basenji_data_write.py'
+      cmd += ' -s %d' % tfr_start
+      cmd += ' -e %d' % tfr_end
+      cmd += ' -g %d' % gi
+      cmd += ' -t %d' % max_targets
+      if unmap_npy is not None:
+        cmd += ' -u %s' % unmap_npy
+
+      cmd += ' %s' % fasta_file
+      cmd += ' %s' % seqs_bed_file
+      cmd += ' %s' % seqs_cov_dir
+      cmd += ' %s.tfr' % tfr_stem
+
+      if run_local:
+        cmd += ' &> %s.err' % tfr_stem
+        write_jobs.append(cmd)
+      else:
+        j = slurm.Job(cmd,
+              name='write_%s-%d' % (tvt_set, tfr_i),
+              out_file='%s.out' % tfr_stem,
+              err_file='%s.err' % tfr_stem,
+              queue='standard,tbdisk', mem=15000, time='12:0:0')
+        write_jobs.append(j)
+
+      # update
+      tfr_i += 1
+      tfr_start += seqs_per_tfr
+      tfr_end = min(tfr_start+seqs_per_tfr, tvt_set_end)
+
+  return write_jobs
 
 
 ################################################################################
-def divide_contigs(contigs, test_pct, valid_pct, pct_abstain=0.2):
-  """Divide list of contigs into train/valid/test lists,
-     aiming for the specified nucleotide percentages."""
+def report_divide_stats(train_contigs, valid_contigs, test_contigs):
+  """ Report genome-specific statistics about the division of contigs
+      between train/valid/test sets."""
 
-  # sort contigs descending by length
-  length_contigs = [(ctg.end-ctg.start,ctg) for ctg in contigs]
-  length_contigs.sort(reverse=True)
+  # compute genome-specific stats
+  train_count_genome, train_nt_genome = contig_stats_genome(train_contigs)
+  valid_count_genome, valid_nt_genome = contig_stats_genome(valid_contigs)
+  test_count_genome, test_nt_genome = contig_stats_genome(test_contigs)
 
-  # compute total nucleotides
-  total_nt = sum([lc[0] for lc in length_contigs])
+  # sum nt across genomes
+  train_nt = sum(train_nt_genome)
+  valid_nt = sum(valid_nt_genome)
+  test_nt = sum(test_nt_genome)
+  total_nt = train_nt + valid_nt + test_nt
 
-  # compute aimed train/valid/test nucleotides
-  test_nt_aim = test_pct * total_nt
-  valid_nt_aim = valid_pct * total_nt
-  train_nt_aim = total_nt - valid_nt_aim - test_nt_aim
-
-  # initialize current train/valid/test nucleotides
-  train_nt = 0
-  valid_nt = 0
-  test_nt = 0
-
-  # initialie train/valid/test contig lists
-  train_contigs = []
-  valid_contigs = []
-  test_contigs = []
-
-  # process contigs
-  for ctg_len, ctg in length_contigs:
-
-    # compute gap between current and aim
-    test_nt_gap = max(0, test_nt_aim - test_nt)
-    valid_nt_gap = max(0, valid_nt_aim - valid_nt)
-    train_nt_gap = max(1, train_nt_aim - train_nt)
-
-    # skip if too large
-    if ctg_len > pct_abstain*test_nt_gap:
-      test_nt_gap = 0
-    if ctg_len > pct_abstain*valid_nt_gap:
-      valid_nt_gap = 0
-
-    # compute remaining %
-    gap_sum = train_nt_gap + valid_nt_gap + test_nt_gap
-    test_pct_gap = test_nt_gap / gap_sum
-    valid_pct_gap = valid_nt_gap / gap_sum
-    train_pct_gap = train_nt_gap / gap_sum
-
-    # sample train/valid/test
-    ri = np.random.choice(range(3), 1, p=[train_pct_gap, valid_pct_gap, test_pct_gap])[0]
-    if ri == 0:
-      train_contigs.append(ctg)
-      train_nt += ctg_len
-    elif ri == 1:
-      valid_contigs.append(ctg)
-      valid_nt += ctg_len
-    elif ri == 2:
-      test_contigs.append(ctg)
-      test_nt += ctg_len
-    else:
-      print('TVT random number beyond 0,1,2', file=sys.stderr)
-      exit(1)
+  # compute total sum nt per genome
+  total_nt_genome = []
+  for gi in range(2):
+    total_nt_gi = train_nt_genome[gi] + valid_nt_genome[gi] + test_nt_genome[gi]
+    total_nt_genome.append(total_nt_gi)
 
   print('Contigs divided into')
   print(' Train: %5d contigs, %10d nt (%.4f)' % \
-      (len(train_contigs), train_nt, train_nt/total_nt))
+       (len(train_contigs), train_nt, train_nt/total_nt))
+  for gi in range(2):
+    print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
+         (gi, train_count_genome[gi], train_nt_genome[gi], train_nt_genome[gi]/total_nt_genome[gi]))
+
   print(' Valid: %5d contigs, %10d nt (%.4f)' % \
       (len(valid_contigs), valid_nt, valid_nt/total_nt))
+  for gi in range(2):
+    print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
+         (gi, valid_count_genome[gi], valid_nt_genome[gi], valid_nt_genome[gi]/total_nt_genome[gi]))
+
   print(' Test:  %5d contigs, %10d nt (%.4f)' % \
       (len(test_contigs), test_nt, test_nt/total_nt))
-
-  return train_contigs, valid_contigs, test_contigs
+  for gi in range(2):
+    print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
+         (gi, test_count_genome[gi], test_nt_genome[gi], test_nt_genome[gi]/total_nt_genome[gi]))
 
 
 ################################################################################
-def write_seqs_bed(bed_file, seqs, labels=None):
+def write_seqs_bed(bed_file, seqs, labels=False):
   '''Write sequences to BED file.'''
   bed_out = open(bed_file, 'w')
   for i in range(len(seqs)):
     line = '%s\t%d\t%d' % (seqs[i].chr, seqs[i].start, seqs[i].end)
-    if labels is not None:
-      line += '\t%s' % labels[i]
+    if labels:
+      line += '\t%s' % seqs[i].label
     print(line, file=bed_out)
   bed_out.close()
 
+
 ################################################################################
 Contig = collections.namedtuple('Contig', ['genome', 'chr', 'start', 'end'])
-ModelSeq = collections.namedtuple('ModelSeq', ['genome', 'chr', 'start', 'end'])
+ModelSeq = collections.namedtuple('ModelSeq', ['genome', 'chr', 'start', 'end', 'label'])
 GraphSeq = collections.namedtuple('GraphSeq', ['genome', 'net', 'chr', 'start', 'end'])
 
 

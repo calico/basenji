@@ -15,6 +15,7 @@
 # =========================================================================
 from optparse import OptionParser
 import os
+import sys
 
 import h5py
 import numpy as np
@@ -38,12 +39,16 @@ Write TF Records for batches of model sequences.
 def main():
   usage = 'usage: %prog [options] <fasta_file> <seqs_bed_file> <seqs_cov_dir> <tfr_file>'
   parser = OptionParser(usage)
+  parser.add_option('-g', dest='genome_index',
+      default=0, type='int', help='Genome index')
   parser.add_option('-s', dest='start_i',
       default=0, type='int',
       help='Sequence start index [Default: %default]')
   parser.add_option('-e', dest='end_i',
       default=None, type='int',
       help='Sequence end index [Default: %default]')
+  parser.add_option('-t', dest='target_extend',
+      default=None, type='int', help='Extend targets vector [Default: %default]')
   parser.add_option('-u', dest='umap_npy',
       help='Unmappable array numpy file')
   parser.add_option('--umap_set', dest='umap_set',
@@ -65,7 +70,7 @@ def main():
   model_seqs = []
   for line in open(seqs_bed_file):
     a = line.split()
-    model_seqs.append(ModelSeq(a[0],int(a[1]),int(a[2])))
+    model_seqs.append(ModelSeq(a[0],int(a[1]),int(a[2]),None))
 
   if options.end_i is None:
     options.end_i = len(model_seqs)
@@ -77,11 +82,15 @@ def main():
 
   seqs_cov_files = []
   ti = 0
-  seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
+  seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
   while os.path.isfile(seqs_cov_file):
     seqs_cov_files.append(seqs_cov_file)
     ti += 1
-    seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
+    seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
+
+  if len(seqs_cov_files) == 0:
+    print('Sequence coverage files not found, e.g. %s' % seqs_cov_file, file=sys.stderr)
+    exit(1)
 
   seq_pool_len = h5py.File(seqs_cov_files[0], 'r')['seqs_cov'].shape[1]
   num_targets = len(seqs_cov_files)
@@ -89,8 +98,13 @@ def main():
   ################################################################
   # read targets
 
+  # extend targets
+  num_targets_tfr = num_targets
+  if options.target_extend is not None:
+    num_targets_tfr = max(num_targets_tfr, options.target_extend)
+
   # initialize targets
-  targets = np.zeros((num_seqs, seq_pool_len, num_targets), dtype='float16')
+  targets = np.zeros((num_seqs, seq_pool_len, num_targets_tfr), dtype='float16')
 
   # read each target
   for ti in range(num_targets):
@@ -134,7 +148,7 @@ def main():
       seq_1hot = dna_1hot(seq_dna)
 
       example = tf.train.Example(features=tf.train.Features(feature={
-          'genome': _int_feature(0),
+          'genome': _int_feature(options.genome_index),
           'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
           'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
 

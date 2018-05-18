@@ -394,6 +394,10 @@ class SeqNN(seqnn_util.SeqNNModel):
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
+    # slice targets to correct genome number (rest are zero)
+    num_targets_genome = self.hp.num_targets[data_ops['genome']]
+    targets = tf.identity(targets[:, :, :num_targets_genome])
+
     if target_subset is not None:
       targets = tf.gather(targets, target_subset, axis=2)
 
@@ -621,3 +625,49 @@ class SeqNN(seqnn_util.SeqNNModel):
     avg_loss = np.average(train_loss, weights=batch_sizes)
 
     return avg_loss, global_step
+
+
+  def train2_epoch_ops(self, sess, handle_ph, data_handles, sum_writer=None):
+    """ Execute one training epoch for multiple iterators
+
+      Note: May want multiple summaries, too.
+
+    """
+
+    assert(self.hp.num_genomes == len(data_handles))
+    global_step = 0
+
+    # initialize training loss lists
+    train_losses = []
+    for gi in range(2):
+      train_losses.append([])
+
+    # setup feed dict
+    fd = self.set_mode('train')
+
+    data_available = np.ones(self.hp.num_genomes, dtype='bool')
+    while data_available.any():
+      for gi in range(self.hp.num_genomes):
+        if data_available[gi]:
+          try:
+            fd[handle_ph] = data_handles[gi]
+            run_ops = [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops
+            run_returns = sess.run(run_ops, feed_dict=fd)
+            summary, loss_batch, global_step = run_returns[:3]
+
+            # add summary
+            if sum_writer is not None:
+              sum_writer.add_summary(summary, global_step)
+
+            # accumulate loss
+            train_losses[gi].append(loss_batch)
+
+          except tf.errors.OutOfRangeError:
+            data_available[gi] = False
+
+    # mean across batches
+    for gi in range(self.hp.num_genomes):
+      train_losses[gi] = np.mean(train_losses[gi])
+
+    return train_losses, global_step
+>>>>>>> drafting execution

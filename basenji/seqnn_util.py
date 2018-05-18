@@ -983,7 +983,7 @@ class SeqNNModel(object):
     return tss_preds
 
 
-  def test_tfr(self, sess, test_batches=None):
+  def test_tfr(self, sess, handle_ph=None, data_handle=None, test_batches=None):
     """ Compute model accuracy on a test set, where data is loaded from a queue.
 
         Args:
@@ -994,6 +994,9 @@ class SeqNNModel(object):
           acc:          Accuracy object
       """
     fd = self.set_mode('test')
+
+    if handle_ph is not None:
+      fd[handle_ph] = data_handle
 
     # initialize prediction and target arrays
     preds = []

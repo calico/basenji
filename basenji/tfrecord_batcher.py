@@ -51,7 +51,7 @@ def tfrecord_dataset(tfr_data_files_pattern,
     seq_depth: vocabulary size of the inputs (4 for raw DNA)
     target_length: length of the target sequence
     num_targets: number of targets at each target sequence location
-j   mode: a tf.estimator.ModeKeys instance
+    mode: a tf.estimator.ModeKeys instance
     use_static_batch_size: whether to enforce that all batches have a fixed
       batch size. Note that for test data, where we don't take repeated passes,
       setting this to True will drop a few examples from the end of the dataset,

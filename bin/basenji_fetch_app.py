@@ -30,7 +30,8 @@ Run a Dash app to enable SAD queries.
 def main():
     usage = 'usage: %prog [options] <sad_zarr_file>'
     parser = OptionParser(usage)
-    # parser.add_option('--ld', dest='ld_query', default=False, action='store_true')
+    parser.add_option('-c', dest='chrom_zarrs', defaut=False, action='store_true', help='Zarr files split by chromosome [Default: %default]')
+    parser.add_option('--ld', dest='ld_query', default=False, action='store_true')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
@@ -139,6 +140,7 @@ def main():
 
     @memoized
     def query_ld(snp_id, population):
+        """Query Google Genomics 1000 Genomes LD table for the given SNP."""
         bq_path = 'genomics-public-data.linkage_disequilibrium_1000G_phase_3'
 
         # construct query
@@ -153,8 +155,10 @@ def main():
         return query_results
 
     @memoized
-    def read_sad(snp_i):
-        print('Reading SAD!', file=sys.stderr)
+    def read_sad(snp_i, verbose=True):
+        """Read SAD scores from Zarr for the given SNP index."""
+        if verbose:
+            print('Reading SAD!', file=sys.stderr)
 
         # read SAD
         snp_sad = sad_zarr_in['SAD'][snp_i,:].astype('float64')
@@ -167,6 +171,8 @@ def main():
         return snp_sad, snp_sadq
 
     def snp_rows(snp_id, dataset, ld_r2=1.):
+        """Construct table rows for the given SNP id and its LD set
+           in the given dataset."""
         rows = []
 
         percentiles = np.around(sad_zarr_in['percentiles'], 3)
@@ -199,6 +205,7 @@ def main():
         return rows
 
     def make_data_mask(dataset):
+        """Make a mask across targets for the given dataset."""
         dataset_mask = []
         for ti, tid in enumerate(target_ids):
             if dataset == 'All':
@@ -208,6 +215,9 @@ def main():
         return np.array(dataset_mask, dtype='bool')
 
     def snp_scores(snp_id, dataset, ld_r2=1.):
+        """Compute an array of scores for this SNP
+           in the specified dataset."""
+
         dataset_mask = make_data_mask(dataset)
 
         scores = np.zeros(dataset_mask.sum(), dtype='float64')
@@ -239,8 +249,10 @@ def main():
             dd.State('population','value')
         ]
     )
-    def update_table(n_clicks, snp_id, dataset, population):
-        print('Tabling')
+    def update_table(n_clicks, snp_id, dataset, population, verbose=True):
+        """Update the table with a new parameter set."""
+        if verbose:
+            print('Tabling')
 
         # add snp_id rows
         rows = snp_rows(snp_id, dataset)
@@ -262,8 +274,9 @@ def main():
             dd.State('population','value')
         ]
     )
-    def update_plot(n_clicks, snp_id, dataset, population):
-        print('Plotting')
+    def update_plot(n_clicks, snp_id, dataset, population, verbose=True):
+        if verbose:
+            print('Plotting')
 
         target_mask = make_data_mask(dataset)
 

@@ -28,37 +28,71 @@ Run a Dash app to enable SAD queries.
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <sad_zarr_file>'
+    usage = 'usage: %prog [options] <sad_zarr_path>'
     parser = OptionParser(usage)
-    parser.add_option('-c', dest='chrom_zarrs', defaut=False, action='store_true', help='Zarr files split by chromosome [Default: %default]')
+    parser.add_option('-c', dest='chrom_zarrs', default=False, action='store_true', help='Zarr files split by chromosome [Default: %default]')
     parser.add_option('--ld', dest='ld_query', default=False, action='store_true')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
         parser.error('Must provide SAD zarr')
     else:
-        sad_zarr_file = args[0]
+        sad_zarr_path = args[0]
 
     #############################################
     # precursors
+    
+    print('Preparing data.', flush=True)
 
-    sad_zarr_in = zarr.open_group(sad_zarr_file, 'r')
+    chr_sad_zarr_open = {}
 
-    # hash SNP ids to indexes
-    snps = np.array(sad_zarr_in['snp'])
-    snp_indexes = {}
-    for i, snp_id in enumerate(snps):
-        snp_indexes[snp_id] = i
+    if not options.chrom_zarrs:
+        # open Zarr
+        sad_zarr_open = zarr.open_group(sad_zarr_path, 'r')
 
+        # with one file, hash to a fake chromosome
+        chr_sad_zarr_open = {1: sad_zarr_open}
+
+        # hash SNP ids to indexes
+        snps = np.array(sad_zarr_open['snp'])
+        snp_indexes = {}
+        for i, snp_id in enumerate(snps):
+            snp_indexes[snp_id] = (1, i)
+        del snps
+
+    else:
+        for ci in range(1,23):
+            # open Zarr
+            sad_zarr_open = zarr.open_group('%s/%d.zarr' % (sad_zarr_path,ci), 'r')
+
+            # with one file, hash to a fake chromosome
+            chr_sad_zarr_open[ci] = sad_zarr_open
+
+            # hash SNP ids to indexes
+            snps = np.array(sad_zarr_open['snp'])
+            snp_indexes = {}
+            for i, snp_id in enumerate(snps):
+                snp_indexes[snp_id] = (ci, i)
+            del snps
+
+        # open chr1 Zarr for non-chr specific data
+        sad_zarr_open = chr_sad_zarr_open[1]
+        
     # easy access to target information
-    target_ids = np.array(sad_zarr_in['target_ids'])
-    target_labels = np.array(sad_zarr_in['target_labels'])
+    target_ids = np.array(sad_zarr_open['target_ids'])
+    target_labels = np.array(sad_zarr_open['target_labels'])
 
     # read SAD percentile indexes into memory
-    sad_pct = np.array(sad_zarr_in['SAD_pct'])
+    sad_pct = np.array(sad_zarr_open['SAD_pct'])            
+
+    # read percentiles
+    percentiles = np.around(sad_zarr_open['percentiles'], 3)
+    percentiles = np.append(percentiles, percentiles[-1])
 
     # initialize BigQuery client
     client = bigquery.Client('seqnn-170614')
+
+    print('Done.', flush=True)
 
     #############################################
     # layout
@@ -155,13 +189,13 @@ def main():
         return query_results
 
     @memoized
-    def read_sad(snp_i, verbose=True):
+    def read_sad(chrom, snp_i, verbose=True):
         """Read SAD scores from Zarr for the given SNP index."""
         if verbose:
             print('Reading SAD!', file=sys.stderr)
 
         # read SAD
-        snp_sad = sad_zarr_in['SAD'][snp_i,:].astype('float64')
+        snp_sad = chr_sad_zarr_open[chrom]['SAD'][snp_i,:].astype('float64')
 
         # compute percentile indexes
         snp_sadq = []
@@ -175,15 +209,12 @@ def main():
            in the given dataset."""
         rows = []
 
-        percentiles = np.around(sad_zarr_in['percentiles'], 3)
-        percentiles = np.append(percentiles, percentiles[-1])
-
         # search for SNP
         if snp_id in snp_indexes:
-            snp_i = snp_indexes[snp_id]
+            chrom, snp_i = snp_indexes[snp_id]
 
             # SAD
-            snp_sad, snp_sadq = read_sad(snp_i)
+            snp_sad, snp_sadq = read_sad(chrom, snp_i)
 
             # round floats
             snp_sad = np.around(snp_sad,4)
@@ -224,10 +255,10 @@ def main():
 
         # search for SNP
         if snp_id in snp_indexes:
-            snp_i = snp_indexes[snp_id]
+            chrom, snp_i = snp_indexes[snp_id]
 
             # read SAD
-            snp_sad, _ = read_sad(snp_i)
+            snp_sad, _ = read_sad(chrom, snp_i)
 
             # filter datasets
             snp_sad = snp_sad[dataset_mask]

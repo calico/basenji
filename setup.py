@@ -17,6 +17,8 @@ setup(
     license=license,
     packages=find_packages(exclude=('tests', 'docs')),
     install_requires=[
-        'h5py', 'joblib', 'matplotlib', 'networkx', 'numpy', 'pandas', 'pyBigWig',
-        'pysam', 'scipy', 'seaborn', 'sklearn', 'statsmodels', 'tensorflow'
+        'h5py', 'joblib', 'google-cloud-bigquery', 'matplotlib', 'networkx', 'numpy', 'pandas', 'pyBigWig',
+        'pysam', 'scipy', 'seaborn', 'scikit-learn', 'statsmodels', 'tensorflow'
     ])
+
+# pip install dash dash-renderer dash-html-components dash-core-components dash-table-experiments plotly

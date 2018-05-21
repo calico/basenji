@@ -30,8 +30,9 @@ Run a Dash app to enable SAD queries.
 def main():
     usage = 'usage: %prog [options] <sad_zarr_path>'
     parser = OptionParser(usage)
-    parser.add_option('-c', dest='chrom_zarrs', default=False, action='store_true', help='Zarr files split by chromosome [Default: %default]')
-    parser.add_option('--ld', dest='ld_query', default=False, action='store_true')
+    parser.add_option('-c', dest='chrom_zarrs',
+        default=False, action='store_true',
+        help='Zarr files split by chromosome [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
@@ -41,7 +42,7 @@ def main():
 
     #############################################
     # precursors
-    
+
     print('Preparing data.', flush=True)
 
     chr_sad_zarr_open = {}
@@ -61,29 +62,31 @@ def main():
         del snps
 
     else:
+        snp_indexes = {}
+
         for ci in range(1,23):
             # open Zarr
-            sad_zarr_open = zarr.open_group('%s/%d.zarr' % (sad_zarr_path,ci), 'r')
+            # sad_zarr_open = zarr.open_group('%s/%d.zarr' % (sad_zarr_path,ci), 'r')
+            sad_zarr_open = zarr.open_group('%s/chr%d/sad_table.zarr' % (sad_zarr_path,ci), 'r')
 
             # with one file, hash to a fake chromosome
             chr_sad_zarr_open[ci] = sad_zarr_open
 
             # hash SNP ids to indexes
             snps = np.array(sad_zarr_open['snp'])
-            snp_indexes = {}
             for i, snp_id in enumerate(snps):
                 snp_indexes[snp_id] = (ci, i)
             del snps
 
         # open chr1 Zarr for non-chr specific data
         sad_zarr_open = chr_sad_zarr_open[1]
-        
+
     # easy access to target information
     target_ids = np.array(sad_zarr_open['target_ids'])
     target_labels = np.array(sad_zarr_open['target_labels'])
 
     # read SAD percentile indexes into memory
-    sad_pct = np.array(sad_zarr_open['SAD_pct'])            
+    sad_pct = np.array(sad_zarr_open['SAD_pct'])
 
     # read percentiles
     percentiles = np.around(sad_zarr_open['percentiles'], 3)
@@ -204,15 +207,14 @@ def main():
 
         return snp_sad, snp_sadq
 
-    def snp_rows(snp_id, dataset, ld_r2=1.):
+    def snp_rows(snp_id, dataset, ld_r2=1., verbose=True):
         """Construct table rows for the given SNP id and its LD set
            in the given dataset."""
         rows = []
 
         # search for SNP
-        if snp_id in snp_indexes:
-            chrom, snp_i = snp_indexes[snp_id]
-
+        chrom, snp_i = snp_indexes.get(snp_id, (None,None))
+        if chrom is not None:
             # SAD
             snp_sad, snp_sadq = read_sad(chrom, snp_i)
 
@@ -232,6 +234,8 @@ def main():
                         'R2': ld_r2_round,
                         'Experiment': tid,
                         'Description': target_labels[ti]})
+        elif verbose:
+            print('Cannot find %s in snp_indexes.' % snp_id)
 
         return rows
 
@@ -346,7 +350,7 @@ def main():
     # run
 
     app.scripts.config.serve_locally = True
-    app.run_server(debug=True)
+    app.run_server(debug=False, port=8000)
 
 
 class memoized(object):

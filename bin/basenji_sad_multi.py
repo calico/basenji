@@ -177,7 +177,19 @@ def collect_zarr(file_name, out_dir, num_procs):
 
     # append to final
     for key in final_zarr_open.keys():
-      final_zarr_open[key].append(job_zarr_open[key])
+      if key in ['percentiles', 'target_ids', 'target_labels']:
+        # once is enough
+        pass
+
+      elif key[-4:] == '_pct':
+        # average
+        u_k1 = np.array(final_zarr_open[key])
+        x_k = np.array(job_zarr_open[key])
+        final_zarr_open[key] = u_k1 + (x_k - u_k1) / (pi+1)
+
+      else:
+        # append
+        final_zarr_open[key].append(job_zarr_open[key])
 
 
 def job_completed(out_dir, pi, opt_zarr, opt_csv):

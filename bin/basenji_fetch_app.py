@@ -28,36 +28,74 @@ Run a Dash app to enable SAD queries.
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <sad_zarr_file>'
+    usage = 'usage: %prog [options] <sad_zarr_path>'
     parser = OptionParser(usage)
-    # parser.add_option('--ld', dest='ld_query', default=False, action='store_true')
+    parser.add_option('-c', dest='chrom_zarrs',
+        default=False, action='store_true',
+        help='Zarr files split by chromosome [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
         parser.error('Must provide SAD zarr')
     else:
-        sad_zarr_file = args[0]
+        sad_zarr_path = args[0]
 
     #############################################
     # precursors
 
-    sad_zarr_in = zarr.open_group(sad_zarr_file, 'r')
+    print('Preparing data.', flush=True)
 
-    # hash SNP ids to indexes
-    snps = np.array(sad_zarr_in['snp'])
-    snp_indexes = {}
-    for i, snp_id in enumerate(snps):
-        snp_indexes[snp_id] = i
+    chr_sad_zarr_open = {}
+
+    if not options.chrom_zarrs:
+        # open Zarr
+        sad_zarr_open = zarr.open_group(sad_zarr_path, 'r')
+
+        # with one file, hash to a fake chromosome
+        chr_sad_zarr_open = {1: sad_zarr_open}
+
+        # hash SNP ids to indexes
+        snps = np.array(sad_zarr_open['snp'])
+        snp_indexes = {}
+        for i, snp_id in enumerate(snps):
+            snp_indexes[snp_id] = (1, i)
+        del snps
+
+    else:
+        snp_indexes = {}
+
+        for ci in range(1,23):
+            # open Zarr
+            # sad_zarr_open = zarr.open_group('%s/%d.zarr' % (sad_zarr_path,ci), 'r')
+            sad_zarr_open = zarr.open_group('%s/chr%d/sad_table.zarr' % (sad_zarr_path,ci), 'r')
+
+            # with one file, hash to a fake chromosome
+            chr_sad_zarr_open[ci] = sad_zarr_open
+
+            # hash SNP ids to indexes
+            snps = np.array(sad_zarr_open['snp'])
+            for i, snp_id in enumerate(snps):
+                snp_indexes[snp_id] = (ci, i)
+            del snps
+
+        # open chr1 Zarr for non-chr specific data
+        sad_zarr_open = chr_sad_zarr_open[1]
 
     # easy access to target information
-    target_ids = np.array(sad_zarr_in['target_ids'])
-    target_labels = np.array(sad_zarr_in['target_labels'])
+    target_ids = np.array(sad_zarr_open['target_ids'])
+    target_labels = np.array(sad_zarr_open['target_labels'])
 
     # read SAD percentile indexes into memory
-    sad_pct = np.array(sad_zarr_in['SAD_pct'])
+    sad_pct = np.array(sad_zarr_open['SAD_pct'])
+
+    # read percentiles
+    percentiles = np.around(sad_zarr_open['percentiles'], 3)
+    percentiles = np.append(percentiles, percentiles[-1])
 
     # initialize BigQuery client
     client = bigquery.Client('seqnn-170614')
+
+    print('Done.', flush=True)
 
     #############################################
     # layout
@@ -139,6 +177,7 @@ def main():
 
     @memoized
     def query_ld(snp_id, population):
+        """Query Google Genomics 1000 Genomes LD table for the given SNP."""
         bq_path = 'genomics-public-data.linkage_disequilibrium_1000G_phase_3'
 
         # construct query
@@ -153,11 +192,13 @@ def main():
         return query_results
 
     @memoized
-    def read_sad(snp_i):
-        print('Reading SAD!', file=sys.stderr)
+    def read_sad(chrom, snp_i, verbose=True):
+        """Read SAD scores from Zarr for the given SNP index."""
+        if verbose:
+            print('Reading SAD!', file=sys.stderr)
 
         # read SAD
-        snp_sad = sad_zarr_in['SAD'][snp_i,:].astype('float64')
+        snp_sad = chr_sad_zarr_open[chrom]['SAD'][snp_i,:].astype('float64')
 
         # compute percentile indexes
         snp_sadq = []
@@ -166,18 +207,16 @@ def main():
 
         return snp_sad, snp_sadq
 
-    def snp_rows(snp_id, dataset, ld_r2=1.):
+    def snp_rows(snp_id, dataset, ld_r2=1., verbose=True):
+        """Construct table rows for the given SNP id and its LD set
+           in the given dataset."""
         rows = []
 
-        percentiles = np.around(sad_zarr_in['percentiles'], 3)
-        percentiles = np.append(percentiles, percentiles[-1])
-
         # search for SNP
-        if snp_id in snp_indexes:
-            snp_i = snp_indexes[snp_id]
-
+        chrom, snp_i = snp_indexes.get(snp_id, (None,None))
+        if chrom is not None:
             # SAD
-            snp_sad, snp_sadq = read_sad(snp_i)
+            snp_sad, snp_sadq = read_sad(chrom, snp_i)
 
             # round floats
             snp_sad = np.around(snp_sad,4)
@@ -195,10 +234,13 @@ def main():
                         'R2': ld_r2_round,
                         'Experiment': tid,
                         'Description': target_labels[ti]})
+        elif verbose:
+            print('Cannot find %s in snp_indexes.' % snp_id)
 
         return rows
 
     def make_data_mask(dataset):
+        """Make a mask across targets for the given dataset."""
         dataset_mask = []
         for ti, tid in enumerate(target_ids):
             if dataset == 'All':
@@ -208,16 +250,19 @@ def main():
         return np.array(dataset_mask, dtype='bool')
 
     def snp_scores(snp_id, dataset, ld_r2=1.):
+        """Compute an array of scores for this SNP
+           in the specified dataset."""
+
         dataset_mask = make_data_mask(dataset)
 
         scores = np.zeros(dataset_mask.sum(), dtype='float64')
 
         # search for SNP
         if snp_id in snp_indexes:
-            snp_i = snp_indexes[snp_id]
+            chrom, snp_i = snp_indexes[snp_id]
 
             # read SAD
-            snp_sad, _ = read_sad(snp_i)
+            snp_sad, _ = read_sad(chrom, snp_i)
 
             # filter datasets
             snp_sad = snp_sad[dataset_mask]
@@ -239,8 +284,10 @@ def main():
             dd.State('population','value')
         ]
     )
-    def update_table(n_clicks, snp_id, dataset, population):
-        print('Tabling')
+    def update_table(n_clicks, snp_id, dataset, population, verbose=True):
+        """Update the table with a new parameter set."""
+        if verbose:
+            print('Tabling')
 
         # add snp_id rows
         rows = snp_rows(snp_id, dataset)
@@ -262,8 +309,9 @@ def main():
             dd.State('population','value')
         ]
     )
-    def update_plot(n_clicks, snp_id, dataset, population):
-        print('Plotting')
+    def update_plot(n_clicks, snp_id, dataset, population, verbose=True):
+        if verbose:
+            print('Plotting')
 
         target_mask = make_data_mask(dataset)
 
@@ -302,7 +350,7 @@ def main():
     # run
 
     app.scripts.config.serve_locally = True
-    app.run_server(debug=True)
+    app.run_server(debug=False, port=8000)
 
 
 class memoized(object):

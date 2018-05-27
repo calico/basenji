@@ -291,6 +291,7 @@ def add_cnn_params_cnn(params):
         filter_size=params.cnn_filter_sizes[ci],
         stride=params.cnn_stride[ci],
         pool=params.cnn_pool[ci],
+        dropout=params.cnn_dropout[ci],
         dense=params.cnn_dense[ci],
         skip_layers=params.cnn_skip[ci],
         dilation=params.cnn_dilation[ci])

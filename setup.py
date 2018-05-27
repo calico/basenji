@@ -20,3 +20,7 @@ setup(
         'h5py', 'joblib', 'matplotlib', 'networkx', 'numpy', 'pandas', 'pyBigWig',
         'pysam', 'scipy', 'seaborn', 'scikit-learn', 'statsmodels', 'tensorflow'
     ])
+
+# fetch
+# google-cloud-bigquery
+# pip install dash dash-renderer dash-html-components dash-core-components dash-table-experiments plotly

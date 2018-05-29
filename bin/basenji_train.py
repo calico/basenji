@@ -146,7 +146,7 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
     early_stop_i = 0
 
     epoch = 0
-    while (train_epochs is None or epochs < train_epochs) and early_stop_i < FLAGS.early_stop:
+    while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
       t0 = time.time()
 
       # alternate forward and reverse batches

@@ -40,7 +40,8 @@ from basenji import params
 from basenji import plots
 from basenji import seqnn
 
-"""basenji_test.py
+"""
+basenji_test.py
 
 Test the accuracy of a trained model.
 
@@ -80,7 +81,7 @@ def main():
   parser.add_option(
       '-g',
       dest='genome_file',
-      default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
+      default='%s/tutorials/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome length information [Default: %default]')
   parser.add_option(
       '--mc',

@@ -90,10 +90,8 @@ def main():
   parser.add_option('-t', dest='test_pct',
       default=0.05, type='float',
       help='Proportion of the data for testing [Default: %default]')
-  parser.add_option('--u1', dest='unmap1_bed',
-      help='Genome1 unmappable segments to set to NA')
-  parser.add_option('--u2', dest='unmap2_bed',
-      help='Genome2 unmappable segments to set to NA')
+  parser.add_option('-u', dest='unmap_beds',
+      help='Comma-separated genome unmappable segments to set to NA')
   parser.add_option('--unmap_t', dest='unmap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
@@ -572,7 +570,12 @@ def make_net_graph(align_net_file, fill_min, out_dir):
 
   graph_nets = nx.Graph()
 
-  for net_line in open(align_net_file):
+  if os.path.splitext(align_net_file)[-1] == '.gz':
+    align_net_open = gzip.open(align_net_file, 'rt')
+  else:
+    align_net_open = open(align_net_file, 'r')
+
+  for net_line in align_net_open:
     if net_line.startswith('net'):
       net_a = net_line.split()
       chrom1 = net_a[1]

@@ -34,8 +34,8 @@ def main(_):
   np.random.seed(FLAGS.seed)
 
   run(params_file=FLAGS.params,
-      train_filse=[FLAGS.train0_data, FLAGS.train1_data],
-      test_files=[FLAGS.test1_data, FLAGS.test2_data],
+      train_file=FLAGS.train_data,
+      test_file=FLAGS.test_data,
       train_epochs=FLAGS.train_epochs,
       train_epoch_batches=FLAGS.train_epoch_batches,
       test_epoch_batches=FLAGS.test_epoch_batches)
@@ -52,8 +52,8 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
   job = params.read_job_params(params_file)
 
   # load data
-  data_ops, training_init_ops, test_init_ops = make_data_ops(
-      job, train_files, test_files)
+  data_ops, training_init_op, test_init_op = make_data_ops(
+      job, train_file, test_file)
 
   # initialize model
   model = seqnn.SeqNN()
@@ -135,10 +135,8 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
       train_writer.close()
 
 
-def make_data_ops(job, train_files, test_files):
-  """Make input data operations."""
-
-  def make_dataset(filename, num_targets, mode):
+def make_data_ops(job, train_file, test_file):
+  def make_dataset(filename, mode):
     return tfrecord_batcher.tfrecord_dataset(
         filename,
         job['batch_size'],
@@ -149,16 +147,8 @@ def make_data_ops(job, train_files, test_files):
         mode=mode,
         repeat=False)
 
-  train_datasets = []
-  test_datasets = []
-
-  for gi in range(job['num_genomes']):
-    num_targets = job['num_targets%d'%gi]
-
-    train_dataset = make_dataset(train_files[gi], num_targets, mode=tf.estimator.ModeKeys.TRAIN)
-    train_datasets.append(train_dataset)
-
-    test_dataset = make_dataset(test_files[gi], num_targets, mode=tf.estimator.ModeKeys.EVAL)
+  training_dataset = make_dataset(train_file, mode=tf.estimator.ModeKeys.TRAIN)
+  test_dataset = make_dataset(test_file, mode=tf.estimator.ModeKeys.EVAL)
 
   iterator = tf.data.Iterator.from_structure(
       training_dataset.output_types, training_dataset.output_shapes)

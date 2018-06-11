@@ -33,7 +33,8 @@ import pysam
 
 import slurm
 
-import basenji
+from basenji import dna_io
+from basenji import genome
 
 '''
 basenji_hdf5.py
@@ -189,11 +190,11 @@ def main():
   ################################################################
   # prepare genomic segments
   ################################################################
-  chrom_segments = basenji.genome.load_chromosomes(fasta_file)
+  chrom_segments = genome.load_chromosomes(fasta_file)
 
   # remove gaps
   if options.gaps_file:
-    chrom_segments = basenji.genome.split_contigs(chrom_segments,
+    chrom_segments = genome.split_contigs(chrom_segments,
                                                   options.gaps_file)
 
   # ditch the chromosomes
@@ -256,7 +257,7 @@ def main():
       outf = '%s/%s.out' % (options.cluster_dir, target_label)
       errf = '%s/%s.err' % (options.cluster_dir, target_label)
       j = slurm.Job(
-          cmd, name, outf, errf, queue='general', mem=15000, time='12:0:0')
+          cmd, name, outf, errf, queue='standard,tbdisk', mem=15000, time='12:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs)
@@ -649,7 +650,7 @@ def segments_1hot(fasta_file, segments, seq_length, stride):
     bend = bstart + seq_length
     while bend < len(seg_seq):
       # append
-      seqs_1hot.append(basenji.dna_io.dna_1hot(seg_seq[bstart:bend]))
+      seqs_1hot.append(dna_io.dna_1hot(seg_seq[bstart:bend]))
 
       seqs_segments.append((chrom, seg_start + bstart, seg_start + bend))
 

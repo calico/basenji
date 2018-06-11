@@ -245,17 +245,17 @@ class SeqNN(seqnn_util.SeqNNModel):
       final_repr = seqs_repr
     else:
       final_reprs = []
-      for gi in range(self.num_genomes):
+      for gi in range(self.hp.num_genomes):
         with tf.variable_scope('final%d' % gi, reuse=tf.AUTO_REUSE):
-          final_filters = self.hp.num_targets[gi] * self.hp.target_classes[gi]
+          final_filters = self.hp.max_targets * self.hp.target_classes
           final_repr = tf.layers.dense(
               inputs=seqs_repr,
               units=final_filters,
               activation=None,
               kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
               kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
-          print('Convolution w/ %d %dx1 filters to final genome %d targets' %
-              (final_filters, seqs_repr.shape[2], gi))
+          print('Convolution w/ %d %dx1 filters to final genome %d targets' % \
+                (final_filters, seqs_repr.shape[2], gi))
 
           if target_subset is not None:
             # TODO: decide how multiple genomes ought to handle this
@@ -286,6 +286,10 @@ class SeqNN(seqnn_util.SeqNNModel):
 
       # append to genome list
       final_reprs.append(final_repr)
+
+    if self.hp.num_genomes > 1:
+      # apply proper genome
+      final_repr = tf.gather(final_reprs, data_ops['genome'][0])[0]
 
     ###################################################
     # link function
@@ -412,6 +416,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # slice targets to correct genome number (rest are zero)
     target_indexes_genome = tf.range(num_targets_genome)
+    seqs_repr = tf.gather(seqs_repr, target_indexes_genome, axis=2)
     targets = tf.gather(targets, target_indexes_genome, axis=2)
 
     if target_subset is not None:

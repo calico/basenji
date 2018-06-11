@@ -4,9 +4,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from google3.pyglib import app
-from google3.pyglib import flags
-
 import numpy as np
 import tensorflow as tf
 

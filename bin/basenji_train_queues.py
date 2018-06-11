@@ -79,47 +79,50 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
     best_loss = None
     early_stop_i = 0
 
-    for epoch in range(train_epochs):
-      if early_stop_i < FLAGS.early_stop or epoch < FLAGS.min_epochs:
-        t0 = time.time()
+    epoch = 0
+    while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
+      t0 = time.time()
 
-        # save previous
-        train_loss_last = train_loss
+      # save previous
+      train_loss_last = train_loss
 
-        # train epoch
-        sess.run(training_init_op)
-        train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer, train_epoch_batches)
+      # train epoch
+      sess.run(training_init_op)
+      train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer, train_epoch_batches)
 
-        # test validation
-        sess.run(test_init_op)
-        valid_acc = model.test_from_data_ops(sess, test_epoch_batches)
-        valid_loss = valid_acc.loss
-        valid_r2 = valid_acc.r2().mean()
-        del valid_acc
+      # test validation
+      sess.run(test_init_op)
+      valid_acc = model.test_from_data_ops(sess, test_epoch_batches)
+      valid_loss = valid_acc.loss
+      valid_r2 = valid_acc.r2().mean()
+      del valid_acc
 
-        best_str = ''
-        if best_loss is None or valid_loss < best_loss:
-          best_loss = valid_loss
-          best_str = ', best!'
-          early_stop_i = 0
-          saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
-        else:
-          early_stop_i += 1
+      best_str = ''
+      if best_loss is None or valid_loss < best_loss:
+        best_loss = valid_loss
+        best_str = ', best!'
+        early_stop_i = 0
+        saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
+      else:
+        early_stop_i += 1
 
-        # measure time
-        et = time.time() - t0
-        if et < 600:
-          time_str = '%3ds' % et
-        elif et < 6000:
-          time_str = '%3dm' % (et / 60)
-        else:
-          time_str = '%3.1fh' % (et / 3600)
+      # measure time
+      et = time.time() - t0
+      if et < 600:
+        time_str = '%3ds' % et
+      elif et < 6000:
+        time_str = '%3dm' % (et / 60)
+      else:
+        time_str = '%3.1fh' % (et / 3600)
 
-        # print update
-        print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-        print(' Valid loss: %7.5f,  Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
-        print(' Time: %s%s' % (time_str, best_str))
-        sys.stdout.flush()
+      # print update
+      print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
+      print(' Valid loss: %7.5f,  Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
+      print(' Time: %s%s' % (time_str, best_str))
+      sys.stdout.flush()
+
+      # update epoch
+      epoch += 1
 
     if FLAGS.logdir:
       train_writer.close()

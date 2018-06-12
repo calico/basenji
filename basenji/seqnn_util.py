@@ -851,7 +851,7 @@ class SeqNNModel(object):
         # accumulate predictions and targets
         preds.append(preds_batch.astype('float16'))
         targets.append(targets_batch.astype('float16'))
-        targets_na.append(np.zeros([self.hp.batch_size, self.preds_length], dtype='bool'))
+        targets_na.append(np.zeros([preds_batch.shape[0], self.preds_length], dtype='bool'))
 
         # accumulate loss
         batch_losses.append(loss_batch)

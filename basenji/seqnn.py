@@ -258,7 +258,9 @@ class SeqNN(seqnn_util.SeqNNModel):
                 (final_filters, seqs_repr.shape[2], gi))
 
           if target_subset is not None:
-            # TODO: decide how multiple genomes ought to handle this
+            print('Target subsetting for multiple genomes is not implemented.', file=sys.stderr)
+            exit(1)
+            # in theory, this could work--just provide one list per genome.
 
             # get convolution parameters
             filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/kernel'%gi)[0]
@@ -272,20 +274,23 @@ class SeqNN(seqnn_util.SeqNNModel):
             final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
             final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
+            # update # targets
+            self.hp.num_targets[gi] = len(target_subset)
+
           # expand length back out
           if self.hp.target_classes > 1:
             final_repr = tf.reshape(final_repr,
-                                    (-1, seq_length, self.hp.num_targets[gi],
-                                     self.hp.target_classes[gi]))
+                                    (-1, seq_length, self.hp.max_targets,
+                                     self.hp.target_classes))
 
-      # transform for reverse complement
-      if reverse_preds is not None:
-        final_repr = tf.cond(reverse_preds,
-                             lambda: tf.reverse(final_repr, axis=[1]),
-                             lambda: final_repr)
+          # transform for reverse complement
+          if reverse_preds is not None:
+            final_repr = tf.cond(reverse_preds,
+                                 lambda: tf.reverse(final_repr, axis=[1]),
+                                 lambda: final_repr)
 
-      # append to genome list
-      final_reprs.append(final_repr)
+          # append to genome list
+          final_reprs.append(final_repr)
 
     if self.hp.num_genomes > 1:
       # apply proper genome
@@ -649,11 +654,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
 
   def train2_epoch_ops(self, sess, handle_ph, data_handles, sum_writer=None):
-    """ Execute one training epoch for multiple iterators
-
-      Note: May want multiple summaries, too.
-
-    """
+    """ Execute one training epoch for multiple iterators."""
 
     assert(self.hp.num_genomes == len(data_handles))
     global_step = 0

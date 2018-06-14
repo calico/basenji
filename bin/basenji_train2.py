@@ -146,12 +146,12 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
       # print update
       print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-      print(' Valid loss: %7.5f,  Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
+      print(' Valid loss: %7.5f, Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
       print(' Time: %s%s' % (time_str, best_str))
 
       # print genome-specific updates
       for gi in range(job['num_genomes']):
-        print('%30s Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f' % (train_losses[gi], valid_losses[gi], valid_r2s[gi]))
+        print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_r2s[gi]))
       sys.stdout.flush()
 
       # update epoch

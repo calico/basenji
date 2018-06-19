@@ -79,8 +79,8 @@ def main():
   parser.add_option('-r', dest='seqs_per_tfr',
       default=256, type='int',
       help='Sequences per TFRecord file [Default: %default]')
-  parser.add_option('-t', dest='test_pct',
-      default=0.05, type='float',
+  parser.add_option('-t', dest='test_pct_or_chr',
+      default=0.05, type='str',
       help='Proportion of the data for testing [Default: %default]')
   parser.add_option('-u', dest='unmap_bed',
       help='Unmappable segments to set to NA')
@@ -90,8 +90,8 @@ def main():
   parser.add_option('-w', dest='pool_width',
       default=128, type='int',
       help='Sum pool width [Default: %default]')
-  parser.add_option('-v', dest='valid_pct',
-      default=0.05, type='float',
+  parser.add_option('-v', dest='valid_pct_or_chr',
+      default=0.05, type='str',
       help='Proportion of the data for validation [Default: %default]')
   (options, args) = parser.parse_args()
 
@@ -142,7 +142,22 @@ def main():
   ################################################################
   # divide between train/valid/test
   ################################################################
-  contig_sets = divide_contigs(contigs, options.test_pct, options.valid_pct)
+  try:
+    # convert to float pct
+    valid_pct = float(options.valid_pct_or_chr)
+    test_pct = float(options.test_pct_or_chr)
+    assert(0 <= valid_pct <= 1)
+    assert(0 <= test_pct <= 1)
+
+    # divide by pct
+    contig_sets = divide_contigs_pct(contigs, test_pct, valid_pct)
+
+  except (ValueError, AssertionError):
+    # divide by chr
+    valid_chr = options.valid_pct_or_chr
+    test_chr = options.test_pct_or_chr
+    contig_sets = divide_contigs_chr(contigs, test_chr, valid_chr)
+
   train_contigs, valid_contigs, test_contigs = contig_sets
 
   ################################################################
@@ -374,8 +389,8 @@ def contig_sequences(contigs, seq_length, stride):
 
 
 ################################################################################
-def divide_contigs(contigs, test_pct, valid_pct, pct_abstain=0.2):
-  """Divide list of contigs intro train/valid/test lists,
+def divide_contigs_pct(contigs, test_pct, valid_pct, pct_abstain=0.2):
+  """Divide list of contigs into train/valid/test lists,
      aiming for the specified nucleotide percentages."""
 
   # sort contigs descending by length
@@ -395,7 +410,7 @@ def divide_contigs(contigs, test_pct, valid_pct, pct_abstain=0.2):
   valid_nt = 0
   test_nt = 0
 
-  # initialie train/valid/test contig lists
+  # initialize train/valid/test contig lists
   train_contigs = []
   valid_contigs = []
   test_contigs = []
@@ -434,6 +449,48 @@ def divide_contigs(contigs, test_pct, valid_pct, pct_abstain=0.2):
     else:
       print('TVT random number beyond 0,1,2', file=sys.stderr)
       exit(1)
+
+  print('Contigs divided into')
+  print(' Train: %5d contigs, %10d nt (%.4f)' % \
+      (len(train_contigs), train_nt, train_nt/total_nt))
+  print(' Valid: %5d contigs, %10d nt (%.4f)' % \
+      (len(valid_contigs), valid_nt, valid_nt/total_nt))
+  print(' Test:  %5d contigs, %10d nt (%.4f)' % \
+      (len(test_contigs), test_nt, test_nt/total_nt))
+
+  return train_contigs, valid_contigs, test_contigs
+
+
+################################################################################
+def divide_contigs_chr(contigs, test_chr, valid_chr):
+  """Divide list of contigs into train/valid/test lists
+     by chromosome."""
+
+  # initialize current train/valid/test nucleotides
+  train_nt = 0
+  valid_nt = 0
+  test_nt = 0
+
+  # initialize train/valid/test contig lists
+  train_contigs = []
+  valid_contigs = []
+  test_contigs = []
+
+  # process contigs
+  for ctg in contigs:
+    ctg_len = ctg.end - ctg.start
+
+    if ctg.chr == test_chr:
+      test_contigs.append(ctg)
+      test_nt += ctg_len
+    elif ctg.chr == valid_chr:
+      valid_contigs.append(ctg)
+      valid_nt += ctg_len
+    else:
+      train_contigs.append(ctg)
+      train_nt += ctg_len
+
+  total_nt = train_nt + valid_nt + test_nt
 
   print('Contigs divided into')
   print(' Train: %5d contigs, %10d nt (%.4f)' % \

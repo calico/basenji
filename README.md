@@ -29,10 +29,18 @@ Once you have the dependencies, run
     python setup.py develop
 ```
 
+Then I recommend setting the following environmental variables
+```
+  export BASENJIDIR=~/code/Basenji
+  export PATH=$BASENJIDIR/bin:$PATH
+  export PYTHONPATH=$BASENJIDIR/bin:$PYTHONPATH
+```
+
 To verify the install, launch python and run
 ```
     import basenji
 ```
+
 
 ---------------------------------------------------------------------------------------------------
 ### Manuscript

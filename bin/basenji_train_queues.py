@@ -43,12 +43,21 @@ def main(_):
 
 def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
         test_epoch_batches):
+
+  # parse shifts
+  augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
+  ensemble_shifts = [int(shift) for shift in FLAGS.ensemble_shifts.split(',')]
+
   # read parameters
   job = params.read_job_params(params_file)
 
   # load data
   data_ops, training_init_op, test_init_op = make_data_ops(
       job, train_file, test_file)
+
+  # augment
+  data_ops, _ = tfrecord_batcher.data_augmentation_from_data_ops(data_ops,
+      FLAGS.augment_rc, augment_shifts)
 
   # initialize model
   model = seqnn.SeqNN()

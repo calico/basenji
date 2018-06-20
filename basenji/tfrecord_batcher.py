@@ -93,10 +93,11 @@ def shift_sequence_augmentation(seq, shift_augment_offsets, pad_value):
   # The value of the parameter shift_augment_offsets are the set of things to
   # _augment_ the original data with, and we want to, in addition to including
   # those augmentations, actually include the original data.
+  total_set_of_shifts = []
   if shift_augment_offsets:
-    total_set_of_shifts = [0] + shift_augment_offsets
-  else:
-    total_set_of_shifts = [0]
+    total_set_of_shifts += shift_augment_offsets
+  if 0 not in total_set_of_shifts:
+    total_set_of_shifts.append(0)
 
   shift_index = tf.random_uniform(
       shape=[], minval=0, maxval=len(total_set_of_shifts), dtype=tf.int64)

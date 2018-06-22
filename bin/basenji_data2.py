@@ -110,6 +110,7 @@ def main():
     fasta_files = args[0].split(',')
     targets_files = args[1].split(',')
 
+  # there is still something stochastic, maybe a dict
   random.seed(options.seed)
   np.random.seed(options.seed)
 
@@ -644,25 +645,22 @@ def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, pool_width, ru
     seqs_cov_stem = '%s/%d-%d' % (seqs_cov_dir, gi, ti)
     seqs_cov_file = '%s.h5' % seqs_cov_stem
 
-    if os.path.isfile(seqs_cov_file):
-      print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
-    else:
-      cmd = 'basenji_data_read.py'
-      cmd += ' -w %d' % pool_width
-      cmd += ' %s' % genome_cov_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_file
+    cmd = 'basenji_data_read.py'
+    cmd += ' -w %d' % pool_width
+    cmd += ' %s' % genome_cov_file
+    cmd += ' %s' % seqs_bed_file
+    cmd += ' %s' % seqs_cov_file
 
-      if run_local:
-        cmd += ' &> %s.err' % seqs_cov_stem
-        read_jobs.append(cmd)
-      else:
-        j = slurm.Job(cmd,
-            name='read_t%d' % ti,
-            out_file='%s.out' % seqs_cov_stem,
-            err_file='%s.err' % seqs_cov_stem,
-            queue='standard,tbdisk', mem=15000, time='12:0:0')
-        read_jobs.append(j)
+    if run_local:
+      cmd += ' &> %s.err' % seqs_cov_stem
+      read_jobs.append(cmd)
+    else:
+      j = slurm.Job(cmd,
+          name='read_t%d' % ti,
+          out_file='%s.out' % seqs_cov_stem,
+          err_file='%s.err' % seqs_cov_stem,
+          queue='standard,tbdisk', mem=15000, time='12:0:0')
+      read_jobs.append(j)
 
   return read_jobs
 

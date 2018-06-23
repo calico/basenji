@@ -241,7 +241,8 @@ def main():
   if options.run_local:
     util.exec_par(read_jobs, options.processes, verbose=True)
   else:
-    slurm.multi_run(read_jobs, options.processes, verbose=True, sleep_time=1)
+    slurm.multi_run(read_jobs, options.processes, verbose=True,
+                    launch_sleep=1, update_sleep=5)
 
   ################################################################
   # write TF Records
@@ -294,7 +295,8 @@ def main():
   if options.run_local:
     util.exec_par(write_jobs, options.processes, verbose=True)
   else:
-    slurm.multi_run(write_jobs, options.processes, verbose=True, sleep_time=1)
+    slurm.multi_run(write_jobs, options.processes, verbose=True,
+                    launch_sleep=1, update_sleep=5)
 
 
 ################################################################################

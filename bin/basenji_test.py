@@ -198,7 +198,7 @@ def main():
     sample_n = int(test_seqs.shape[0]*options.sample_pct)
     print('Sampling %d sequences' % sample_n)
     sample_indexes = sorted(np.random.choice(np.arange(test_seqs.shape[0]),
-                                              size=sample_n, replace=False))
+                                             size=sample_n, replace=False))
     test_seqs = test_seqs[sample_indexes]
     test_targets = test_targets[sample_indexes]
     if test_na is not None:
@@ -256,7 +256,7 @@ def main():
     # test
     t0 = time.time()
     test_acc = dr.test(sess, batcher_test, rc=options.rc,
-                        shifts=options.shifts, mc_n=options.mc_n)
+                       shifts=options.shifts, mc_n=options.mc_n)
 
     if options.save:
       np.save('%s/preds.npy' % options.out_dir, test_acc.preds)

@@ -50,7 +50,7 @@ Test the accuracy of a trained model.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <model_file> <test_hdf5_file>'
+  usage = 'usage: %prog [options] <params_file> <model_file> <data_dir>'
   parser = OptionParser(usage)
   parser.add_option('--ai', dest='accuracy_indexes',
       help='Comma-separated list of target indexes to make accuracy scatter plots.')
@@ -85,6 +85,9 @@ def main():
       help='BED file describing regions so we can output BigWig tracks')
   parser.add_option('--ti', dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option('--tfr', dest='tfr_pattern',
+      default='test-*.tfr',
+      help='TFR pattern string appended to data_dir [Default: %default]')
   parser.add_option('-w', dest='pool_width',
       default=1, type='int',
       help='Max pool width for regressing nt preds to peak calls [Default: %default]')
@@ -95,18 +98,24 @@ def main():
   else:
     params_file = args[0]
     model_file = args[1]
-    tfr_pattern = args[2]
+    data_dir = args[2]
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
+  # parse shifts to integers
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
+
+  # read targets
+  targets_file = '%s/targets.txt' % data_dir
+  targets_df = pd.read_table(targets_file)
 
   # read model parameters
   job = params.read_job_params(params_file)
 
-  # load data
-  data_ops, test_init_op = make_data_ops(job, tfr_pattern)
+  # construct data ops
+  tfr_pattern_path = '%s/%s' % (data_dir, options.tfr_pattern)
+  data_ops, test_init_op = make_data_ops(job, tfr_pattern_path)
 
   # initialize model
   model = seqnn.SeqNN()

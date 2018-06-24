@@ -21,6 +21,7 @@ import math
 import pdb
 import os
 import random
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -247,6 +248,10 @@ def main():
   ################################################################
   # write TF Records
   ################################################################
+  # copy targets file
+  shutil.copy(targets_file, '%s/targets.txt' % options.out_dir)
+
+  # initialize TF Records dir
   tfr_dir = '%s/tfrecords' % options.out_dir
   if not os.path.isdir(tfr_dir):
     os.mkdir(tfr_dir)

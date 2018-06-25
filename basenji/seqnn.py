@@ -21,10 +21,10 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from basenji import seqnn_util
 from basenji import layers
 from basenji import params
-
+from basenji import seqnn_util
+from basenji import tfrecord_batcher
 
 class SeqNN(seqnn_util.SeqNNModel):
 

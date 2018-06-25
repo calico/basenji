@@ -55,13 +55,9 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
   data_ops, training_init_op, test_init_op = make_data_ops(
       job, train_file, test_file)
 
-  # augment
-  data_ops, _ = tfrecord_batcher.data_augmentation_from_data_ops(data_ops,
-      FLAGS.augment_rc, augment_shifts)
-
   # initialize model
   model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops)
+  model.build_from_data_ops(job, data_ops, FLAGS.augment_rc, augment_shifts)
 
   # checkpoints
   saver = tf.train.Saver()

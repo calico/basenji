@@ -39,6 +39,7 @@ from basenji import batcher
 from basenji import params
 from basenji import plots
 from basenji import seqnn
+from basenji import tfrecord_batcher
 
 """
 basenji_testq.py
@@ -114,7 +115,7 @@ def main():
   job = params.read_job_params(params_file)
 
   # construct data ops
-  tfr_pattern_path = '%s/%s' % (data_dir, options.tfr_pattern)
+  tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
   data_ops, test_init_op = make_data_ops(job, tfr_pattern_path)
 
   # initialize model
@@ -134,14 +135,15 @@ def main():
 
     # test
     t0 = time.time()
+    sess.run(test_init_op)
     test_acc = model.test_from_data_ops(sess)
+
+    test_preds = test_acc.preds
+    print('SeqNN test: %ds' % (time.time() - t0))
 
     if options.save:
       np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
       np.save('%s/targets.npy' % options.out_dir, test_acc.targets)
-
-    test_preds = test_acc.preds
-    print('SeqNN test: %ds' % (time.time() - t0))
 
     # compute stats
     t0 = time.time()

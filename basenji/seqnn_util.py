@@ -843,10 +843,10 @@ class SeqNNModel(object):
     while data_available and (test_batches is None or batch_num < test_batches):
       try:
         # make non-ensembled predictions
-        run_ops = [self.targets_op, self.preds_op, self.loss_op,
-                   self.target_losses, self.targets, self.targets_na]
+        run_ops = [self.targets_op, self.preds_op,
+                   self.loss_op, self.target_losses]
         run_returns = sess.run(run_ops, feed_dict=fd)
-        targets_batch, preds_batch, loss_batch, target_losses_batch, Yb, NAb = run_returns
+        targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
 
         # accumulate predictions and targets
         preds.append(preds_batch.astype('float16'))
@@ -872,8 +872,8 @@ class SeqNNModel(object):
     batch_target_losses = np.array(batch_target_losses).mean(axis=0)
 
     # instantiate accuracy object
-    acc = accuracy.Accuracy(targets, preds, targets_na, batch_losses,
-                            batch_target_losses)
+    acc = accuracy.Accuracy(targets, preds, targets_na,
+                            batch_losses, batch_target_losses)
 
     return acc
 

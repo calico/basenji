@@ -39,16 +39,17 @@ def shift_sequence(seq, shift_amount, pad_value):
   pad = pad_value * tf.ones_like(seq[:, 0:tf.abs(shift_amount), :])
 
   def _shift_right(_seq):
-    sliced_seq = _seq[:, shift_amount:, :]
+    sliced_seq = _seq[:, :-shift_amount:, :]
     return tf.concat([pad, sliced_seq], axis=1)
 
   def _shift_left(_seq):
-    sliced_seq = _seq[:, :shift_amount, :]
+    sliced_seq = _seq[:, -shift_amount:, :]
     return tf.concat([sliced_seq, pad], axis=1)
 
   output = tf.cond(
       tf.greater(shift_amount, 0), lambda: _shift_right(seq),
       lambda: _shift_left(seq))
+
   output.set_shape(input_shape)
   return output
 
@@ -143,13 +144,13 @@ def data_augmentation_from_data_ops(data_ops, augment_with_complement,
                                     shift_augment_offsets):
   process_predictions_fn = None
 
-  if augment_with_complement:
-    data_ops, process_predictions_fn = rc_data_augmentation(data_ops)
-
   if shift_augment_offsets and len(shift_augment_offsets) > 1:
     pad_value = 0.25
     data_ops['sequence'] = shift_sequence_augmentation(
         data_ops['sequence'], shift_augment_offsets, pad_value)
+
+  if augment_with_complement:
+    data_ops, process_predictions_fn = rc_data_augmentation(data_ops)
 
   return data_ops, process_predictions_fn
 

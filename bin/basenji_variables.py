@@ -36,15 +36,14 @@ Print a model's variables, typically for debugging purposes.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <model_file>'
+  usage = 'usage: %prog [options] <params_file>'
   parser = OptionParser(usage)
   (options, args) = parser.parse_args()
 
-  if len(args) != 2:
-    parser.error('Must provide parameters, model, and test data HDF5')
+  if len(args) != 1:
+    parser.error('Must provide parameters file.')
   else:
     params_file = args[0]
-    model_file = args[1]
 
   #######################################################
   # model parameters and placeholders
@@ -53,15 +52,8 @@ def main():
   model = seqnn.SeqNN()
   model.build(job)
 
-  # initialize saver
-  saver = tf.train.Saver()
-
-  with tf.Session() as sess:
-    # load variables into session
-    saver.restore(sess, model_file)
-
-    for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
-      print(v.name, v.shape)
+  for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
+    print(v.name, v.shape)
 
 
 ################################################################################

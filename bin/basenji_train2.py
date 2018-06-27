@@ -15,7 +15,7 @@
 # =========================================================================
 from __future__ import print_function
 
-
+import pdb
 import sys
 import time
 
@@ -25,7 +25,7 @@ import tensorflow as tf
 from basenji import params
 from basenji import seqnn
 from basenji import shared_flags
-from basenji import tfrecord_batcher
+from basenji import dataset
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -33,15 +33,18 @@ FLAGS = tf.app.flags.FLAGS
 def main(_):
   np.random.seed(FLAGS.seed)
 
+  train_files = FLAGS.train_data.split(',')
+  test_files = FLAGS.test_data.split(',')
+
   run(params_file=FLAGS.params,
-      train_files=[FLAGS.train0_data, FLAGS.train1_data],
-      test_files=[FLAGS.test1_data, FLAGS.test2_data],
+      train_files=train_files,
+      test_files=test_files,
       train_epochs=FLAGS.train_epochs,
       train_epoch_batches=FLAGS.train_epoch_batches,
       test_epoch_batches=FLAGS.test_epoch_batches)
 
 
-def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
+def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
         test_epoch_batches):
   # read parameters
   job = params.read_job_params(params_file)
@@ -87,87 +90,87 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
     best_loss = None
     early_stop_i = 0
 
-    for epoch in range(train_epochs):
-      if early_stop_i < FLAGS.early_stop or epoch < FLAGS.min_epochs:
-        t0 = time.time()
+    epoch = 0
+    while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
+      t0 = time.time()
 
-        # save previous
-        train_loss_last = train_loss
+      # save previous
+      train_loss_last = train_loss
 
-        # initialize training data epochs
-        for gi in range(job['num_genomes']):
-          sess.run(train_iterators[gi].initializer)
+      # initialize training data epochs
+      for gi in range(job['num_genomes']):
+        sess.run(train_iterators[gi].initializer)
 
-        # train epoch
-        train_losses, steps = model.train2_epoch_ops(sess, handle, train_handles)
+      # train epoch
+      train_losses, steps = model.train2_epoch_ops(sess, handle, train_handles)
 
-        # summarize
-        train_loss = np.mean(train_losses)
+      # summarize
+      train_loss = np.mean(train_losses)
 
-        # test validation
-        valid_losses = []
-        valid_r2s = []
-        for gi in range(job['num_genomes']):
-          # initialize
-          sess.run(test_iterators[gi].initializer)
+      # test validation
+      valid_losses = []
+      valid_r2s = []
+      for gi in range(job['num_genomes']):
+        # initialize
+        sess.run(test_iterators[gi].initializer)
 
-          # compute
-          valid_acc = model.test_from_data_ops(sess, handle, test_handles[gi], test_epoch_batches)
+        # compute
+        valid_acc = model.test_from_data_ops(sess, handle, test_handles[gi], test_epoch_batches)
 
-          # save
-          valid_losses.append(valid_acc.loss)
-          valid_r2s.append(valid_acc.r2().mean())
-          del valid_acc
+        # save
+        valid_losses.append(valid_acc.loss)
+        valid_r2s.append(valid_acc.r2().mean())
+        del valid_acc
 
-        # summarize
-        valid_loss = np.mean(valid_losses)
-        valid_r2 = np.mean(valid_r2s)
+      # summarize
+      valid_loss = np.mean(valid_losses)
+      valid_r2 = np.mean(valid_r2s)
 
-        best_str = ''
-        if best_loss is None or valid_loss < best_loss:
-          best_loss = valid_loss
-          best_str = ', best!'
-          early_stop_i = 0
-          saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
-        else:
-          early_stop_i += 1
+      best_str = ''
+      if best_loss is None or valid_loss < best_loss:
+        best_loss = valid_loss
+        best_str = ', best!'
+        early_stop_i = 0
+        saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
+      else:
+        early_stop_i += 1
 
-        # measure time
-        et = time.time() - t0
-        if et < 600:
-          time_str = '%3ds' % et
-        elif et < 6000:
-          time_str = '%3dm' % (et / 60)
-        else:
-          time_str = '%3.1fh' % (et / 3600)
+      # measure time
+      et = time.time() - t0
+      if et < 600:
+        time_str = '%3ds' % et
+      elif et < 6000:
+        time_str = '%3dm' % (et / 60)
+      else:
+        time_str = '%3.1fh' % (et / 3600)
 
-        # print update
-        print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-        print(' Valid loss: %7.5f,  Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
-        print(' Time: %s%s' % (time_str, best_str))
+      # print update
+      print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
+      print(' Valid loss: %7.5f,  Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
+      print(' Time: %s%s' % (time_str, best_str))
 
-        # print genome-specific updates
-        for gi in range(job['num_genomes']):
-          print('%30s Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f' % (train_losses[gi], valid_losses[gi], valid_r2s[gi]))
-        sys.stdout.flush()
+      # print genome-specific updates
+      for gi in range(job['num_genomes']):
+        print('%30s Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f' % (train_losses[gi], valid_losses[gi], valid_r2s[gi]))
+      sys.stdout.flush()
+
+      # update epoch
+      epoch += 1
 
     if FLAGS.logdir:
       train_writer.close()
 
 
-def make_data_ops(job, train_files, test_files):
+def make_data_ops(job, train_patterns, test_patterns):
   """Make input data operations."""
 
-  def make_dataset(filename, num_targets, mode):
-    return tfrecord_batcher.tfrecord_dataset(
-        filename,
+  def make_dataset(tfr_pattern, mode):
+    return dataset.DatasetSeq(
+        tfr_pattern,
         job['batch_size'],
         job['seq_length'],
-        job.get('seq_depth', 4),
         job['target_length'],
-        job['num_targets'],
-        mode=mode,
-        repeat=False)
+        mode=mode)
 
   train_datasets = []
   test_datasets = []
@@ -176,15 +179,27 @@ def make_data_ops(job, train_files, test_files):
 
   # make datasets and iterators for each genome's train/test
   for gi in range(job['num_genomes']):
-    train_dataset = make_dataset(train_files[gi], job['num_targets'], mode=tf.estimator.ModeKeys.TRAIN)
+    train_dataseq = make_dataset(train_patterns[gi], mode=tf.estimator.ModeKeys.TRAIN)
+    train_dataset = train_dataseq.dataset
     train_iterator = train_dataset.make_initializable_iterator()
     train_datasets.append(train_dataset)
     train_iterators.append(train_iterator)
 
-    test_dataset = make_dataset(test_files[gi], job['num_targets'], mode=tf.estimator.ModeKeys.EVAL)
+    test_dataseq = make_dataset(test_patterns[gi], mode=tf.estimator.ModeKeys.EVAL)
+    test_dataset = test_dataseq.dataset
     test_iterator = test_dataset.make_initializable_iterator()
     test_datasets.append(test_dataset)
     test_iterators.append(test_iterator)
+
+    # verify dataset shapes
+    try:
+      assert(train_dataseq.num_targets_nonzero == job['num_targets'][gi])
+      if 'seq_depth' in job:
+        assert(job['seq_depth'] == train_dataseq.seq_depth)
+      else:
+        job['seq_depth'] = train_dataseq.seq_depth
+    except:
+      pdb.set_trace()
 
   # create feedable iterator
   handle = tf.placeholder(tf.string, shape=[])

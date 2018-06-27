@@ -144,7 +144,9 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
+
     # batches
+    self.genome_ph = tf.placeholder(tf.uint8, shape=(self.hp.batch_size,1), name='genome')
     self.inputs_ph = tf.placeholder(
         tf.float32,
         shape=(None, self.hp.seq_length, self.hp.seq_depth),
@@ -154,13 +156,13 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.targets_ph = tf.placeholder(
           tf.float32,
           shape=(None, self.hp.seq_length // self.hp.target_pool,
-                 self.hp.num_targets),
+                 self.hp.max_targets),
           name='targets')
     else:
       self.targets_ph = tf.placeholder(
           tf.int32,
           shape=(None, self.hp.seq_length // self.hp.target_pool,
-                 self.hp.num_targets),
+                 self.hp.max_targets),
           name='targets')
 
     self.targets_na_ph = tf.placeholder(tf.bool,
@@ -168,10 +170,12 @@ class SeqNN(seqnn_util.SeqNNModel):
         name='targets_na')
 
     data = {
+        'genome': self.genome_ph,
         'sequence': self.inputs_ph,
         'label': self.targets_ph,
         'na': self.targets_na_ph
     }
+
     return data
 
   def _make_conv_block_args(self, layer_index, layer_reprs):
@@ -394,9 +398,21 @@ class SeqNN(seqnn_util.SeqNNModel):
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
+    if self.hp.num_genomes > 1:
+      # take genome index from first example of batch
+      genome_i = data_ops['genome'][0,0]
+
+      # slice num_targets for this genome
+      num_targets_tensor = tf.constant(self.hp.num_targets)
+      num_targets_genome = tf.gather(num_targets_tensor, genome_i)
+
+    else:
+      # slice num_targets for this genome
+      num_targets_genome = tf.constant(self.hp.num_targets[0])
+
     # slice targets to correct genome number (rest are zero)
-    num_targets_genome = self.hp.num_targets[data_ops['genome']]
-    targets = tf.identity(targets[:, :, :num_targets_genome])
+    target_indexes_genome = tf.range(num_targets_genome)
+    targets = tf.gather(targets, target_indexes_genome, axis=2)
 
     if target_subset is not None:
       targets = tf.gather(targets, target_subset, axis=2)

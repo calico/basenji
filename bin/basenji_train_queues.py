@@ -15,7 +15,7 @@
 # =========================================================================
 from __future__ import print_function
 
-
+import pdb
 import sys
 import time
 
@@ -25,7 +25,7 @@ import tensorflow as tf
 from basenji import params
 from basenji import seqnn
 from basenji import shared_flags
-from basenji import tfrecord_batcher
+from basenji import dataset
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -34,14 +34,14 @@ def main(_):
   np.random.seed(FLAGS.seed)
 
   run(params_file=FLAGS.params,
-      train_file=FLAGS.train_data,
-      test_file=FLAGS.test_data,
+      train_pattern=FLAGS.train_data,
+      test_pattern=FLAGS.test_data,
       train_epochs=FLAGS.train_epochs,
       train_epoch_batches=FLAGS.train_epoch_batches,
       test_epoch_batches=FLAGS.test_epoch_batches)
 
 
-def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
+def run(params_file, train_pattern, test_pattern, train_epochs, train_epoch_batches,
         test_epoch_batches):
 
   # parse shifts
@@ -52,8 +52,10 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
   job = params.read_job_params(params_file)
 
   # load data
-  data_ops, training_init_op, test_init_op = make_data_ops(
-      job, train_file, test_file)
+  data_ops, train_init_op, test_init_op = make_data_ops(
+      job, train_pattern, test_pattern)
+
+  print('num_targets', job['num_targets'])
 
   # initialize model
   model = seqnn.SeqNN()
@@ -94,7 +96,7 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
       train_loss_last = train_loss
 
       # train epoch
-      sess.run(training_init_op)
+      sess.run(train_init_op)
       train_loss, steps = model.train_epoch_tfr(sess, train_writer, train_epoch_batches)
 
       # test validation
@@ -135,29 +137,38 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
       train_writer.close()
 
 
-def make_data_ops(job, train_file, test_file):
-  def make_dataset(filename, mode):
-    return tfrecord_batcher.tfrecord_dataset(
-        filename,
+def make_data_ops(job, train_pattern, test_pattern):
+  """Make input data operations."""
+
+  def make_dataset(tfr_pattern, mode):
+    return dataset.DatasetSeq(
+        tfr_pattern,
         job['batch_size'],
         job['seq_length'],
-        job.get('seq_depth', 4),
         job['target_length'],
-        job['num_targets'],
-        mode=mode,
-        repeat=False)
+        mode=mode)
 
-  training_dataset = make_dataset(train_file, mode=tf.estimator.ModeKeys.TRAIN)
-  test_dataset = make_dataset(test_file, mode=tf.estimator.ModeKeys.EVAL)
+  train_dataseq = make_dataset(train_pattern, mode=tf.estimator.ModeKeys.TRAIN)
+  test_dataseq = make_dataset(test_pattern, mode=tf.estimator.ModeKeys.EVAL)
+
+  train_dataset = train_dataseq.dataset
+  test_dataset = test_dataseq.dataset
+
+  # verify dataset shapes
+  assert(train_dataseq.num_targets_nonzero == job['num_targets'])
+  if 'seq_depth' in job:
+    assert(job['seq_depth'] == train_dataseq.seq_depth)
+  else:
+    job['seq_depth'] = train_dataseq.seq_depth
 
   iterator = tf.data.Iterator.from_structure(
-      training_dataset.output_types, training_dataset.output_shapes)
+      train_dataset.output_types, train_dataset.output_shapes)
   data_ops = iterator.get_next()
 
-  training_init_op = iterator.make_initializer(training_dataset)
+  train_init_op = iterator.make_initializer(train_dataset)
   test_init_op = iterator.make_initializer(test_dataset)
 
-  return data_ops, training_init_op, test_init_op
+  return data_ops, train_init_op, test_init_op
 
 
 if __name__ == '__main__':

@@ -18,6 +18,7 @@ from __future__ import print_function
 from optparse import OptionParser
 import collections
 import heapq
+import gzip
 import math
 import pdb
 import os
@@ -118,11 +119,14 @@ def main():
   if options.gap_files is not None:
     options.gap_files = options.gap_files.split(',')
 
+  num_genomes = len(fasta_files)
+  assert(len(targets_files) == num_genomes)
+
   ################################################################
   # define genomic contigs
   ################################################################
   genome_chr_contigs = []
-  for gi in range(2):
+  for gi in range(num_genomes):
     genome_chr_contigs.append(genome.load_chromosomes(fasta_files[gi]))
 
     # remove gaps
@@ -132,7 +136,7 @@ def main():
 
   # ditch the chromosomes
   contigs = []
-  for gi in range(2):
+  for gi in range(num_genomes):
     for chrom in genome_chr_contigs[gi]:
       contigs += [Contig(gi, chrom, ctg_start, ctg_end)
                   for ctg_start, ctg_end in genome_chr_contigs[gi][chrom]]
@@ -149,7 +153,7 @@ def main():
     contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
 
   # print contigs to BED file
-  for gi in range(2):
+  for gi in range(num_genomes):
     contigs_i = [ctg for ctg in contigs if ctg.genome == gi]
     ctg_bed_file = '%s/contigs%d.bed' % (options.out_dir, gi)
     write_seqs_bed(ctg_bed_file, contigs_i)
@@ -186,7 +190,7 @@ def main():
   # separate sequences by genome
   ################################################################
   mseqs_genome = []
-  for gi in range(2):
+  for gi in range(num_genomes):
     mseqs_gi = [mseqs[si] for si in range(len(mseqs)) if mseqs[si].genome == gi]
     mseqs_genome.append(mseqs_gi)
 
@@ -194,13 +198,13 @@ def main():
   # mappability
   ################################################################
 
-  unmap_beds = [options.unmap1_bed, options.unmap2_bed]
+  options.unmap_beds = options.unmap_beds.split(',')
   unmap_npys = [None, None]
 
-  for gi in range(2):
-    if unmap_beds[gi] is not None:
+  for gi in range(num_genomes):
+    if options.unmap_beds[gi] is not None:
       # annotate unmappable positions
-      mseqs_unmap = annotate_unmap(mseqs_genome[gi], unmap_beds[gi],
+      mseqs_unmap = annotate_unmap(mseqs_genome[gi], options.unmap_beds[gi],
                                    options.seq_length, options.pool_width)
 
       # filter unmappable
@@ -213,7 +217,7 @@ def main():
       np.save(unmap_npys[gi], mseqs_unmap)
 
   seqs_bed_files = []
-  for gi in range(2):
+  for gi in range(num_genomes):
     # write sequences to BED
     seqs_bed_files.append('%s/sequences%d.bed' % (options.out_dir, gi))
     write_seqs_bed(seqs_bed_files[gi], mseqs_genome[gi], True)
@@ -228,7 +232,7 @@ def main():
     os.mkdir(seqs_cov_dir)
 
   read_jobs = []
-  for gi in range(2):
+  for gi in range(num_genomes):
     read_jobs += make_read_jobs(targets_files[gi], seqs_bed_files[gi], gi,
                                 seqs_cov_dir, options.pool_width, options.run_local)
 
@@ -246,12 +250,12 @@ def main():
     os.mkdir(tfr_dir)
 
   max_targets = 0
-  for gi in range(2):
+  for gi in range(num_genomes):
     targets_df = pd.read_table(targets_files[gi])
     max_targets = max(max_targets, targets_df.shape[0])
 
   write_jobs = []
-  for gi in range(2):
+  for gi in range(num_genomes):
     write_jobs += make_write_jobs(mseqs_genome[gi], fasta_files[gi], seqs_bed_files[gi],
                                   seqs_cov_dir, gi, unmap_npys[gi], options.seqs_per_tfr,
                                   max_targets, tfr_dir, options.run_local)
@@ -402,7 +406,10 @@ def connect_contigs(contigs, align_net_file, fill_min, out_dir):
      as connected components of that graph."""
 
   # construct align net graph and write net BEDs
-  graph_contigs_nets = make_net_graph(align_net_file, fill_min, out_dir)
+  if align_net_file is None:
+    graph_contigs_nets = nx.Graph()
+  else:
+    graph_contigs_nets = make_net_graph(align_net_file, fill_min, out_dir)
 
   # add contig nodes
   for ctg in contigs:
@@ -446,12 +453,21 @@ def contig_stats_genome(contigs):
   contigs_count_genome = []
   contigs_nt_genome = []
 
-  for gi in range(2):
+  contigs_genome_found = True
+  gi = 0
+  while contigs_genome_found:
     contigs_genome = [ctg for ctg in contigs if ctg.genome == gi]
-    contigs_nt = [ctg.end-ctg.start for ctg in contigs_genome]
 
-    contigs_count_genome.append(len(contigs_genome))
-    contigs_nt_genome.append(sum(contigs_nt))
+    if len(contigs_genome) == 0:
+      contigs_genome_found = False
+
+    else:
+      contigs_nt = [ctg.end-ctg.start for ctg in contigs_genome]
+
+      contigs_count_genome.append(len(contigs_genome))
+      contigs_nt_genome.append(sum(contigs_nt))
+
+      gi += 1
 
   return contigs_count_genome, contigs_nt_genome
 
@@ -565,10 +581,10 @@ def make_net_graph(align_net_file, fill_min, out_dir):
   """Construct a Graph with aligned net intervals connected
      by edges."""
 
+  graph_nets = nx.Graph()
+
   nets1_bed_out = open('%s/nets0.bed' % out_dir, 'w')
   nets2_bed_out = open('%s/nets1.bed' % out_dir, 'w')
-
-  graph_nets = nx.Graph()
 
   if os.path.splitext(align_net_file)[-1] == '.gz':
     align_net_open = gzip.open(align_net_file, 'rt')
@@ -710,6 +726,7 @@ def report_divide_stats(train_contigs, valid_contigs, test_contigs):
   train_count_genome, train_nt_genome = contig_stats_genome(train_contigs)
   valid_count_genome, valid_nt_genome = contig_stats_genome(valid_contigs)
   test_count_genome, test_nt_genome = contig_stats_genome(test_contigs)
+  num_genomes = len(train_count_genome)
 
   # sum nt across genomes
   train_nt = sum(train_nt_genome)
@@ -719,26 +736,26 @@ def report_divide_stats(train_contigs, valid_contigs, test_contigs):
 
   # compute total sum nt per genome
   total_nt_genome = []
-  for gi in range(2):
+  for gi in range(num_genomes):
     total_nt_gi = train_nt_genome[gi] + valid_nt_genome[gi] + test_nt_genome[gi]
     total_nt_genome.append(total_nt_gi)
 
   print('Contigs divided into')
   print(' Train: %5d contigs, %10d nt (%.4f)' % \
        (len(train_contigs), train_nt, train_nt/total_nt))
-  for gi in range(2):
+  for gi in range(num_genomes):
     print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
          (gi, train_count_genome[gi], train_nt_genome[gi], train_nt_genome[gi]/total_nt_genome[gi]))
 
   print(' Valid: %5d contigs, %10d nt (%.4f)' % \
       (len(valid_contigs), valid_nt, valid_nt/total_nt))
-  for gi in range(2):
+  for gi in range(num_genomes):
     print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
          (gi, valid_count_genome[gi], valid_nt_genome[gi], valid_nt_genome[gi]/total_nt_genome[gi]))
 
   print(' Test:  %5d contigs, %10d nt (%.4f)' % \
       (len(test_contigs), test_nt, test_nt/total_nt))
-  for gi in range(2):
+  for gi in range(num_genomes):
     print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
          (gi, test_count_genome[gi], test_nt_genome[gi], test_nt_genome[gi]/total_nt_genome[gi]))
 

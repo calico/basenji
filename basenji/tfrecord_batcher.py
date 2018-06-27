@@ -113,6 +113,7 @@ def tfrecord_dataset(tfr_data_files_pattern,
 
   def _parse(example_protos):
     features = {
+        'genome': tf.FixedLenFeature([1], tf.int64),
         tfrecord_util.TFR_INPUT: tf.FixedLenFeature([], tf.string),
         tfrecord_util.TFR_OUTPUT: tf.FixedLenFeature([], tf.string),
     }
@@ -120,6 +121,8 @@ def tfrecord_dataset(tfr_data_files_pattern,
     parsed_features = tf.parse_example(example_protos, features=features)
 
     static_batch_size = batch_size if use_static_batch_size else -1
+
+    genome = parsed_features['genome']
 
     seq = tf.decode_raw(parsed_features[tfrecord_util.TFR_INPUT], tf.uint8)
     seq = tf.reshape(seq, [static_batch_size, seq_length, seq_depth])
@@ -134,15 +137,15 @@ def tfrecord_dataset(tfr_data_files_pattern,
     else:
       na = tf.zeros(tf.shape(label)[:-1], dtype=tf.bool)
 
-    return {'sequence': seq, 'label': label, 'na': na}
+    return {'genome': genome, 'sequence': seq, 'label': label, 'na': na}
 
   dataset = dataset.map(_parse)
 
   return dataset
 
 
-def tfrecord_dataset_multi(tfr_data_files_pattern, batch_size, seq_length, seq_depth,
-                           genome_targets, target_length, mode):
+def tfrecord_dataset_multi(tfr_data_files_pattern, batch_size, seq_length,
+                           seq_depth, genome_targets, target_length, mode):
   """Load TFRecord format data.
 
   The tf.Example assumed to be ZLIB compressed with fields:
@@ -176,7 +179,8 @@ j   mode: a tf.estimator.ModeKeys instance
 
   if mode == tf.estimator.ModeKeys.TRAIN:  # Shuffle, repeat, and parallelize.
     # This shuffles just the filenames, not the examples.
-    dataset = dataset.shuffle(buffer_size=100000)
+    dataset = dataset.shuffle(buffer_size=NUM_FILES_TO_PARALLEL_INTERLEAVE *
+                              SHUFFLE_BUFFER_DEPTH_PER_FILE)
 
     # abstaining from repeat makes it easier to separate epochs
     # dataset = dataset.repeat()
@@ -190,7 +194,7 @@ j   mode: a tf.estimator.ModeKeys instance
             # Magic number for cycle-length chosen by trying 64 (mentioned as a
             # best practice) and then noticing a significant bump in memory
             # usage. Reducing to 10 alleviated some of the memory pressure.
-            cycle_length=10, sloppy=True))
+            cycle_length=NUM_FILES_TO_PARALLEL_INTERLEAVE, sloppy=True))
 
     # Shuffle elements within a file.
     dataset = dataset.shuffle(buffer_size=150)
@@ -215,9 +219,9 @@ j   mode: a tf.estimator.ModeKeys instance
 
   def _parse(example_protos):
     features = {
-        'genome': tf.FixedLenFeature([1], tf.int64)
-        'sequence': tf.FixedLenFeature([], tf.string),
-        'target': tf.FixedLenFeature([], tf.string),
+        'genome': tf.FixedLenFeature([1], tf.int64),
+        tfrecord_util.TFR_INPUT: tf.FixedLenFeature([], tf.string),
+        tfrecord_util.TFR_OUTPUT: tf.FixedLenFeature([], tf.string),
     }
 
     parsed_features = tf.parse_example(example_protos, features=features)
@@ -237,7 +241,7 @@ j   mode: a tf.estimator.ModeKeys instance
     else:
       na = tf.zeros(tf.shape(label)[:-1], dtype=tf.bool)
 
-    return {'sequence': seq, 'label': label, 'na': na}
+    return {'genome': genome, 'sequence': seq, 'label': label, 'na': na}
 
   dataset = dataset.map(_parse)
 

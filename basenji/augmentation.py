@@ -80,12 +80,10 @@ def augment_deterministic(data_ops, augment_rc=False, augment_shift=0):
     data_ops: augmented data, with all existing keys transformed
               and 'reverse_preds' bool added.
   """
-
   data_ops_aug = {}
-  if 'label' in data_ops:
-    data_ops_aug['label'] = data_ops['label']
-  if 'na' in data_ops:
-    data_ops_aug['na'] = data_ops['na']
+  for key in data_ops:
+    if key not in ['sequence']:
+      data_ops_aug[key] = data_ops[key]
 
   if augment_shift == 0:
     data_ops_aug['sequence'] = data_ops['sequence']

@@ -47,6 +47,11 @@ def reverse_complement_transform(data_ops):
   # initialize reverse complemented data_ops
   data_ops_rc = {}
 
+  # add other keys
+  for key in data_ops:
+    if key not in ['sequence', 'label', 'na']:
+      data_ops_rc[key] = data_ops[key]
+
   # extract sequence from dict
   seq = data_ops['sequence']
 

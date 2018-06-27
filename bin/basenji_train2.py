@@ -46,6 +46,11 @@ def main(_):
 
 def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
         test_epoch_batches):
+
+  # parse shifts
+  augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
+  ensemble_shifts = [int(shift) for shift in FLAGS.ensemble_shifts.split(',')]
+
   # read parameters
   job = params.read_job_params(params_file)
 
@@ -55,7 +60,7 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
   # initialize model
   model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops)
+  model.build_from_data_ops(job, data_ops, FLAGS.augment_rc, augment_shifts)
 
   # checkpoints
   saver = tf.train.Saver()

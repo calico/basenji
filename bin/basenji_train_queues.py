@@ -55,8 +55,6 @@ def run(params_file, train_pattern, test_pattern, train_epochs, train_epoch_batc
   data_ops, train_init_op, test_init_op = make_data_ops(
       job, train_pattern, test_pattern)
 
-  print('num_targets', job['num_targets'])
-
   # initialize model
   model = seqnn.SeqNN()
   model.build_from_data_ops(job, data_ops,

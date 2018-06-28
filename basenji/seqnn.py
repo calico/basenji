@@ -146,6 +146,12 @@ class SeqNN(seqnn_util.SeqNNModel):
         ' by the CNN pooling %d') % (self.hp.batch_buffer, pool_preds)
     batch_buffer_pool = self.hp.batch_buffer // pool_preds
 
+    ###################################################
+    # Hi-C layers
+    ###################################################
+
+    # TODO: implement transformation to 2D
+    # TODO: modify the code below to handle 2D
 
     ###################################################
     # slice out side buffer
@@ -160,7 +166,6 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # save penultimate representation
     self.penultimate_op = seqs_repr
-
 
     ###################################################
     # final layer
@@ -264,10 +269,14 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.target_length = tend - tstart
 
     targets = data_ops['label']
-    targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
+    if self.hp.hic:
+      targets = targets[:, :, tstart:tend, :]
+      targets = tf.identity(targets[:, tstart:tend, :, :], name='targets_op')
+    else:
+      targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
     if target_subset is not None:
-      targets = tf.gather(targets, target_subset, axis=2)
+        targets = tf.gather(targets, target_subset, axis=-1)
 
     # work-around for specifying my own predictions
     self.preds_adhoc = tf.placeholder(
@@ -309,8 +318,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # clip
     if self.hp.target_clip is not None:
-      self.preds_op = tf.clip_by_value(self.preds_op, 0, self.hp.target_clip)
-      targets = tf.clip_by_value(targets, 0, self.hp.target_clip)
+      self.preds_op = tf.clip_by_value(self.preds_op, -self.hp.target_clip, self.hp.target_clip)
+      targets = tf.clip_by_value(targets, -self.hp.target_clip, self.hp.target_clip)
 
     # sqrt
     if self.hp.target_sqrt:
@@ -341,11 +350,16 @@ class SeqNN(seqnn_util.SeqNNModel):
       raise ValueError('Cannot identify loss function %s' % self.hp.loss)
 
     # reduce lossses by batch and position
-    loss_op = tf.reduce_mean(loss_op, axis=[0, 1], name='target_loss')
+    if self.hp.hic:
+      reduce_axes = [0, 1, 2]
+    else:
+      reduce_axes = [0, 1]
+
+    loss_op = tf.reduce_mean(loss_op, axis=reduce_axes, name='target_loss')
     loss_op = tf.check_numerics(loss_op, 'Invalid loss', name='loss_check')
 
     loss_adhoc = tf.reduce_mean(
-        loss_adhoc, axis=[0, 1], name='target_loss_adhoc')
+        loss_adhoc, axis=reduce_axes, name='target_loss_adhoc')
     tf.summary.histogram('target_loss', loss_op)
     for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
       tf.summary.scalar('loss_t%d' % ti, loss_op[ti])

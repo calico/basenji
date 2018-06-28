@@ -143,7 +143,8 @@ def make_data_ops(job, train_file, test_file):
         job['target_length'],
         job['num_targets'],
         mode=mode,
-        repeat=False)
+        repeat=False,
+        hic=job.get('hic',False))
 
   training_dataset = make_dataset(train_file, mode=tf.estimator.ModeKeys.TRAIN)
   test_dataset = make_dataset(test_file, mode=tf.estimator.ModeKeys.EVAL)

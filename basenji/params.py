@@ -104,6 +104,8 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
   hp.add_hparam('target_classes', job.get('target_classes', 1))
   hp.add_hparam('target_pool', job.get('target_pool', 1))
 
+  hp.add_hparam('hic', job.get('hic', False))
+
   ###################################################
   # batching
 

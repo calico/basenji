@@ -122,7 +122,7 @@ def main():
   contigs = []
   for chrom in chrom_contigs:
     contigs += [Contig(chrom, ctg_start, ctg_end)
-                 for ctg_start, ctg_end in chrom_contigs[chrom]]
+                for ctg_start, ctg_end in chrom_contigs[chrom]]
 
   # limit to a BED file
   if options.limit_bed is not None:
@@ -134,6 +134,10 @@ def main():
   # down-sample
   if options.sample_pct < 1.0:
     contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
+
+  # round to pooling boundaries
+  for ctg in contigs:
+    ctg.pool_round(options.pool_width)
 
   # print contigs to BED file
   ctg_bed_file = '%s/contigs.bed' % options.out_dir
@@ -219,25 +223,22 @@ def main():
     seqs_cov_stem = '%s/%d' % (seqs_cov_dir, ti)
     seqs_cov_file = '%s.h5' % seqs_cov_stem
 
-    if os.path.isfile(seqs_cov_file):
-      print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
-    else:
-      cmd = 'basenji_data_hic_read.py'
-      cmd += ' -w %d' % options.pool_width
-      cmd += ' %s' % genome_cov_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_file
+    cmd = 'basenji_data_hic_read.py'
+    cmd += ' -w %d' % options.pool_width
+    cmd += ' %s' % genome_cov_file
+    cmd += ' %s' % seqs_bed_file
+    cmd += ' %s' % seqs_cov_file
 
-      if options.run_local:
-        cmd += ' &> %s.err' % seqs_cov_stem
-        read_jobs.append(cmd)
-      else:
-        j = slurm.Job(cmd,
-            name='read_t%d' % ti,
-            out_file='%s.out' % seqs_cov_stem,
-            err_file='%s.err' % seqs_cov_stem,
-            queue='standard,tbdisk', mem=15000, time='12:0:0')
-        read_jobs.append(j)
+    if options.run_local:
+      cmd += ' &> %s.err' % seqs_cov_stem
+      read_jobs.append(cmd)
+    else:
+      j = slurm.Job(cmd,
+          name='read_t%d' % ti,
+          out_file='%s.out' % seqs_cov_stem,
+          err_file='%s.err' % seqs_cov_stem,
+          queue='standard,tbdisk', mem=15000, time='12:0:0')
+      read_jobs.append(j)
 
   if options.run_local:
     util.exec_par(read_jobs, options.processes, verbose=True)
@@ -273,8 +274,10 @@ def main():
       cmd = 'basenji_data_hic_write.py'
       cmd += ' -s %d' % tfr_start
       cmd += ' -e %d' % tfr_end
-      if options.unmap_bed is not None:
-        cmd += ' -u %s' % unmap_npy
+
+      # no unmappable for now
+      # if options.unmap_bed is not None:
+      #   cmd += ' -u %s' % unmap_npy
 
       cmd += ' %s' % fasta_file
       cmd += ' %s' % seqs_bed_file
@@ -380,13 +383,13 @@ def contig_sequences(contigs, seq_length, stride):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
 
-  for chrom, ctg_start, ctg_end in contigs:
-    seq_start = ctg_start
+  for ctg in contigs:
+    seq_start = ctg.start
     seq_end = seq_start + seq_length
 
-    while seq_end < ctg_end:
+    while seq_end < ctg.end:
       # record sequence
-      mseqs.append(ModelSeq(chrom, seq_start, seq_end))
+      mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end))
 
       # update
       seq_start += int(stride*seq_length)
@@ -564,6 +567,16 @@ def write_seqs_bed(bed_file, seqs, labels=None):
 ################################################################################
 Contig = collections.namedtuple('Contig', ['chr', 'start', 'end'])
 ModelSeq = collections.namedtuple('ModelSeq', ['chr', 'start', 'end'])
+
+class Contig:
+  def __init__(self, chr, start, end):
+    self.chr = chr
+    self.start = start
+    self.end = end
+
+  def pool_round(self, pool_width):
+    pool_index = np.ceil(self.start / pool_width)
+    self.start = int(pool_width*pool_index)
 
 
 ################################################################################

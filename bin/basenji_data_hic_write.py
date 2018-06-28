@@ -111,7 +111,7 @@ def main():
       seq_target_null = np.percentile(targets[si], q=[100*options.unmap_pct], axis=0)[0]
 
       # set unmappable positions to null
-      targets[si,unmap_mask[msi,:],:] = np.minimum(targets[si,unmap_mask[msi,:],:], seq_target_null)
+      targets[si,unmap_mask[msi,:],:,:] = np.minimum(targets[si,unmap_mask[msi,:],:,:], seq_target_null)
 
   ################################################################
   # write TFRecords

@@ -16,9 +16,12 @@
 
 from optparse import OptionParser
 
+import pdb
+
 import h5py
 import numpy as np
 
+import astropy.convolution as astroconv
 import cooler
 from cooltools.lib.numutils import observed_over_expected
 
@@ -66,8 +69,11 @@ def main():
   # open genome Hi-C file
   genome_hic_cool = cooler.Cooler(genome_hic_file)
 
+  # check for "chr" prefix
+  chr_pre = 'chr1' in genome_hic_cool.chromnames
+
   # assert that resolution matches
-  assert(options.pool_width, genome_hic_cool.info['bin-size'])
+  assert(options.pool_width == genome_hic_cool.info['bin-size'])
 
   # for each model sequence
   for si in range(num_seqs):
@@ -76,19 +82,31 @@ def main():
     # read Hi-C
     try:
       # pull values
-      mseq_str = '%s:%d-%s' % mseq.chr, mseq.start, mseq.end
+      if chr_pre:
+        mseq_str = '%s:%d-%d' % (mseq.chr, mseq.start, mseq.end)
+      else:
+        mseq_str = '%s:%d-%d' % (mseq.chr[3:], mseq.start, mseq.end)
       seq_hic_raw = genome_hic_cool.matrix(balance=True).fetch(mseq_str)
 
       # interpolate
       seq_hic_raw = interpolateNearest(seq_hic_raw)
 
+      # find minimum nonzero value
+      seq_hic_min = 2*np.min(seq_hic_raw[seq_hic_raw > 0])
+      seq_hic_raw += seq_hic_min
+
       # compute observed/expected
       seq_hic_nan = np.isnan(seq_hic_raw)
-      seq_hic_obsexp = observed_over_expected(seq_hic_raw+1e-9, ~seq_hic_nan)[0]
+      seq_hic_obsexp = observed_over_expected(seq_hic_raw, ~seq_hic_nan)[0]
 
-    except:
-      print("WARNING: %s doesn't see %s:%d-%d. Setting to all zeros." %
-            (genome_hic_file, mseq.chr, mseq.start, mseq.end))
+      # log
+      seq_hic_obsexp = np.log(seq_hic_obsexp)
+
+      # set nan to 0
+      seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
+
+    except ValueError:
+      print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
       seq_hic_obsexp = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
 
     # write
@@ -102,7 +120,8 @@ def interpolateNearest(mat):
   badBins = np.sum(np.isnan(mat),axis=0)==len(mat)
   singletons =(((np.sum(np.isnan(mat),axis=0)==len(mat)) * smooth(np.sum(np.isnan(mat),axis=0)!=len(mat),3  )) )  > 1/3
   locs = np.zeros(np.shape(mat)); locs[singletons,:]=1; locs[:,singletons] = 1
-  locs[badBins-singletons,:]=0; locs[:,badBins-singletons] = 0
+  bb_minus_single = (badBins.astype('int8')-singletons.astype('int8')).astype('bool')
+  locs[bb_minus_single,:]=0; locs[:,bb_minus_single] = 0
   locs = np.nonzero(locs)#np.isnan(mat))
   interpvals = np.zeros(np.shape(mat))
   for loc in zip(locs[0], locs[1]):

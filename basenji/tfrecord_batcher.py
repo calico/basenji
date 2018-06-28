@@ -166,7 +166,8 @@ def tfrecord_dataset(tfr_data_files_pattern,
                      num_targets,
                      mode,
                      use_static_batch_size=False,
-                     repeat=True):
+                     repeat=True,
+                     hic=False):
   """Load TFRecord format data.
 
   The tf.Example assumed to be ZLIB compressed with fields:
@@ -256,7 +257,10 @@ j   mode: a tf.estimator.ModeKeys instance
     seq = tf.cast(seq, tf.float32)
 
     label = tf.decode_raw(parsed_features[tfrecord_util.TFR_OUTPUT], tf.float16)
-    label = tf.reshape(label, [static_batch_size, target_length, num_targets])
+    if options.hic:
+      label = tf.reshape(label, [static_batch_size, target_length, target_length, num_targets])
+    else:
+      label = tf.reshape(label, [static_batch_size, target_length, num_targets])
     label = tf.cast(label, tf.float32)
 
     if use_static_batch_size:

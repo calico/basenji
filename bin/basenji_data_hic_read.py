@@ -92,7 +92,7 @@ def main():
       seq_hic_raw = interpolateNearest(seq_hic_raw)
 
       # find minimum nonzero value
-      seq_hic_min = 2*np.min(seq_hic_raw[seq_hic_raw > 0])
+      seq_hic_min = np.min(seq_hic_raw[seq_hic_raw > 0])
       seq_hic_raw += seq_hic_min
 
       # compute observed/expected

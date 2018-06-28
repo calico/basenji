@@ -16,8 +16,6 @@
 
 from optparse import OptionParser
 
-import pdb
-
 import h5py
 import numpy as np
 

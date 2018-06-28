@@ -565,7 +565,7 @@ def write_seqs_bed(bed_file, seqs, labels=None):
   bed_out.close()
 
 ################################################################################
-Contig = collections.namedtuple('Contig', ['chr', 'start', 'end'])
+# Contig = collections.namedtuple('Contig', ['chr', 'start', 'end'])
 ModelSeq = collections.namedtuple('ModelSeq', ['chr', 'start', 'end'])
 
 class Contig:
@@ -577,7 +577,6 @@ class Contig:
   def pool_round(self, pool_width):
     pool_index = np.ceil(self.start / pool_width)
     self.start = int(pool_width*pool_index)
-
 
 ################################################################################
 if __name__ == '__main__':

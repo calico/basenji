@@ -7,7 +7,7 @@ import sys
 
 import numpy as np
 import pandas as pd
-import zarr
+import h5py
 
 from google.cloud import bigquery
 
@@ -28,34 +28,34 @@ Run a Dash app to enable SAD queries.
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <sad_zarr_path>'
+    usage = 'usage: %prog [options] <sad_hdf5_path>'
     parser = OptionParser(usage)
-    parser.add_option('-c', dest='chrom_zarrs',
+    parser.add_option('-c', dest='chrom_hdf5',
         default=False, action='store_true',
-        help='Zarr files split by chromosome [Default: %default]')
+        help='HDF5 files split by chromosome [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 1:
-        parser.error('Must provide SAD zarr')
+        parser.error('Must provide SAD HDF5')
     else:
-        sad_zarr_path = args[0]
+        sad_hdf5_file = args[0]
 
     #############################################
     # precursors
 
     print('Preparing data.', flush=True)
 
-    chr_sad_zarr_open = {}
+    chr_sad_h5_open = {}
 
-    if not options.chrom_zarrs:
-        # open Zarr
-        sad_zarr_open = zarr.open_group(sad_zarr_path, 'r')
+    if not options.chrom_hdf5:
+        # open HDF5
+        sad_h5_open = h5py.File(sad_hdf5_file, 'r')
 
         # with one file, hash to a fake chromosome
-        chr_sad_zarr_open = {1: sad_zarr_open}
+        chr_sad_h5_open = {1: sad_h5_open}
 
         # hash SNP ids to indexes
-        snps = np.array(sad_zarr_open['snp'])
+        snps = np.array(sad_h5_open['snp'])
         snp_indexes = {}
         for i, snp_id in enumerate(snps):
             snp_indexes[snp_id] = (1, i)
@@ -65,31 +65,31 @@ def main():
         snp_indexes = {}
 
         for ci in range(1,23):
-            # open Zarr
-            # sad_zarr_open = zarr.open_group('%s/%d.zarr' % (sad_zarr_path,ci), 'r')
-            sad_zarr_open = zarr.open_group('%s/chr%d/sad_table.zarr' % (sad_zarr_path,ci), 'r')
+            # open HDF5
+            # sad_h5_open = h5py.File('%s/%d.h5' % (sad_hdf5_file,ci), 'r')
+            sad_h5_open = h5py.File('%s/chr%d/sad_table.h5' % (sad_hdf5_file,ci), 'r')
 
             # with one file, hash to a fake chromosome
-            chr_sad_zarr_open[ci] = sad_zarr_open
+            chr_sad_h5_open[ci] = sad_h5_open
 
             # hash SNP ids to indexes
-            snps = np.array(sad_zarr_open['snp'])
+            snps = np.array(sad_h5_open['snp'])
             for i, snp_id in enumerate(snps):
                 snp_indexes[snp_id] = (ci, i)
             del snps
 
-        # open chr1 Zarr for non-chr specific data
-        sad_zarr_open = chr_sad_zarr_open[1]
+        # open chr1 HDF5 for non-chr specific data
+        sad_h5_open = chr_sad_h5_open[1]
 
     # easy access to target information
-    target_ids = np.array(sad_zarr_open['target_ids'])
-    target_labels = np.array(sad_zarr_open['target_labels'])
+    target_ids = np.array(sad_h5_open['target_ids'])
+    target_labels = np.array(sad_h5_open['target_labels'])
 
     # read SAD percentile indexes into memory
-    sad_pct = np.array(sad_zarr_open['SAD_pct'])
+    sad_pct = np.array(sad_h5_open['SAD_pct'])
 
     # read percentiles
-    percentiles = np.around(sad_zarr_open['percentiles'], 3)
+    percentiles = np.around(sad_h5_open['percentiles'], 3)
     percentiles = np.append(percentiles, percentiles[-1])
 
     # initialize BigQuery client
@@ -193,12 +193,12 @@ def main():
 
     @memoized
     def read_sad(chrom, snp_i, verbose=True):
-        """Read SAD scores from Zarr for the given SNP index."""
+        """Read SAD scores from HDF5 for the given SNP index."""
         if verbose:
             print('Reading SAD!', file=sys.stderr)
 
         # read SAD
-        snp_sad = chr_sad_zarr_open[chrom]['SAD'][snp_i,:].astype('float64')
+        snp_sad = chr_sad_h5_open[chrom]['SAD'][snp_i,:].astype('float64')
 
         # compute percentile indexes
         snp_sadq = []

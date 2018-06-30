@@ -84,10 +84,13 @@ def main():
       default=0.05, type='str',
       help='Proportion of the data for testing [Default: %default]')
   parser.add_option('-u', dest='unmap_bed',
-      help='Unmappable segments to set to NA')
+      help='Unmappable regions in BED format')
   parser.add_option('--unmap_t', dest='unmap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
+  parser.add_option('--unmap_pct', dest='unmap_pct',
+      default=None, type='float',
+      help='Set unmappable regions to this percentile in the sequences\' distribution of values')
   parser.add_option('-w', dest='pool_width',
       default=128, type='int',
       help='Sum pool width [Default: %default]')
@@ -275,6 +278,8 @@ def main():
       cmd += ' -e %d' % tfr_end
       if options.unmap_bed is not None:
         cmd += ' -u %s' % unmap_npy
+      if options.unmap_pct is not None:
+        cmd += ' --unmap_pct %f' % options.unmap_pct
 
       cmd += ' %s' % fasta_file
       cmd += ' %s' % seqs_bed_file

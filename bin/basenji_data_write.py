@@ -47,7 +47,7 @@ def main():
   parser.add_option('-u', dest='unmap_npy',
       help='Unmappable array numpy file')
   parser.add_option('--unmap_pct', dest='unmap_pct',
-      default=0.25, type='float',
+      default=None, type='float',
       help='Sequence distribution value to set unmappable positions to.')
   (options, args) = parser.parse_args()
 
@@ -101,7 +101,7 @@ def main():
   ################################################################
   # modify unmappable
 
-  if options.unmap_npy is not None:
+  if options.unmap_npy is not None and options.unmap_pct is not None:
     unmap_mask = np.load(options.unmap_npy)
 
     for si in range(num_seqs):

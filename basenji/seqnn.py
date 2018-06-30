@@ -21,6 +21,7 @@ import time
 import numpy as np
 import tensorflow as tf
 
+from basenji import augmentation
 from basenji import layers
 from basenji import params
 from basenji import seqnn_util
@@ -43,6 +44,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def build_from_data_ops(self, job, data_ops,
                           augment_rc=False, augment_shifts=[],
+                          ensemble_rc=False, ensemble_shifts=[],
                           target_subset=None):
     """Build training ops from input data ops."""
     if not self.hparams_set:
@@ -52,19 +54,32 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.inputs = data_ops['sequence']
     self.targets_na = data_ops['na']
 
+    # training data_ops w/ stochastic augmentation
+    data_ops_train, transform_repr_train = augmentation.augment_stochastic(
+        data_ops, augment_rc, augment_shifts)
+
+    # eval data ops w/ deterministic augmentation
+    data_ops_eval, transform_repr_eval = augmentation.augment_deterministic(
+        data_ops, ensemble_rc, ensemble_shifts)
+
     # training conditional
     self.is_training = tf.placeholder(tf.bool, name='is_training')
 
-    # active only via basenji_train_queues.py for TFRecords
-    if augment_rc or len(augment_shifts) > 0:
-      # augment data ops
-      data_ops_aug, _ = tfrecord_batcher.data_augmentation_from_data_ops(
-          data_ops, augment_rc, augment_shifts)
+    # condition on training
+    data_ops_list = tf.cond(self.is_training,
+                            lambda: [data_ops_train],
+                            lambda: data_ops_eval)
+    transform_repr_list = tf.cond(self.is_training,
+                                  lambda: [transform_repr_train],
+                                  lambda: transform_repr_eval)
 
-      # condition on training
-      data_ops = tf.cond(self.is_training, lambda: data_ops_aug, lambda: data_ops)
+    # compute representation for every input
+    def repr_i(i):
+      return transform_repr_list[i](self.build_representation(data_ops_list[i]))
+    seqs_repr_list = tf.map_fn(repr_i, tf.range(len(data_ops_list)))
+    seqs_repr = tf.reduce_mean(seqs_repr_list)
+    # seqs_repr = self.build_representation(data_ops, target_subset)
 
-    seqs_repr = self.build_representation(data_ops, target_subset)
     self.loss_op, self.loss_adhoc = self.build_loss(seqs_repr, data_ops, target_subset)
     self.build_optimizer(self.loss_op)
 

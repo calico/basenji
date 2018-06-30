@@ -57,7 +57,7 @@ def shift_sequence(seq, shift_amount, pad_value):
   return output
 
 # TODO(dbelanger) change inputs to be (features, labels) like for Estimator.
-def rc_data_augmentation(dataset):
+def rc_data_augmentation(dataset, stochastic=False):
   """Apply reverse complement to seq and flip label/na along the time axis.
 
   Args:
@@ -71,13 +71,20 @@ def rc_data_augmentation(dataset):
   """
   seq, label, na = [dataset[k] for k in ['sequence', 'label', 'na']]
 
-  do_flip = tf.random_uniform(shape=[]) > 0.5
-  seq, label, na = tf.cond(do_flip, lambda: ops.reverse_complement_transform(seq, label, na),
-                           lambda: (seq, label, na))
+  if stochastic:
+    do_flip = tf.random_uniform(shape=[]) > 0.5
+    seq, label, na = tf.cond(do_flip, lambda: ops.reverse_complement_transform(seq, label, na),
+                                      lambda: (seq, label, na))
 
-  def process_predictions_fn(predictions):
-    return tf.cond(do_flip, lambda: tf.reverse(predictions, axis=[1]),
-                               lambda: predictions)
+    def process_predictions_fn(predictions):
+      return tf.cond(do_flip, lambda: tf.reverse(predictions, axis=[1]),
+                              lambda: predictions)
+
+  else:
+    seq, label, na = ops.reverse_complement_transform(seq, label, na)
+
+    def process_predictions_fn(predictions):
+      return lambda: tf.reverse(predictions, axis=[1])
 
   transformed_dataset = {'sequence': seq, 'label': label, 'na': na}
   return transformed_dataset, process_predictions_fn

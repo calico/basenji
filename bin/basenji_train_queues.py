@@ -57,7 +57,9 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
 
   # initialize model
   model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops, FLAGS.augment_rc, augment_shifts)
+  model.build_from_data_ops(job, data_ops,
+                            FLAGS.augment_rc, augment_shifts,
+                            FLAGS.ensemble_rc, ensemble_shifts)
 
   # checkpoints
   saver = tf.train.Saver()

@@ -55,13 +55,11 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.targets_na = data_ops['na']
 
     # training data_ops w/ stochastic augmentation
-    data_ops_train, transform_repr_train = augmentation.augment_stochastic(
+    data_ops_train = augmentation.augment_stochastic(
         data_ops, augment_rc, augment_shifts)
-    data_ops_train = [data_ops_train]
-    transform_repr_train = [transform_repr_train]
 
     # eval data ops w/ deterministic augmentation
-    data_ops_eval, transform_repr_eval = augmentation.augment_deterministic_set(
+    data_ops_eval = augmentation.augment_deterministic_set(
         data_ops, ensemble_rc, ensemble_shifts)
 
     # training conditional
@@ -69,16 +67,12 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # condition on training
     data_ops_list = tf.cond(self.is_training,
-                            lambda: data_ops_train,
-                            lambda: data_ops_eval, strict=False)
-    transform_repr_list = tf.cond(self.is_training,
-                                  lambda: transform_repr_train,
-                                  lambda: transform_repr_eval, strict=False)
+                            lambda: [data_ops_train],
+                            lambda: data_ops_eval, strict=True)
 
     # compute representation for every input
-    map_elems = (data_ops_list, transform_repr_list)
-    build_rep = lambda me: self.build_representation(me[0], me[1], target_subset)
-    seqs_repr_list = tf.map_fn(build_rep, map_elems)  # back_prop=False
+    build_rep = lambda do: self.build_representation(do, target_subset)
+    seqs_repr_list = tf.map_fn(build_rep, data_ops_list)  # back_prop=False
     seqs_repr = tf.reduce_mean(seqs_repr_list)
     # seqs_repr = self.build_representation(data_ops, target_subset)
 
@@ -128,7 +122,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'name': 'conv-%d' % layer_index
     }
 
-  def build_representation(self, data_ops, transform_preds_fn=lambda x: x, target_subset=None):
+  def build_representation(self, data_ops, target_subset=None):
     """Construct per-location real-valued predictions."""
     inputs = data_ops['sequence']
     assert inputs is not None
@@ -217,7 +211,9 @@ class SeqNN(seqnn_util.SeqNNModel):
 
 
     # transform for reverse complement
-    final_repr = transform_preds_fn(final_repr)
+    final_repr = tf.cond(data_ops['reverse_preds'],
+                         lambda: tf.reverse(final_repr, axis=1),
+                         lambda: final_repr)
 
     return final_repr
 

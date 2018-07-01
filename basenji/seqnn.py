@@ -54,6 +54,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.inputs = data_ops['sequence']
     self.targets_na = data_ops['na']
 
+    # training conditional
+    self.is_training = tf.placeholder(tf.bool, name='is_training')
+
     # training data_ops w/ stochastic augmentation
     data_ops_train = augmentation.augment_stochastic(
         data_ops, augment_rc, augment_shifts)
@@ -62,19 +65,17 @@ class SeqNN(seqnn_util.SeqNNModel):
     data_ops_eval = augmentation.augment_deterministic_set(
         data_ops, ensemble_rc, ensemble_shifts)
 
-    # training conditional
-    self.is_training = tf.placeholder(tf.bool, name='is_training')
+    # compute train representation
+    seqs_repr_train = self.build_representation(data_ops_train, target_subset)
 
-    # condition on training
-    data_ops_list = tf.cond(self.is_training,
-                            lambda: [data_ops_train],
-                            lambda: data_ops_eval, strict=True)
+    pdb.set_trace()
 
-    # compute representation for every input
+    # compute eval representation
     build_rep = lambda do: self.build_representation(do, target_subset)
-    seqs_repr_list = tf.map_fn(build_rep, data_ops_list)  # back_prop=False
-    seqs_repr = tf.reduce_mean(seqs_repr_list)
-    # seqs_repr = self.build_representation(data_ops, target_subset)
+    seqs_repr_list = tf.map_fn(build_rep, data_ops_eval, dtype=seqs_repr_train.dtype)  # back_prop=False
+    seqs_repr_eval = tf.reduce_mean(seqs_repr_list)
+
+    seqs_repr = tf.cond(self.is_training, lambda: seqs_repr_train, lambda: seqs_repr_eval)
 
     self.loss_op, self.loss_adhoc = self.build_loss(seqs_repr, data_ops, target_subset)
     self.build_optimizer(self.loss_op)
@@ -209,10 +210,9 @@ class SeqNN(seqnn_util.SeqNNModel):
                                 (self.hp.batch_size, -1, self.hp.num_targets,
                                  self.hp.target_classes))
 
-
     # transform for reverse complement
     final_repr = tf.cond(data_ops['reverse_preds'],
-                         lambda: tf.reverse(final_repr, axis=1),
+                         lambda: tf.reverse(final_repr, axis=[1]),
                          lambda: final_repr)
 
     return final_repr

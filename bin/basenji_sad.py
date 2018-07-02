@@ -413,12 +413,13 @@ def initialize_output_h5(out_dir, snps, target_ids, target_labels):
   """Initialize an output HDF5 file for SAD stats."""
 
   num_targets = len(target_ids)
-  nump_snps = len(snps)
+  num_snps = len(snps)
 
   sad_out = h5py.File('%s/sad.h5' % out_dir, 'w')
 
   # write SNPs
-  sad_out.create_dataset('snp', data=[snp.rsid for snp in snps])
+  snp_ids = np.array([snp.rsid for snp in snps], 'S')
+  sad_out.create_dataset('snp', data=snp_ids)
 
   # write targets
   sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))

@@ -21,6 +21,7 @@ import os
 import sys
 import time
 
+import h5py
 import numpy as np
 import pysam
 import tensorflow as tf
@@ -55,6 +56,9 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
       help='Chromosome lengths file [Default: %default]')
+  parser.add_option('--h5', dest='out_h5',
+      default=False, action='store_true',
+      help='Output stats to sad.h5 [Default: %default]')
   parser.add_option('-l', dest='seq_len',
       default=131072, type='int',
       help='Sequence length provided to the model [Default: %default]')
@@ -88,9 +92,9 @@ def main():
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
-  parser.add_option('-z', dest='zarr',
+  parser.add_option('-z', dest='out_zarr',
       default=False, action='store_true',
-      help='Output max SAR to sad.zarr [Default: %default]')
+      help='Output stats to sad.zarr [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -214,23 +218,11 @@ def main():
                   'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
                   'target_index', 'target_id', 'target_label')
 
-  if options.zarr:
-    sad_out = zarr.open_group('%s/sad_table.zarr' % options.out_dir, 'w')
+  if options.out_h5:
+    sad_out = initialize_output_h5(options.out_dir, snps, target_ids, target_labels)
 
-    # write SNPs
-    sad_out.create_dataset('snp', data=[snp.rsid for snp in snps], chunks=(32768,))
-
-    # write targets
-    sad_out.create_dataset('target_ids', data=target_ids, compressor=None)
-    sad_out.create_dataset('target_labels', data=target_labels, compressor=None)
-
-    # initialize SAD stats
-    sad_stats = ['SAD', 'xSAR']
-    for sad_stat in sad_stats:
-      sad_out.create_dataset(sad_stat,
-          shape=(num_snps, num_targets),
-          chunks=(128, num_targets),
-          dtype='float16')
+  elif options.out_zarr:
+    sad_out = initialize_output_zarr(options.out_dir, snps, target_ids, target_labels)
 
   else:
     if options.csv:
@@ -334,8 +326,7 @@ def main():
           # compute max difference position
           max_li = np.argmax(np.abs(sar_vec), axis=0)
 
-          if options.zarr:
-            # write to zarr
+          if options.out_h5 or options.out_zarr:
             sad_out['SAD'][szi,:] = sad
             sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)])
             szi += 1
@@ -370,14 +361,14 @@ def main():
       batch_1hot, batch_snps, snp_i = snps_next_batch(
           snps, snp_i, options.batch_size, options.seq_len, genome_open)
 
-  if not options.zarr:
+  if not options.out_zarr:
     sad_out.close()
 
 
   ###################################################
   # compute SAD distributions across variants
 
-  if options.zarr:
+  if options.out_h5 or options.out_zarr:
     # define percentiles
     d_fine = 0.001
     d_coarse = 0.01
@@ -393,8 +384,7 @@ def main():
       sad_stat_pct = '%s_pct' % sad_stat
 
       # initialize
-      sad_out.create_dataset(sad_stat_pct, dtype='float16',
-          shape=(num_targets, pct_len), chunks=(1, pct_len))
+      sad_out.create_dataset(sad_stat_pct, dtype='float16', shape=(num_targets, pct_len))
 
       # compute
       sad_out[sad_stat_pct] = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
@@ -418,6 +408,57 @@ def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
 
   bw_open.close()
 
+
+def initialize_output_h5(out_dir, snps, target_ids, target_labels):
+  """Initialize an output HDF5 file for SAD stats."""
+
+  num_targets = len(target_ids)
+  nump_snps = len(snps)
+
+  sad_out = h5py.File('%s/sad.h5' % out_dir, 'w')
+
+  # write SNPs
+  sad_out.create_dataset('snp', data=[snp.rsid for snp in snps])
+
+  # write targets
+  sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))
+  sad_out.create_dataset('target_labels', data=np.array(target_labels, 'S'))
+
+  # initialize SAD stats
+  sad_stats = ['SAD', 'xSAR']
+  for sad_stat in sad_stats:
+    sad_out.create_dataset(sad_stat,
+        shape=(num_snps, num_targets),
+        dtype='float16',
+        compression=None)
+
+  return sad_out
+
+
+def initialize_output_zarr(out_dir, snps, target_ids, target_labels):
+  """Initialize an output Zarr file for SAD stats."""
+
+  num_targets = len(target_ids)
+  nump_snps = len(snps)
+
+  sad_out = zarr.open_group('%s/sad.zarr' % out_dir, 'w')
+
+  # write SNPs
+  sad_out.create_dataset('snp', data=[snp.rsid for snp in snps], chunks=(32768,))
+
+  # write targets
+  sad_out.create_dataset('target_ids', data=target_ids, compressor=None)
+  sad_out.create_dataset('target_labels', data=target_labels, compressor=None)
+
+  # initialize SAD stats
+  sad_stats = ['SAD', 'xSAR']
+  for sad_stat in sad_stats:
+    sad_out.create_dataset(sad_stat,
+        shape=(num_snps, num_targets),
+        chunks=(128, num_targets),
+        dtype='float16')
+
+  return sad_out
 
 
 def snps_next_batch(snps, snp_i, batch_size, seq_len, genome_open):

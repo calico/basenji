@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 
+import h5py
 import numpy as np
 import zarr
 
@@ -53,6 +54,9 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
       help='Chromosome lengths file [Default: %default]')
+  parser.add_option('--h5', dest='out_h5',
+      default=False, action='store_true',
+      help='Output stats to sad.h5 [Default: %default]')
   parser.add_option('-l', dest='seq_len',
       default=131072, type='int',
       help='Sequence length provided to the model [Default: %default]')
@@ -92,9 +96,9 @@ def main():
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
-  parser.add_option('-z', dest='zarr',
+  parser.add_option('-z', dest='out_zarr',
       default=False, action='store_true',
-      help='Output max SAR to sad.zarr [Default: %default]')
+      help='Output stats to sad.zarr [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -136,13 +140,17 @@ def main():
           mem=15000, time='7-0:0:0')
       jobs.append(j)
 
-  slurm.multi_run(jobs, max_proc=options.processes, verbose=True, sleep_time=60)
+  slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
+                  launch_sleep=10, update_sleep=60)
 
   #######################################################
   # collect output
 
-  if options.zarr:
-    collect_zarr('sad_table.zarr', options.out_dir, options.processes)
+  if options.out_h5:
+    collect_h5('sad.h5', options.out_dir, options.processes)
+
+  if options.out_zarr:
+    collect_zarr('sad.zarr', options.out_dir, options.processes)
 
   else:
     collect_table('sad_table.txt', options.out_dir, options.processes)
@@ -158,6 +166,42 @@ def collect_table(file_name, out_dir, num_procs):
         'tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, pi, file_name, out_dir,
                                              file_name),
         shell=True)
+
+
+def collect_h5(file_name, out_dir, num_procs):
+  final_h5_file = '%s/%s' % (out_dir, file_name)
+
+  # seed w/ job0
+  job_h5_file = '%s/job0/%s' % (out_dir, file_name)
+  shutil.copytree(job_h5_file, final_h5_file)
+
+  # open final
+  final_h5_open = h5py.File(final_h5_file, 'rw')
+
+  for pi in range(1, num_procs):
+    # open job
+    job_h5_file = '%s/job%d/%s' % (out_dir, pi, file_name)
+    job_h5_open = h5py.open_group(job_h5_file, 'r')
+
+    # append to final
+    for key in final_h5_open.keys():
+      if key in ['percentiles', 'target_ids', 'target_labels']:
+        # once is enough
+        pass
+
+      elif key[-4:] == '_pct':
+        # average
+        u_k1 = np.array(final_h5_open[key])
+        x_k = np.array(job_h5_open[key])
+        final_h5_open[key] = u_k1 + (x_k - u_k1) / (pi+1)
+
+      else:
+        # append
+        final_h5_open[key].append(job_h5_open[key])
+
+    job_h5_open.close()
+
+  final_h5_open.close()
 
 
 def collect_zarr(file_name, out_dir, num_procs):

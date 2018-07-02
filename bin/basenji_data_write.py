@@ -44,11 +44,11 @@ def main():
   parser.add_option('-e', dest='end_i',
       default=None, type='int',
       help='Sequence end index [Default: %default]')
-  parser.add_option('-u', dest='unmap_npy',
+  parser.add_option('-u', dest='umap_npy',
       help='Unmappable array numpy file')
-  parser.add_option('--unmap_pct', dest='unmap_pct',
+  parser.add_option('--umap_set', dest='umap_set',
       default=None, type='float',
-      help='Sequence distribution value to set unmappable positions to.')
+      help='Sequence distribution value to set unmappable positions to, eg 0.25.')
   (options, args) = parser.parse_args()
 
   if len(args) != 4:
@@ -101,14 +101,14 @@ def main():
   ################################################################
   # modify unmappable
 
-  if options.unmap_npy is not None and options.unmap_pct is not None:
-    unmap_mask = np.load(options.unmap_npy)
+  if options.umap_npy is not None and options.umap_set is not None:
+    unmap_mask = np.load(options.umap_npy)
 
     for si in range(num_seqs):
       msi = options.start_i + si
 
       # determine unmappable null value
-      seq_target_null = np.percentile(targets[si], q=[100*options.unmap_pct], axis=0)[0]
+      seq_target_null = np.percentile(targets[si], q=[100*options.umap_set], axis=0)[0]
 
       # set unmappable positions to null
       targets[si,unmap_mask[msi,:],:] = np.minimum(targets[si,unmap_mask[msi,:],:], seq_target_null)

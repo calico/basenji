@@ -83,12 +83,12 @@ def main():
   parser.add_option('-t', dest='test_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for testing [Default: %default]')
-  parser.add_option('-u', dest='unmap_bed',
+  parser.add_option('-u', dest='umap_bed',
       help='Unmappable regions in BED format')
-  parser.add_option('--unmap_t', dest='unmap_t',
+  parser.add_option('--umap_t', dest='umap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
-  parser.add_option('--unmap_pct', dest='unmap_pct',
+  parser.add_option('--umap_set', dest='umap_set',
       default=None, type='float',
       help='Set unmappable regions to this percentile in the sequences\' distribution of values')
   parser.add_option('-w', dest='pool_width',
@@ -185,13 +185,13 @@ def main():
   ################################################################
   # mappability
   ################################################################
-  if options.unmap_bed is not None:
+  if options.umap_bed is not None:
     # annotate unmappable positions
-    mseqs_unmap = annotate_unmap(mseqs, options.unmap_bed,
+    mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
                                  options.seq_length, options.pool_width)
 
     # filter unmappable
-    mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.unmap_t)
+    mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
     mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
     mseqs_labels = [mseqs_labels[i] for i in range(len(mseqs_labels)) if mseqs_map_mask[i]]
     mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
@@ -276,10 +276,10 @@ def main():
       cmd = 'basenji_data_write.py'
       cmd += ' -s %d' % tfr_start
       cmd += ' -e %d' % tfr_end
-      if options.unmap_bed is not None:
+      if options.umap_bed is not None:
         cmd += ' -u %s' % unmap_npy
-      if options.unmap_pct is not None:
-        cmd += ' --unmap_pct %f' % options.unmap_pct
+      if options.umap_set is not None:
+        cmd += ' --umap_set %f' % options.umap_set
 
       cmd += ' %s' % fasta_file
       cmd += ' %s' % seqs_bed_file

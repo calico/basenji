@@ -361,10 +361,6 @@ def main():
       batch_1hot, batch_snps, snp_i = snps_next_batch(
           snps, snp_i, options.batch_size, options.seq_len, genome_open)
 
-  if not options.out_zarr:
-    sad_out.close()
-
-
   ###################################################
   # compute SAD distributions across variants
 
@@ -388,6 +384,9 @@ def main():
 
       # compute
       sad_out[sad_stat_pct] = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
+
+  if not options.out_zarr:
+    sad_out.close()
 
 
 def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):

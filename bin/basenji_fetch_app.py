@@ -58,6 +58,7 @@ def main():
         snps = np.array(sad_h5_open['snp'])
         snp_indexes = {}
         for i, snp_id in enumerate(snps):
+            snp_id = snp_id.decode('UTF-8')
             snp_indexes[snp_id] = (1, i)
         del snps
 
@@ -75,6 +76,7 @@ def main():
             # hash SNP ids to indexes
             snps = np.array(sad_h5_open['snp'])
             for i, snp_id in enumerate(snps):
+                snp_id = snp_id.decode('UTF-8')
                 snp_indexes[snp_id] = (ci, i)
             del snps
 
@@ -82,8 +84,8 @@ def main():
         sad_h5_open = chr_sad_h5_open[1]
 
     # easy access to target information
-    target_ids = np.array(sad_h5_open['target_ids'])
-    target_labels = np.array(sad_h5_open['target_labels'])
+    target_ids = np.array([tl.decode('UTF-8') for tl in sad_h5_open['target_ids']])
+    target_labels = np.array([tl.decode('UTF-8') for tl in sad_h5_open['target_labels']])
 
     # read SAD percentile indexes into memory
     sad_pct = np.array(sad_h5_open['SAD_pct'])

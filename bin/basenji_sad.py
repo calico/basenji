@@ -444,7 +444,7 @@ def initialize_output_zarr(out_dir, sad_stats, snps, target_ids, target_labels):
   """Initialize an output Zarr file for SAD stats."""
 
   num_targets = len(target_ids)
-  nump_snps = len(snps)
+  num_snps = len(snps)
 
   sad_out = zarr.open_group('%s/sad.zarr' % out_dir, 'w')
 

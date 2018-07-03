@@ -87,6 +87,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('--stats', dest='sad_stats',
+      default='SAD,xSAR',
+      help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')

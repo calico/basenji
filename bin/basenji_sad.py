@@ -83,6 +83,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('--stats', dest='sad_stats',
+      default='SAD,xSAR',
+      help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
@@ -133,6 +136,7 @@ def main():
       os.mkdir('%s/tracks' % options.out_dir)
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
+  options.sad_stats = options.sad_stats.split(',')
 
   #################################################################
   # setup model
@@ -219,10 +223,12 @@ def main():
                   'target_index', 'target_id', 'target_label')
 
   if options.out_h5:
-    sad_out = initialize_output_h5(options.out_dir, snps, target_ids, target_labels)
+    sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
+                                   snps, target_ids, target_labels)
 
   elif options.out_zarr:
-    sad_out = initialize_output_zarr(options.out_dir, snps, target_ids, target_labels)
+    sad_out = initialize_output_zarr(options.out_dir, options.sad_stats,
+                                     snps, target_ids, target_labels)
 
   else:
     if options.csv:
@@ -376,14 +382,14 @@ def main():
     sad_out.create_dataset('percentiles', data=percentiles)
     pct_len = len(percentiles)
 
-    for sad_stat in sad_stats:
+    for sad_stat in options.sad_stats:
       sad_stat_pct = '%s_pct' % sad_stat
 
-      # initialize
-      sad_out.create_dataset(sad_stat_pct, dtype='float16', shape=(num_targets, pct_len))
-
       # compute
-      sad_out[sad_stat_pct] = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
+      sad_pct = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
+
+      # save
+      sad_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')
 
   if not options.out_zarr:
     sad_out.close()
@@ -408,7 +414,7 @@ def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
   bw_open.close()
 
 
-def initialize_output_h5(out_dir, snps, target_ids, target_labels):
+def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
   """Initialize an output HDF5 file for SAD stats."""
 
   num_targets = len(target_ids)
@@ -425,7 +431,6 @@ def initialize_output_h5(out_dir, snps, target_ids, target_labels):
   sad_out.create_dataset('target_labels', data=np.array(target_labels, 'S'))
 
   # initialize SAD stats
-  sad_stats = ['SAD', 'xSAR']
   for sad_stat in sad_stats:
     sad_out.create_dataset(sad_stat,
         shape=(num_snps, num_targets),
@@ -435,7 +440,7 @@ def initialize_output_h5(out_dir, snps, target_ids, target_labels):
   return sad_out
 
 
-def initialize_output_zarr(out_dir, snps, target_ids, target_labels):
+def initialize_output_zarr(out_dir, sad_stats, snps, target_ids, target_labels):
   """Initialize an output Zarr file for SAD stats."""
 
   num_targets = len(target_ids)
@@ -451,7 +456,6 @@ def initialize_output_zarr(out_dir, snps, target_ids, target_labels):
   sad_out.create_dataset('target_labels', data=target_labels, compressor=None)
 
   # initialize SAD stats
-  sad_stats = ['SAD', 'xSAR']
   for sad_stat in sad_stats:
     sad_out.create_dataset(sad_stat,
         shape=(num_snps, num_targets),

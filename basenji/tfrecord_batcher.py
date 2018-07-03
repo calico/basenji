@@ -127,7 +127,7 @@ def tfrecord_dataset(tfr_data_files_pattern,
     seq = tf.cast(seq, tf.float32)
 
     label = tf.decode_raw(parsed_features[tfrecord_util.TFR_OUTPUT], tf.float16)
-    if options.hic:
+    if hic:
       label = tf.reshape(label, [static_batch_size, target_length, target_length, num_targets])
     else:
       label = tf.reshape(label, [static_batch_size, target_length, num_targets])

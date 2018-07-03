@@ -27,7 +27,7 @@ class SeqNNModel(object):
     self.grad_ops = []
 
     for ti in range(self.hp.num_targets):
-      grad_ti_op = tf.gradients(self.preds_op[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
+      grad_ti_op = tf.gradients(self.preds_eval[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
       self.grad_ops.append(grad_ti_op)
 
 
@@ -60,7 +60,7 @@ class SeqNNModel(object):
       if pi in tss_pos:
         # build position-specific, target-specific gradient ops
         for ti in range(self.hp.num_targets):
-          grad_piti_op = tf.gradients(self.preds_op[:,pi,ti],
+          grad_piti_op = tf.gradients(self.preds_eval[:,pi,ti],
                                       [self.layer_reprs[li] for li in self.grad_layers])
           self.grad_pos_ops[-1].append(grad_piti_op)
 
@@ -312,7 +312,7 @@ class SeqNNModel(object):
         # prediction
 
         # predict
-        preds_ei, layer_reprs_ei = sess.run([self.preds_op, self.layer_reprs], feed_dict=fd)
+        preds_ei, layer_reprs_ei = sess.run([self.preds_eval, self.layer_reprs], feed_dict=fd)
 
         # reverse
         if ensemble_fwdrc[ei] is False:
@@ -451,7 +451,7 @@ class SeqNNModel(object):
       fd[self.inputs] = Xb
 
       # predict
-      reprs_batch, _ = sess.run([self.layer_reprs, self.preds_op], feed_dict=fd)
+      reprs_batch, _ = sess.run([self.layer_reprs, self.preds_eval], feed_dict=fd)
 
       # save representations
       for lii in range(len(self.grad_layers)):
@@ -511,7 +511,7 @@ class SeqNNModel(object):
 
       # compute predictions
       layer_reprs_batch, preds_batch = sess.run(
-          [self.layer_reprs, self.preds_op], feed_dict=fd)
+          [self.layer_reprs, self.preds_eval], feed_dict=fd)
 
       # accumulate representationsmakes the number of members for self smaller and also
       for li in layers:
@@ -599,7 +599,7 @@ class SeqNNModel(object):
         if penultimate:
           preds_ei = sess.run(self.penultimate_op, feed_dict=fd)
         else:
-          preds_ei = sess.run(self.preds_op, feed_dict=fd)
+          preds_ei = sess.run(self.preds_eval, feed_dict=fd)
 
         # reverse
         if ensemble_fwdrc[ei] is False:
@@ -866,8 +866,8 @@ class SeqNNModel(object):
     while data_available and (test_batches is None or batch_num < test_batches):
       try:
         # make non-ensembled predictions
-        run_ops = [self.targets_op, self.preds_op,
-                   self.loss_op, self.target_losses]
+        run_ops = [self.targets_eval, self.preds_eval,
+                   self.loss_eval, self.loss_eval_targets]
         run_returns = sess.run(run_ops, feed_dict=fd)
         targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
 
@@ -974,7 +974,7 @@ class SeqNNModel(object):
       # recompute loss w/ ensembled prediction
       fd[self.preds_adhoc] = preds_batch
       targets_batch, loss_batch, target_losses_batch = sess.run(
-          [self.targets_op, self.loss_adhoc, self.target_losses_adhoc],
+          [self.targets_train, self.loss_adhoc, self.target_losses_adhoc],
           feed_dict=fd)
 
       # accumulate predictions and targets

@@ -57,28 +57,44 @@ class SeqNN(seqnn_util.SeqNNModel):
     # training conditional
     self.is_training = tf.placeholder(tf.bool, name='is_training')
 
+    ##################################################
+    # training
+
     # training data_ops w/ stochastic augmentation
     data_ops_train = augmentation.augment_stochastic(
         data_ops, augment_rc, augment_shifts)
 
+    # compute train representation
+    seqs_repr_train = self.build_representation(data_ops_train['sequence'],
+                                                None, target_subset)
+
+    # training losses
+    loss_returns = self.build_loss(seqs_repr_train, data_ops_train, target_subset)
+    self.loss_train, self.loss_train_targets, self.preds_train, self.targets_train = loss_returns
+
+    # optimizer
+    self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    self.build_optimizer(self.loss_train)
+
+    ##################################################
+    # eval
+
     # eval data ops w/ deterministic augmentation
     data_ops_eval = augmentation.augment_deterministic_set(
         data_ops, ensemble_rc, ensemble_shifts)
-
-    # compute train representation
-    seqs_repr_train = self.build_representation(data_ops_train, target_subset)
-
-    pdb.set_trace()
+    data_seq_eval = tf.stack([do['sequence'] for do in data_ops_eval])
+    data_rev_eval = tf.stack([do['reverse_preds'] for do in data_ops_eval])
 
     # compute eval representation
-    build_rep = lambda do: self.build_representation(do, target_subset)
-    seqs_repr_list = tf.map_fn(build_rep, data_ops_eval, dtype=seqs_repr_train.dtype)  # back_prop=False
-    seqs_repr_eval = tf.reduce_mean(seqs_repr_list)
+    map_elems_eval = (data_seq_eval, data_rev_eval)
+    build_rep = lambda do: self.build_representation(do[0], do[1], target_subset)
+    seqs_repr_list = tf.map_fn(build_rep, map_elems_eval, dtype=seqs_repr_train.dtype)  # back_prop=False
+    seqs_repr_eval = tf.reduce_mean(seqs_repr_list, axis=0)
 
-    seqs_repr = tf.cond(self.is_training, lambda: seqs_repr_train, lambda: seqs_repr_eval)
+    # eval loss
+    loss_returns = self.build_loss(seqs_repr_eval, data_ops, target_subset)
+    self.loss_eval, self.loss_eval_targets, self.preds_eval, self.targets_eval = loss_returns
 
-    self.loss_op, self.loss_adhoc = self.build_loss(seqs_repr, data_ops, target_subset)
-    self.build_optimizer(self.loss_op)
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
@@ -109,7 +125,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     }
     return data
 
-  def _make_conv_block_args(self, layer_index):
+  def _make_conv_block_args(self, layer_index, layer_reprs):
     """Packages arguments to be used by layers.conv_block."""
     return {
         'conv_params': self.hp.cnn_params[layer_index],
@@ -119,36 +135,38 @@ class SeqNN(seqnn_util.SeqNNModel):
         'batch_renorm': self.hp.batch_renorm,
         'batch_renorm_momentum': self.hp.batch_renorm_momentum,
         'l2_scale': self.hp.cnn_l2_scale,
-        'layer_reprs': self.layer_reprs,
+        'layer_reprs': layer_reprs,
         'name': 'conv-%d' % layer_index
     }
 
-  def build_representation(self, data_ops, target_subset=None):
+  def build_representation(self, inputs, reverse_preds=None, target_subset=None):
     """Construct per-location real-valued predictions."""
-    inputs = data_ops['sequence']
     assert inputs is not None
-
     print('Targets pooled by %d to length %d' %
           (self.hp.target_pool, self.hp.seq_length // self.hp.target_pool))
 
     ###################################################
     # convolution layers
     ###################################################
-    self.filter_weights = []
-    self.layer_reprs = [inputs]
+    filter_weights = []
+    layer_reprs = [inputs]
 
     seqs_repr = inputs
     for layer_index in range(self.hp.cnn_layers):
-      with tf.variable_scope('cnn%d' % layer_index):
+      with tf.variable_scope('cnn%d' % layer_index, reuse=tf.AUTO_REUSE):
         # convolution block
-        args_for_block = self._make_conv_block_args(layer_index)
+        args_for_block = self._make_conv_block_args(layer_index, layer_reprs)
         seqs_repr = layers.conv_block(seqs_repr=seqs_repr, **args_for_block)
 
         # save representation
-        self.layer_reprs.append(seqs_repr)
+        layer_reprs.append(seqs_repr)
 
     # final nonlinearity
     seqs_repr = tf.nn.relu(seqs_repr)
+
+    ###################################################
+    # slice out side buffer
+    ###################################################
 
     # update batch buffer to reflect pooling
     seq_length = seqs_repr.shape[1].value
@@ -158,26 +176,18 @@ class SeqNN(seqnn_util.SeqNNModel):
         ' by the CNN pooling %d') % (self.hp.batch_buffer, pool_preds)
     batch_buffer_pool = self.hp.batch_buffer // pool_preds
 
-
-    ###################################################
-    # slice out side buffer
-    ###################################################
-
-    # predictions
+    # slice out buffer
     seq_length = seqs_repr.shape[1]
     seqs_repr = seqs_repr[:, batch_buffer_pool:
                           seq_length - batch_buffer_pool, :]
-    seq_length = seqs_repr.shape[1].value
-    self.preds_length = seq_length
 
     # save penultimate representation
-    self.penultimate_op = seqs_repr
-
+    # self.penultimate_op = seqs_repr
 
     ###################################################
     # final layer
     ###################################################
-    with tf.variable_scope('final'):
+    with tf.variable_scope('final', reuse=tf.AUTO_REUSE):
       final_filters = self.hp.num_targets * self.hp.target_classes
       final_repr = tf.layers.dense(
           inputs=seqs_repr,
@@ -211,9 +221,10 @@ class SeqNN(seqnn_util.SeqNNModel):
                                  self.hp.target_classes))
 
     # transform for reverse complement
-    final_repr = tf.cond(data_ops['reverse_preds'],
-                         lambda: tf.reverse(final_repr, axis=[1]),
-                         lambda: final_repr)
+    if reverse_preds is not None:
+      final_repr = tf.cond(reverse_preds,
+                           lambda: tf.reverse(final_repr, axis=[1]),
+                           lambda: final_repr)
 
     return final_repr
 
@@ -266,8 +277,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.step_op = self.opt.apply_gradients(
         self.gvs, global_step=self.global_step)
 
-    self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-
     # summary
     self.merged_summary = tf.summary.merge_all()
 
@@ -278,7 +287,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     # targets
     tstart = self.hp.batch_buffer // self.hp.target_pool
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
-    self.target_length = tend - tstart
 
     targets = data_ops['label']
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
@@ -287,8 +295,8 @@ class SeqNN(seqnn_util.SeqNNModel):
       targets = tf.gather(targets, target_subset, axis=2)
 
     # work-around for specifying my own predictions
-    self.preds_adhoc = tf.placeholder(
-        tf.float32, shape=seqs_repr.shape, name='preds-adhoc')
+    # self.preds_adhoc = tf.placeholder(
+    #     tf.float32, shape=seqs_repr.shape, name='preds-adhoc')
 
     # float 32 exponential clip max
     # exp_max = np.floor(np.log(0.5*tf.float32.max))
@@ -296,17 +304,17 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # choose link
     if self.hp.link in ['identity', 'linear']:
-      self.preds_op = tf.identity(seqs_repr, name='preds')
+      preds_op = tf.identity(seqs_repr, name='preds')
 
     elif self.hp.link == 'relu':
-      self.preds_op = tf.relu(seqs_repr, name='preds')
+      preds_op = tf.relu(seqs_repr, name='preds')
 
     elif self.hp.link == 'exp':
       seqs_repr_clip = tf.clip_by_value(seqs_repr, -exp_max, exp_max)
-      self.preds_op = tf.exp(seqs_repr_clip, name='preds')
+      preds_op = tf.exp(seqs_repr_clip, name='preds')
 
     elif self.hp.link == 'exp_linear':
-      self.preds_op = tf.where(
+      preds_op = tf.where(
           seqs_repr > 0,
           seqs_repr + 1,
           tf.exp(tf.clip_by_value(seqs_repr, -exp_max, exp_max)),
@@ -314,7 +322,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     elif self.hp.link == 'softplus':
       seqs_repr_clip = tf.clip_by_value(seqs_repr, -exp_max, 10000)
-      self.preds_op = tf.nn.softplus(seqs_repr_clip, name='preds')
+      preds_op = tf.nn.softplus(seqs_repr_clip, name='preds')
 
     elif self.hp.link == 'softmax':
       # performed in the loss function, but saving probabilities
@@ -326,33 +334,33 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # clip
     if self.hp.target_clip is not None:
-      self.preds_op = tf.clip_by_value(self.preds_op, 0, self.hp.target_clip)
+      preds_op = tf.clip_by_value(preds_op, 0, self.hp.target_clip)
       targets = tf.clip_by_value(targets, 0, self.hp.target_clip)
 
     # sqrt
     if self.hp.target_sqrt:
-      self.preds_op = tf.sqrt(self.preds_op)
+      preds_op = tf.sqrt(preds_op)
       targets = tf.sqrt(targets)
 
     loss_op = None
-    loss_adhoc = None
+    # loss_adhoc = None
 
     # choose loss
     if self.hp.loss == 'gaussian':
-      loss_op = tf.squared_difference(self.preds_op, targets)
-      loss_adhoc = tf.squared_difference(self.preds_adhoc, targets)
+      loss_op = tf.squared_difference(preds_op, targets)
+      # loss_adhoc = tf.squared_difference(self.preds_adhoc, targets)
 
     elif self.hp.loss == 'poisson':
       loss_op = tf.nn.log_poisson_loss(
-          targets, tf.log(self.preds_op), compute_full_loss=True)
-      loss_adhoc = tf.nn.log_poisson_loss(
-          targets, tf.log(self.preds_adhoc), compute_full_loss=True)
+          targets, tf.log(preds_op), compute_full_loss=True)
+      # loss_adhoc = tf.nn.log_poisson_loss(
+      #     targets, tf.log(self.preds_adhoc), compute_full_loss=True)
 
     elif self.hp.loss == 'cross_entropy':
       loss_op = tf.nn.sparse_softmax_cross_entropy_with_logits(
-          labels=(targets - 1), logits=self.preds_op)
-      loss_adhoc = tf.nn.sparse_softmax_cross_entropy_with_logits(
-          labels=(targets - 1), logits=self.preds_adhoc)
+          labels=(targets - 1), logits=preds_op)
+      # loss_adhoc = tf.nn.sparse_softmax_cross_entropy_with_logits(
+      #     labels=(targets - 1), logits=self.preds_adhoc)
 
     else:
       raise ValueError('Cannot identify loss function %s' % self.hp.loss)
@@ -361,29 +369,29 @@ class SeqNN(seqnn_util.SeqNNModel):
     loss_op = tf.reduce_mean(loss_op, axis=[0, 1], name='target_loss')
     loss_op = tf.check_numerics(loss_op, 'Invalid loss', name='loss_check')
 
-    loss_adhoc = tf.reduce_mean(
-        loss_adhoc, axis=[0, 1], name='target_loss_adhoc')
+    # loss_adhoc = tf.reduce_mean(
+    #     loss_adhoc, axis=[0, 1], name='target_loss_adhoc')
     tf.summary.histogram('target_loss', loss_op)
     for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
       tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
-    self.target_losses = loss_op
-    self.target_losses_adhoc = loss_adhoc
+    target_losses = loss_op
+    # self.target_losses_adhoc = loss_adhoc
 
     # fully reduce
     loss_op = tf.reduce_mean(loss_op, name='loss')
-    loss_adhoc = tf.reduce_mean(loss_adhoc, name='loss_adhoc')
+    # loss_adhoc = tf.reduce_mean(loss_adhoc, name='loss_adhoc')
 
     # add regularization terms
     reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     reg_sum = tf.reduce_sum(reg_losses)
     tf.summary.scalar('regularizers', reg_sum)
     loss_op += reg_sum
-    loss_adhoc += reg_sum
+    # loss_adhoc += reg_sum
 
     # track
     tf.summary.scalar('loss', loss_op)
-    self.targets_op = targets
-    return loss_op, loss_adhoc
+
+    return loss_op, target_losses, preds_op, targets
 
 
   def set_mode(self, mode):
@@ -438,12 +446,12 @@ class SeqNN(seqnn_util.SeqNNModel):
       fd[self.targets_na] = NAb
 
       if no_steps:
-        run_returns = sess.run([self.merged_summary, self.loss_op] + \
+        run_returns = sess.run([self.merged_summary, self.loss_train] + \
                                 self.update_ops, feed_dict=fd)
         summary, loss_batch = run_returns[:2]
       else:
         run_returns = sess.run(
-          [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops,
+          [self.merged_summary, self.loss_train, self.global_step, self.step_op] + self.update_ops,
           feed_dict=fd)
         summary, loss_batch, global_step = run_returns[:3]
 
@@ -482,10 +490,11 @@ class SeqNN(seqnn_util.SeqNNModel):
     data_available = True
     batch_num = 0
     while data_available and (epoch_batches is None or batch_num < epoch_batches):
+      print(batch_num)
       try:
-        run_returns = sess.run(
-            [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops,
-            feed_dict=fd)
+        # update_ops won't run
+        run_ops = [self.merged_summary, self.loss_train, self.global_step, self.step_op] + self.update_ops
+        run_returns = sess.run(run_ops, feed_dict=fd)
         summary, loss_batch, global_step = run_returns[:3]
 
         # add summary

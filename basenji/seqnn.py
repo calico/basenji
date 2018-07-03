@@ -150,22 +150,47 @@ class SeqNN(seqnn_util.SeqNNModel):
     # Hi-C layers
     ###################################################
 
-    # TODO: implement transformation to 2D
-    # TODO: modify the code below to handle 2D
+    # form matrix where i,j concats position i and j
+    repr_length = seqs_repr.shape[2].value
+    matrix_repr1 = tf.tile(seqs_repr, [1,seq_length,1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_length, seq_length, repr_length])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0, 2, 1, 3])
+    matrix_repr = tf.concat([matrix_repr1, matrix_repr2], axis=-1, name='matrix_concat')
+
+    # run (1,1) convolution back to latest repr_length
+    matrix_repr = tf.layers.conv2d(
+        matrix_repr,
+        filters=repr_length,
+        kernel_size=(1,1),
+        padding='same',
+        use_bias=False,
+        kernel_initializer=tf.contrib.layers.xavier_initializer(),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(self.hp.cnn_l2_scale))
+
+    matrix_repr = tf.layers.batch_normalization(
+        matrix_repr,
+        momentum=self.hp.batch_norm_momentum,
+        training=self.is_training,
+        renorm=self.hp.batch_renorm,
+        renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
+        renorm_momentum=self.hp.batch_renorm_momentum,
+        fused=True)
+
+    matrix_repr = tf.nn.relu(matrix_repr)
 
     ###################################################
     # slice out side buffer
     ###################################################
 
     # predictions
-    seq_length = seqs_repr.shape[1]
-    seqs_repr = seqs_repr[:, batch_buffer_pool:
-                          seq_length - batch_buffer_pool, :]
-    seq_length = seqs_repr.shape[1].value
+    seq_length = matrix_repr.shape[1]
+    matrix_repr = matrix_repr[:, batch_buffer_pool:(seq_length-batch_buffer_pool), :, :]
+    matrix_repr = matrix_repr[:, :, batch_buffer_pool:(seq_length-batch_buffer_pool), :]
+    seq_length = matrix_repr.shape[1].value
     self.preds_length = seq_length
 
     # save penultimate representation
-    self.penultimate_op = seqs_repr
+    self.penultimate_op = matrix_repr
 
     ###################################################
     # final layer
@@ -173,13 +198,13 @@ class SeqNN(seqnn_util.SeqNNModel):
     with tf.variable_scope('final'):
       final_filters = self.hp.num_targets * self.hp.target_classes
       final_repr = tf.layers.dense(
-          inputs=seqs_repr,
+          inputs=matrix_repr,
           units=final_filters,
           activation=None,
           kernel_initializer=tf.contrib.layers.xavier_initializer(),
           kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
       print('Convolution w/ %d %dx1 filters to final targets' %
-          (final_filters, seqs_repr.shape[2]))
+          (final_filters, matrix_repr.shape[-1]))
 
       if target_subset is not None:
         # get convolution parameters
@@ -191,7 +216,10 @@ class SeqNN(seqnn_util.SeqNNModel):
         bias_subset = tf.gather(bias_full, target_subset, axis=0)
 
         # substitute a new limited convolution
-        final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
+        # TODO: fix these lines
+        print('Entering code that hasn\'t been considered for HiC', file=sys.stderr)
+        exit(1)
+        final_repr = tf.tensordot(matrix_repr, filters_subset, 1)
         final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
         # update # targets
@@ -199,9 +227,9 @@ class SeqNN(seqnn_util.SeqNNModel):
 
       # expand length back out
       if self.hp.target_classes > 1:
-        final_repr = tf.reshape(final_repr,
-                                (self.hp.batch_size, -1, self.hp.num_targets,
-                                 self.hp.target_classes))
+        final_repr = tf.reshape(matrix_repr,
+                                (self.hp.batch_size, seq_length, seq_length,
+                                 self.hp.num_targets, self.hp.target_classes))
 
     return final_repr
 
@@ -360,9 +388,9 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     loss_adhoc = tf.reduce_mean(
         loss_adhoc, axis=reduce_axes, name='target_loss_adhoc')
-    tf.summary.histogram('target_loss', loss_op)
-    for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
-      tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
+    # tf.summary.histogram('target_loss', loss_op)
+    # for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
+    #   tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
     self.target_losses = loss_op
     self.target_losses_adhoc = loss_adhoc
 

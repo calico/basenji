@@ -111,6 +111,7 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
   else:
     hp.add_hparam('num_targets', job['num_targets'])
   hp.add_hparam('max_targets', np.max(hp.num_targets))
+  hp.add_hparam('sum_targets', np.sum([hp.num_targets]))
   hp.add_hparam('target_classes', job.get('target_classes', 1))
   hp.add_hparam('target_pool', job.get('target_pool', 1))
 

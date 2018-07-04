@@ -95,6 +95,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     loss_returns = self.build_loss(seqs_repr_eval, data_ops, target_subset)
     self.loss_eval, self.loss_eval_targets, self.preds_eval, self.targets_eval = loss_returns
 
+    # helper variables
+    self.preds_length = self.preds_train.shape[1]
+
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
@@ -490,7 +493,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     data_available = True
     batch_num = 0
     while data_available and (epoch_batches is None or batch_num < epoch_batches):
-      print(batch_num)
       try:
         # update_ops won't run
         run_ops = [self.merged_summary, self.loss_train, self.global_step, self.step_op] + self.update_ops

@@ -250,16 +250,18 @@ def main():
   if not os.path.isdir(tfr_dir):
     os.mkdir(tfr_dir)
 
-  max_targets = 0
+  sum_targets = 0
+  targets_start = []
   for gi in range(num_genomes):
+    targets_start.append(sum_targets)
     targets_df = pd.read_table(targets_files[gi])
-    max_targets = max(max_targets, targets_df.shape[0])
+    sum_targets += targets_df.shape[0]
 
   write_jobs = []
   for gi in range(num_genomes):
     write_jobs += make_write_jobs(mseqs_genome[gi], fasta_files[gi], seqs_bed_files[gi],
-                                  seqs_cov_dir, gi, unmap_npys[gi], options.seqs_per_tfr,
-                                  max_targets, tfr_dir, options.run_local)
+                                  seqs_cov_dir, tfr_dir, gi, unmap_npys[gi], options.seqs_per_tfr,
+                                  targets_start[gi], sum_targets, options.run_local)
 
   if options.run_local:
     util.exec_par(write_jobs, options.processes, verbose=True)
@@ -665,8 +667,8 @@ def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, pool_width, ru
   return read_jobs
 
 ################################################################################
-def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, gi,
-                    unmap_npy, seqs_per_tfr, max_targets, tfr_dir, run_local):
+def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi
+                    unmap_npy, seqs_per_tfr, targets_start, sum_targets, run_local):
   """Make basenji_data_write.py jobs for one genome."""
 
   write_jobs = []
@@ -687,7 +689,8 @@ def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, gi,
       cmd += ' -s %d' % tfr_start
       cmd += ' -e %d' % tfr_end
       cmd += ' -g %d' % gi
-      cmd += ' -t %d' % max_targets
+      cmd += ' --ts %d' % targets_start
+      cmd += ' --te %d' % sum_targets
       if unmap_npy is not None:
         cmd += ' -u %s' % unmap_npy
 

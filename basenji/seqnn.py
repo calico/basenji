@@ -247,53 +247,48 @@ class SeqNN(seqnn_util.SeqNNModel):
     if embed_penultimate:
       final_repr = seqs_repr
     else:
-      final_reprs = []
-      for gi in range(self.hp.num_genomes):
-        with tf.variable_scope('final%d' % gi, reuse=tf.AUTO_REUSE):
-          final_filters = self.hp.max_targets * self.hp.target_classes
-          final_repr = tf.layers.dense(
-              inputs=seqs_repr,
-              units=final_filters,
-              activation=None,
-              kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
-              kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
-          print('Convolution w/ %d %dx1 filters to final genome %d targets' % \
-                (final_filters, seqs_repr.shape[2], gi))
+      with tf.variable_scope('final%d' % gi, reuse=tf.AUTO_REUSE):
+        final_filters = self.hp.sum_targets * self.hp.target_classes
+        final_repr = tf.layers.dense(
+            inputs=seqs_repr,
+            units=final_filters,
+            activation=None,
+            kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
+            kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
+        print('Convolution w/ %d %dx1 filters to final genome %d targets' % \
+              (final_filters, seqs_repr.shape[2], gi))
 
-          if target_subset is not None:
-            print('Target subsetting for multiple genomes is not implemented.', file=sys.stderr)
-            exit(1)
-            # in theory, this could work--just provide one list per genome.
+        if target_subset is not None:
+          print('Target subsetting for multiple genomes is not implemented.', file=sys.stderr)
+          exit(1)
+          # in theory, this could work--just provide one list per genome.
 
-            # get convolution parameters
-            filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/kernel'%gi)[0]
-            bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/bias'%gi)[0]
+          # get convolution parameters
+          filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/kernel'%gi)[0]
+          bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/bias'%gi)[0]
 
-            # subset to specific targets
-            filters_subset = tf.gather(filters_full, target_subset, axis=1)
-            bias_subset = tf.gather(bias_full, target_subset, axis=0)
+          # subset to specific targets
+          filters_subset = tf.gather(filters_full, target_subset, axis=1)
+          bias_subset = tf.gather(bias_full, target_subset, axis=0)
 
-            # substitute a new limited convolution
-            final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
-            final_repr = tf.nn.bias_add(final_repr, bias_subset)
+          # substitute a new limited convolution
+          final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
+          final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
-            # update # targets
-            self.hp.num_targets[gi] = len(target_subset)
+          # update # targets
+          self.hp.sum_targets = len(target_subset)
 
-          # expand length back out
-          if self.hp.target_classes > 1:
-            final_repr = tf.reshape(final_repr,
-                                    (-1, seq_length, self.hp.max_targets,
-                                     self.hp.target_classes))
+        # expand length back out
+        if self.hp.target_classes > 1:
+          final_repr = tf.reshape(final_repr,
+                                  (-1, seq_length, self.hp.max_targets,
+                                   self.hp.target_classes))
 
-          # transform for reverse complement
-          if reverse_preds is not None:
-            final_repr = tf.cond(reverse_preds,
-                                 lambda: tf.reverse(final_repr, axis=[1]),
-                                 lambda: final_repr)
-
-          # append to genome list
-          final_reprs.append(final_repr)
+        # transform for reverse complement
+        if reverse_preds is not None:
+          final_repr = tf.cond(reverse_preds,
+                               lambda: tf.reverse(final_repr, axis=[1]),
+                               lambda: final_repr)
 
     if self.hp.num_genomes > 1:
       # apply proper genome
@@ -405,30 +400,44 @@ class SeqNN(seqnn_util.SeqNNModel):
   def build_loss(self, preds, targets, target_subset=None):
     """Convert per-location real-valued predictions to a loss."""
 
-    # slice buffer
+    ##################################################
+    # slice positions
     tstart = self.hp.batch_buffer // self.hp.target_pool
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
-    if self.hp.num_genomes > 1:
-      # take genome index from first example of batch
-      genome_i = data_ops['genome'][0,0]
-
-      # slice num_targets for this genome
-      num_targets_tensor = tf.constant(self.hp.num_targets)
-      num_targets_genome = tf.gather(num_targets_tensor, genome_i)
-
-    else:
-      # slice num_targets for this genome
-      num_targets_genome = tf.constant(self.hp.num_targets[0])
-
-    # slice targets to correct genome number (rest are zero)
-    target_indexes_genome = tf.range(num_targets_genome)
-    seqs_repr = tf.gather(seqs_repr, target_indexes_genome, axis=2)
-    targets = tf.gather(targets, target_indexes_genome, axis=2)
+    ##################################################
+    # slice targets
 
     if target_subset is not None:
+      # manually specify targets
       targets = tf.gather(targets, target_subset, axis=2)
+
+    else:
+      # take genome index from first example of batch
+      try:
+        genome_i = data_ops['genome'][0,0]
+      except ValueError:
+        genome_i = 0
+
+      # find genome target start and end
+      genome_starts = []
+      genome_ends = []
+      gti = 0
+      for gi in range(self.hp.num_genomes):
+        genome_starts.append(gti)
+        gti += self.hp.num_targets[gi]
+        genome_ends.append(gti)
+      genome_starts = tf.constanst(genome_starts)
+      genome_ends = tf.constant(genome_ends)
+
+      targets_start = tf.gather(genome_starts, genome_i)
+      targets_end = tf.gather(genome_ends, genome_i)
+
+      # slice to genome targets
+      target_indexes_genome = tf.range(targets_start, targets_end)
+      seqs_repr = tf.gather(seqs_repr, target_indexes_genome, axis=2)
+      targets = tf.gather(targets, target_indexes_genome, axis=2)
 
     # clip
     if self.hp.target_clip is not None:
@@ -437,6 +446,13 @@ class SeqNN(seqnn_util.SeqNNModel):
     # sqrt
     if self.hp.target_sqrt:
       targets = tf.sqrt(targets)
+
+    # work-around for specifying my own predictions
+    self.preds_adhoc = tf.placeholder(
+        tf.float32, shape=seqs_repr.shape, name='preds-adhoc')
+
+    ##################################################
+    # loss
 
     loss_op = None
 

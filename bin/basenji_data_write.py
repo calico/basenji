@@ -47,8 +47,10 @@ def main():
   parser.add_option('-e', dest='end_i',
       default=None, type='int',
       help='Sequence end index [Default: %default]')
-  parser.add_option('-t', dest='target_extend',
+  parser.add_option('--te', dest='target_extend',
       default=None, type='int', help='Extend targets vector [Default: %default]')
+  parser.add_option('--ts', dest='target_start',
+      default=0, type='int', help='Write targets into vector starting at index [Default: %default')
   parser.add_option('-u', dest='umap_npy',
       help='Unmappable array numpy file')
   parser.add_option('--umap_set', dest='umap_set',
@@ -101,7 +103,8 @@ def main():
   # extend targets
   num_targets_tfr = num_targets
   if options.target_extend is not None:
-    num_targets_tfr = max(num_targets_tfr, options.target_extend)
+    assert(options.target_extend >= num_targets_tfr)
+    num_targets_tfr = options.target_extend
 
   # initialize targets
   targets = np.zeros((num_seqs, seq_pool_len, num_targets_tfr), dtype='float16')
@@ -109,7 +112,8 @@ def main():
   # read each target
   for ti in range(num_targets):
     seqs_cov_open = h5py.File(seqs_cov_files[ti], 'r')
-    targets[:,:,ti] = seqs_cov_open['seqs_cov'][options.start_i:options.end_i,:]
+    tii = options.target_start + ti
+    targets[:,:,tii] = seqs_cov_open['seqs_cov'][options.start_i:options.end_i,:]
     seqs_cov_open.close()
 
   ################################################################

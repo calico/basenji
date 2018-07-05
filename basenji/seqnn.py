@@ -418,7 +418,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       try:
         genome_i = data_ops['genome'][0,0]
       except ValueError:
-        genome_i = 0
+        genome_i = tf.constant(0)
 
       # find genome target start and end
       genome_starts = []
@@ -428,7 +428,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         genome_starts.append(gti)
         gti += self.hp.num_targets[gi]
         genome_ends.append(gti)
-      genome_starts = tf.constanst(genome_starts)
+      genome_starts = tf.constant(genome_starts)
       genome_ends = tf.constant(genome_ends)
 
       targets_start = tf.gather(genome_starts, genome_i)
@@ -695,6 +695,7 @@ class SeqNN(seqnn_util.SeqNNModel):
             run_ops = [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops
             run_returns = sess.run(run_ops, feed_dict=fd)
             summary, loss_batch, global_step = run_returns[:3]
+            print(self.global_step, flush=True)
 
             # add summary
             if sum_writer is not None:

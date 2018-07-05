@@ -695,7 +695,6 @@ class SeqNN(seqnn_util.SeqNNModel):
             run_ops = [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops
             run_returns = sess.run(run_ops, feed_dict=fd)
             summary, loss_batch, global_step = run_returns[:3]
-            print(self.global_step, flush=True)
 
             # add summary
             if sum_writer is not None:

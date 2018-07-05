@@ -91,11 +91,14 @@ def main():
   parser.add_option('-t', dest='test_pct',
       default=0.05, type='float',
       help='Proportion of the data for testing [Default: %default]')
-  parser.add_option('-u', dest='unmap_beds',
+  parser.add_option('-u', dest='umap_beds',
       help='Comma-separated genome unmappable segments to set to NA')
-  parser.add_option('--unmap_t', dest='unmap_t',
+  parser.add_option('--umap_t', dest='umap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
+  parser.add_option('--umap_set', dest='umap_set',
+      default=None, type='float',
+      help='Set unmappable regions to this percentile in the sequences\' distribution of values')
   parser.add_option('-w', dest='pool_width',
       default=128, type='int',
       help='Sum pool width [Default: %default]')
@@ -199,17 +202,17 @@ def main():
   # mappability
   ################################################################
 
-  options.unmap_beds = options.unmap_beds.split(',')
+  options.umap_beds = options.umap_beds.split(',')
   unmap_npys = [None, None]
 
   for gi in range(num_genomes):
-    if options.unmap_beds[gi] is not None:
+    if options.umap_beds[gi] is not None:
       # annotate unmappable positions
-      mseqs_unmap = annotate_unmap(mseqs_genome[gi], options.unmap_beds[gi],
+      mseqs_unmap = annotate_unmap(mseqs_genome[gi], options.umap_beds[gi],
                                    options.seq_length, options.pool_width)
 
       # filter unmappable
-      mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.unmap_t)
+      mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
       mseqs_genome[gi] = [mseqs_genome[gi][si] for si in range(len(mseqs_genome[gi])) if mseqs_map_mask[si]]
       mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
 
@@ -260,8 +263,8 @@ def main():
   write_jobs = []
   for gi in range(num_genomes):
     write_jobs += make_write_jobs(mseqs_genome[gi], fasta_files[gi], seqs_bed_files[gi],
-                                  seqs_cov_dir, tfr_dir, gi, unmap_npys[gi], options.seqs_per_tfr,
-                                  targets_start[gi], sum_targets, options.run_local)
+                                  seqs_cov_dir, tfr_dir, gi, unmap_npys[gi], options.umap_set,
+                                  options.seqs_per_tfr, targets_start[gi], sum_targets, options.run_local)
 
   if options.run_local:
     util.exec_par(write_jobs, options.processes, verbose=True)
@@ -667,8 +670,8 @@ def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, pool_width, ru
   return read_jobs
 
 ################################################################################
-def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi
-                    unmap_npy, seqs_per_tfr, targets_start, sum_targets, run_local):
+def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
+                    unmap_npy, umap_set, seqs_per_tfr, targets_start, sum_targets, run_local):
   """Make basenji_data_write.py jobs for one genome."""
 
   write_jobs = []
@@ -693,6 +696,8 @@ def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi
       cmd += ' --te %d' % sum_targets
       if unmap_npy is not None:
         cmd += ' -u %s' % unmap_npy
+      if umap_set is not None:
+        cmd += ' --umap_set %f' % umap_set
 
       cmd += ' %s' % fasta_file
       cmd += ' %s' % seqs_bed_file

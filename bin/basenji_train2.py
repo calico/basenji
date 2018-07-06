@@ -55,7 +55,7 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
   job = params.read_job_params(params_file)
 
   # load data
-  data_ops, train_iterators, test_iterators, handle = make_data_ops(
+  data_ops, handle, train_dataseqs, test_dataseqs = make_data_ops(
       job, train_files, test_files)
 
   # initialize model
@@ -77,8 +77,12 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
     train_handles = []
     test_handles = []
     for gi in range(job['num_genomes']):
-      train_handles.append(sess.run(train_iterators[gi].string_handle()))
-      test_handles.append(sess.run(test_iterators[gi].string_handle()))
+      if train_dataseqs[gi].iterator is None:
+        train_handles.append(None)
+        test_handles.append(None)
+      else:
+        train_handles.append(sess.run(train_dataseqs[gi].iterator.string_handle()))
+        test_handles.append(sess.run(test_dataseqs[gi].iterator.string_handle()))
 
     if FLAGS.restart:
       # load variables into session
@@ -104,32 +108,37 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
       # initialize training data epochs
       for gi in range(job['num_genomes']):
-        sess.run(train_iterators[gi].initializer)
+        if train_dataseqs[gi].iterator is not None:
+          sess.run(train_dataseqs[gi].iterator.initializer)
 
       # train epoch
       train_losses, steps = model.train2_epoch_ops(sess, handle, train_handles)
 
       # summarize
-      train_loss = np.mean(train_losses)
+      train_loss = np.nanmean(train_losses)
 
       # test validation
       valid_losses = []
       valid_r2s = []
       for gi in range(job['num_genomes']):
-        # initialize
-        sess.run(test_iterators[gi].initializer)
+        if test_dataseqs[gi].iterator is None:
+          valid_losses.append(np.nan)
+          valid_r2s.append(np.nan)
+        else:
+          # initialize
+          sess.run(test_dataseqs[gi].iterator.initializer)
 
-        # compute
-        valid_acc = model.test_from_data_ops(sess, handle, test_handles[gi], test_epoch_batches)
+          # compute
+          valid_acc = model.test_from_data_ops(sess, handle, test_handles[gi], test_epoch_batches)
 
-        # save
-        valid_losses.append(valid_acc.loss)
-        valid_r2s.append(valid_acc.r2().mean())
-        del valid_acc
+          # save
+          valid_losses.append(valid_acc.loss)
+          valid_r2s.append(valid_acc.r2().mean())
+          del valid_acc
 
       # summarize
-      valid_loss = np.mean(valid_losses)
-      valid_r2 = np.mean(valid_r2s)
+      valid_loss = np.nanmean(valid_losses)
+      valid_r2 = np.nanmean(valid_r2s)
 
       best_str = ''
       if best_loss is None or valid_loss < best_loss:
@@ -156,7 +165,8 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
       # print genome-specific updates
       for gi in range(job['num_genomes']):
-        print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_r2s[gi]))
+        if not np.isnan(valid_losses[gi]):
+          print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_r2s[gi]))
       sys.stdout.flush()
 
       # update epoch
@@ -177,43 +187,43 @@ def make_data_ops(job, train_patterns, test_patterns):
         job['target_length'],
         mode=mode)
 
-  train_datasets = []
-  test_datasets = []
-  train_iterators = []
-  test_iterators = []
+  train_dataseqs = []
+  test_dataseqs = []
 
   # make datasets and iterators for each genome's train/test
   for gi in range(job['num_genomes']):
     train_dataseq = make_dataset(train_patterns[gi], mode=tf.estimator.ModeKeys.TRAIN)
-    train_dataset = train_dataseq.dataset
-    train_iterator = train_dataset.make_initializable_iterator()
-    train_datasets.append(train_dataset)
-    train_iterators.append(train_iterator)
+    train_dataseq.make_iterator()
+    train_dataseqs.append(train_dataseq)
 
     test_dataseq = make_dataset(test_patterns[gi], mode=tf.estimator.ModeKeys.EVAL)
-    test_dataset = test_dataseq.dataset
-    test_iterator = test_dataset.make_initializable_iterator()
-    test_datasets.append(test_dataset)
-    test_iterators.append(test_iterator)
+    test_dataseq.make_iterator()
+    test_dataseqs.append(test_dataseq)
 
     # verify dataset shapes
-    try:
-      assert(train_dataseq.num_targets_nonzero == job['num_targets'][gi])
+    if train_dataseq.num_targets_nonzero != job['num_targets'][gi]:
+      print('WARNING: %s nonzero targets found, but %d specified for genome %d.' % (train_dataseq.num_targets_nonzero, job['num_targets'][gi], gi), file=sys.stderr)
+
+    if train_dataseq.seq_depth is not None:
       if 'seq_depth' in job:
         assert(job['seq_depth'] == train_dataseq.seq_depth)
       else:
         job['seq_depth'] = train_dataseq.seq_depth
-    except:
-      pdb.set_trace()
 
   # create feedable iterator
   handle = tf.placeholder(tf.string, shape=[])
-  iterator = tf.data.Iterator.from_string_handle(handle,
-                                                 train_datasets[0].output_types,
-                                                 train_datasets[0].output_shapes)
+
+  for gi in range(job['num_genomes']):
+    # find a non-empty dataset
+    if train_dataseqs[gi].iterator is not None:
+      iterator = tf.data.Iterator.from_string_handle(handle,
+                                                     train_dataseqs[gi].dataset.output_types,
+                                                     train_dataseqs[gi].dataset.output_shapes)
+      break
+
   data_ops = iterator.get_next()
 
-  return data_ops, train_iterators, test_iterators, handle
+  return data_ops, handle, train_dataseqs, test_dataseqs
 
 
 if __name__ == '__main__':

@@ -687,6 +687,10 @@ class SeqNN(seqnn_util.SeqNNModel):
     fd = self.set_mode('train')
 
     data_available = np.ones(self.hp.num_genomes, dtype='bool')
+    for gi in range(self.hp.num_genomes):
+      if data_handles[gi] is None:
+        data_available[gi] = False
+
     while data_available.any():
       for gi in range(self.hp.num_genomes):
         if data_available[gi]:
@@ -708,7 +712,10 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # mean across batches
     for gi in range(self.hp.num_genomes):
-      train_losses[gi] = np.mean(train_losses[gi])
+      if train_losses[gi]:
+        train_losses[gi] = np.mean(train_losses[gi])
+      else:
+        train_losses[gi] = np.nan
 
     return train_losses, global_step
 >>>>>>> drafting execution

@@ -110,7 +110,12 @@ class DatasetSeq:
 
       return {'genome': genome, 'sequence': seq, 'label': label, 'na': na}
 
-    self.dataset = dataset.map(_parse)
+    # helper for training on single genomes in a multiple genome mode
+    if self.num_seqs > 0:
+      dataset = dataset.map(_parse)
+
+    # hold on
+    self.dataset = dataset
 
 
   def compute_stats(self):
@@ -148,10 +153,12 @@ class DatasetSeq:
 
     self.num_seqs = 0
 
-    targets_temp = []
-
     with tf.Session() as sess:
-      next_datum = sess.run(next_op)
+      try:
+        next_datum = sess.run(next_op)
+      except tf.errors.OutOfRangeError:
+        next_datum = False
+
       while next_datum:
         # infer seq_depth
         seq_1hot = next_datum['sequence'].reshape((self.seq_length,-1))
@@ -162,7 +169,6 @@ class DatasetSeq:
 
         # infer num_targets
         targets1 = next_datum['target'].reshape(self.target_length,-1)
-        targets_temp.append(targets1)
         if self.num_targets is None:
           self.num_targets = targets1.shape[-1]
           targets_nonzero = (targets1.sum(axis=0, dtype='float32') > 0)
@@ -178,6 +184,16 @@ class DatasetSeq:
         except tf.errors.OutOfRangeError:
           next_datum = False
 
-    self.num_targets_nonzero = (targets_nonzero > 0).sum()
+    if self.num_seqs > 0:
+      self.num_targets_nonzero = (targets_nonzero > 0).sum()
+      print('%s has %d sequences with %d targets' % (self.tfr_pattern, self.num_seqs, self.num_targets), flush=True)
+    else:
+      self.num_targets_nonzero = None
+      print('%s has %d sequences with 0 targets' % (self.tfr_pattern, self.num_seqs), flush=True)
 
-    print('%s has %d sequences with %d targets' % (self.tfr_pattern, self.num_seqs, self.num_targets), flush=True)
+  def make_iterator(self):
+    """Make initializable iterator."""
+    if self.num_seqs > 0:
+      self.iterator = self.dataset.make_initializable_iterator()
+    else:
+      self.iterator = None

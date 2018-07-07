@@ -109,6 +109,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         tf.float32,
         shape=(self.hp.batch_size, self.hp.seq_length, self.hp.seq_depth),
         name='inputs')
+
     if self.hp.target_classes == 1:
       self.targets_ph = tf.placeholder(
           tf.float32,
@@ -122,9 +123,14 @@ class SeqNN(seqnn_util.SeqNNModel):
                  self.hp.num_targets),
           name='targets')
 
+    self.targets_na_ph = tf.placeholder(tf.bool,
+        shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool),
+        name='targets_na')
+
     data = {
         'sequence': self.inputs_ph,
-        'label': self.targets_ph
+        'label': self.targets_ph,
+        'na': self.targets_na_ph
     }
     return data
 
@@ -511,7 +517,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       else:
         run_ops = [self.merged_summary, self.loss_train, self.global_step, self.step_op]
         run_ops += self.update_ops
-        summary, loss_batch, global_step = sess.run(run_ops, feed_dict=fd)
+        summary, loss_batch, global_step = sess.run(run_ops, feed_dict=fd)[:3]
 
       # add summary
       if sum_writer is not None:

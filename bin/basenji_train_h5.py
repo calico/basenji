@@ -77,7 +77,8 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
   t0 = time.time()
   model = seqnn.SeqNN()
   model.build(job, augment_rc=FLAGS.augment_rc, augment_shifts=augment_shifts,
-      ensemble_rc=FLAGS.ensemble_rc, ensemble_shifts=ensemble_shifts)
+     ensemble_rc=FLAGS.ensemble_rc, ensemble_shifts=ensemble_shifts)
+
   print('Model building time %f' % (time.time() - t0))
 
   # adjust for fourier
@@ -151,17 +152,8 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
     while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
       t0 = time.time()
 
-      # alternate forward and reverse batches
-      fwdrc = True
-      if FLAGS.augment_rc and epoch % 2 == 1:
-        fwdrc = False
-
-      # cycle shifts
-      shift_i = epoch % len(augment_shifts)
-
       # train
-      train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc=fwdrc,
-                                            shift=augment_shifts[shift_i],
+      train_loss, steps = model.train_epoch_h5(sess, batcher_train,
                                             sum_writer=train_writer,
                                             epoch_batches=train_epoch_batches,
                                             no_steps=FLAGS.no_steps)

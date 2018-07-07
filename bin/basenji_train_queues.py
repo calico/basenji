@@ -99,7 +99,7 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
 
       # test validation
       sess.run(test_init_op)
-      valid_acc = model.test_from_data_ops(sess, test_epoch_batches)
+      valid_acc = model.test_tfr(sess, test_epoch_batches)
       valid_loss = valid_acc.loss
       valid_r2 = valid_acc.r2().mean()
       del valid_acc

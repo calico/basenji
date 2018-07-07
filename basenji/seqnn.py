@@ -527,7 +527,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       train_loss.append(loss_batch)
 
       # next batch
-      Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
+      Xb, Yb, NAb, Nb = batcher.next()
       batch_num += 1
 
     # reset training batcher if epoch considered all of the data

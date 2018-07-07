@@ -33,14 +33,20 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.global_step = tf.train.get_or_create_global_step()
     self.hparams_set = False
 
-  def build(self, job, target_subset=None):
+  def build(self, job, augment_rc=False, augment_shifts=[],
+            ensemble_rc=False, ensemble_shifts=[], target_subset=None):
     """Build training ops that depend on placeholders."""
 
     self.hp = params.make_hparams(job)
     self.hparams_set = True
     data_ops = self.make_placeholders()
 
-    self.build_from_data_ops(job, data_ops, target_subset=target_subset)
+    self.build_from_data_ops(job, data_ops,
+          augment_rc=augment_rc,
+          augment_shifts=augment_shifts,
+          ensemble_rc=ensemble_rc,
+          ensemble_shifts=ensemble_shifts,
+          target_subset=target_subset)
 
   def build_from_data_ops(self, job, data_ops,
                           augment_rc=False, augment_shifts=[],
@@ -50,9 +56,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
       self.hparams_set = True
-    self.targets = data_ops['label']
-    self.inputs = data_ops['sequence']
-    self.targets_na = data_ops['na']
 
     # training conditional
     self.is_training = tf.placeholder(tf.bool, name='is_training')
@@ -102,29 +105,26 @@ class SeqNN(seqnn_util.SeqNNModel):
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
     # batches
-    self.inputs = tf.placeholder(
+    self.inputs_ph = tf.placeholder(
         tf.float32,
         shape=(self.hp.batch_size, self.hp.seq_length, self.hp.seq_depth),
         name='inputs')
     if self.hp.target_classes == 1:
-      self.targets = tf.placeholder(
+      self.targets_ph = tf.placeholder(
           tf.float32,
           shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool,
                  self.hp.num_targets),
           name='targets')
     else:
-      self.targets = tf.placeholder(
+      self.targets_ph = tf.placeholder(
           tf.int32,
           shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool,
                  self.hp.num_targets),
           name='targets')
-    self.targets_na = tf.placeholder(
-        tf.bool, shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool))
 
     data = {
-        'sequence': self.inputs,
-        'label': self.targets,
-        'na': self.targets_na
+        'sequence': self.inputs_ph,
+        'label': self.targets_ph
     }
     return data
 
@@ -419,7 +419,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     return fd
 
-  def train_epoch(self,
+  def train_epoch_h5_manual(self,
                   sess,
                   batcher,
                   fwdrc=True,
@@ -427,7 +427,8 @@ class SeqNN(seqnn_util.SeqNNModel):
                   sum_writer=None,
                   epoch_batches=None,
                   no_steps=False):
-    """Execute one training epoch."""
+    """Execute one training epoch, using HDF5 data
+       and manual augmentation."""
 
     # initialize training loss
     train_loss = []
@@ -444,9 +445,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         epoch_batches is None or batch_num < epoch_batches):
 
       # update feed dict
-      fd[self.inputs] = Xb
-      fd[self.targets] = Yb
-      fd[self.targets_na] = NAb
+      fd[self.inputs_ph] = Xb
+      fd[self.targets_ph] = Yb
 
       if no_steps:
         run_returns = sess.run([self.merged_summary, self.loss_train] + \
@@ -477,11 +477,62 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     return np.mean(train_loss), global_step
 
-  def train_epoch_from_data_ops(self,
-                                sess,
-                                sum_writer=None,
-                                epoch_batches=None):
-    """ Execute one training epoch """
+  def train_epoch_h5(self,
+                     sess,
+                     batcher,
+                     sum_writer=None,
+                     epoch_batches=None,
+                     no_steps=False):
+    """Execute one training epoch using HDF5 data,
+       and compute-graph augmentation"""
+
+    # initialize training loss
+    train_loss = []
+    global_step = 0
+
+    # setup feed dict
+    fd = self.set_mode('train')
+
+    # get first batch
+    Xb, Yb, NAb, Nb = batcher.next()
+
+    batch_num = 0
+    while Xb is not None and Nb == self.hp.batch_size and (
+        epoch_batches is None or batch_num < epoch_batches):
+
+      # update feed dict
+      fd[self.inputs_ph] = Xb
+      fd[self.targets_ph] = Yb
+
+      if no_steps:
+        run_returns = sess.run([self.merged_summary, self.loss_train] + \
+                                self.update_ops, feed_dict=fd)
+        summary, loss_batch = run_returns[:2]
+      else:
+        run_ops = [self.merged_summary, self.loss_train, self.global_step, self.step_op]
+        run_ops += self.update_ops
+        summary, loss_batch, global_step = sess.run(run_ops, feed_dict=fd)
+
+      # add summary
+      if sum_writer is not None:
+        sum_writer.add_summary(summary, global_step)
+
+      # accumulate loss
+      train_loss.append(loss_batch)
+
+      # next batch
+      Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
+      batch_num += 1
+
+    # reset training batcher if epoch considered all of the data
+    if epoch_batches is None:
+      batcher.reset()
+
+    return np.mean(train_loss), global_step
+
+
+  def train_epoch_tfr(self, sess, sum_writer=None, epoch_batches=None):
+    """ Execute one training epoch, using TFRecords data. """
 
     # initialize training loss
     train_loss = []

@@ -95,7 +95,7 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
 
       # train epoch
       sess.run(training_init_op)
-      train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer, train_epoch_batches)
+      train_loss, steps = model.train_epoch_tfr(sess, train_writer, train_epoch_batches)
 
       # test validation
       sess.run(test_init_op)

@@ -671,44 +671,49 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     return avg_loss, global_step
 
-
-  def train2_epoch_ops(self, sess, handle_ph, data_handles, sum_writer=None):
+  def train2_epoch_ops(self, sess, handle_ph, datasets, sum_writer=None):
     """ Execute one training epoch for multiple iterators."""
 
-    assert(self.hp.num_genomes == len(data_handles))
+    assert(self.hp.num_genomes == len(datasets))
     global_step = 0
 
     # initialize training loss lists
     train_losses = []
-    for gi in range(2):
+    for gi in range(self.hp.num_genomes):
       train_losses.append([])
 
     # setup feed dict
     fd = self.set_mode('train')
 
-    data_available = np.ones(self.hp.num_genomes, dtype='bool')
+    # resetch genome sequence counters
     for gi in range(self.hp.num_genomes):
-      if data_handles[gi] is None:
-        data_available[gi] = False
+      datasets[gi].epoch_reset()
 
-    while data_available.any():
-      for gi in range(self.hp.num_genomes):
-        if data_available[gi]:
-          try:
-            fd[handle_ph] = data_handles[gi]
-            run_ops = [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops
-            run_returns = sess.run(run_ops, feed_dict=fd)
-            summary, loss_batch, global_step = run_returns[:3]
+    # sample first genome
+    gi = sample_genome(datasets)
 
-            # add summary
-            if sum_writer is not None:
-              sum_writer.add_summary(summary, global_step)
+    while gi is not None:
+      try:
+        fd[handle_ph] = datasets[gi].handle
+        run_ops = [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops
+        run_returns = sess.run(run_ops, feed_dict=fd)
+        summary, loss_batch, global_step = run_returns[:3]
 
-            # accumulate loss
-            train_losses[gi].append(loss_batch)
+        # add summary
+        if sum_writer is not None:
+          sum_writer.add_summary(summary, global_step)
 
-          except tf.errors.OutOfRangeError:
-            data_available[gi] = False
+        # accumulate loss
+        train_losses[gi].append(loss_batch)
+
+      except tf.errors.OutOfRangeError:
+        print('Genome %d OutOfRangeError with %d sequences remaining.' % (gi, datasets[gi].epoch_seqs), file=sys.stderr)
+
+      # decrement genome seqs
+      datasets[gi].epoch_batch(self.hp.batch_size)
+
+      # sample next genome
+      gi = sample_genome(datasets)
 
     # mean across batches
     for gi in range(self.hp.num_genomes):
@@ -718,4 +723,15 @@ class SeqNN(seqnn_util.SeqNNModel):
         train_losses[gi] = np.nan
 
     return train_losses, global_step
->>>>>>> drafting execution
+
+def sample_genome(datasets):
+  """Sample a random genome, proportional to the number of remaining sequences."""
+  num_genomes = len(datasets)
+  genome_seqs = np.array([ds.epoch_seqs for ds in datasets], dtype='float32')
+  seqs_sum = genome_seqs.sum()
+  if seqs_sum == 0:
+    gi = None
+  else:
+    genome_probs = genome_seqs / seqs_sum
+    gi = np.random.choice(range(num_genomes), p=genome_probs)
+  return gi

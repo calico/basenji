@@ -186,10 +186,16 @@ class DatasetSeq:
 
     if self.num_seqs > 0:
       self.num_targets_nonzero = (targets_nonzero > 0).sum()
-      print('%s has %d sequences with %d targets' % (self.tfr_pattern, self.num_seqs, self.num_targets), flush=True)
+      print('%s has %d sequences with %d/%d targets' % (self.tfr_pattern, self.num_seqs, self.num_targets_nonzero, self.num_targets), flush=True)
     else:
       self.num_targets_nonzero = None
       print('%s has %d sequences with 0 targets' % (self.tfr_pattern, self.num_seqs), flush=True)
+
+  def epoch_reset(self):
+    self.epoch_seqs = self.num_seqs
+
+  def epoch_batch(self, batch_size):
+    self.epoch_seqs = max(0, self.epoch_seqs - batch_size)
 
   def make_iterator(self):
     """Make initializable iterator."""
@@ -197,3 +203,10 @@ class DatasetSeq:
       self.iterator = self.dataset.make_initializable_iterator()
     else:
       self.iterator = None
+
+  def make_handle(self, sess):
+    """Make iterator string handle."""
+    if self.iterator is None:
+      self.handle = None
+    else:
+      self.handle = sess.run(self.iterator.string_handle())

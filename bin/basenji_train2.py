@@ -74,15 +74,9 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
     tf.train.start_queue_runners(coord=coord)
 
     # generate handles
-    train_handles = []
-    test_handles = []
     for gi in range(job['num_genomes']):
-      if train_dataseqs[gi].iterator is None:
-        train_handles.append(None)
-        test_handles.append(None)
-      else:
-        train_handles.append(sess.run(train_dataseqs[gi].iterator.string_handle()))
-        test_handles.append(sess.run(test_dataseqs[gi].iterator.string_handle()))
+      train_dataseqs[gi].make_handle(sess)
+      test_dataseqs[gi].make_handle(sess)
 
     if FLAGS.restart:
       # load variables into session
@@ -112,7 +106,7 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
           sess.run(train_dataseqs[gi].iterator.initializer)
 
       # train epoch
-      train_losses, steps = model.train2_epoch_ops(sess, handle, train_handles)
+      train_losses, steps = model.train2_epoch_ops(sess, handle, train_dataseqs)
 
       # summarize
       train_loss = np.nanmean(train_losses)
@@ -129,7 +123,7 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
           sess.run(test_dataseqs[gi].iterator.initializer)
 
           # compute
-          valid_acc = model.test_from_data_ops(sess, handle, test_handles[gi], test_epoch_batches)
+          valid_acc = model.test_from_data_ops(sess, handle, test_dataseqs[gi].handle, test_epoch_batches)
 
           # save
           valid_losses.append(valid_acc.loss)

@@ -835,7 +835,7 @@ class SeqNNModel(object):
     return tss_preds
 
 
-  def test_from_data_ops(self, sess, test_batches=None):
+  def test_tfr(self, sess, test_batches=None):
     """ Compute model accuracy on a test set, where data is loaded from a queue.
 
         Args:
@@ -845,11 +845,6 @@ class SeqNNModel(object):
         Returns:
           acc:          Accuracy object
       """
-
-    # TODO(dbelanger) this ignores rc and shift ensembling for now.
-    # Accuracy will be slightly lower than if we had used this.
-    # The rc and shift data augmentation need to be pulled into the graph.
-
     fd = self.set_mode('test')
 
     # initialize prediction and target arrays
@@ -865,7 +860,7 @@ class SeqNNModel(object):
     batch_num = 0
     while data_available and (test_batches is None or batch_num < test_batches):
       try:
-        # make non-ensembled predictions
+        # make predictions
         run_ops = [self.targets_eval, self.preds_eval,
                    self.loss_eval, self.loss_eval_targets]
         run_returns = sess.run(run_ops, feed_dict=fd)
@@ -900,13 +895,79 @@ class SeqNNModel(object):
 
     return acc
 
-  def test(self,
-           sess,
-           batcher,
-           rc=False,
-           shifts=[0],
-           mc_n=0,
-           test_batches=None):
+  def test_h5(self, sess, batcher, test_batches=None):
+    """ Compute model accuracy on a test set.
+
+        Args:
+          sess:         TensorFlow session
+          batcher:      Batcher object to provide data
+          mc_n:           Monte Carlo iterations per rc/shift.
+          test_batches: Number of test batches
+
+        Returns:
+          acc:          Accuracy object
+        """
+    # setup feed dict
+    fd = self.set_mode('test')
+
+    # initialize prediction and target arrays
+    preds = []
+    targets = []
+    targets_na = []
+
+    batch_losses = []
+    batch_target_losses = []
+
+    # get first batch
+    batch_num = 0
+    Xb, Yb, NAb, Nb = batcher.next()
+
+    while Xb is not None and (test_batches is None or
+                              batch_num < test_batches):
+      # make predictions
+      run_ops = [self.targets_eval, self.preds_eval,
+                 self.loss_eval, self.loss_eval_targets]
+      run_returns = sess.run(run_ops, feed_dict=fd)
+      targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
+
+      # accumulate predictions and targets
+      preds.append(preds_batch.astype('float16'))
+      targets.append(targets_batch.astype('float16'))
+      targets_na.append(np.zeros([preds_batch.shape[0], self.preds_length], dtype='bool'))
+
+      # accumulate loss
+      batch_losses.append(loss_batch)
+      batch_target_losses.append(target_losses_batch)
+
+      # next batch
+      batch_num += 1
+      Xb, Yb, NAb, Nb = batcher.next()
+
+    # reset batcher
+    batcher.reset()
+
+    # construct arrays
+    targets = np.concatenate(targets, axis=0)
+    preds = np.concatenate(preds, axis=0)
+    targets_na = np.concatenate(targets_na, axis=0)
+
+    # mean across batches
+    batch_losses = np.mean(batch_losses)
+    batch_target_losses = np.array(batch_target_losses).mean(axis=0)
+
+    # instantiate accuracy object
+    acc = accuracy.Accuracy(targets, preds, targets_na,
+                            batch_losses, batch_target_losses)
+
+    return acc
+
+  def test_h5_manual(self,
+                     sess,
+                     batcher,
+                     rc=False,
+                     shifts=[0],
+                     mc_n=0,
+                     test_batches=None):
     """ Compute model accuracy on a test set.
 
         Args:

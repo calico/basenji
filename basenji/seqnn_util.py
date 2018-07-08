@@ -924,6 +924,10 @@ class SeqNNModel(object):
 
     while Xb is not None and (test_batches is None or
                               batch_num < test_batches):
+      # update feed dict
+      fd[self.inputs_ph] = Xb
+      fd[self.targets_ph] = Yb
+
       # make predictions
       run_ops = [self.targets_eval, self.preds_eval,
                  self.loss_eval, self.loss_eval_targets]
@@ -931,9 +935,9 @@ class SeqNNModel(object):
       targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
 
       # accumulate predictions and targets
-      preds.append(preds_batch.astype('float16'))
-      targets.append(targets_batch.astype('float16'))
-      targets_na.append(np.zeros([preds_batch.shape[0], self.preds_length], dtype='bool'))
+      preds.append(preds_batch[:Nb,:,:].astype('float16'))
+      targets.append(targets_batch[:Nb,:,:].astype('float16'))
+      targets_na.append(np.zeros([Nb, self.preds_length], dtype='bool'))
 
       # accumulate loss
       batch_losses.append(loss_batch)
@@ -1027,8 +1031,8 @@ class SeqNNModel(object):
           sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n)
 
       # add target info
-      fd[self.targets] = Yb
-      fd[self.targets_na] = NAb
+      fd[self.targets_ph] = Yb
+      fd[self.targets_na_ph] = NAb
 
       targets_na.append(np.zeros([Nb, self.preds_length], dtype='bool'))
 

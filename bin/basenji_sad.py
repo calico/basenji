@@ -23,6 +23,7 @@ import time
 
 import h5py
 import numpy as np
+import pandas as pd
 import pysam
 import tensorflow as tf
 import zarr
@@ -162,21 +163,11 @@ def main():
     target_subset = None
 
   else:
-    # Unfortunately, this target file differs from some others
-    # in that it needs to specify the indexes from the original
-    # set. In the future, I should standardize to this version.
-
-    target_ids = []
-    target_labels = []
-    target_subset = []
-
-    for line in open(options.targets_file):
-      a = line.strip().split('\t')
-      target_subset.append(int(a[0]))
-      target_ids.append(a[1])
-      target_labels.append(a[3])
-
-      if len(target_subset) == job['num_targets']:
+    targets_df = pd.read_table(options.targets_file)
+    target_ids = targets_df.identifier
+    target_labels = targets_df.description
+    target_subset = targets_df.index
+    if len(target_subset) == job['num_targets']:
         target_subset = None
 
   # build model

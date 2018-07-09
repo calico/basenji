@@ -61,6 +61,9 @@ class Batcher:
 
     self.reset()
 
+  def empty(self):
+    return self.start <= self.num_seqs
+
   def next(self, fwdrc=True, shift=0):
     """ Load the next batch from the HDF5. """
     Xb = None

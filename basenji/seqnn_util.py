@@ -643,6 +643,7 @@ class SeqNNModel(object):
               return_all=False,
               down_sample=1,
               penultimate=False,
+              test_batches=None,
               dtype='float32'):
     """ Compute predictions on a test set.
 
@@ -658,6 +659,7 @@ class SeqNNModel(object):
          down_sample:    Int specifying to consider uniformly spaced sampled
          positions
          penultimate:    Predict the penultimate layer.
+         test_batches    Number of test batches to use.
          dtype:          Float resolution to return.
 
         Out
@@ -725,7 +727,9 @@ class SeqNNModel(object):
     # get first batch
     Xb, _, _, Nb = batcher.next()
 
-    while Xb is not None:
+    batch_num = 0
+    while Xb is not None and (test_batches is None or
+                              batch_num < test_batches):
       # make ensemble predictions
       preds_batch, preds_batch_var, preds_batch_all = self._predict_ensemble(
           sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes,
@@ -743,9 +747,7 @@ class SeqNNModel(object):
 
       # next batch
       Xb, _, _, Nb = batcher.next()
-
-    # reset batcher
-    batcher.reset()
+      batch_num += 1
 
     if return_var:
       if return_all:
@@ -765,6 +767,7 @@ class SeqNNModel(object):
                     target_indexes=None,
                     tss_radius=0,
                     penultimate=False,
+                    test_batches_per=256,
                     dtype='float32'):
     """ Compute predictions on a test set.
 
@@ -786,27 +789,40 @@ class SeqNNModel(object):
          transcript_preds: G (gene transcripts) X T (targets) array
         """
 
-    # predict gene sequences
-    gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
-                              target_indexes=target_indexes, penultimate=penultimate)
-
     # count TSSs
     tss_num = 0
     for gene_seq in gene_seqs:
       tss_num += len(gene_seq.tss_list)
 
+    # count targets
+    if penultimate:
+      num_targets = self.hp.cnn_params[-1].filters
+    else:
+      num_targets = self.hp.num_targets
+      if target_indexes is not None:
+        num_targets = len(target_indexes)
+
     # initialize TSS preds
-    tss_preds = np.zeros( (tss_num, gseq_preds.shape[-1]), dtype=dtype)
+    tss_preds = np.zeros((tss_num, num_targets), dtype=dtype)
 
-    # slice TSSs
+    # initialize indexes
     tss_i = 0
-    for si in range(len(gene_seqs)):
-      for tss in gene_seqs[si].tss_list:
-        bi = tss.seq_bin(width=self.hp.target_pool, pred_buffer=self.hp.batch_buffer)
-        tss_preds[tss_i,:] = gseq_preds[si,bi-tss_radius:bi+1+tss_radius,:].sum(axis=0)
-        tss_i += 1
+    si = 0
 
-    # reset batcher
+    while not batcher.empty():
+      # predict gene sequences
+      gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
+                                target_indexes=target_indexes, penultimate=penultimate,
+                                test_batches=test_batches_per)
+
+      # slice TSSs
+      for bsi in range(gseq_preds.shape[0]):
+        for tss in gene_seqs[si].tss_list:
+          bi = tss.seq_bin(width=self.hp.target_pool, pred_buffer=self.hp.batch_buffer)
+          tss_preds[tss_i,:] = gseq_preds[bsi,bi-tss_radius:bi+1+tss_radius,:].sum(axis=0)
+          tss_i += 1
+        si += 1
+
     batcher.reset()
 
     return tss_preds

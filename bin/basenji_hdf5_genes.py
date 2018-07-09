@@ -24,6 +24,7 @@ import time
 
 import h5py
 import numpy as np
+import pandas as pd
 import pyBigWig
 import pysam
 
@@ -208,15 +209,13 @@ def main():
     t0 = time.time()
 
     # get wig files and labels
+    target_wigs_df = pd.read_table(options.target_wigs_file)
     target_wigs = OrderedDict()
     target_labels = []
-    for line in open(options.target_wigs_file):
-      a = line.rstrip().split('\t')
-      target_wigs[a[0]] = a[1]
-      if len(a) > 2:
-        target_labels.append(a[2])
-      else:
-        target_labels.append('')
+    for i in range(target_wigs_df.shape[0]):
+      target_wig_series = target_wigs_df.iloc[i]
+      target_wigs[target_wig_series.identifier] = target_wig_series.file
+      target_labels.append(target_wig_series.description)
 
     # initialize multiprocessing pool
     pool = multiprocessing.Pool(options.processes)
@@ -354,9 +353,8 @@ def bigwig_tss_targets(wig_file, tss_list, seq_coords, pool_width=1):
 
 ################################################################################
 def check_wigs(target_wigs_file):
-  for line in open(target_wigs_file):
-    a = line.rstrip().split('\t')
-    wig_file = a[1]
+  target_wigs_df = pd.read_table(target_wigs_file)
+  for wig_file in target_wigs_df.file:
     if not os.path.isfile(wig_file):
       print('Cannot find %s' % wig_file, file=sys.stderr)
       exit(1)

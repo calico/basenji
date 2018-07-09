@@ -237,9 +237,8 @@ def main():
   # file targets
   elif os.path.isfile(options.target_indexes):
     target_indexes_file = options.target_indexes
-    options.target_indexes = []
-    for line in open(target_indexes_file):
-      options.target_indexes.append(int(line.split()[0]))
+    targets_df = pd.read_table(target_indexes_file)
+    options.target_indexes = targets_df.index
 
   # comma-separated targets
   else:

@@ -767,7 +767,7 @@ class SeqNNModel(object):
                     target_indexes=None,
                     tss_radius=0,
                     penultimate=False,
-                    test_batches_per=256,
+                    test_batches_per=64,
                     dtype='float32'):
     """ Compute predictions on a test set.
 

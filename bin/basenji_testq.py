@@ -120,7 +120,9 @@ def main():
 
   # initialize model
   model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops)
+  model.build_from_data_ops(job, data_ops,
+                            ensemble_rc=options.rc,
+                            ensemble_shifts=options.shifts)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -136,7 +138,7 @@ def main():
     # test
     t0 = time.time()
     sess.run(test_init_op)
-    test_acc = model.test_from_data_ops(sess)
+    test_acc = model.test_tfr(sess)
 
     test_preds = test_acc.preds
     print('SeqNN test: %ds' % (time.time() - t0))

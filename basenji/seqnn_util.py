@@ -300,7 +300,7 @@ class SeqNNModel(object):
       Xb_ensemble = hot1_augment(Xb, ensemble_fwdrc[ei], ensemble_shifts[ei])
 
       # update feed dict
-      fd[self.inputs] = Xb_ensemble
+      fd[self.inputs_ph] = Xb_ensemble
 
       # for each monte carlo (or non-mc single) iteration
       for mi in range(mc_n):
@@ -448,7 +448,7 @@ class SeqNNModel(object):
 
     while Xb is not None:
       # update feed dict
-      fd[self.inputs] = Xb
+      fd[self.inputs_ph] = Xb
 
       # predict
       reprs_batch, _ = sess.run([self.layer_reprs, self.preds_eval], feed_dict=fd)
@@ -507,7 +507,7 @@ class SeqNNModel(object):
 
     while Xb is not None:
       # update feed dict
-      fd[self.inputs] = Xb
+      fd[self.inputs_ph] = Xb
 
       # compute predictions
       layer_reprs_batch, preds_batch = sess.run(
@@ -589,7 +589,7 @@ class SeqNNModel(object):
       Xb_ensemble = hot1_augment(Xb, ensemble_fwdrc[ei], ensemble_shifts[ei])
 
       # update feed dict
-      fd[self.inputs] = Xb_ensemble
+      fd[self.inputs_ph] = Xb_ensemble
 
       # for each monte carlo (or non-mc single) iteration
       for mi in range(mc_n):

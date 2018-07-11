@@ -169,7 +169,7 @@ def main():
       print(
         '%4d  %7.5f  %.5f  %.5f  %.5f  %s' %
         (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti],
-          test_log_pcor[ti], target_labels[ti]), file=acc_out)
+          test_log_pcor[ti], targets_df.description.iloc[ti]), file=acc_out)
     acc_out.close()
 
     # print normalization factors

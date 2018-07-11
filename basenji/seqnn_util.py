@@ -886,8 +886,8 @@ class SeqNNModel(object):
     targets_na = np.concatenate(targets_na, axis=0)
 
     # mean across batches
-    batch_losses = np.mean(batch_losses)
-    batch_target_losses = np.array(batch_target_losses).mean(axis=0)
+    batch_losses = np.mean(batch_losses, dtype='float64')
+    batch_target_losses = np.array(batch_target_losses).mean(axis=0, dtype='float64')
 
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na,
@@ -956,8 +956,8 @@ class SeqNNModel(object):
     targets_na = np.concatenate(targets_na, axis=0)
 
     # mean across batches
-    batch_losses = np.mean(batch_losses)
-    batch_target_losses = np.array(batch_target_losses).mean(axis=0)
+    batch_losses = np.mean(batch_losses, dtype='float64')
+    batch_target_losses = np.array(batch_target_losses).mean(axis=0, dtype='float64')
 
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na,

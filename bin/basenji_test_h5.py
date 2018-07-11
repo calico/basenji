@@ -108,10 +108,6 @@ def main():
       help=
       'Average the fwd and rc predictions [Default: %default]')
   parser.add_option(
-      '-s',
-      dest='scent_file',
-      help='Dimension reduction model file')
-  parser.add_option(
       '--sample',
       dest='sample_pct',
       default=1,
@@ -217,8 +213,8 @@ def main():
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
   t0 = time.time()
-  dr = seqnn.SeqNN()
-  dr.build(job)
+  model = seqnn.SeqNN()
+  model.build(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts)
   print('Model building time %ds' % (time.time() - t0))
 
   # adjust for fourier
@@ -228,12 +224,6 @@ def main():
     if options.valid:
       test_targets_imag = data_open['valid_out_imag']
 
-  # adjust for factors
-  if options.scent_file is not None:
-    t0 = time.time()
-    test_targets_full = data_open['test_out_full']
-    model = joblib.load(options.scent_file)
-
   #######################################################
   # test
 
@@ -241,10 +231,10 @@ def main():
   if job['fourier']:
     batcher_test = batcher.BatcherF(test_seqs, test_targets,
                                     test_targets_imag, test_na,
-                                    dr.hp.batch_size, dr.hp.target_pool)
+                                    model.hp.batch_size, model.hp.target_pool)
   else:
     batcher_test = batcher.Batcher(test_seqs, test_targets, test_na,
-                                   dr.hp.batch_size, dr.hp.target_pool)
+                                   model.hp.batch_size, model.hp.target_pool)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -255,8 +245,7 @@ def main():
 
     # test
     t0 = time.time()
-    test_acc = dr.test_h5_manual(sess, batcher_test, rc=options.rc,
-                                 shifts=options.shifts, mc_n=options.mc_n)
+    test_acc = model.test_h5(sess, batcher_test)
 
     if options.save:
       np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
@@ -301,10 +290,6 @@ def main():
     # clean up
     del test_acc
 
-    # if test targets are reconstructed, measure versus the truth
-    if options.scent_file is not None:
-      compute_full_accuracy(dr, model, test_preds, test_targets_full,
-                            options.out_dir, options.down_sample)
 
   #######################################################
   # peak call accuracy
@@ -312,17 +297,14 @@ def main():
   if options.peaks:
     # sample every few bins to decrease correlations
     ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
-    ds_indexes_targets = ds_indexes_preds + (dr.hp.batch_buffer // dr.hp.target_pool)
+    ds_indexes_targets = ds_indexes_preds + (model.hp.batch_buffer // model.hp.target_pool)
 
     aurocs = []
     auprcs = []
 
     peaks_out = open('%s/peaks.txt' % options.out_dir, 'w')
     for ti in range(test_targets.shape[2]):
-      if options.scent_file is not None:
-        test_targets_ti = test_targets_full[:, :, ti]
-      else:
-        test_targets_ti = test_targets[:, :, ti]
+      test_targets_ti = test_targets[:, :, ti]
 
       # subset and flatten
       test_targets_ti_flat = test_targets_ti[:, ds_indexes_targets].flatten(
@@ -378,10 +360,7 @@ def main():
       bed_set = 'valid'
 
     for ti in track_indexes:
-      if options.scent_file is not None:
-        test_targets_ti = test_targets_full[:, :, ti]
-      else:
-        test_targets_ti = test_targets[:, :, ti]
+      test_targets_ti = test_targets[:, :, ti]
 
       # make true targets bigwig
       bw_file = '%s/tracks/t%d_true.bw' % (options.out_dir, ti)
@@ -399,7 +378,7 @@ def main():
           test_preds[:, :, ti],
           options.track_bed,
           options.genome_file,
-          dr.hp.batch_buffer,
+          model.hp.batch_buffer,
           bed_set=bed_set)
 
     # make NA bigwig
@@ -430,10 +409,7 @@ def main():
       os.mkdir('%s/pr' % options.out_dir)
 
     for ti in accuracy_indexes:
-      if options.scent_file is not None:
-        test_targets_ti = test_targets_full[:, :, ti]
-      else:
-        test_targets_ti = test_targets[:, :, ti]
+      test_targets_ti = test_targets[:, :, ti]
 
       ############################################
       # scatter
@@ -441,7 +417,7 @@ def main():
       # sample every few bins (adjust to plot the # points I want)
       ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
       ds_indexes_targets = ds_indexes_preds + (
-          dr.hp.batch_buffer // dr.hp.target_pool)
+          model.hp.batch_buffer // model.hp.target_pool)
 
       # subset and flatten
       test_targets_ti_flat = test_targets_ti[:, ds_indexes_targets].flatten(
@@ -639,61 +615,6 @@ def bigwig_write(bw_file,
           values=bw_entries_values)
 
   bw_out.close()
-
-
-def compute_full_accuracy(dr, model, test_preds, test_targets_full, out_dir,
-                          down_sample):
-  """ Compute accuracy on the saved full target set, as opposed to a
-         reconstructed version via dim reduction and/or fourier. """
-
-  full_targets = test_targets_full.shape[2]
-
-  # determine non-buffer region
-  buf_start = dr.hp.batch_buffer // dr.hp.target_pool
-  buf_end = (dr.seq_length - dr.hp.batch_buffer) // dr.hp.target_pool
-  buf_len = buf_end - buf_start
-
-  # uniformly sample indexes
-  ds_indexes = np.arange(0, buf_len, options.down_sample)
-
-  # filter down full test targets
-  test_targets_full_ds = test_targets_full[:, buf_start + ds_indexes, :]
-  test_na_ds = test_na[:, buf_start + ds_indexes]
-
-  # inverse transform in length batches
-  t0 = time.time()
-  test_preds_full = np.zeros(
-      (test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
-  for li in range(test_preds.shape[1]):
-    test_preds_full[:, li, :] = model.inverse_transform(test_preds[:, li, :])
-  print('PCA transform: %ds' % (time.time() - t0))
-
-  print(test_preds_full.shape)
-  print(test_targets_full_ds.shape)
-
-  # compute R2 by target
-  t0 = time.time()
-  test_r2_full = np.zeros(full_targets)
-  for ti in range(full_targets):
-    # flatten
-    # preds_ti = test_preds_full[:,:,ti].flatten()
-    # targets_ti = test_targets_full_ds[:,:,ti].flatten()
-    preds_ti = test_preds_full[np.logical_not(test_na_ds), ti]
-    targets_ti = test_targets_full_ds[np.logical_not(test_na_ds), ti]
-
-    # compute R2
-    tmean = targets_ti.mean(dtype='float64')
-    tvar = (targets_ti - tmean).var(dtype='float64')
-    pvar = (targets_ti - preds_ti).var(dtype='float64')
-    test_r2_full[ti] = 1.0 - pvar / tvar
-  print('Compute full R2: %d' % (time.time() - t0))
-
-  print('Test full R2: %7.5f' % test_r2_full.mean())
-
-  acc_out = open('%s/acc_full.txt' % out_dir, 'w')
-  for ti in range(len(test_r2_full)):
-    print('%4d  %.4f' % (ti, test_r2_full[ti]), file=acc_out)
-  acc_out.close()
 
 
 ################################################################################

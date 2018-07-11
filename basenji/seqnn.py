@@ -49,8 +49,8 @@ class SeqNN(seqnn_util.SeqNNModel):
           target_subset=target_subset)
 
   def build_from_data_ops(self, job, data_ops,
-                          augment_rc=False, augment_shifts=[],
-                          ensemble_rc=False, ensemble_shifts=[],
+                          augment_rc=False, augment_shifts=[0],
+                          ensemble_rc=False, ensemble_shifts=[0],
                           target_subset=None):
     """Build training ops from input data ops."""
     if not self.hparams_set:

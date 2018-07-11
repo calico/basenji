@@ -400,8 +400,6 @@ def main():
       plt.savefig('%s/pr/t%d.pdf' % (options.out_dir, ti))
       plt.close()
 
-  data_open.close()
-
 
 def ben_hoch(p_values):
   """ Convert the given p-values to q-values using Benjamini-Hochberg FDR. """

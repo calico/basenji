@@ -79,16 +79,21 @@ def augment_deterministic(data_ops, augment_rc=False, augment_shift=0):
   Returns
     data_ops: augmented data
   """
-  if augment_shift != 0:
+
+  data_ops_aug = {'label': data_ops['label'], 'na': data_ops['na']}
+
+  if augment_shift == 0:
+    data_ops_aug['sequence'] = data_ops['sequence']
+  else:
     shift_amount = tf.constant(augment_shift, shape=(), dtype=tf.int64)
-    data_ops['sequence'] = shift_sequence(data_ops['sequence'], shift_amount)
+    data_ops_aug['sequence'] = shift_sequence(data_ops['sequence'], shift_amount)
 
   if augment_rc:
-    data_ops = augment_deterministic_rc(data_ops)
+    data_ops_aug = augment_deterministic_rc(data_ops_aug)
   else:
-    data_ops['reverse_preds'] = tf.zeros((), dtype=tf.bool)
+    data_ops_aug['reverse_preds'] = tf.zeros((), dtype=tf.bool)
 
-  return data_ops
+  return data_ops_aug
 
 
 def augment_deterministic_rc(data_ops):

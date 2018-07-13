@@ -707,8 +707,9 @@ class SeqNNModel(object):
     all_n = mc_n * len(ensemble_fwdrc)
 
     # initialize prediction data structures
+    num_seqs = min(batcher.num_seqs, self.hp.batch_size*test_batches)
     preds = np.zeros(
-        (batcher.num_seqs, preds_length, num_targets), dtype=dtype)
+        (num_seqs, preds_length, num_targets), dtype=dtype)
     if return_var:
       if all_n == 1:
         print(
@@ -716,10 +717,10 @@ class SeqNNModel(object):
             file=sys.stderr)
         exit(1)
       preds_var = np.zeros(
-          (batcher.num_seqs, preds_length, num_targets), dtype=dtype)
+          (num_seqs, preds_length, num_targets), dtype=dtype)
     if return_all:
       preds_all = np.zeros(
-          (batcher.num_seqs, preds_length, num_targets, all_n), dtype=dtype)
+          (num_seqs, preds_length, num_targets, all_n), dtype=dtype)
 
     # sequence index
     si = 0
@@ -767,7 +768,7 @@ class SeqNNModel(object):
                     target_indexes=None,
                     tss_radius=0,
                     penultimate=False,
-                    test_batches_per=64,
+                    test_batches_per=256,
                     dtype='float32'):
     """ Compute predictions on a test set.
 

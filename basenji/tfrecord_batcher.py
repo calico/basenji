@@ -12,6 +12,9 @@
 # =========================================================================
 
 
+import os
+import sys
+
 import tensorflow as tf
 
 from basenji import dna_io
@@ -192,7 +195,12 @@ j   mode: a tf.estimator.ModeKeys instance
       na: [batch_size, num_targets]
   """
 
-  dataset = tf.data.Dataset.list_files(tfr_data_files_pattern)
+  tfr_files = order_tfrecords(tfr_data_files_pattern)
+  if len(tfr_files) > 0:
+    dataset = tf.data.Dataset.list_files(tf.constant(tfr_files))
+  else:
+    print('Cannot order TFRecords %s' % tfr_data_files_pattern, file=sys.stderr)
+    dataset = tf.data.Dataset.list_files(tfr_data_files_pattern)
 
   def file_to_records(filename):
     return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
@@ -334,6 +342,25 @@ def make_input_fn(job, data_file_pattern, mode, use_static_batch_size):
     return features, labels
 
   return _input_fn
+
+
+def order_tfrecords(tfr_pattern, verbose=True):
+  """Check for TFRecords files fitting a pattern in succession."""
+  tfr_files = []
+
+  i = 0
+  tfr_file = tfr_pattern.replace('*', str(i))
+
+  while os.path.isfile(tfr_file):
+    tfr_files.append(tfr_file)
+    i += 1
+    tfr_file = tfr_pattern.replace('*', str(i))
+
+  if verbose:
+    print('%d TFRecords files found' % len(tfr_files))
+
+  return tfr_files
+
 
 # TODO(dbelanger) Remove this functionality.
 class TFRecordBatcher(object):

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import os
 
 import h5py
 import numpy as np
@@ -87,8 +88,23 @@ def main():
   hdf5_out.close()
 
 
+def order_tfrecords(tfr_pattern):
+  tfr_files = []
+
+  i = 0
+  tfr_file = tfr_pattern.replace('*', str(i))
+
+  while os.path.isfile(tfr_file):
+    tfr_files.append(tfr_file)
+    i += 1
+    tfr_file = tfr_pattern.replace('*', str(i))
+
+  return tfr_files
+
+
 def read_tfr(tfr_pattern, target_len):
-  dataset = tf.data.Dataset.list_files(tfr_pattern)
+  tfr_files = order_tfrecords(tfr_pattern)
+  dataset = tf.data.Dataset.list_files(tf.constant(tfr_files))
   dataset = dataset.flat_map(file_to_records)
   dataset = dataset.batch(1)
   dataset = dataset.map(parse_proto)

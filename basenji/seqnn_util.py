@@ -707,7 +707,11 @@ class SeqNNModel(object):
     all_n = mc_n * len(ensemble_fwdrc)
 
     # initialize prediction data structures
-    num_seqs = min(batcher.num_seqs, self.hp.batch_size*test_batches)
+    if test_batches is None:
+      num_seqs = batcher.num_seqs
+    else:
+      num_seqs = min(batcher.num_seqs, self.hp.batch_size*test_batches)
+
     preds = np.zeros(
         (num_seqs, preds_length, num_targets), dtype=dtype)
     if return_var:

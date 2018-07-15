@@ -46,8 +46,8 @@ Compute model sequences from the genome, extracting DNA coverage values.
 def main():
   usage = 'usage: %prog [options] <fasta_file> <targets_file>'
   parser = OptionParser(usage)
-  parser.add_option('-b', dest='limit_bed',
-      help='Limit to segments that overlap regions in a BED file')
+  parser.add_option('-b', dest='blacklist_bed',
+      help='Set blacklist nucleotides to a baseline value.')
   # parser.add_option('-c', dest='clip',
   #     default=None, type='float',
   #     help='Clip target values to have minimum [Default: %default]')
@@ -59,6 +59,8 @@ def main():
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
+  parser.add_option('--limit', dest='limit_bed',
+      help='Limit to segments that overlap regions in a BED file')
   parser.add_option('--local', dest='run_local',
       default=False, action='store_true',
       help='Run jobs locally as opposed to on SLURM [Default: %default]')
@@ -227,6 +229,8 @@ def main():
     else:
       cmd = 'basenji_data_read.py'
       cmd += ' -w %d' % options.pool_width
+      if options.blacklist_bed:
+        cmd += ' -b %s' % options.blacklist_bed
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file
@@ -264,7 +268,7 @@ def main():
   for tvt_set in ['train', 'valid', 'test']:
     tvt_set_indexes = [i for i in range(len(mseqs_labels)) if mseqs_labels[i] == tvt_set]
     tvt_set_start = tvt_set_indexes[0]
-    tvt_set_end = tvt_set_indexes[-1]
+    tvt_set_end = tvt_set_indexes[-1] + 1
 
     tfr_i = 0
     tfr_start = tvt_set_start

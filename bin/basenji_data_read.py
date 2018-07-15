@@ -16,8 +16,11 @@
 
 from optparse import OptionParser
 
+import os
+
 import h5py
 import numpy as np
+import intervaltree
 
 from basenji_data import ModelSeq
 
@@ -33,6 +36,8 @@ Read sequence values from coverage files.
 def main():
   usage = 'usage: %prog [options] <genome_cov_file> <seqs_bed_file> <seqs_cov_file>'
   parser = OptionParser(usage)
+  parser.add_option('-b', dest='blacklist_bed',
+      help='Set blacklist nucleotides to a baseline value.')
   parser.add_option('-w',dest='pool_width',
       default=1, type='int',
       help='Average pooling width [Default: %default]')
@@ -50,6 +55,9 @@ def main():
   for line in open(seqs_bed_file):
     a = line.split()
     model_seqs.append(ModelSeq(a[0],int(a[1]),int(a[2])))
+
+  # read blacklist regions
+  black_chr_trees = read_blacklist(options.blacklist_bed)
 
   # compute dimensions
   num_seqs = len(model_seqs)
@@ -75,8 +83,20 @@ def main():
             (cov_file, mseq.chr, mseq.start, mseq.end))
       seq_cov_nt = np.zeros(mseq.end - mseq.start, dtype='float16')
 
-    # set NaN's to zero
-    seq_cov_nt = np.nan_to_num(seq_cov_nt)
+    # determine baseline coverage
+    baseline_cov = np.percentile(seq_cov_nt, 10)
+
+    # set blacklist to baseline
+    if mseq.chr in black_chr_trees:
+      for black_interval in black_chr_trees[mseq.chr][mseq.start:mseq.end]:
+        # adjust for sequence indexes
+        black_seq_start = black_interval.begin - mseq.start
+        black_seq_end = black_interval.end - mseq.start
+        seq_cov_nt[black_seq_start:black_seq_end] = baseline_cov
+
+    # set NaN's to baseline
+    nan_mask = np.isnan(seq_cov_nt)
+    seq_cov_nt[nan_mask] = baseline_cov
 
     # sum pool
     seq_cov = seq_cov_nt.reshape(seq_len_pool, options.pool_width)
@@ -91,6 +111,25 @@ def main():
   # close sequences coverage file
   seqs_cov_open.close()
 
+
+def read_blacklist(blacklist_bed, black_buffer=5):
+  """Construct interval trees of blacklist
+     regions for each chromosome."""
+  black_chr_trees = {}
+
+  if os.path.isfile(blacklist_bed):
+    for line in open(blacklist_bed):
+      a = line.split()
+      chrm = a[0]
+      start = max(0, int(a[1]) - black_buffer)
+      end = int(a[2]) + black_buffer
+
+      if chrm not in black_chr_trees:
+        black_chr_trees[chrm] = intervaltree.IntervalTree()
+
+      black_chr_trees[chrm][start:end] = True
+
+  return black_chr_trees
 
 ################################################################################
 # __main__

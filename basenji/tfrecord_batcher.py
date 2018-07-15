@@ -196,8 +196,8 @@ j   mode: a tf.estimator.ModeKeys instance
   """
 
   tfr_files = order_tfrecords(tfr_data_files_pattern)
-  if len(tfr_files) > 0:
-    dataset = tf.data.Dataset.list_files(tf.constant(tfr_files))
+  if tfr_files:
+    dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
   else:
     print('Cannot order TFRecords %s' % tfr_data_files_pattern, file=sys.stderr)
     dataset = tf.data.Dataset.list_files(tfr_data_files_pattern)
@@ -344,20 +344,19 @@ def make_input_fn(job, data_file_pattern, mode, use_static_batch_size):
   return _input_fn
 
 
-def order_tfrecords(tfr_pattern, verbose=True):
-  """Check for TFRecords files fitting a pattern in succession."""
+def order_tfrecords(tfr_pattern):
+  """Check for TFRecords files fitting my pattern in succession,
+     else return empty list."""
   tfr_files = []
 
-  i = 0
-  tfr_file = tfr_pattern.replace('*', str(i))
-
-  while os.path.isfile(tfr_file):
-    tfr_files.append(tfr_file)
-    i += 1
+  if tfr_pattern.count('*') == 1:
+    i = 0
     tfr_file = tfr_pattern.replace('*', str(i))
 
-  if verbose:
-    print('%d TFRecords files found' % len(tfr_files))
+    while os.path.isfile(tfr_file):
+      tfr_files.append(tfr_file)
+      i += 1
+      tfr_file = tfr_pattern.replace('*', str(i))
 
   return tfr_files
 

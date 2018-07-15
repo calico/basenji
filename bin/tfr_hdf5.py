@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from basenji import tfrecord_batcher
+
 '''
 tfr_hdf5.py
 
@@ -88,23 +90,12 @@ def main():
   hdf5_out.close()
 
 
-def order_tfrecords(tfr_pattern):
-  tfr_files = []
-
-  i = 0
-  tfr_file = tfr_pattern.replace('*', str(i))
-
-  while os.path.isfile(tfr_file):
-    tfr_files.append(tfr_file)
-    i += 1
-    tfr_file = tfr_pattern.replace('*', str(i))
-
-  return tfr_files
-
-
 def read_tfr(tfr_pattern, target_len):
-  tfr_files = order_tfrecords(tfr_pattern)
-  dataset = tf.data.Dataset.list_files(tf.constant(tfr_files))
+  tfr_files = tfrecord_batcher.order_tfrecords(tfr_pattern)
+  if tfr_files:
+    dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+  else:
+    dataset = tf.data.Dataset.list_files(tfr_pattern)
   dataset = dataset.flat_map(file_to_records)
   dataset = dataset.batch(1)
   dataset = dataset.map(parse_proto)

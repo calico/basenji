@@ -73,7 +73,7 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
 
   t0 = time.time()
   model = seqnn.SeqNN()
-  model.build(job)
+  model.build_feed(job)
   print('Model building time %f' % (time.time() - t0))
 
   # adjust for fourier

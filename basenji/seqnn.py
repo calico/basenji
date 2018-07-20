@@ -33,7 +33,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.global_step = tf.train.get_or_create_global_step()
     self.hparams_set = False
 
-  def build(self, job, augment_rc=False, augment_shifts=[0],
+  def build_feed(self, job, augment_rc=False, augment_shifts=[0],
             ensemble_rc=False, ensemble_shifts=[0], target_subset=None):
     """Build training ops that depend on placeholders."""
 

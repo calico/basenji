@@ -136,7 +136,7 @@ def main():
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
   dr = basenji.seqnn.SeqNN()
-  dr.build(job)
+  dr.build_feed(job)
 
   # adjust for fourier
   job['fourier'] = 'train_out_imag' in data_open

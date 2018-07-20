@@ -214,7 +214,7 @@ def main():
 
   t0 = time.time()
   model = seqnn.SeqNN()
-  model.build(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts)
+  model.build_feed(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts)
   print('Model building time %ds' % (time.time() - t0))
 
   # adjust for fourier

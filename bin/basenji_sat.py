@@ -189,7 +189,7 @@ def main():
 
   t0 = time.time()
   dr = seqnn.SeqNN()
-  dr.build(job, target_subset=target_subset)
+  dr.build_feed(job, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.batch_size is not None:

@@ -173,7 +173,7 @@ def main():
   # build model
   t0 = time.time()
   model = basenji.seqnn.SeqNN()
-  model.build(job, target_subset=target_subset)
+  model.build_feed(job, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.penultimate:

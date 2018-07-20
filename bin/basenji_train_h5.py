@@ -76,7 +76,7 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
 
   t0 = time.time()
   model = seqnn.SeqNN()
-  model.build(job, augment_rc=FLAGS.augment_rc, augment_shifts=augment_shifts,
+  model.build_feed(job, augment_rc=FLAGS.augment_rc, augment_shifts=augment_shifts,
      ensemble_rc=FLAGS.ensemble_rc, ensemble_shifts=ensemble_shifts)
 
   print('Model building time %f' % (time.time() - t0))

@@ -173,7 +173,9 @@ def main():
   # build model
   t0 = time.time()
   model = basenji.seqnn.SeqNN()
-  model.build_feed(job, target_subset=target_subset)
+  # model.build_feed(job, target_subset=target_subset)
+  model.build_feed(job, target_subset=target_subset,
+      ensemble_rc=options.rc, ensemble_shifts=options.shifts)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.penultimate:
@@ -246,7 +248,6 @@ def main():
 
   # initialize saver
   saver = tf.train.Saver()
-
   with tf.Session() as sess:
     # load variables into session
     saver.restore(sess, model_file)
@@ -263,9 +264,11 @@ def main():
       batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.hp.batch_size)
 
       # predict
-      batch_preds = model.predict(sess, batcher,
-                      rc=options.rc, shifts=options.shifts,
-                      penultimate=options.penultimate)
+      # batch_preds = model.predict(sess, batcher,
+      #                 rc=options.rc, shifts=options.shifts,
+      #                 penultimate=options.penultimate)
+      batch_preds = model.predict_h5(sess, batcher,
+                        penultimate=options.penultimate)
 
       # normalize
       batch_preds /= target_norms

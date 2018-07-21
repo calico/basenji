@@ -631,19 +631,12 @@ class SeqNNModel(object):
 
     return preds_batch, preds_batch_var, preds_all
 
-  def predict(self,
-              sess,
-              batcher,
-              rc=False,
-              shifts=[0],
-              mc_n=0,
-              target_indexes=None,
-              return_var=False,
-              return_all=False,
-              down_sample=1,
-              penultimate=False,
-              test_batches=None,
-              dtype='float32'):
+  def predict_h5_manual(self, sess, batcher,
+                        rc=False, shifts=[0], mc_n=0,
+                        target_indexes=None,
+                        return_var=False, return_all=False,
+                        down_sample=1, penultimate=False,
+                        test_batches=None, dtype='float32'):
     """ Compute predictions on a test set.
 
         In
@@ -756,6 +749,146 @@ class SeqNNModel(object):
 
       # next batch
       batch_num += 1
+
+    if return_var:
+      if return_all:
+        return preds, preds_var, preds_all
+      else:
+        return preds, preds_var
+    else:
+      return preds
+
+  def predict_h5(self, sess, batcher,
+                return_var=False, return_all=False,
+                penultimate=False, test_batches=None):
+    """ Compute preidctions on an HDF5 test set.
+
+        Args:
+          sess:          TensorFlow session
+          return_var:    Return variance estimates
+          return_all:    Retyrn all predictions.
+          penultimate:   Predict the penultimate layer.
+          test_batches:  Number of test batches to use.
+
+        Returns:
+          preds: S (sequences) x L (unbuffered length) x T (targets) array
+      """
+    fd = self.set_mode('test')
+
+    # initialize prediction data structures
+    preds = []
+    if return_var:
+      preds_var = []
+    if return_all:
+      preds_all = []
+
+    # get first batch
+    batch_num = 0
+    Xb, _, _, Nb = batcher.next()
+
+    while Xb is not None and (test_batches is None or
+                              batch_num < test_batches):
+      # update feed dict
+      fd[self.inputs_ph] = Xb
+
+      # make predictions
+      if return_var or return_all:
+        preds_batch, preds_ensemble_batch = sess.run([self.preds_eval, self.preds_ensemble], feed_dict=fd)
+
+        # move ensemble to back
+        preds_ensemble_batch = np.moveaxis(preds_ensemble_batch, 0, -1)
+
+      else:
+        preds_batch = sess.run(self.preds_eval, feed_dict=fd)
+
+      # accumulate predictions and targets
+      preds.append(preds_batch[:Nb])
+      if return_var:
+        preds_var_batch = np.var(preds_ensemble_batch, axis=-1)
+        preds_var.append(preds_var_batch[:Nb])
+      if return_all:
+        preds_all.append(preds_ensemble_batch[:Nb])
+
+      # next batch
+      batch_num += 1
+      Xb, _, _, Nb = batcher.next()
+
+    # reset batcher
+    batcher.reset()
+
+    # construct arrays
+    preds = np.concatenate(preds, axis=0)
+    if return_var:
+      preds_var = np.concatenate(preds_var, axis=0)
+    if return_all:
+      preds_all = np.concatenate(preds_all, axis=0)
+
+    if return_var:
+      if return_all:
+        return preds, preds_var, preds_all
+      else:
+        return preds, preds_var
+    else:
+      return preds
+
+  def predict_tfr(self, sess,
+                  return_var=False, return_all=False,
+                  penultimate=False, test_batches=None):
+    """ Compute preidctions on a TFRecord test set.
+
+        Args:
+          sess:          TensorFlow session
+          return_var:    Return variance estimates
+          return_all:    Retyrn all predictions.
+          penultimate:   Predict the penultimate layer.
+          test_batches:  Number of test batches to use.
+
+        Returns:
+          preds: S (sequences) x L (unbuffered length) x T (targets) array
+      """
+    fd = self.set_mode('test')
+
+    # initialize prediction data structures
+    preds = []
+    if return_var:
+      preds_var = []
+    if return_all:
+      preds_all = []
+
+    # sequence index
+    data_available = True
+    batch_num = 0
+    while data_available and (test_batches is None or batch_num < test_batches):
+      try:
+        # make predictions
+        if return_var or return_all:
+          preds_batch, preds_ensemble_batch = sess.run([self.preds_eval, self.preds_ensemble], feed_dict=fd)
+
+          # move ensemble to back
+          preds_ensemble_batch = np.moveaxis(preds_ensemble_batch, 0, -1)
+
+        else:
+          preds_batch = sess.run(self.preds_eval, feed_dict=fd)
+
+        # accumulate predictions and targets
+        preds.append(preds_batch)
+        if return_var:
+          preds_var_batch = np.var(preds_ensemble_batch, axis=-1)
+          preds_var.append(preds_var_batch)
+        if return_all:
+          preds_all.append(preds_ensemble_batch)
+
+        batch_num += 1
+
+      except tf.errors.OutOfRangeError:
+        data_available = False
+
+    # construct arrays
+    preds = np.concatenate(preds, axis=0)
+    if return_var:
+      preds_var = np.concatenate(preds_var, axis=0)
+    if return_all:
+      preds_all = np.concatenate(preds_all, axis=0)
 
     if return_var:
       if return_all:
@@ -901,7 +1034,6 @@ class SeqNNModel(object):
         Args:
           sess:         TensorFlow session
           batcher:      Batcher object to provide data
-          mc_n:           Monte Carlo iterations per rc/shift.
           test_batches: Number of test batches
 
         Returns:

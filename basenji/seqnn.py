@@ -341,6 +341,8 @@ class SeqNN(seqnn_util.SeqNNModel):
     # slice buffer
     tstart = self.hp.batch_buffer // self.hp.target_pool
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
+    self.target_length = tend - tstart
+
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
     if target_subset is not None:

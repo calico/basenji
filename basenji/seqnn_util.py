@@ -596,10 +596,7 @@ class SeqNNModel(object):
         # print('ei=%d, mi=%d, fwdrc=%d, shifts=%d' % (ei, mi, ensemble_fwdrc[ei], ensemble_shifts[ei]), flush=True)
 
         # predict
-        if penultimate:
-          preds_ei = sess.run(self.penultimate_op, feed_dict=fd)
-        else:
-          preds_ei = sess.run(self.preds_eval, feed_dict=fd)
+        preds_ei = sess.run(self.preds_eval, feed_dict=fd)
 
         # reverse
         if ensemble_fwdrc[ei] is False:
@@ -641,7 +638,7 @@ class SeqNNModel(object):
 
         In
          sess:           TensorFlow session
-         batcher:        Batcher class with transcript-covering sequences.
+         batcher:        Batcher class with sequences.
          rc:             Average predictions from the forward and reverse
          complement sequences.
          shifts:         Average predictions from sequence shifts left/right.
@@ -758,17 +755,16 @@ class SeqNNModel(object):
     else:
       return preds
 
-  def predict_h5(self, sess, batcher,
-                return_var=False, return_all=False,
-                penultimate=False, test_batches=None):
+  def predict_h5(self, sess, batcher, test_batches=None,
+                 return_var=False, return_all=False):
     """ Compute preidctions on an HDF5 test set.
 
         Args:
           sess:          TensorFlow session
+          batcher:       Batcher class with sequences.
+          test_batches:  Number of test batches to use.
           return_var:    Return variance estimates
           return_all:    Retyrn all predictions.
-          penultimate:   Predict the penultimate layer.
-          test_batches:  Number of test batches to use.
 
         Returns:
           preds: S (sequences) x L (unbuffered length) x T (targets) array
@@ -831,17 +827,15 @@ class SeqNNModel(object):
     else:
       return preds
 
-  def predict_tfr(self, sess,
-                  return_var=False, return_all=False,
-                  penultimate=False, test_batches=None):
+  def predict_tfr(self, sess, test_batches=None
+                  return_var=False, return_all=False):
     """ Compute preidctions on a TFRecord test set.
 
         Args:
           sess:          TensorFlow session
+          test_batches:  Number of test batches to use.
           return_var:    Return variance estimates
           return_all:    Retyrn all predictions.
-          penultimate:   Predict the penultimate layer.
-          test_batches:  Number of test batches to use.
 
         Returns:
           preds: S (sequences) x L (unbuffered length) x T (targets) array
@@ -952,9 +946,9 @@ class SeqNNModel(object):
 
     while not batcher.empty():
       # predict gene sequences
-      gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
-                                target_indexes=target_indexes, penultimate=penultimate,
-                                test_batches=test_batches_per)
+      gseq_preds = self.predict_h5_manual(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
+                                          target_indexes=target_indexes, penultimate=penultimate,
+                                          test_batches=test_batches_per)
       # slice TSSs
       for bsi in range(gseq_preds.shape[0]):
         for tss in gene_seqs[si].tss_list:

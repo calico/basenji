@@ -34,7 +34,8 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.hparams_set = False
 
   def build_feed(self, job, augment_rc=False, augment_shifts=[0],
-            ensemble_rc=False, ensemble_shifts=[0], target_subset=None):
+                 ensemble_rc=False, ensemble_shifts=[0],
+                 penultimate=False, target_subset=None):
     """Build training ops that depend on placeholders."""
 
     self.hp = params.make_hparams(job)
@@ -46,12 +47,13 @@ class SeqNN(seqnn_util.SeqNNModel):
           augment_shifts=augment_shifts,
           ensemble_rc=ensemble_rc,
           ensemble_shifts=ensemble_shifts,
+          penultimate=penultimate,
           target_subset=target_subset)
 
   def build_from_data_ops(self, job, data_ops,
                           augment_rc=False, augment_shifts=[0],
                           ensemble_rc=False, ensemble_shifts=[0],
-                          target_subset=None):
+                          penultimate=False, target_subset=None):
     """Build training ops from input data ops."""
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
@@ -69,7 +71,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute train representation
     self.preds_train = self.build_predict(data_ops_train['sequence'],
-                                          None, target_subset)
+                                          None, penultimate, target_subset)
 
     # training losses
     loss_returns = self.build_loss(self.preds_train, data_ops_train['label'], target_subset)
@@ -90,7 +92,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
-    build_rep = lambda do: self.build_predict(do[0], do[1], target_subset)
+    build_rep = lambda do: self.build_predict(do[0], do[1], penultimate, target_subset)
     self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=self.preds_train.dtype)  # back_prop=False
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
@@ -148,7 +150,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'name': 'conv-%d' % layer_index
     }
 
-  def build_predict(self, inputs, reverse_preds=None, target_subset=None):
+  def build_predict(self, inputs, reverse_preds=None, penultimate=False, target_subset=None):
     """Construct per-location real-valued predictions."""
     assert inputs is not None
     print('Targets pooled by %d to length %d' %
@@ -158,17 +160,17 @@ class SeqNN(seqnn_util.SeqNNModel):
     # convolution layers
     ###################################################
     filter_weights = []
-    layer_reprs = [inputs]
+    self.layer_reprs = [inputs]
 
     seqs_repr = inputs
     for layer_index in range(self.hp.cnn_layers):
       with tf.variable_scope('cnn%d' % layer_index, reuse=tf.AUTO_REUSE):
         # convolution block
-        args_for_block = self._make_conv_block_args(layer_index, layer_reprs)
+        args_for_block = self._make_conv_block_args(layer_index, self.layer_reprs)
         seqs_repr = layers.conv_block(seqs_repr=seqs_repr, **args_for_block)
 
         # save representation
-        layer_reprs.append(seqs_repr)
+        self.layer_reprs.append(seqs_repr)
 
     # final nonlinearity
     seqs_repr = tf.nn.relu(seqs_repr)
@@ -190,44 +192,44 @@ class SeqNN(seqnn_util.SeqNNModel):
     seqs_repr = seqs_repr[:, batch_buffer_pool:
                           seq_length - batch_buffer_pool, :]
 
-    # save penultimate representation
-    # self.penultimate_op = seqs_repr
-
     ###################################################
     # final layer
     ###################################################
-    with tf.variable_scope('final', reuse=tf.AUTO_REUSE):
-      final_filters = self.hp.num_targets * self.hp.target_classes
-      final_repr = tf.layers.dense(
-          inputs=seqs_repr,
-          units=final_filters,
-          activation=None,
-          kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
-          kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
-      print('Convolution w/ %d %dx1 filters to final targets' %
-          (final_filters, seqs_repr.shape[2]))
+    if penultimate:
+      final_repr = seqs_repr
+    else:
+      with tf.variable_scope('final', reuse=tf.AUTO_REUSE):
+        final_filters = self.hp.num_targets * self.hp.target_classes
+        final_repr = tf.layers.dense(
+            inputs=seqs_repr,
+            units=final_filters,
+            activation=None,
+            kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
+            kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
+        print('Convolution w/ %d %dx1 filters to final targets' %
+            (final_filters, seqs_repr.shape[2]))
 
-      if target_subset is not None:
-        # get convolution parameters
-        filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
-        bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
+        if target_subset is not None:
+          # get convolution parameters
+          filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
+          bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
 
-        # subset to specific targets
-        filters_subset = tf.gather(filters_full, target_subset, axis=1)
-        bias_subset = tf.gather(bias_full, target_subset, axis=0)
+          # subset to specific targets
+          filters_subset = tf.gather(filters_full, target_subset, axis=1)
+          bias_subset = tf.gather(bias_full, target_subset, axis=0)
 
-        # substitute a new limited convolution
-        final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
-        final_repr = tf.nn.bias_add(final_repr, bias_subset)
+          # substitute a new limited convolution
+          final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
+          final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
-        # update # targets
-        self.hp.num_targets = len(target_subset)
+          # update # targets
+          self.hp.num_targets = len(target_subset)
 
-      # expand length back out
-      if self.hp.target_classes > 1:
-        final_repr = tf.reshape(final_repr,
-                                (self.hp.batch_size, -1, self.hp.num_targets,
-                                 self.hp.target_classes))
+        # expand length back out
+        if self.hp.target_classes > 1:
+          final_repr = tf.reshape(final_repr,
+                                  (self.hp.batch_size, -1, self.hp.num_targets,
+                                   self.hp.target_classes))
 
     # transform for reverse complement
     if reverse_preds is not None:
@@ -238,47 +240,49 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     # link function
     ###################################################
-
-    # work-around for specifying my own predictions
-    # self.preds_adhoc = tf.placeholder(
-    #     tf.float32, shape=final_repr.shape, name='preds-adhoc')
-
-    # float 32 exponential clip max
-    exp_max = 50
-
-    # choose link
-    if self.hp.link in ['identity', 'linear']:
-      predictions = tf.identity(final_repr, name='preds')
-
-    elif self.hp.link == 'relu':
-      predictions = tf.relu(final_repr, name='preds')
-
-    elif self.hp.link == 'exp':
-      final_repr_clip = tf.clip_by_value(final_repr, -exp_max, exp_max)
-      predictions = tf.exp(final_repr_clip, name='preds')
-
-    elif self.hp.link == 'exp_linear':
-      predictions = tf.where(
-          final_repr > 0,
-          final_repr + 1,
-          tf.exp(tf.clip_by_value(final_repr, -exp_max, exp_max)),
-          name='preds')
-
-    elif self.hp.link == 'softplus':
-      final_repr_clip = tf.clip_by_value(final_repr, -exp_max, 10000)
-      predictions = tf.nn.softplus(final_repr_clip, name='preds')
-
+    if penultimate:
+      predictions = final_repr
     else:
-      print('Unknown link function %s' % self.hp.link, file=sys.stderr)
-      exit(1)
+      # work-around for specifying my own predictions
+      # self.preds_adhoc = tf.placeholder(
+      #     tf.float32, shape=final_repr.shape, name='preds-adhoc')
 
-    # clip
-    if self.hp.target_clip is not None:
-      predictions = tf.clip_by_value(predictions, 0, self.hp.target_clip)
+      # float 32 exponential clip max
+      exp_max = 50
 
-    # sqrt
-    if self.hp.target_sqrt:
-      predictions = tf.sqrt(predictions)
+      # choose link
+      if self.hp.link in ['identity', 'linear']:
+        predictions = tf.identity(final_repr, name='preds')
+
+      elif self.hp.link == 'relu':
+        predictions = tf.relu(final_repr, name='preds')
+
+      elif self.hp.link == 'exp':
+        final_repr_clip = tf.clip_by_value(final_repr, -exp_max, exp_max)
+        predictions = tf.exp(final_repr_clip, name='preds')
+
+      elif self.hp.link == 'exp_linear':
+        predictions = tf.where(
+            final_repr > 0,
+            final_repr + 1,
+            tf.exp(tf.clip_by_value(final_repr, -exp_max, exp_max)),
+            name='preds')
+
+      elif self.hp.link == 'softplus':
+        final_repr_clip = tf.clip_by_value(final_repr, -exp_max, 10000)
+        predictions = tf.nn.softplus(final_repr_clip, name='preds')
+
+      else:
+        print('Unknown link function %s' % self.hp.link, file=sys.stderr)
+        exit(1)
+
+      # clip
+      if self.hp.target_clip is not None:
+        predictions = tf.clip_by_value(predictions, 0, self.hp.target_clip)
+
+      # sqrt
+      if self.hp.target_sqrt:
+        predictions = tf.sqrt(predictions)
 
     return predictions
 

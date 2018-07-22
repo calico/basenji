@@ -827,7 +827,7 @@ class SeqNNModel(object):
     else:
       return preds
 
-  def predict_tfr(self, sess, test_batches=None
+  def predict_tfr(self, sess, test_batches=None,
                   return_var=False, return_all=False):
     """ Compute preidctions on a TFRecord test set.
 

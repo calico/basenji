@@ -174,8 +174,8 @@ def main():
   t0 = time.time()
   model = basenji.seqnn.SeqNN()
   # model.build_feed(job, target_subset=target_subset)
-  model.build_feed(job, target_subset=target_subset,
-      ensemble_rc=options.rc, ensemble_shifts=options.shifts)
+  model.build_feed(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts,
+      target_subset=target_subset, penultimate=options.penultimate)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.penultimate:
@@ -267,8 +267,7 @@ def main():
       # batch_preds = model.predict(sess, batcher,
       #                 rc=options.rc, shifts=options.shifts,
       #                 penultimate=options.penultimate)
-      batch_preds = model.predict_h5(sess, batcher,
-                        penultimate=options.penultimate)
+      batch_preds = model.predict_h5(sess, batcher)
 
       # normalize
       batch_preds /= target_norms

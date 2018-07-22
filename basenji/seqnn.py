@@ -72,14 +72,16 @@ class SeqNN(seqnn_util.SeqNNModel):
     # compute train representation
     self.preds_train = self.build_predict(data_ops_train['sequence'],
                                           None, penultimate, target_subset)
+    self.target_length = self.preds_train.shape[1].value
 
     # training losses
-    loss_returns = self.build_loss(self.preds_train, data_ops_train['label'], target_subset)
-    self.loss_train, self.loss_train_targets, self.targets_train = loss_returns
+    if not penultimate:
+      loss_returns = self.build_loss(self.preds_train, data_ops_train['label'], target_subset)
+      self.loss_train, self.loss_train_targets, self.targets_train = loss_returns
 
-    # optimizer
-    self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    self.build_optimizer(self.loss_train)
+      # optimizer
+      self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+      self.build_optimizer(self.loss_train)
 
     ##################################################
     # eval
@@ -97,8 +99,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
     # eval loss
-    loss_returns = self.build_loss(self.preds_eval, data_ops['label'], target_subset)
-    self.loss_eval, self.loss_eval_targets, self.targets_eval = loss_returns
+    if not penultimate:
+      loss_returns = self.build_loss(self.preds_eval, data_ops['label'], target_subset)
+      self.loss_eval, self.loss_eval_targets, self.targets_eval = loss_returns
 
     # helper variables
     self.preds_length = self.preds_train.shape[1]
@@ -345,8 +348,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     # slice buffer
     tstart = self.hp.batch_buffer // self.hp.target_pool
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
-    self.target_length = tend - tstart
-
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
     if target_subset is not None:

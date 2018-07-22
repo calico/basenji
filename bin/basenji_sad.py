@@ -324,8 +324,8 @@ def main():
           max_li = np.argmax(np.abs(sar_vec), axis=0)
 
           if options.out_h5 or options.out_zarr:
-            sad_out['SAD'][szi,:] = sad
-            sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)])
+            sad_out['SAD'][szi,:] = sad.astype('float16')
+            sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)], dtype='float16')
             szi += 1
 
           else:
@@ -378,6 +378,7 @@ def main():
 
       # compute
       sad_pct = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
+      sad_pct = sad_pct.astype('float16')
 
       # save
       sad_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')

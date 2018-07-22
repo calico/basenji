@@ -29,7 +29,7 @@ class TestSAD(unittest.TestCase):
     this_h5 = h5py.File('sad/test/sad.h5', 'r')
     this_sad = this_h5['SAD'][:]
 
-    np.testing.assert_allclose(saved_sad, this_sad, rtol=1e-3, atol=5e-3)
+    np.testing.assert_allclose(this_sad, saved_sad, atol=1e-3, rtol=1e-3)
 
   def test_usad(self):
     cmd = 'basenji_sad.py --h5 -l %d -o sad/utest --rc --shifts "0,1" -u %s %s %s' % \
@@ -42,7 +42,7 @@ class TestSAD(unittest.TestCase):
     this_h5 = h5py.File('sad/utest/sad.h5', 'r')
     this_sad = this_h5['SAD'][:]
 
-    np.testing.assert_allclose(saved_sad, this_sad, rtol=1e-3, atol=5e-3)
+    np.testing.assert_allclose(this_sad, saved_sad, atol=1e-3, rtol=1e-3)
 
 
 ################################################################################

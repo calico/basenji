@@ -71,7 +71,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute train representation
     self.preds_train = self.build_predict(data_ops_train['sequence'],
-                                          None, penultimate, target_subset)
+                                          None, penultimate, target_subset,
+                                          save_reprs=True)
     self.target_length = self.preds_train.shape[1].value
 
     # training losses
@@ -103,9 +104,12 @@ class SeqNN(seqnn_util.SeqNNModel):
       loss_returns = self.build_loss(self.preds_eval, data_ops['label'], target_subset)
       self.loss_eval, self.loss_eval_targets, self.targets_eval = loss_returns
 
+    # update # targets
+    if target_subset is not None:
+      self.hp.num_targets = len(target_subset)
+
     # helper variables
     self.preds_length = self.preds_train.shape[1]
-
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
@@ -153,7 +157,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'name': 'conv-%d' % layer_index
     }
 
-  def build_predict(self, inputs, reverse_preds=None, penultimate=False, target_subset=None):
+  def build_predict(self, inputs, reverse_preds=None, penultimate=False, target_subset=None, save_reprs=False):
     """Construct per-location real-valued predictions."""
     assert inputs is not None
     print('Targets pooled by %d to length %d' %
@@ -163,17 +167,20 @@ class SeqNN(seqnn_util.SeqNNModel):
     # convolution layers
     ###################################################
     filter_weights = []
-    self.layer_reprs = [inputs]
+    layer_reprs = [inputs]
 
     seqs_repr = inputs
     for layer_index in range(self.hp.cnn_layers):
       with tf.variable_scope('cnn%d' % layer_index, reuse=tf.AUTO_REUSE):
         # convolution block
-        args_for_block = self._make_conv_block_args(layer_index, self.layer_reprs)
+        args_for_block = self._make_conv_block_args(layer_index, layer_reprs)
         seqs_repr = layers.conv_block(seqs_repr=seqs_repr, **args_for_block)
 
         # save representation
-        self.layer_reprs.append(seqs_repr)
+        layer_reprs.append(seqs_repr)
+
+    if save_reprs:
+      self.layer_reprs = layer_reprs
 
     # final nonlinearity
     seqs_repr = tf.nn.relu(seqs_repr)
@@ -224,9 +231,6 @@ class SeqNN(seqnn_util.SeqNNModel):
           # substitute a new limited convolution
           final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
           final_repr = tf.nn.bias_add(final_repr, bias_subset)
-
-          # update # targets
-          self.hp.num_targets = len(target_subset)
 
         # expand length back out
         if self.hp.target_classes > 1:
@@ -381,11 +385,12 @@ class SeqNN(seqnn_util.SeqNNModel):
     # reduce lossses by batch and position
     loss_op = tf.reduce_mean(loss_op, axis=[0, 1], name='target_loss')
     loss_op = tf.check_numerics(loss_op, 'Invalid loss', name='loss_check')
-
-    tf.summary.histogram('target_loss', loss_op)
-    for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
-      tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
     target_losses = loss_op
+
+    if target_subset is None:
+      tf.summary.histogram('target_loss', loss_op)
+      for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
+        tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
 
     # fully reduce
     loss_op = tf.reduce_mean(loss_op, name='loss')

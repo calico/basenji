@@ -563,7 +563,7 @@ def cor_table(gene_targets,
 
     # plot correlations versus target signal
     gene_targets_log = np.log2(gene_targets[:, target_indexes] + 1)
-    target_signal = gene_targets_log.sum(axis=0)
+    target_signal = gene_targets_log.sum(axis=0, dtype='float64')
     plots.jointplot(
         target_signal,
         cors,

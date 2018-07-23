@@ -27,7 +27,7 @@ class SeqNNModel(object):
     self.grad_ops = []
 
     for ti in range(self.hp.num_targets):
-      grad_ti_op = tf.gradients(self.preds_eval[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
+      grad_ti_op = tf.gradients(self.preds_train[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
       self.grad_ops.append(grad_ti_op)
 
 
@@ -224,7 +224,9 @@ class SeqNNModel(object):
       return layer_grads, layer_reprs, preds
 
 
-  def _gradients_ensemble(self, sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, return_var=False, return_all=False):
+  def _gradients_ensemble(self, sess, fd, Xb,
+                          ensemble_fwdrc, ensemble_shifts, mc_n,
+                          return_var=False, return_all=False):
     """ Compute gradients over an ensemble of input augmentations.
 
       In
@@ -312,7 +314,7 @@ class SeqNNModel(object):
         # prediction
 
         # predict
-        preds_ei, layer_reprs_ei = sess.run([self.preds_eval, self.layer_reprs], feed_dict=fd)
+        preds_ei, layer_reprs_ei = sess.run([self.preds_train, self.layer_reprs], feed_dict=fd)
 
         # reverse
         if ensemble_fwdrc[ei] is False:
@@ -451,7 +453,7 @@ class SeqNNModel(object):
       fd[self.inputs_ph] = Xb
 
       # predict
-      reprs_batch, _ = sess.run([self.layer_reprs, self.preds_eval], feed_dict=fd)
+      reprs_batch, _ = sess.run([self.layer_reprs, self.preds_train], feed_dict=fd)
 
       # save representations
       for lii in range(len(self.grad_layers)):
@@ -487,8 +489,18 @@ class SeqNNModel(object):
     return layer_grads, layer_reprs
 
 
-  def hidden(self, sess, batcher, layers=None):
-    """ Compute hidden representations for a test set. """
+  def hidden(self, sess, batcher, layers=None, test_batches=None):
+    """ Compute hidden representations for a test set.
+
+        In
+         sess:          TensorFlow session
+         batcher:       Batcher class with sequences.
+         layers:        Layer indexes to return representations.
+         test_batches:  Number of test batches to use.
+
+        Out
+         preds: S (sequences) x L (unbuffered length) x T (targets) array
+        """
 
     if layers is None:
       layers = list(range(self.hp.cnn_layers))
@@ -505,13 +517,15 @@ class SeqNNModel(object):
     # get first batch
     Xb, _, _, Nb = batcher.next()
 
-    while Xb is not None:
+    batch_num = 0
+    while Xb is not None and (test_batches is None or
+                              batch_num < test_batches):
       # update feed dict
       fd[self.inputs_ph] = Xb
 
       # compute predictions
       layer_reprs_batch, preds_batch = sess.run(
-          [self.layer_reprs, self.preds_eval], feed_dict=fd)
+          [self.layer_reprs, self.preds_train], feed_dict=fd)
 
       # accumulate representationsmakes the number of members for self smaller and also
       for li in layers:
@@ -527,6 +541,7 @@ class SeqNNModel(object):
 
       # next batch
       Xb, _, _, Nb = batcher.next()
+      batch_num += 1
 
     # reset batcher
     batcher.reset()

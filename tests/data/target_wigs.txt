@@ -1,2 +1,3 @@
-CNhs12331	data/gm12878_rep1.h5	GM12878 rep1
-CNhs12334	data/k562_rep1.h5	K562 rep1
+index	identifier	file	description
+0	CNhs12331	/home/drk/seqnn/data/human/cage/fantom/coverage/CNhs12331.h5	GM12878 rep1
+1	CNhs12334	/home/drk/seqnn/data/human/cage/fantom/coverage/CNhs12334.h5	K562 rep1

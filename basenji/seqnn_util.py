@@ -708,9 +708,9 @@ class SeqNNModel(object):
 
     # initialize prediction data structures
     if test_batches is None:
-      num_seqs = batcher.num_seqs
+      num_seqs = batcher.remaining()
     else:
-      num_seqs = min(batcher.num_seqs, self.hp.batch_size*test_batches)
+      num_seqs = min(batcher.remaining(), self.hp.batch_size*test_batches)
 
     preds = np.zeros(
         (num_seqs, preds_length, num_targets), dtype=dtype)
@@ -726,32 +726,36 @@ class SeqNNModel(object):
       preds_all = np.zeros(
           (num_seqs, preds_length, num_targets, all_n), dtype=dtype)
 
-    # sequence index
+    # indexes
     si = 0
-
-    # get first batch
-    Xb, _, _, Nb = batcher.next()
-
     batch_num = 0
-    while Xb is not None and (test_batches is None or
-                              batch_num < test_batches):
-      # make ensemble predictions
-      preds_batch, preds_batch_var, preds_batch_all = self._predict_ensemble(
-          sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes,
-          target_indexes, return_var, return_all, penultimate)
 
-      # accumulate predictions
-      preds[si:si + Nb, :, :] = preds_batch[:Nb, :, :]
-      if return_var:
-        preds_var[si:si + Nb, :, :] = preds_batch_var[:Nb, :, :] / (all_n - 1)
-      if return_all:
-        preds_all[si:si + Nb, :, :, :] = preds_batch_all[:Nb, :, :, :]
+    # while we want more batches
+    while test_batches is None or batch_num < test_batches:
 
-      # update sequence index
-      si += Nb
+      # get batch
+      Xb, _, _, Nb = batcher.next()
+
+      # verify fidelity
+      if Xb is None:
+        break
+      else:
+        # make ensemble predictions
+        preds_batch, preds_batch_var, preds_batch_all = self._predict_ensemble(
+            sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes,
+            target_indexes, return_var, return_all, penultimate)
+
+        # accumulate predictions
+        preds[si:si + Nb, :, :] = preds_batch[:Nb, :, :]
+        if return_var:
+          preds_var[si:si + Nb, :, :] = preds_batch_var[:Nb, :, :] / (all_n - 1)
+        if return_all:
+          preds_all[si:si + Nb, :, :, :] = preds_batch_all[:Nb, :, :, :]
+
+        # update sequence index
+        si += Nb
 
       # next batch
-      Xb, _, _, Nb = batcher.next()
       batch_num += 1
 
     if return_var:
@@ -819,7 +823,6 @@ class SeqNNModel(object):
       gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
                                 target_indexes=target_indexes, penultimate=penultimate,
                                 test_batches=test_batches_per)
-
       # slice TSSs
       for bsi in range(gseq_preds.shape[0]):
         for tss in gene_seqs[si].tss_list:

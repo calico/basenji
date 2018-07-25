@@ -64,6 +64,9 @@ class Batcher:
   def empty(self):
     return self.start >= self.num_seqs
 
+  def remaining(self):
+    return self.num_seqs - self.start
+
   def next(self, fwdrc=True, shift=0):
     """ Load the next batch from the HDF5. """
     Xb = None
@@ -121,7 +124,7 @@ class Batcher:
         NAb = NAb[:, ::-1]
 
     # update start
-    self.start = stop
+    self.start = min(stop, self.num_seqs)
 
     return Xb, Yb, NAb, Nb
 

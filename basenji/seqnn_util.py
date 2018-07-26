@@ -736,7 +736,6 @@ class SeqNNModel(object):
 
     # while we want more batches
     while test_batches is None or batch_num < test_batches:
-
       # get batch
       Xb, _, _, Nb = batcher.next()
 
@@ -793,39 +792,41 @@ class SeqNNModel(object):
     if return_all:
       preds_all = []
 
-    # get first batch
+    # count batches
     batch_num = 0
-    Xb, _, _, Nb = batcher.next()
 
-    while Xb is not None and (test_batches is None or
-                              batch_num < test_batches):
-      # update feed dict
-      fd[self.inputs_ph] = Xb
-
-      # make predictions
-      if return_var or return_all:
-        preds_batch, preds_ensemble_batch = sess.run([self.preds_eval, self.preds_ensemble], feed_dict=fd)
-
-        # move ensemble to back
-        preds_ensemble_batch = np.moveaxis(preds_ensemble_batch, 0, -1)
-
-      else:
-        preds_batch = sess.run(self.preds_eval, feed_dict=fd)
-
-      # accumulate predictions and targets
-      preds.append(preds_batch[:Nb])
-      if return_var:
-        preds_var_batch = np.var(preds_ensemble_batch, axis=-1)
-        preds_var.append(preds_var_batch[:Nb])
-      if return_all:
-        preds_all.append(preds_ensemble_batch[:Nb])
-
-      # next batch
-      batch_num += 1
+    # while we want more batches
+    while test_batches is None or batch_num < test_batches:
+      # get batch
       Xb, _, _, Nb = batcher.next()
 
-    # reset batcher
-    batcher.reset()
+      # verify fidelity
+      if Xb is None:
+        break
+      else:
+        # update feed dict
+        fd[self.inputs_ph] = Xb
+
+        # make predictions
+        if return_var or return_all:
+          preds_batch, preds_ensemble_batch = sess.run([self.preds_eval, self.preds_ensemble], feed_dict=fd)
+
+          # move ensemble to back
+          preds_ensemble_batch = np.moveaxis(preds_ensemble_batch, 0, -1)
+
+        else:
+          preds_batch = sess.run(self.preds_eval, feed_dict=fd)
+
+        # accumulate predictions and targets
+        preds.append(preds_batch[:Nb])
+        if return_var:
+          preds_var_batch = np.var(preds_ensemble_batch, axis=-1)
+          preds_var.append(preds_var_batch[:Nb])
+        if return_all:
+          preds_all.append(preds_ensemble_batch[:Nb])
+
+        # next batch
+        batch_num += 1
 
     # construct arrays
     preds = np.concatenate(preds, axis=0)

@@ -41,7 +41,7 @@ def conv_block(seqs_repr, conv_params, is_training,
       padding='same',
       dilation_rate=[conv_params.dilation],
       use_bias=False,
-      kernel_initializer=tf.contrib.layers.xavier_initializer(),
+      kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
       kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
   tf.logging.info('Convolution w/ %d %dx%d filters strided %d, dilated %d' %
                   (conv_params.filters, seqs_repr.shape[2],

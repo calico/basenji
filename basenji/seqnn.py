@@ -171,7 +171,7 @@ class SeqNN(seqnn_util.SeqNNModel):
           inputs=seqs_repr,
           units=final_filters,
           activation=None,
-          kernel_initializer=tf.contrib.layers.xavier_initializer(),
+          kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
           kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
       print('Convolution w/ %d %dx1 filters to final targets' %
           (final_filters, seqs_repr.shape[2]))

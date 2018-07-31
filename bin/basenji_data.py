@@ -79,6 +79,9 @@ def main():
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: seq_length]')
+  parser.add_option('-s', dest='sum_stat',
+      default='sum',
+      help='Summary statistic to compute in windows [Default: %default]')
   parser.add_option('-r', dest='seqs_per_tfr',
       default=256, type='int',
       help='Sequences per TFRecord file [Default: %default]')
@@ -229,6 +232,7 @@ def main():
     else:
       cmd = 'basenji_data_read.py'
       cmd += ' -w %d' % options.pool_width
+      cmd += ' -s %s' % options.sum_stat
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
       cmd += ' %s' % genome_cov_file

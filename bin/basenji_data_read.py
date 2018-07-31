@@ -17,6 +17,7 @@
 from optparse import OptionParser
 
 import os
+import sys
 
 import h5py
 import numpy as np
@@ -38,6 +39,9 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
+  parser.add_option('-s', dest='sum_stat',
+      default='sum',
+      help='Summary statistic to compute in windows [Default: %default]')
   parser.add_option('-w',dest='pool_width',
       default=1, type='int',
       help='Average pooling width [Default: %default]')
@@ -100,7 +104,17 @@ def main():
 
     # sum pool
     seq_cov = seq_cov_nt.reshape(seq_len_pool, options.pool_width)
-    seq_cov = seq_cov.sum(axis=1, dtype='float32')
+    if options.sum_stat == 'sum':
+      seq_cov = seq_cov.sum(axis=1, dtype='float32')
+    elif options.sum_stat in ['mean', 'avg']:
+      seq_cov = seq_cov.mean(axis=1, dtype='float32')
+    elif options.sum_stat == 'median':
+      seq_cov = seq_cov.median(axis=1, dtype='float32')
+    elif options.sum_stat == 'max':
+      seq_cov = seq_cov.max(axis=1, dtype='float32')
+    else:
+      print('ERROR: Unrecognized summary statistic "%s".' % options.sum_stat, file=sys.stderr)
+      exit(1)
 
     # write
     seqs_cov_open['seqs_cov'][si,:] = seq_cov

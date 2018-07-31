@@ -26,7 +26,10 @@ import numpy as np
 import pyBigWig
 import tensorflow as tf
 
-import basenji
+from basenji import batcher
+from basenji import genedata
+from basenji import params
+from basenji import seqnn
 
 from basenji_test import bigwig_open
 
@@ -43,23 +46,15 @@ the genomic region.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <genes_hdf5_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-g',
-      dest='genome_file',
+  parser.add_option('-g', dest='genome_file',
       default='%s/assembly/human.hg19.genome'%os.environ['HG19'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option(
-      '-l',
-      dest='gene_list',
+  parser.add_option('-l', dest='gene_list',
       help='Process only gene ids in the given file')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
-      default='grad_map',
+  parser.add_option('-o', dest='out_dir',
+      default='grad_mapg',
       help='Output directory [Default: %default]')
-  parser.add_option(
-      '-t',
-      dest='target_indexes',
+  parser.add_option('-t', dest='target_indexes',
       default=None,
       help='Target indexes to plot')
   (options,args) = parser.parse_args()
@@ -78,7 +73,7 @@ def main():
   #################################################################
   # reads in genes HDF5
 
-  gene_data = basenji.genedata.GeneData(genes_hdf5_file)
+  gene_data = genedata.GeneData(genes_hdf5_file)
 
   # subset gene sequences
   genes_subset = set()
@@ -92,7 +87,7 @@ def main():
   #######################################################
   # model parameters and placeholders
 
-  job = basenji.dna_io.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   job['seq_length'] = gene_data.seq_length
   job['seq_depth'] = gene_data.seq_depth
@@ -112,11 +107,12 @@ def main():
     target_subset = None
 
   # build model
-  model = basenji.seqnn.SeqNN()
+  model = seqnn.SeqNN()
   model.build(job, target_subset=target_subset)
 
   # determine latest pre-dilated layer
-  dilated_mask = np.array(model.cnn_dilation) > 1
+  cnn_dilation = np.array([cp.dilation for cp in model.hp.cnn_params])
+  dilated_mask = cnn_dilation > 1
   dilated_indexes = np.where(dilated_mask)[0]
   pre_dilated_layer = np.min(dilated_indexes)
   print('Pre-dilated layer: %d' % pre_dilated_layer)
@@ -140,15 +136,15 @@ def main():
 
     for si in range(gene_data.num_seqs):
       # initialize batcher
-      batcher = basenji.batcher.Batcher(gene_data.seqs_1hot[si:si+1],
-                                        batch_size=model.batch_size,
-                                        pool_width=model.target_pool)
+      batcher_si = batcher.Batcher(gene_data.seqs_1hot[si:si+1],
+                                   batch_size=model.hp.batch_size,
+                                   pool_width=model.hp.target_pool)
 
       # get layer representations
       t0 = time.time()
       print('Computing gradients.', end='', flush=True)
-      batch_grads, batch_reprs = model.gradients_genes(sess, batcher,
-                                                      gene_data.gene_seqs[si:si+1])
+      batch_grads, batch_reprs = model.gradients_genes(sess, batcher_si,
+                                                       gene_data.gene_seqs[si:si+1])
       print(' Done in %ds.' % (time.time()-t0), flush=True)
 
       # only layer
@@ -189,8 +185,8 @@ def main():
 
           # specify bigwig locations and values
           bw_chroms = [seq_chrom]*pooled_length
-          bw_starts = [int(seq_start + li*model.target_pool) for li in range(pooled_length)]
-          bw_ends = [int(bws + model.target_pool) for bws in bw_starts]
+          bw_starts = [int(seq_start + li*model.hp.target_pool) for li in range(pooled_length)]
+          bw_ends = [int(bws + model.hp.target_pool) for bws in bw_starts]
           bw_values = [float(bgs) for bgs in batch_grads_score]
 
           # write

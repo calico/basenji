@@ -26,7 +26,7 @@ class SeqNNModel(object):
     self.grad_layers = layers
     self.grad_ops = []
 
-    for ti in range(self.num_targets):
+    for ti in range(self.hp.num_targets):
       grad_ti_op = tf.gradients(self.preds_op[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
       self.grad_ops.append(grad_ti_op)
 
@@ -397,13 +397,12 @@ class SeqNNModel(object):
     else:
       return preds, layer_reprs, layer_grads
 
-  def gradients_genes(self, sess, batcher, gene_seqs, rc=False):
+  def gradients_genes(self, sess, batcher, gene_seqs):
     ''' Compute predictions on a test set.
     In
      sess:       TensorFlow session
      batcher:    Batcher class with sequence(s)
      gene_seqs:  List of GeneSeq instances specifying gene positions in sequences.
-     rc:         Average predictions from the forward and reverse complement sequences.
     Out
      layer_grads: [G (TSSs) x T (targets) x P (seq position) x U (Units layer i) array] * (L layers)
      layer_reprs: [S (sequences) x P (seq position) x U (Units layer i) array] * (L layers)

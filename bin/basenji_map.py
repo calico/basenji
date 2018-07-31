@@ -27,7 +27,10 @@ import pyBigWig
 from scipy.stats import ttest_1samp
 import tensorflow as tf
 
-import basenji
+from basenji import batcher
+from basenji import genedata
+from basenji import params
+from basenji import seqnn
 
 from basenji_test import bigwig_open
 
@@ -102,7 +105,7 @@ def main():
   #################################################################
   # reads in genes HDF5
 
-  gene_data = basenji.genedata.GeneData(genes_hdf5_file)
+  gene_data = genedata.GeneData(genes_hdf5_file)
 
   # subset gene sequences
   genes_subset = set()
@@ -121,7 +124,7 @@ def main():
   #######################################################
   # model parameters and placeholders
 
-  job = basenji.params.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   job['seq_length'] = gene_data.seq_length
   job['seq_depth'] = gene_data.seq_depth
@@ -142,7 +145,7 @@ def main():
     target_subset = None
 
   # build model
-  model = basenji.seqnn.SeqNN()
+  model = seqnn.SeqNN()
   model.build(job, target_subset=target_subset)
 
   # determine latest pre-dilated layer
@@ -177,9 +180,9 @@ def score_write(sess, model, options, seqs_1hot, seqs_chrom, seqs_start):
 
   for si in range(seqs_1hot.shape[0]):
     # initialize batcher
-    batcher = basenji.batcher.Batcher(seqs_1hot[si:si+1],
-                                      batch_size=model.batch_size,
-                                      pool_width=model.target_pool)
+    batcher = batcher.Batcher(seqs_1hot[si:si+1],
+                              batch_size=model.batch_size,
+                              pool_width=model.target_pool)
 
     # get layer representations
     t0 = time.time()

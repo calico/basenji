@@ -227,12 +227,17 @@ def main():
     seqs_cov_stem = '%s/%d' % (seqs_cov_dir, ti)
     seqs_cov_file = '%s.h5' % seqs_cov_stem
 
+    clip_ti = None
+    if 'clip' in targets_df.columns:
+      clip_ti = targets_df['clip'].iloc[ti]
+
     if os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
       cmd += ' -w %d' % options.pool_width
       cmd += ' -s %s' % options.sum_stat
+      cmd += ' -c %f' % clip_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
       cmd += ' %s' % genome_cov_file

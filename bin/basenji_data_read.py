@@ -39,6 +39,9 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
+  parser.add_option('-c', dest='clip',
+      default=None, type='float',
+      help='Clip absolute values post-summary to a maximum [Default: %default]')
   parser.add_option('-s', dest='sum_stat',
       default='sum',
       help='Summary statistic to compute in windows [Default: %default]')
@@ -116,8 +119,12 @@ def main():
       print('ERROR: Unrecognized summary statistic "%s".' % options.sum_stat, file=sys.stderr)
       exit(1)
 
+    # clip
+    if options.clip is not None:
+      seq_cov = np.clip(seq_cov, -options.clip, options.clip)
+
     # write
-    seqs_cov_open['seqs_cov'][si,:] = seq_cov
+    seqs_cov_open['seqs_cov'][si,:] = seq_cov.astype('float16')
 
   # close genome coverage file
   genome_cov_open.close()

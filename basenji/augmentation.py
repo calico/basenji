@@ -121,11 +121,10 @@ def augment_stochastic_rc(data_ops):
   Returns
     data_ops_aug: augmented data
   """
-  seq, label, na = [data_ops[k] for k in ['sequence', 'label', 'na']]
   reverse_preds = tf.random_uniform(shape=[]) > 0.5
-  seq, label, na = tf.cond(reverse_preds, lambda: ops.reverse_complement_transform(seq, label, na),
-                                          lambda: (seq, label, na))
-  data_ops_aug = {'sequence': seq, 'label': label, 'na': na, 'reverse_preds':reverse_preds}
+  data_ops_aug = tf.cond(reverse_preds, lambda: ops.reverse_complement_transform(data_ops),
+                                        lambda: data_ops.copy())
+  data_ops_aug['reverse_preds'] = reverse_preds
   return data_ops_aug
 
 

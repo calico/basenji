@@ -66,7 +66,7 @@ def reverse_complement_transform(data_ops):
 
   # reverse NA
   if 'na' in data_ops:
-    data_ops_rc['na'] = tf.reverse(na_rc, axis=[1])
+    data_ops_rc['na'] = tf.reverse(data_ops['na'], axis=[1])
 
   return data_ops_rc
 

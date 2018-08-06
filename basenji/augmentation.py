@@ -80,7 +80,11 @@ def augment_deterministic(data_ops, augment_rc=False, augment_shift=0):
     data_ops: augmented data
   """
 
-  data_ops_aug = {'label': data_ops['label'], 'na': data_ops['na']}
+  data_ops_aug = {}
+  if 'label' in data_ops:
+    data_ops_aug['label'] = data_ops['label']
+  if 'na' in data_ops:
+    data_ops_aug['na'] = data_ops['na']
 
   if augment_shift == 0:
     data_ops_aug['sequence'] = data_ops['sequence']
@@ -104,10 +108,8 @@ def augment_deterministic_rc(data_ops):
   Returns
     data_ops_aug: augmented data ops
   """
-  seq, label, na = [data_ops[k] for k in ['sequence', 'label', 'na']]
-  seq, label, na = ops.reverse_complement_transform(seq, label, na)
-  reverse_preds = tf.ones((), dtype=tf.bool)
-  data_ops_aug = {'sequence': seq, 'label': label, 'na': na, 'reverse_preds':reverse_preds}
+  data_ops_aug = ops.reverse_complement_transform(data_ops)
+  data_ops_aug['reverse_preds'] = tf.ones((), dtype=tf.bool)
   return data_ops_aug
 
 

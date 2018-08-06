@@ -41,15 +41,34 @@ def adjust_max(start, stop, start_value, stop_value, name=None):
     else:
       return None
 
-def reverse_complement_transform(seq, label, na):
+def reverse_complement_transform(data_ops):
   """Reverse complement of batched onehot seq and corresponding label and na."""
+
+  # initialize reverse complemented data_ops
+  data_ops_rc = {}
+
+  # extract sequence from dict
+  seq = data_ops['sequence']
+
+  # check rank
   rank = seq.shape.ndims
   if rank != 3:
     raise ValueError("input seq must be rank 3.")
 
-  complement = tf.gather(seq, [3, 2, 1, 0], axis=-1)
-  return (tf.reverse(complement, axis=[1]), tf.reverse(label, axis=[1]),
-          tf.reverse(na, axis=[1]))
+  # reverse complement sequence
+  seq_rc = tf.gather(seq, [3, 2, 1, 0], axis=-1)
+  seq_rc = tf.reverse(seq_rc, axis=[1])
+  data_ops_rc['sequence'] = seq_rc
+
+  # reverse labels
+  if 'label' in data_ops:
+    data_ops_rc['label'] = tf.reverse(data_ops['label'], axis=[1])
+
+  # reverse NA
+  if 'na' in data_ops:
+    data_ops_rc['na'] = tf.reverse(na_rc, axis=[1])
+
+  return data_ops_rc
 
 
 def reverse_complement(input_seq, lengths=None):

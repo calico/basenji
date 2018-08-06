@@ -96,7 +96,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
     build_rep = lambda do: self.build_predict(do[0], do[1], penultimate, target_subset)
-    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=self.preds_train.dtype)  # back_prop=False
+    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32)  # back_prop=False
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
     # eval loss
@@ -110,6 +110,36 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # helper variables
     self.preds_length = self.preds_train.shape[1]
+
+  def build_sad(self, job, data_ops,
+                ensemble_rc=False, ensemble_shifts=[0],
+                penultimate=False, target_subset=None):
+    """Build SAD predict ops."""
+    if not self.hparams_set:
+      self.hp = params.make_hparams(job)
+      self.hparams_set = True
+
+    # training conditional
+    self.is_training = tf.placeholder(tf.bool, name='is_training')
+
+    # eval data ops w/ deterministic augmentation
+    data_ops_eval = augmentation.augment_deterministic_set(
+        data_ops, ensemble_rc, ensemble_shifts)
+    data_seq_eval = tf.stack([do['sequence'] for do in data_ops_eval])
+    data_rev_eval = tf.stack([do['reverse_preds'] for do in data_ops_eval])
+
+    # compute eval representation
+    map_elems_eval = (data_seq_eval, data_rev_eval)
+    build_rep = lambda do: self.build_predict(do[0], do[1], penultimate, target_subset)
+    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32)  # back_prop=False
+    self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
+
+    # update # targets
+    if target_subset is not None:
+      self.hp.num_targets = len(target_subset)
+
+    # helper variables
+    self.preds_length = self.preds_eval.shape[1]
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""

@@ -194,7 +194,7 @@ def main():
       snp_1hot_list = bvcf.snp_seq1(snp, options.seq_len, genome_open)
 
       for snp_1hot in snp_1hot_list:
-        yield {'sequnece':snp_1hot}
+        yield {'sequence':snp_1hot}
 
   snp_types = {'sequence': tf.float32}
   snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(options.seq_len),
@@ -204,6 +204,8 @@ def main():
                                              output_types=snp_types,
                                              output_shapes=snp_shapes)
   dataset = dataset.batch(job['batch_size'])
+  dataset = dataset.prefetch(2*job['batch_size'])
+  dataset = dataset.apply(tf.contrib.data.prefetch_to_device('/device:GPU:0'))
 
   iterator = dataset.make_one_shot_iterator()
   data_ops = iterator.get_next()
@@ -215,9 +217,6 @@ def main():
   # build model
   t0 = time.time()
   model = basenji.seqnn.SeqNN()
-  # model.build_feed(job, target_subset=target_subset)
-  # model.build_feed(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts,
-  #     target_subset=target_subset, penultimate=options.penultimate)
   model.build_sad(job, data_ops,
                   ensemble_rc=options.rc, ensemble_shifts=options.shifts,
                   penultimate=options.penultimate, target_subset=target_subset)
@@ -267,56 +266,44 @@ def main():
   #################################################################
   # process
 
-  # determine local start and end
-  loc_mid = model.preds_length // 2
-  loc_start = loc_mid - (options.local//2) // model.hp.target_pool
-  loc_end = loc_start + options.local // model.hp.target_pool
-
-  snp_i = 0
   szi = 0
-
   sum_write_thread = None
+  sw_batch_size = 32 // job['batch_size']
 
   # initialize saver
   saver = tf.train.Saver()
   with tf.Session() as sess:
+    # coordinator
+    coord = tf.train.Coordinator()
+    tf.train.start_queue_runners(coord=coord)
+
     # load variables into session
     saver.restore(sess, model_file)
 
-    # construct first batch
-    batch_1hot, batch_snps, snp_i = snps_next_batch(
-        snps, snp_i, options.batch_size, options.seq_len, genome_open)
+    # predict first
+    batch_preds = model.predict_tfr(sess, test_batches=sw_batch_size)
 
-    while len(batch_snps) > 0:
-      ###################################################
-      # predict
-
-      # initialize batcher
-      batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.hp.batch_size)
-
-      # predict
-      batch_preds = model.predict_tfr(sess, test_batches=256)
+    while batch_preds.shape[0] > 0:
+      # count predicted SNPs
+      num_snps = batch_preds.shape[0] // 2
 
       # normalize
       batch_preds /= target_norms
-
-      ###################################################
-      # collect and print SADs
 
       # block for last thread
       if sum_write_thread is not None:
         sum_write_thread.join()
 
+      # summarize and write
       sum_write_thread = threading.Thread(target=summarize_write,
-            args=(batch_snps, batch_preds, sad_out, szi, loc_start, loc_end, options.log_pseudo))
+            args=(batch_preds, sad_out, szi, options.log_pseudo))
       sum_write_thread.start()
-      szi += len(batch_snps)
 
-      ###################################################
-      # construct next batch
+      # update SNP index
+      szi += num_snps
 
-      batch_1hot, batch_snps, snp_i = snps_next_batch(
-          snps, snp_i, options.batch_size, options.seq_len, genome_open)
+      # predict next
+      batch_preds = model.predict_tfr(sess, test_batches=sw_batch_size)
 
   sum_write_thread.join()
 
@@ -349,53 +336,41 @@ def main():
     sad_out.close()
 
 
-def summarize_write(batch_snps, batch_preds, sad_out, szi, loc_start, loc_end, log_pseudo):
+def summarize_write(batch_preds, sad_out, szi, log_pseudo):
   num_targets = batch_preds.shape[-1]
   pi = 0
-  for snp in batch_snps:
+  while pi < batch_preds.shape[0]:
     # get reference prediction (LxT)
     ref_preds = batch_preds[pi]
     pi += 1
 
+    # get alternate prediction (LxT)
+    alt_preds = batch_preds[pi]
+    pi += 1
+
     # sum across length
     ref_preds_sum = ref_preds.sum(axis=0, dtype='float64')
+    alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
 
-    for alt_al in snp.alt_alleles:
-      # get alternate prediction (LxT)
-      alt_preds = batch_preds[pi]
-      pi += 1
+    # compare reference to alternative via mean subtraction
+    # sad_vec = alt_preds - ref_preds
+    sad = alt_preds_sum - ref_preds_sum
 
-      # sum across length
-      alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
+    # compare reference to alternative via mean log division
+    # sar = np.log2(alt_preds_sum + log_pseudo) \
+    #         - np.log2(ref_preds_sum + log_pseudo)
 
-      # compare reference to alternative via mean subtraction
-      sad_vec = alt_preds - ref_preds
-      sad = alt_preds_sum - ref_preds_sum
+    # compare geometric means
+    # sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
+    #             - np.log2(ref_preds.astype('float64') + log_pseudo)
+    # geo_sad = sar_vec.sum(axis=0)
 
-      # compare reference to alternative via mean log division
-      sar = np.log2(alt_preds_sum + log_pseudo) \
-              - np.log2(ref_preds_sum + log_pseudo)
+    # compute max difference position
+    # max_li = np.argmax(np.abs(sar_vec), axis=0)
 
-      # compare geometric means
-      sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
-                  - np.log2(ref_preds.astype('float64') + log_pseudo)
-      geo_sad = sar_vec.sum(axis=0)
-
-      # sum locally
-      # ref_preds_loc = ref_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
-      # alt_preds_loc = alt_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
-
-      # # compute SAD locally
-      # sad_loc = alt_preds_loc - ref_preds_loc
-      # sar_loc = np.log2(alt_preds_loc + log_pseudo) \
-      #             - np.log2(ref_preds_loc + log_pseudo)
-
-      # compute max difference position
-      max_li = np.argmax(np.abs(sar_vec), axis=0)
-
-      sad_out['SAD'][szi,:] = sad.astype('float16')
-      sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)], dtype='float16')
-      szi += 1
+    sad_out['SAD'][szi,:] = sad.astype('float16')
+    # sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)], dtype='float16')
+    szi += 1
 
 
 def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):

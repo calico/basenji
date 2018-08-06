@@ -860,10 +860,8 @@ class SeqNNModel(object):
 
     # initialize prediction data structures
     preds = []
-    if return_var:
-      preds_var = []
-    if return_all:
-      preds_all = []
+    preds_var = []
+    preds_all = []
 
     # sequence index
     data_available = True
@@ -893,12 +891,19 @@ class SeqNNModel(object):
       except tf.errors.OutOfRangeError:
         data_available = False
 
-    # construct arrays
-    preds = np.concatenate(preds, axis=0)
-    if return_var:
-      preds_var = np.concatenate(preds_var, axis=0)
-    if return_all:
-      preds_all = np.concatenate(preds_all, axis=0)
+    if preds:
+      # concatenate into arrays
+      preds = np.concatenate(preds, axis=0)
+      if return_var and preds_var:
+       preds_var = np.concatenate(preds_var, axis=0)
+      if return_all and preds_all:
+        preds_all = np.concatenate(preds_all, axis=0)
+
+    else:
+      # return empty array objects
+      preds = np.array(preds)
+      preds_var = np.array(preds_var)
+      preds_all = np.array(preds_all)
 
     if return_var:
       if return_all:

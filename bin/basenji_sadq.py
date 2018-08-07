@@ -64,7 +64,7 @@ def main():
   parser.add_option('-l', dest='seq_len',
       default=131072, type='int',
       help='Sequence length provided to the model [Default: %default]')
-  parser.add_option('--local',dest='local',
+  parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
   parser.add_option('-n', dest='norm_file',
@@ -86,7 +86,7 @@ def main():
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
   parser.add_option('--stats', dest='sad_stats',
-      default='SAD,xSAR',
+      default='SAD',
       help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
@@ -240,12 +240,6 @@ def main():
   #################################################################
   # setup output
 
-  header_cols = ('rsid', 'ref', 'alt',
-                  'ref_pred', 'alt_pred', 'sad', 'sar', 'geo_sad',
-                  'ref_lpred', 'alt_lpred', 'lsad', 'lsar',
-                  'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
-                  'target_index', 'target_id', 'target_label')
-
   if options.out_h5:
     sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
                                    snps, target_ids, target_labels)
@@ -255,6 +249,12 @@ def main():
                                      snps, target_ids, target_labels)
 
   else:
+    header_cols = ('rsid', 'ref', 'alt',
+                  'ref_pred', 'alt_pred', 'sad', 'sar', 'geo_sad',
+                  'ref_lpred', 'alt_lpred', 'lsad', 'lsar',
+                  'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
+                  'target_index', 'target_id', 'target_label')
+
     if options.csv:
       sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
       print(','.join(header_cols), file=sad_out)
@@ -373,25 +373,6 @@ def summarize_write(batch_preds, sad_out, szi, log_pseudo):
     szi += 1
 
 
-def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
-  bw_open = bigwig_open(bw_file, genome_file)
-
-  seq_chrom = snp.chrom
-  seq_start = snp.pos - seq_len // 2
-
-  bw_chroms = [seq_chrom] * len(preds)
-  bw_starts = [
-      int(seq_start + model.hp.batch_buffer + bi * model.hp.target_pool)
-      for bi in range(len(preds))
-  ]
-  bw_ends = [int(bws + model.hp.target_pool) for bws in bw_starts]
-
-  preds_list = [float(p) for p in preds]
-  bw_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=preds_list)
-
-  bw_open.close()
-
-
 def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
   """Initialize an output HDF5 file for SAD stats."""
 
@@ -442,30 +423,6 @@ def initialize_output_zarr(out_dir, sad_stats, snps, target_ids, target_labels):
 
   return sad_out
 
-
-def snps_next_batch(snps, snp_i, batch_size, seq_len, genome_open):
-  """ Load the next batch of SNP sequence 1-hot. """
-
-  batch_1hot = []
-  batch_snps = []
-
-  while len(batch_1hot) < batch_size and snp_i < len(snps):
-    # get SNP sequences
-    snp_1hot = bvcf.snp_seq1(snps[snp_i], seq_len, genome_open)
-
-    # if it was valid
-    if len(snp_1hot) > 0:
-      # accumulate
-      batch_1hot += snp_1hot
-      batch_snps.append(snps[snp_i])
-
-    # advance SNP index
-    snp_i += 1
-
-  # convert to array
-  batch_1hot = np.array(batch_1hot)
-
-  return batch_1hot, batch_snps, snp_i
 
 ################################################################################
 # __main__

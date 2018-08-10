@@ -1002,6 +1002,7 @@ class SeqNNModel(object):
 
     batch_losses = []
     batch_target_losses = []
+    batch_sizes = []
 
     # sequence index
     data_available = True
@@ -1022,6 +1023,7 @@ class SeqNNModel(object):
         # accumulate loss
         batch_losses.append(loss_batch)
         batch_target_losses.append(target_losses_batch)
+        batch_sizes.append(preds_batch.shape[0])
 
         batch_num += 1
 
@@ -1034,8 +1036,10 @@ class SeqNNModel(object):
     targets_na = np.concatenate(targets_na, axis=0)
 
     # mean across batches
-    batch_losses = np.mean(batch_losses, dtype='float64')
-    batch_target_losses = np.array(batch_target_losses).mean(axis=0, dtype='float64')
+    batch_losses = np.array(batch_losses, dtype='float64')
+    batch_losses = np.average(batch_losses, weights=batch_sizes)
+    batch_target_losses = np.array(batch_target_losses, dtype='float64')
+    batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
 
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na,
@@ -1064,6 +1068,7 @@ class SeqNNModel(object):
 
     batch_losses = []
     batch_target_losses = []
+    batch_sizes = []
 
     # get first batch
     batch_num = 0
@@ -1089,6 +1094,7 @@ class SeqNNModel(object):
       # accumulate loss
       batch_losses.append(loss_batch)
       batch_target_losses.append(target_losses_batch)
+      batch_sizes.append(Nb)
 
       # next batch
       batch_num += 1
@@ -1103,8 +1109,10 @@ class SeqNNModel(object):
     targets_na = np.concatenate(targets_na, axis=0)
 
     # mean across batches
-    batch_losses = np.mean(batch_losses, dtype='float64')
-    batch_target_losses = np.array(batch_target_losses).mean(axis=0, dtype='float64')
+    batch_losses = np.array(batch_losses, dtype='float64')
+    batch_losses = np.average(batch_losses, weights=batch_sizes)
+    batch_target_losses = np.array(batch_target_losses, dtype='float64')
+    batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
 
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na,
@@ -1163,9 +1171,7 @@ class SeqNNModel(object):
 
     batch_losses = []
     batch_target_losses = []
-
-    # sequence index
-    si = 0
+    batch_size = []
 
     # get first batch
     Xb, Yb, NAb, Nb = batcher.next()
@@ -1214,9 +1220,7 @@ class SeqNNModel(object):
       # accumulate loss
       batch_losses.append(loss_batch)
       batch_target_losses.append(target_losses_batch)
-
-      # update sequence index
-      si += Nb
+      batch_sizes.append(Nb)
 
       # next batch
       Xb, Yb, NAb, Nb = batcher.next()
@@ -1230,8 +1234,10 @@ class SeqNNModel(object):
     batcher.reset()
 
     # mean across batches
-    batch_losses = np.mean(batch_losses)
-    batch_target_losses = np.array(batch_target_losses).mean(axis=0)
+    batch_losses = np.array(batch_losses, dtype='float64')
+    batch_losses = np.average(batch_losses, weights=batch_sizes)
+    batch_target_losses = np.array(batch_target_losses, dtype='float64')
+    batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
 
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na, batch_losses,

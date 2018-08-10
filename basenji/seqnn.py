@@ -473,6 +473,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # initialize training loss
     train_loss = []
+    batch_sizes = []
     global_step = 0
 
     # setup feed dict
@@ -482,9 +483,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
 
     batch_num = 0
-    while Xb is not None and Nb == self.hp.batch_size and (
-        epoch_batches is None or batch_num < epoch_batches):
-
+    while Xb is not None and (epoch_batches is None or batch_num < epoch_batches):
       # update feed dict
       fd[self.inputs_ph] = Xb
       fd[self.targets_ph] = Yb
@@ -504,9 +503,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         sum_writer.add_summary(summary, global_step)
 
       # accumulate loss
-      # avail_sum = np.logical_not(NAb[:Nb,:]).sum()
-      # train_loss.append(loss_batch / avail_sum)
       train_loss.append(loss_batch)
+      batch_sizes.append(Xb.shape[0])
 
       # next batch
       Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
@@ -516,7 +514,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     if epoch_batches is None:
       batcher.reset()
 
-    return np.mean(train_loss), global_step
+    avg_loss = np.average(train_loss, weights=batch_sizes)
+
+    return avg_loss, global_step
 
   def train_epoch_h5(self,
                      sess,
@@ -529,6 +529,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # initialize training loss
     train_loss = []
+    batch_sizes = []
     global_step = 0
 
     # setup feed dict
@@ -538,9 +539,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     Xb, Yb, NAb, Nb = batcher.next()
 
     batch_num = 0
-    while Xb is not None and Nb == self.hp.batch_size and (
-        epoch_batches is None or batch_num < epoch_batches):
-
+    while Xb is not None and (epoch_batches is None or batch_num < epoch_batches):
       # update feed dict
       fd[self.inputs_ph] = Xb
       fd[self.targets_ph] = Yb
@@ -560,6 +559,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
       # accumulate loss
       train_loss.append(loss_batch)
+      batch_sizes.append(Nb)
 
       # next batch
       Xb, Yb, NAb, Nb = batcher.next()
@@ -569,7 +569,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     if epoch_batches is None:
       batcher.reset()
 
-    return np.mean(train_loss), global_step
+    avg_loss = np.average(train_loss, weights=batch_sizes)
+
+    return avg_loss, global_step
 
 
   def train_epoch_tfr(self, sess, sum_writer=None, epoch_batches=None):
@@ -577,6 +579,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # initialize training loss
     train_loss = []
+    batch_sizes = []
     global_step = 0
 
     # setup feed dict
@@ -587,9 +590,9 @@ class SeqNN(seqnn_util.SeqNNModel):
     while data_available and (epoch_batches is None or batch_num < epoch_batches):
       try:
         # update_ops won't run
-        run_ops = [self.merged_summary, self.loss_train, self.global_step, self.step_op] + self.update_ops
+        run_ops = [self.merged_summary, self.loss_train, self.preds_train, self.global_step, self.step_op] + self.update_ops
         run_returns = sess.run(run_ops, feed_dict=fd)
-        summary, loss_batch, global_step = run_returns[:3]
+        summary, loss_batch, preds, global_step = run_returns[:4]
 
         # add summary
         if sum_writer is not None:
@@ -597,6 +600,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
         # accumulate loss
         train_loss.append(loss_batch)
+        batch_sizes.append(preds.shape[0])
 
         # next batch
         batch_num += 1
@@ -604,4 +608,6 @@ class SeqNN(seqnn_util.SeqNNModel):
       except tf.errors.OutOfRangeError:
         data_available = False
 
-    return np.mean(train_loss), global_step
+    avg_loss = np.average(train_loss, weights=batch_sizes)
+
+    return avg_loss, global_step

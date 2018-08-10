@@ -70,6 +70,9 @@ def main():
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number parallel processes [Default: %default]')
+  parser.add_option('-r', dest='seqs_per_tfr',
+      default=256, type='int',
+      help='Sequences per TFRecord file [Default: %default]')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -82,9 +85,9 @@ def main():
   parser.add_option('-s', dest='sum_stat',
       default='sum',
       help='Summary statistic to compute in windows [Default: %default]')
-  parser.add_option('-r', dest='seqs_per_tfr',
-      default=256, type='int',
-      help='Sequences per TFRecord file [Default: %default]')
+  parser.add_option('--soft', dest='soft_clip',
+      default=False, action='store_true',
+      help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
   parser.add_option('-t', dest='test_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for testing [Default: %default]')
@@ -238,6 +241,8 @@ def main():
       cmd += ' -w %d' % options.pool_width
       cmd += ' -s %s' % options.sum_stat
       cmd += ' -c %f' % clip_ti
+      if options.soft_clip:
+        cmd += ' --soft'
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
       cmd += ' %s' % genome_cov_file

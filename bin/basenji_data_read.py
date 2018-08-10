@@ -41,7 +41,10 @@ def main():
       help='Set blacklist nucleotides to a baseline value.')
   parser.add_option('-c', dest='clip',
       default=None, type='float',
-      help='Clip absolute values post-summary to a maximum [Default: %default]')
+      help='Clip values post-summary to a maximum [Default: %default]')
+  parser.add_option('--soft', dest='soft_clip',
+      default=False, action='store_true',
+      help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
   parser.add_option('-s', dest='sum_stat',
       default='sum',
       help='Summary statistic to compute in windows [Default: %default]')
@@ -121,7 +124,11 @@ def main():
 
     # clip
     if options.clip is not None:
-      seq_cov = np.clip(seq_cov, -options.clip, options.clip)
+      if options.soft_clip:
+        clip_mask = (seq_cov > options.clip)
+        seq_cov[clip_mask] = options.clip + np.sqrt(seq_cov[clip_mask] - options.clip)
+      else:
+        seq_cov = np.clip(seq_cov, 0, options.clip)
 
     # write
     seqs_cov_open['seqs_cov'][si,:] = seq_cov.astype('float16')

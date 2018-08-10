@@ -146,24 +146,24 @@ class SeqNN(seqnn_util.SeqNNModel):
     # batches
     self.inputs_ph = tf.placeholder(
         tf.float32,
-        shape=(self.hp.batch_size, self.hp.seq_length, self.hp.seq_depth),
+        shape=(None, self.hp.seq_length, self.hp.seq_depth),
         name='inputs')
 
     if self.hp.target_classes == 1:
       self.targets_ph = tf.placeholder(
           tf.float32,
-          shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool,
+          shape=(None, self.hp.seq_length // self.hp.target_pool,
                  self.hp.num_targets),
           name='targets')
     else:
       self.targets_ph = tf.placeholder(
           tf.int32,
-          shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool,
+          shape=(None, self.hp.seq_length // self.hp.target_pool,
                  self.hp.num_targets),
           name='targets')
 
     self.targets_na_ph = tf.placeholder(tf.bool,
-        shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool),
+        shape=(None, self.hp.seq_length // self.hp.target_pool),
         name='targets_na')
 
     data = {
@@ -231,6 +231,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     seq_length = seqs_repr.shape[1]
     seqs_repr = seqs_repr[:, batch_buffer_pool:
                           seq_length - batch_buffer_pool, :]
+    seq_length = seqs_repr.shape[1]
 
     ###################################################
     # final layer
@@ -265,7 +266,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         # expand length back out
         if self.hp.target_classes > 1:
           final_repr = tf.reshape(final_repr,
-                                  (self.hp.batch_size, -1, self.hp.num_targets,
+                                  (-1, seq_length, self.hp.num_targets,
                                    self.hp.target_classes))
 
     # transform for reverse complement

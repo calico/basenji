@@ -95,6 +95,7 @@ def main():
 
     # determine baseline coverage
     baseline_cov = np.percentile(seq_cov_nt, 10)
+    baseline_cov = np.nan_to_num(baseline_cov)
 
     # set blacklist to baseline
     if mseq.chr in black_chr_trees:

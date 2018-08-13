@@ -343,9 +343,9 @@ def main():
       set(range(len(seqs_segments))) - set(valid_indexes) - set(test_indexes))
 
   # training may require shuffling
-  random.shuffle(sorted(train_indexes))
-  random.shuffle(sorted(valid_indexes))
-  random.shuffle(sorted(test_indexes))
+  random.shuffle(train_indexes)
+  random.shuffle(valid_indexes)
+  random.shuffle(test_indexes)
 
   # write to HDF5
   hdf5_out = h5py.File(hdf5_file, 'w')

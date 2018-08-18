@@ -23,10 +23,10 @@ from basenji import tfrecord_util
 
 # Multiplier for how many items to have in the shuffle buffer, invariant of how
 # many files we're parallel-interleaving for our input datasets.
-SHUFFLE_BUFFER_DEPTH_PER_FILE = 2
+SHUFFLE_BUFFER_DEPTH_PER_FILE = 32
 # Number of files to concurrently read from, and interleave, for our input
 # datasets.
-NUM_FILES_TO_PARALLEL_INTERLEAVE = 10
+NUM_FILES_TO_PARALLEL_INTERLEAVE = 8
 
 def shift_sequence(seq, shift_amount, pad_value):
   """Shift a sequence left or right by shift_amount.

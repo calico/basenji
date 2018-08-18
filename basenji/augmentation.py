@@ -75,9 +75,10 @@ def augment_deterministic(data_ops, augment_rc=False, augment_shift=0):
   Args:
     data_ops: dict with keys 'sequence,' 'label,' and 'na.'
     augment_rc: Boolean
-    augment_shifts: Int
+    augment_shift: Int
   Returns
-    data_ops: augmented data
+    data_ops: augmented data, with all existing keys transformed
+              and 'reverse_preds' bool added.
   """
 
   data_ops_aug = {}

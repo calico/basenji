@@ -82,9 +82,6 @@ def main():
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: seq_length]')
-  parser.add_option('-s', dest='sum_stat',
-      default='sum',
-      help='Summary statistic to compute in windows [Default: %default]')
   parser.add_option('--soft', dest='soft_clip',
       default=False, action='store_true',
       help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
@@ -239,7 +236,7 @@ def main():
     else:
       cmd = 'basenji_data_read.py'
       cmd += ' -w %d' % options.pool_width
-      cmd += ' -s %s' % options.sum_stat
+      cmd += ' -s %s' % targets_df['sum_stat'].iloc[ti]
       cmd += ' -c %f' % clip_ti
       if options.soft_clip:
         cmd += ' --soft'

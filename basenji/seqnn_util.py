@@ -1041,6 +1041,7 @@ class SeqNNModel(object):
     batch_target_losses = np.array(batch_target_losses, dtype='float64')
     batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
 
+
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na,
                             batch_losses, batch_target_losses)

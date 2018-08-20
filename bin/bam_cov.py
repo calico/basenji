@@ -51,6 +51,7 @@ Notes:
  -The adaptive trimming statistics are awry for paired end shift_center datasets
   like ChIP-seq because the events are initially double counted in order to use
   uint16 rather than a larger data structure.
+ -Review before using the unsorted mode for paired end reads.
 '''
 
 ################################################################################

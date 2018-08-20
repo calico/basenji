@@ -23,10 +23,10 @@ from basenji import tfrecord_util
 
 # Multiplier for how many items to have in the shuffle buffer, invariant of how
 # many files we're parallel-interleaving for our input datasets.
-SHUFFLE_BUFFER_DEPTH_PER_FILE = 128
+SHUFFLE_BUFFER_DEPTH_PER_FILE = 32
 # Number of files to concurrently read from, and interleave, for our input
 # datasets.
-NUM_FILES_TO_PARALLEL_INTERLEAVE = 16
+NUM_FILES_TO_PARALLEL_INTERLEAVE = 8
 
 def tfrecord_dataset(tfr_data_files_pattern,
                      batch_size,

@@ -566,7 +566,7 @@ class SeqNNModel(object):
                         target_indexes=None,
                         return_var=False,
                         return_all=False,
-                        penultimate=False):
+                        embed_penultimate=False):
 
     # determine predictions length
     preds_length = self.preds_length
@@ -574,7 +574,7 @@ class SeqNNModel(object):
       preds_length = len(ds_indexes)
 
     # determine num targets
-    if penultimate:
+    if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
       num_targets = self.hp.num_targets
@@ -647,7 +647,7 @@ class SeqNNModel(object):
                         rc=False, shifts=[0], mc_n=0,
                         target_indexes=None,
                         return_var=False, return_all=False,
-                        down_sample=1, penultimate=False,
+                        down_sample=1, embed_penultimate=False,
                         test_batches=None, dtype='float32'):
     """ Compute predictions on a test set.
 
@@ -662,7 +662,7 @@ class SeqNNModel(object):
          return_var:     Return variance estimates
          down_sample:    Int specifying to consider uniformly spaced sampled
          positions
-         penultimate:    Predict the penultimate layer.
+         embed_penultimate: Predict the embed_penultimate layer.
          test_batches    Number of test batches to use.
          dtype:          Float resolution to return.
 
@@ -678,7 +678,7 @@ class SeqNNModel(object):
       preds_length = len(ds_indexes)
 
     # initialize prediction arrays
-    if penultimate:
+    if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
       num_targets = self.hp.num_targets
@@ -746,7 +746,7 @@ class SeqNNModel(object):
         # make ensemble predictions
         preds_batch, preds_batch_var, preds_batch_all = self._predict_ensemble(
             sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes,
-            target_indexes, return_var, return_all, penultimate)
+            target_indexes, return_var, return_all, embed_penultimate)
 
         # accumulate predictions
         preds[si:si + Nb, :, :] = preds_batch[:Nb, :, :]
@@ -922,7 +922,7 @@ class SeqNNModel(object):
                     mc_n=0,
                     target_indexes=None,
                     tss_radius=0,
-                    penultimate=False,
+                    embed_penultimate=False,
                     test_batches_per=256,
                     dtype='float32'):
     """ Compute predictions on a test set.
@@ -938,7 +938,7 @@ class SeqNNModel(object):
          mc_n:            Monte Carlo iterations per rc/shift.
          target_indexes:  Optional target subset list
          tss_radius:      Radius of bins to quantify TSS.
-         penultimate:     Predict the penultimate layer.
+         embed_penultimate: Predict the embed_penultimate layer.
          dtype:           Float resolution to return.
 
         Out
@@ -951,7 +951,7 @@ class SeqNNModel(object):
       tss_num += len(gene_seq.tss_list)
 
     # count targets
-    if penultimate:
+    if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
       num_targets = self.hp.num_targets
@@ -968,7 +968,7 @@ class SeqNNModel(object):
     while not batcher.empty():
       # predict gene sequences
       gseq_preds = self.predict_h5_manual(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
-                                          target_indexes=target_indexes, penultimate=penultimate,
+                                          target_indexes=target_indexes, embed_penultimate=embed_penultimate,
                                           test_batches=test_batches_per)
       # slice TSSs
       for bsi in range(gseq_preds.shape[0]):

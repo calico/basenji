@@ -35,7 +35,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def build_feed(self, job, augment_rc=False, augment_shifts=[0],
                  ensemble_rc=False, ensemble_shifts=[0],
-                 penultimate=False, target_subset=None):
+                 embed_penultimate=False, target_subset=None):
     """Build training ops that depend on placeholders."""
 
     self.hp = params.make_hparams(job)
@@ -47,13 +47,13 @@ class SeqNN(seqnn_util.SeqNNModel):
           augment_shifts=augment_shifts,
           ensemble_rc=ensemble_rc,
           ensemble_shifts=ensemble_shifts,
-          penultimate=penultimate,
+          embed_penultimate=embed_penultimate,
           target_subset=target_subset)
 
   def build_from_data_ops(self, job, data_ops,
                           augment_rc=False, augment_shifts=[0],
                           ensemble_rc=False, ensemble_shifts=[0],
-                          penultimate=False, target_subset=None):
+                          embed_penultimate=False, target_subset=None):
     """Build training ops from input data ops."""
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
@@ -71,12 +71,12 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute train representation
     self.preds_train = self.build_predict(data_ops_train['sequence'],
-                                          None, penultimate, target_subset,
+                                          None, embed_penultimate, target_subset,
                                           save_reprs=True)
     self.target_length = self.preds_train.shape[1].value
 
     # training losses
-    if not penultimate:
+    if not embed_penultimate:
       loss_returns = self.build_loss(self.preds_train, data_ops_train['label'], target_subset)
       self.loss_train, self.loss_train_targets, self.targets_train = loss_returns
 
@@ -95,12 +95,12 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
-    build_rep = lambda do: self.build_predict(do[0], do[1], penultimate, target_subset)
+    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
     self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32)  # back_prop=False
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
     # eval loss
-    if not penultimate:
+    if not embed_penultimate:
       loss_returns = self.build_loss(self.preds_eval, data_ops['label'], target_subset)
       self.loss_eval, self.loss_eval_targets, self.targets_eval = loss_returns
 
@@ -113,7 +113,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def build_sad(self, job, data_ops,
                 ensemble_rc=False, ensemble_shifts=[0],
-                penultimate=False, target_subset=None):
+                embed_penultimate=False, target_subset=None):
     """Build SAD predict ops."""
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
@@ -130,7 +130,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
-    build_rep = lambda do: self.build_predict(do[0], do[1], penultimate, target_subset)
+    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
     self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32)  # back_prop=False
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
@@ -187,7 +187,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'name': 'conv-%d' % layer_index
     }
 
-  def build_predict(self, inputs, reverse_preds=None, penultimate=False, target_subset=None, save_reprs=False):
+  def build_predict(self, inputs, reverse_preds=None, embed_penultimate=False, target_subset=None, save_reprs=False):
     """Construct per-location real-valued predictions."""
     assert inputs is not None
     print('Targets pooled by %d to length %d' %
@@ -236,7 +236,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     # final layer
     ###################################################
-    if penultimate:
+    if embed_penultimate:
       final_repr = seqs_repr
     else:
       with tf.variable_scope('final', reuse=tf.AUTO_REUSE):
@@ -278,7 +278,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     # link function
     ###################################################
-    if penultimate:
+    if embed_penultimate:
       predictions = final_repr
     else:
       # work-around for specifying my own predictions

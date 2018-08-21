@@ -96,7 +96,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
     build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
-    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32)  # back_prop=False
+    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
     # eval loss
@@ -131,7 +131,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
     build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
-    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32)  # back_prop=False
+    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
     # update # targets

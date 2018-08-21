@@ -1,4 +1,4 @@
-target_id	file	target_label
+identifier	file	description
 GSM817172	/home/drk/seqnn/data/human/dnase/roadmap/coverage/GSM817172.h5	DNASE:thymus, fetal day127 M
 CNhs12184	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12184.h5	CAGE:CD8+ T Cells (pluriselect), donor090612, donation2
 CNhs12590	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12590.h5	CAGE:Perineurial Cells, donor2

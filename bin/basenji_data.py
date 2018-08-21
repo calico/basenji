@@ -240,7 +240,8 @@ def main():
       cmd = 'basenji_data_read.py'
       cmd += ' -w %d' % options.pool_width
       cmd += ' -s %s' % options.sum_stat
-      cmd += ' -c %f' % clip_ti
+      if clip_ti is not None:
+        cmd += ' -c %f' % clip_ti
       if options.soft_clip:
         cmd += ' --soft'
       if options.blacklist_bed:

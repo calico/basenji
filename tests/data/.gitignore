@@ -3,6 +3,6 @@ model*
 params.txt
 hg19_mini.fa*
 hg19_mini_gaps.bed
-unmap.bed
+umap.bed
 *tmp.h5
 targets1.txt

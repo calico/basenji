@@ -146,7 +146,7 @@ def read_blacklist(blacklist_bed, black_buffer=5):
      regions for each chromosome."""
   black_chr_trees = {}
 
-  if os.path.isfile(blacklist_bed):
+  if blacklist_bed is not None and os.path.isfile(blacklist_bed):
     for line in open(blacklist_bed):
       a = line.split()
       chrm = a[0]

@@ -78,7 +78,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # training losses
     if not embed_penultimate:
-      loss_returns = self.build_loss(self.preds_train, data_ops_train['label'], target_subset)
+      loss_returns = self.build_loss(self.preds_train, data_ops_train['label'],
+                                     data_ops.get('genome',None), target_subset)
       self.loss_train, self.loss_train_targets, self.targets_train = loss_returns
 
       # optimizer
@@ -102,7 +103,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # eval loss
     if not embed_penultimate:
-      loss_returns = self.build_loss(self.preds_eval, data_ops['label'], target_subset)
+      loss_returns = self.build_loss(self.preds_eval, data_ops['label'],
+                                     data_ops.get('genome',None), target_subset)
       self.loss_eval, self.loss_eval_targets, self.targets_eval = loss_returns
 
     # update # targets
@@ -281,15 +283,11 @@ class SeqNN(seqnn_util.SeqNNModel):
                                   (-1, seq_length, self.hp.max_targets,
                                    self.hp.target_classes))
 
-        # transform for reverse complement
-        if reverse_preds is not None:
-          final_repr = tf.cond(reverse_preds,
-                               lambda: tf.reverse(final_repr, axis=[1]),
-                               lambda: final_repr)
-
-    if self.hp.num_genomes > 1:
-      # apply proper genome
-      final_repr = tf.gather(final_reprs, data_ops['genome'][0])[0]
+    # transform for reverse complement
+    if reverse_preds is not None:
+      final_repr = tf.cond(reverse_preds,
+                           lambda: tf.reverse(final_repr, axis=[1]),
+                           lambda: final_repr)
 
     ###################################################
     # link function
@@ -394,11 +392,12 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.merged_summary = tf.summary.merge_all()
 
 
-  def build_loss(self, preds, targets, target_subset=None):
+  def build_loss(self, preds, targets, genome=None, target_subset=None):
     """Convert per-location real-valued predictions to a loss."""
 
     ##################################################
     # slice positions
+
     tstart = self.hp.batch_buffer // self.hp.target_pool
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
@@ -413,7 +412,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     else:
       # take genome index from first example of batch
       try:
-        genome_i = data_ops['genome'][0,0]
+        genome_i = genome[0,0]
       except ValueError:
         genome_i = tf.constant(0)
 
@@ -443,10 +442,6 @@ class SeqNN(seqnn_util.SeqNNModel):
     # sqrt
     if self.hp.target_sqrt:
       targets = tf.sqrt(targets)
-
-    # work-around for specifying my own predictions
-    self.preds_adhoc = tf.placeholder(
-        tf.float32, shape=seqs_repr.shape, name='preds-adhoc')
 
     ##################################################
     # loss
@@ -668,33 +663,36 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     return avg_loss, global_step
 
-  def train2_epoch_ops(self, sess, handle_ph, datasets, sum_writer=None):
+  def train2_epoch_ops(self, sess, handle_ph, datasets, sum_writer=None, epoch_batches=None):
     """ Execute one training epoch for multiple iterators."""
 
     assert(self.hp.num_genomes == len(datasets))
     global_step = 0
 
-    # initialize training loss lists
+    # initialize training loss and batch size lists
     train_losses = []
+    batch_sizes = []
     for gi in range(self.hp.num_genomes):
       train_losses.append([])
+      batch_sizes.append([])
 
     # setup feed dict
     fd = self.set_mode('train')
 
-    # resetch genome sequence counters
+    # reset genome sequence counters
     for gi in range(self.hp.num_genomes):
       datasets[gi].epoch_reset()
 
     # sample first genome
+    batch_num = 0
     gi = sample_genome(datasets)
 
-    while gi is not None:
+    while gi is not None and (epoch_batches is None or batch_num < epoch_batches):
       try:
         fd[handle_ph] = datasets[gi].handle
-        run_ops = [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops
+        run_ops = [self.merged_summary, self.loss_train, self.preds_train, self.global_step, self.step_op] + self.update_ops
         run_returns = sess.run(run_ops, feed_dict=fd)
-        summary, loss_batch, global_step = run_returns[:3]
+        summary, loss_batch, preds, global_step = run_returns[:4]
 
         # add summary
         if sum_writer is not None:
@@ -702,6 +700,10 @@ class SeqNN(seqnn_util.SeqNNModel):
 
         # accumulate loss
         train_losses[gi].append(loss_batch)
+        batch_sizes[gi].append(preds.shape[0])
+
+        # next batch
+        batch_num += 1
 
       except tf.errors.OutOfRangeError:
         print('Genome %d OutOfRangeError with %d sequences remaining.' % (gi, datasets[gi].epoch_seqs), file=sys.stderr)
@@ -715,11 +717,12 @@ class SeqNN(seqnn_util.SeqNNModel):
     # mean across batches
     for gi in range(self.hp.num_genomes):
       if train_losses[gi]:
-        train_losses[gi] = np.mean(train_losses[gi])
+        train_losses[gi] = np.average(train_losses[gi], weights=batch_sizes[gi])
       else:
         train_losses[gi] = np.nan
 
     return train_losses, global_step
+
 
 def sample_genome(datasets):
   """Sample a random genome, proportional to the number of remaining sequences."""

@@ -138,7 +138,7 @@ def main():
   #################################################################
   # read parameters
 
-  job = basenji.params.read_job_params(params_file, require='seq_length','num_targets'])
+  job = basenji.params.read_job_params(params_file, require=['seq_length','num_targets'])
 
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(job['num_targets'])]

@@ -230,7 +230,7 @@ def main():
 
   # build model
   model = seqnn.SeqNN()
-  model.build(job, target_subset=target_subset)
+  model.build_feed(job, target_subset=target_subset)
 
   if options.penultimate:
     # labels become inappropriate

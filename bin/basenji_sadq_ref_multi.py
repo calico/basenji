@@ -30,7 +30,7 @@ import zarr
 import slurm
 
 """
-basenji_sad_multi.py
+basenji_sadq_ref_multi.py
 
 Compute SNP expression difference scores for variants in a VCF file,
 using multiple processes.
@@ -42,12 +42,9 @@ using multiple processes.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
-  parser.add_option('-b',dest='batch_size',
-      default=256, type='int',
-      help='Batch size [Default: %default]')
-  parser.add_option('-c', dest='csv',
-      default=False, action='store_true',
-      help='Print table as CSV [Default: %default]')
+  parser.add_option('-c', dest='center_pct',
+      default=0.25, type='float',
+      help='Require clustered SNPs lie in center region [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default='%s/assembly/hg19.fa' % os.environ['HG19'],
       help='Genome FASTA for sequences [Default: %default]')
@@ -85,7 +82,7 @@ def main():
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
   parser.add_option('--stats', dest='sad_stats',
-      default='SAD,xSAR',
+      default='SAD',
       help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
@@ -129,7 +126,7 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      cmd = 'source activate py3_gpu; basenji_sad.py %s %s %d' % (
+      cmd = 'source activate py3_gpu; basenji_sadq_ref.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
       name = 'sad_p%d' % pi
       outf = '%s/job%d.out' % (options.out_dir, pi)

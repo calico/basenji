@@ -16,7 +16,7 @@
 from __future__ import print_function
 
 import collections
-
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -46,7 +46,7 @@ def layer_extend(var, default, layers):
   return var
 
 
-def read_job_params(job_file):
+def read_job_params(job_file, require=[]):
   """Read job parameters from text table."""
 
   job = {}
@@ -78,6 +78,11 @@ def read_job_params(job_file):
           job[param] = val
 
     print(job)
+
+  for param in require:
+    if param not in require:
+      print('Must specify %s in params file' % param, file=sys.stderr)
+      exit(1)
 
   return job
 

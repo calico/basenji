@@ -57,7 +57,9 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
 
   # initialize model
   model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops, FLAGS.augment_rc, augment_shifts)
+  model.build_from_data_ops(job, data_ops,
+                            FLAGS.augment_rc, augment_shifts,
+                            FLAGS.ensemble_rc, ensemble_shifts)
 
   # checkpoints
   saver = tf.train.Saver()
@@ -93,11 +95,11 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
 
       # train epoch
       sess.run(training_init_op)
-      train_loss, steps = model.train_epoch_from_data_ops(sess, train_writer, train_epoch_batches)
+      train_loss, steps = model.train_epoch_tfr(sess, train_writer, train_epoch_batches)
 
       # test validation
       sess.run(test_init_op)
-      valid_acc = model.test_from_data_ops(sess, test_epoch_batches)
+      valid_acc = model.test_tfr(sess, test_epoch_batches)
       valid_loss = valid_acc.loss
       valid_r2 = valid_acc.r2().mean()
       del valid_acc

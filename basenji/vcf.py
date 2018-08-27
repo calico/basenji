@@ -58,9 +58,9 @@ def intersect_seqs_snps(vcf_file, gene_seqs, vision_p=1):
   seq_indexes = {}
   for si in range(len(gene_seqs)):
     gs = gene_seqs[si]
-    gene_seq_key = (gs.chrom, gs.start)
+    gene_seq_key = (gs.chr, gs.start)
     seq_indexes[gene_seq_key] = si
-    print('%s\t%d\t%d' % (gs.chrom, gs.start, gs.end), file=seq_bed_out)
+    print('%s\t%d\t%d' % (gs.chr, gs.start, gs.end), file=seq_bed_out)
   seq_bed_out.close()
 
   # hash SNPs to indexes
@@ -206,9 +206,9 @@ def snp_seq1(snp, seq_len, genome_open):
 
   # extract sequence as BED style
   if seq_start < 0:
-    seq = 'N'*(1-seq_start) + genome_open.fetch(snp.chrom, 0, seq_end).upper()
+    seq = 'N'*(1-seq_start) + genome_open.fetch(snp.chr, 0, seq_end).upper()
   else:
-    seq = genome_open.fetch(snp.chrom, seq_start - 1, seq_end).upper()
+    seq = genome_open.fetch(snp.chr, seq_start - 1, seq_end).upper()
 
   # extend to full length
   if len(seq) < seq_end - seq_start:
@@ -299,10 +299,10 @@ def snps_seq1(snps, seq_len, genome_fasta, return_seqs=False):
 
     # extract sequence as BED style
     if seq_start < 0:
-      seq = 'N' * (-seq_start) + genome_open.fetch(snp.chrom, 0,
+      seq = 'N' * (-seq_start) + genome_open.fetch(snp.chr, 0,
                                                    seq_end).upper()
     else:
-      seq = genome_open.fetch(snp.chrom, seq_start - 1, seq_end).upper()
+      seq = genome_open.fetch(snp.chr, seq_start - 1, seq_end).upper()
 
     # extend to full length
     if len(seq) < seq_end - seq_start:
@@ -420,10 +420,10 @@ def snps2_seq1(snps, seq_len, genome1_fasta, genome2_fasta, return_seqs=False):
 
     # extract sequence as BED style
     if seq_start < 0:
-      seq_ref = 'N' * (-seq_start) + genome1.fetch(snp.chrom, 0,
+      seq_ref = 'N' * (-seq_start) + genome1.fetch(snp.chr, 0,
                                                    seq_end).upper()
     else:
-      seq_ref = genome1.fetch(snp.chrom, seq_start - 1, seq_end).upper()
+      seq_ref = genome1.fetch(snp.chr, seq_start - 1, seq_end).upper()
 
     # extend to full length
     if len(seq_ref) < seq_end - seq_start:
@@ -442,10 +442,10 @@ def snps2_seq1(snps, seq_len, genome1_fasta, genome2_fasta, return_seqs=False):
 
     # extract sequence as BED style
     if seq_start < 0:
-      seq_alt = 'N' * (-seq_start) + genome2.fetch(snp.chrom, 0,
+      seq_alt = 'N' * (-seq_start) + genome2.fetch(snp.chr, 0,
                                                    seq_end).upper()
     else:
-      seq_alt = genome2.fetch(snp.chrom, seq_start - 1, seq_end).upper()
+      seq_alt = genome2.fetch(snp.chr, seq_start - 1, seq_end).upper()
 
     # extend to full length
     if len(seq_alt) < seq_end - seq_start:
@@ -507,32 +507,7 @@ def dna_length_1hot(seq, length):
   return seq_1hot, seq
 
 
-def filter_positive(pos_vcf, uneg_vcf, neg_vcf, dist_t=100):
-  """ Remove SNPs in uneg_vcf within dist_t from SNPs in pos_vcf """
-
-  neg_out = open(neg_vcf, 'w')
-  print('##fileformat=VCFv4.0', file=neg_out)
-
-  printed_snps = set()
-
-  p = subprocess.Popen(
-      'bedtools closest -d -a %s -b %s' % (uneg_vcf, pos_vcf),
-      shell=True,
-      stdout=subprocess.PIPE)
-  for line in p.stdout:
-    line = line.decode('UTF-8')
-    a = line.split()
-    snp_id = a[2]
-    dist = int(a[-1])
-    if dist == -1 or dist > dist_t:
-      if snp_id not in printed_snps:
-        print('\t'.join(a[:7]), file=neg_out)
-        printed_snps.add(snp_id)
-
-  neg_out.close()
-
-
-def vcf_snps(vcf_file, index_snp=False, score=False, pos2=False):
+def vcf_snps(vcf_file, require_sorted=False, validate_ref_fasta=None, pos2=False):
   """ Load SNPs from a VCF file """
   if vcf_file[-3:] == '.gz':
     vcf_in = gzip.open(vcf_file, 'rt')
@@ -544,10 +519,46 @@ def vcf_snps(vcf_file, index_snp=False, score=False, pos2=False):
   while line[0] == '#':
     line = vcf_in.readline()
 
+  # to check sorted
+  if require_sorted:
+    seen_chrs = set()
+    prev_chr = None
+    prev_pos = -1
+
+  # to check reference
+  if validate_ref_fasta is not None:
+    genome_open = pysam.Fastafile(validate_ref_fasta)
+
   # read in SNPs
   snps = []
   while line:
-    snps.append(SNP(line, index_snp, score, pos2))
+    snps.append(SNP(line, pos2))
+
+    if require_sorted:
+      if prev_chr is not None:
+        # same chromosome
+        if prev_chr == snps[-1].chr:
+          if snps[-1].pos < prev_pos:
+            print('Sorted VCF required. Mis-ordered position: %s' % line.rstrip(),
+                  file=sys.stderr)
+            exit(1)
+        elif snps[-1].chr in seen_chrs:
+          print('Sorted VCF required. Mis-ordered chromosome: %s' % line.rstrip(),
+                 file=sys.stderr)
+          exit(1)
+
+      seen_chrs.add(snps[-1].chr)
+      prev_chr = snps[-1].chr
+      prev_pos = snps[-1].pos
+
+    if validate_ref_fasta is not None:
+      ref_n = len(snps[-1].ref_allele)
+      snp_pos = snps[-1].pos-1
+      ref_snp = genome_open.fetch(snps[-1].chr, snp_pos, snp_pos+ref_n)
+      if snps[-1].ref_allele != ref_snp:
+        print('ERROR: %s does not match reference %s' % (snps[-1], ref_snp), file=sys.stderr)
+        exit(1)
+
     line = vcf_in.readline()
 
   vcf_in.close()
@@ -581,27 +592,20 @@ class SNP:
         vcf_line (str)
     """
 
-  def __init__(self, vcf_line, index_snp=False, score=False, pos2=False):
+  def __init__(self, vcf_line, pos2=False):
     a = vcf_line.split()
     if a[0].startswith('chr'):
-      self.chrom = a[0]
+      self.chr = a[0]
     else:
-      self.chrom = 'chr%s' % a[0]
+      self.chr = 'chr%s' % a[0]
     self.pos = int(a[1])
     self.rsid = a[2]
     self.ref_allele = a[3]
     self.alt_alleles = a[4].split(',')
+    self.alt_allele = self.alt_alleles[0]
 
     if self.rsid == '.':
-      self.rsid = '%s:%d' % (self.chrom, self.pos)
-
-    self.index_snp = '.'
-    if index_snp:
-      self.index_snp = a[5]
-
-    self.score = None
-    if score:
-      self.score = float(a[6])
+      self.rsid = '%s:%d' % (self.chr, self.pos)
 
     self.pos2 = None
     if pos2:
@@ -617,6 +621,6 @@ class SNP:
     return max([len(al) for al in self.alt_alleles])
 
   def __str__(self):
-    return 'SNP(%s, %s:%d, %s/%s)' % (self.rsid, self.chrom, self.pos,
+    return 'SNP(%s, %s:%d, %s/%s)' % (self.rsid, self.chr, self.pos,
                                       self.ref_allele,
                                       ','.join(self.alt_alleles))

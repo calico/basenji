@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-from optparse import OptionParser
 
 import collections
 import glob
@@ -30,6 +29,7 @@ import pandas as pd
 import pysam
 import tensorflow as tf
 
+from basenji import tfrecord_util
 from basenji.dna_io import hot1_dna
 
 class TestData(unittest.TestCase):
@@ -42,14 +42,14 @@ class TestData(unittest.TestCase):
 
     cls.seq_len = 131072
     cls.pool_width = 128
-    stride_train = 0.5
-    stride_test = 0.9
+    stride_train = 0.8
+    stride_test = 0.8
 
-    test_pct = 0.1
-    valid_pct = 0.1
+    test_pct = 0.12
+    valid_pct = 0.12
 
-    unmap_bed_file = 'data/unmap.bed'
-    unmap_t = 0.3
+    umap_bed_file = 'data/umap.bed'
+    umap_t = 0.5
 
     # clean output directory
     if os.path.isdir(cls.out_dir):
@@ -57,7 +57,7 @@ class TestData(unittest.TestCase):
 
     # run command
     cmd = 'basenji_data.py'
-    cmd += ' --local -p 8'
+    cmd += ' --local -p 16'
     cmd += ' -o %s' % cls.out_dir
     cmd += ' -g %s' % gaps_file
     cmd += ' -l %d' % cls.seq_len
@@ -65,8 +65,8 @@ class TestData(unittest.TestCase):
     cmd += ' --stride_test %f' % stride_test
     cmd += ' -v %f' % valid_pct
     cmd += ' -t %f' % test_pct
-    cmd += ' -u %s' % unmap_bed_file
-    cmd += ' --unmap_t %f' % unmap_t
+    cmd += ' -u %s' % umap_bed_file
+    cmd += ' --umap_t %f' % umap_t
     cmd += ' -w %d' % cls.pool_width
     cmd += ' %s' % cls.fasta_file
     cmd += ' %s' % cls.targets_file
@@ -108,7 +108,6 @@ class TestData(unittest.TestCase):
       seq_1hot_dna = hot1_dna(seqs_1hot[si])
       self.assertEqual(seq_fasta, seq_1hot_dna)
 
-
   def test_targets(self, atol=1e-3):
     """Test that the targets match."""
     # read sequence coordinates
@@ -146,12 +145,12 @@ class TestData(unittest.TestCase):
         close_mask = (cov_targets_diff < atol)
 
         # guess that non-close were unmappable and set to null
-        seq_cov_unmap = seq_cov.copy()
-        seq_cov_unmap[~close_mask] = np.percentile(seq_cov, q=[25])[0]
+        seq_cov_umap = seq_cov.copy()
+        seq_cov_umap[~close_mask] = np.percentile(seq_cov, q=[25])[0]
 
         # compare
         try:
-          np.testing.assert_allclose(targets[si,:,ti], seq_cov_unmap,
+          np.testing.assert_allclose(targets[si,:,ti], seq_cov_umap,
                                      rtol=1, atol=atol)
         except AssertionError:
           pdb.set_trace()
@@ -174,8 +173,8 @@ class TestData(unittest.TestCase):
     with tf.Session() as sess:
       next_datum = sess.run(next_op)
       while next_datum:
-        seq_1hot = next_datum['sequence'].reshape((-1,4))
-        targets1 = next_datum['targets'].reshape(target_len,-1)
+        seq_1hot = next_datum[tfrecord_util.TFR_INPUT].reshape((-1,4))
+        targets1 = next_datum[tfrecord_util.TFR_OUTPUT].reshape(target_len,-1)
 
         seqs_1hot.append(seq_1hot)
         targets.append(targets1)
@@ -196,13 +195,13 @@ def file_to_records(filename):
 
 def parse_proto(example_protos):
   features = {
-    'sequence': tf.FixedLenFeature([], tf.string),
-    'targets': tf.FixedLenFeature([], tf.string)
+    tfrecord_util.TFR_INPUT: tf.FixedLenFeature([], tf.string),
+    tfrecord_util.TFR_OUTPUT: tf.FixedLenFeature([], tf.string)
   }
   parsed_features = tf.parse_example(example_protos, features=features)
-  seq = tf.decode_raw(parsed_features['sequence'], tf.uint8)
-  targets = tf.decode_raw(parsed_features['targets'], tf.float16)
-  return {'sequence': seq, 'targets': targets}
+  seq = tf.decode_raw(parsed_features[tfrecord_util.TFR_INPUT], tf.uint8)
+  targets = tf.decode_raw(parsed_features[tfrecord_util.TFR_OUTPUT], tf.float16)
+  return {tfrecord_util.TFR_INPUT: seq, tfrecord_util.TFR_OUTPUT: targets}
 
 def read_seq_coords(bed_file):
   mseqs = []

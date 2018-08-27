@@ -18,7 +18,7 @@ def main():
     #parser.add_option()
     (options,args) = parser.parse_args()
 
-    mini_chroms = ['chr%d'%ci for ci in range(18,23)]
+    mini_chroms = ['chr%d'%ci for ci in range(19,23)]
 
     fasta_file = '%s/assembly/hg19.fa' % os.environ['HG19']
     gaps_file = '%s/assembly/hg19_gaps.bed' % os.environ['HG19']

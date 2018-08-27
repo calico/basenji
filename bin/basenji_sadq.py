@@ -19,6 +19,7 @@ from optparse import OptionParser
 import pickle
 import os
 import sys
+import threading
 import time
 
 import h5py
@@ -34,7 +35,7 @@ import basenji.vcf as bvcf
 from basenji_test import bigwig_open
 
 '''
-basenji_sad.py
+basenji_sadq.py
 
 Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
 '''
@@ -45,9 +46,6 @@ Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
-  parser.add_option('-b',dest='batch_size',
-      default=256, type='int',
-      help='Batch size [Default: %default]')
   parser.add_option('-c', dest='csv',
       default=False, action='store_true',
       help='Print table as CSV [Default: %default]')
@@ -60,7 +58,7 @@ def main():
   parser.add_option('--h5', dest='out_h5',
       default=False, action='store_true',
       help='Output stats to sad.h5 [Default: %default]')
-  parser.add_option('--local',dest='local',
+  parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
   parser.add_option('-n', dest='norm_file',
@@ -82,7 +80,7 @@ def main():
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
   parser.add_option('--stats', dest='sad_stats',
-      default='SAD,xSAR',
+      default='SAD',
       help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
@@ -136,11 +134,11 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.sad_stats = options.sad_stats.split(',')
 
-  #################################################################
-  # setup model
 
-  job = basenji.params.read_job_params(params_file,
-          require=['seq_length','num_targets','target_pool'])
+  #################################################################
+  # read parameters
+
+  job = basenji.params.read_job_params(params_file, require=['seq_length','num_targets'])
 
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
@@ -155,11 +153,54 @@ def main():
     if len(target_subset) == job['num_targets']:
         target_subset = None
 
+
+  #################################################################
+  # load SNPs
+
+  snps = bvcf.vcf_snps(vcf_file)
+
+  # filter for worker SNPs
+  if options.processes is not None:
+    worker_bounds = np.linspace(0, len(snps), options.processes+1, dtype='int')
+    snps = snps[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+
+  num_snps = len(snps)
+
+  # open genome FASTA
+  genome_open = pysam.Fastafile(options.genome_fasta)
+
+  def snp_gen():
+    for snp in snps:
+      # get SNP sequences
+      snp_1hot_list = bvcf.snp_seq1(snp, job['seq_length'], genome_open)
+
+      for snp_1hot in snp_1hot_list:
+        yield {'sequence':snp_1hot}
+
+  snp_types = {'sequence': tf.float32}
+  snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(job['seq_length']),
+                                            tf.Dimension(4)])}
+
+  dataset = tf.data.Dataset().from_generator(snp_gen,
+                                             output_types=snp_types,
+                                             output_shapes=snp_shapes)
+  dataset = dataset.batch(job['batch_size'])
+  dataset = dataset.prefetch(2*job['batch_size'])
+  dataset = dataset.apply(tf.contrib.data.prefetch_to_device('/device:GPU:0'))
+
+  iterator = dataset.make_one_shot_iterator()
+  data_ops = iterator.get_next()
+
+
+  #################################################################
+  # setup model
+
   # build model
   t0 = time.time()
   model = basenji.seqnn.SeqNN()
-  model.build_feed(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts,
-      target_subset=target_subset, penultimate=options.penultimate)
+  model.build_sad(job, data_ops,
+                  ensemble_rc=options.rc, ensemble_shifts=options.shifts,
+                  embed_penultimate=options.penultimate, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.penultimate:
@@ -177,27 +218,8 @@ def main():
 
   num_targets = len(target_ids)
 
-
-  #################################################################
-  # load SNPs
-
-  snps = bvcf.vcf_snps(vcf_file)
-
-  # filter for worker SNPs
-  if options.processes is not None:
-    worker_bounds = np.linspace(0, len(snps), options.processes+1, dtype='int')
-    snps = snps[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
-
-  num_snps = len(snps)
-
   #################################################################
   # setup output
-
-  header_cols = ('rsid', 'ref', 'alt',
-                  'ref_pred', 'alt_pred', 'sad', 'sar', 'geo_sad',
-                  'ref_lpred', 'alt_lpred', 'lsad', 'lsar',
-                  'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
-                  'target_index', 'target_id', 'target_label')
 
   if options.out_h5:
     sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
@@ -208,6 +230,12 @@ def main():
                                      snps, target_ids, target_labels)
 
   else:
+    header_cols = ('rsid', 'ref', 'alt',
+                  'ref_pred', 'alt_pred', 'sad', 'sar', 'geo_sad',
+                  'ref_lpred', 'alt_lpred', 'lsad', 'lsar',
+                  'ref_xpred', 'alt_xpred', 'xsad', 'xsar',
+                  'target_index', 'target_id', 'target_label')
+
     if options.csv:
       sad_out = open('%s/sad_table.csv' % options.out_dir, 'w')
       print(','.join(header_cols), file=sad_out)
@@ -219,130 +247,46 @@ def main():
   #################################################################
   # process
 
-  # open genome FASTA
-  genome_open = pysam.Fastafile(options.genome_fasta)
-
-  # determine local start and end
-  loc_mid = model.target_length // 2
-  loc_start = loc_mid - (options.local//2) // model.hp.target_pool
-  loc_end = loc_start + options.local // model.hp.target_pool
-
-  snp_i = 0
   szi = 0
+  sum_write_thread = None
+  sw_batch_size = 32 // job['batch_size']
 
   # initialize saver
   saver = tf.train.Saver()
   with tf.Session() as sess:
+    # coordinator
+    coord = tf.train.Coordinator()
+    tf.train.start_queue_runners(coord=coord)
+
     # load variables into session
     saver.restore(sess, model_file)
 
-    # construct first batch
-    batch_1hot, batch_snps, snp_i = snps_next_batch(
-        snps, snp_i, options.batch_size, job['seq_length'], genome_open)
+    # predict first
+    batch_preds = model.predict_tfr(sess, test_batches=sw_batch_size)
 
-    while len(batch_snps) > 0:
-      ###################################################
-      # predict
-
-      # initialize batcher
-      batcher = basenji.batcher.Batcher(batch_1hot, batch_size=model.hp.batch_size)
-
-      # predict
-      # batch_preds = model.predict(sess, batcher,
-      #                 rc=options.rc, shifts=options.shifts,
-      #                 penultimate=options.penultimate)
-      batch_preds = model.predict_h5(sess, batcher)
+    while batch_preds.shape[0] > 0:
+      # count predicted SNPs
+      num_snps = batch_preds.shape[0] // 2
 
       # normalize
       batch_preds /= target_norms
 
+      # block for last thread
+      if sum_write_thread is not None:
+        sum_write_thread.join()
 
-      ###################################################
-      # collect and print SADs
+      # summarize and write
+      sum_write_thread = threading.Thread(target=summarize_write,
+            args=(batch_preds, sad_out, szi, options.log_pseudo))
+      sum_write_thread.start()
 
-      pi = 0
-      for snp in batch_snps:
-        # get reference prediction (LxT)
-        ref_preds = batch_preds[pi]
-        pi += 1
+      # update SNP index
+      szi += num_snps
 
-        # sum across length
-        ref_preds_sum = ref_preds.sum(axis=0, dtype='float64')
+      # predict next
+      batch_preds = model.predict_tfr(sess, test_batches=sw_batch_size)
 
-        # print tracks
-        for ti in options.track_indexes:
-          ref_bw_file = '%s/tracks/%s_t%d_ref.bw' % (options.out_dir, snp.rsid,
-                                                     ti)
-          bigwig_write(snp, job['seq_length'], ref_preds[:, ti], model,
-                       ref_bw_file, options.genome_file)
-
-        for alt_al in snp.alt_alleles:
-          # get alternate prediction (LxT)
-          alt_preds = batch_preds[pi]
-          pi += 1
-
-          # sum across length
-          alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
-
-          # compare reference to alternative via mean subtraction
-          sad_vec = alt_preds - ref_preds
-          sad = alt_preds_sum - ref_preds_sum
-
-          # compare reference to alternative via mean log division
-          sar = np.log2(alt_preds_sum + options.log_pseudo) \
-                  - np.log2(ref_preds_sum + options.log_pseudo)
-
-          # compare geometric means
-          sar_vec = np.log2(alt_preds.astype('float64') + options.log_pseudo) \
-                      - np.log2(ref_preds.astype('float64') + options.log_pseudo)
-          geo_sad = sar_vec.sum(axis=0)
-
-          # sum locally
-          ref_preds_loc = ref_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
-          alt_preds_loc = alt_preds[loc_start:loc_end,:].sum(axis=0, dtype='float64')
-
-          # compute SAD locally
-          sad_loc = alt_preds_loc - ref_preds_loc
-          sar_loc = np.log2(alt_preds_loc + options.log_pseudo) \
-                      - np.log2(ref_preds_loc + options.log_pseudo)
-
-          # compute max difference position
-          max_li = np.argmax(np.abs(sar_vec), axis=0)
-
-          if options.out_h5 or options.out_zarr:
-            sad_out['SAD'][szi,:] = sad.astype('float16')
-            sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)], dtype='float16')
-            szi += 1
-
-          else:
-            # print table lines
-            for ti in range(len(sad)):
-              # print line
-              cols = (snp.rsid, bvcf.cap_allele(snp.ref_allele), bvcf.cap_allele(alt_al),
-                      ref_preds_sum[ti], alt_preds_sum[ti], sad[ti], sar[ti], geo_sad[ti],
-                      ref_preds_loc[ti], alt_preds_loc[ti], sad_loc[ti], sar_loc[ti],
-                      ref_preds[max_li[ti], ti], alt_preds[max_li[ti], ti], sad_vec[max_li[ti],ti], sar_vec[max_li[ti],ti],
-                      ti, target_ids[ti], target_labels[ti])
-              if options.csv:
-                print(','.join([str(c) for c in cols]), file=sad_out)
-              else:
-                print(
-                    '%-13s %6s %6s | %8.2f %8.2f %8.3f %7.4f %7.3f | %7.3f %7.3f %7.3f %7.4f | %7.3f %7.3f %7.3f %7.4f | %4d %12s %s'
-                    % cols,
-                    file=sad_out)
-
-          # print tracks
-          for ti in options.track_indexes:
-            alt_bw_file = '%s/tracks/%s_t%d_alt.bw' % (options.out_dir,
-                                                       snp.rsid, ti)
-            bigwig_write(snp, job['seq_length'], alt_preds[:, ti], model,
-                         alt_bw_file, options.genome_file)
-
-      ###################################################
-      # construct next batch
-
-      batch_1hot, batch_snps, snp_i = snps_next_batch(
-          snps, snp_i, options.batch_size, job['seq_length'], genome_open)
+  sum_write_thread.join()
 
   ###################################################
   # compute SAD distributions across variants
@@ -373,23 +317,41 @@ def main():
     sad_out.close()
 
 
-def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
-  bw_open = bigwig_open(bw_file, genome_file)
+def summarize_write(batch_preds, sad_out, szi, log_pseudo):
+  num_targets = batch_preds.shape[-1]
+  pi = 0
+  while pi < batch_preds.shape[0]:
+    # get reference prediction (LxT)
+    ref_preds = batch_preds[pi]
+    pi += 1
 
-  seq_chrom = snp.chrom
-  seq_start = snp.pos - seq_len // 2
+    # get alternate prediction (LxT)
+    alt_preds = batch_preds[pi]
+    pi += 1
 
-  bw_chroms = [seq_chrom] * len(preds)
-  bw_starts = [
-      int(seq_start + model.hp.batch_buffer + bi * model.hp.target_pool)
-      for bi in range(len(preds))
-  ]
-  bw_ends = [int(bws + model.hp.target_pool) for bws in bw_starts]
+    # sum across length
+    ref_preds_sum = ref_preds.sum(axis=0, dtype='float64')
+    alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
 
-  preds_list = [float(p) for p in preds]
-  bw_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=preds_list)
+    # compare reference to alternative via mean subtraction
+    # sad_vec = alt_preds - ref_preds
+    sad = alt_preds_sum - ref_preds_sum
 
-  bw_open.close()
+    # compare reference to alternative via mean log division
+    # sar = np.log2(alt_preds_sum + log_pseudo) \
+    #         - np.log2(ref_preds_sum + log_pseudo)
+
+    # compare geometric means
+    # sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
+    #             - np.log2(ref_preds.astype('float64') + log_pseudo)
+    # geo_sad = sar_vec.sum(axis=0)
+
+    # compute max difference position
+    # max_li = np.argmax(np.abs(sar_vec), axis=0)
+
+    sad_out['SAD'][szi,:] = sad.astype('float16')
+    # sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)], dtype='float16')
+    szi += 1
 
 
 def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
@@ -442,30 +404,6 @@ def initialize_output_zarr(out_dir, sad_stats, snps, target_ids, target_labels):
 
   return sad_out
 
-
-def snps_next_batch(snps, snp_i, batch_size, seq_len, genome_open):
-  """ Load the next batch of SNP sequence 1-hot. """
-
-  batch_1hot = []
-  batch_snps = []
-
-  while len(batch_1hot) < batch_size and snp_i < len(snps):
-    # get SNP sequences
-    snp_1hot = bvcf.snp_seq1(snps[snp_i], seq_len, genome_open)
-
-    # if it was valid
-    if len(snp_1hot) > 0:
-      # accumulate
-      batch_1hot += snp_1hot
-      batch_snps.append(snps[snp_i])
-
-    # advance SNP index
-    snp_i += 1
-
-  # convert to array
-  batch_1hot = np.array(batch_1hot)
-
-  return batch_1hot, batch_snps, snp_i
 
 ################################################################################
 # __main__

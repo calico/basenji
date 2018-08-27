@@ -54,83 +54,44 @@ Note:
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <input_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-a',
-      dest='activity_enrich',
-      default=1,
-      type='float',
-      help=
-      'Enrich the sample for the top proportion sorted by acitvity in the target cells requested. [Default: %default]'
-  )
-  parser.add_option(
-      '-b', dest='batch_size', default=None, type='int', help='Batch size')
-  parser.add_option(
-      '-f',
-      dest='figure_width',
-      default=20,
-      type='float',
+  parser.add_option('-a', dest='activity_enrich',
+      default=1, type='float',
+      help='Enrich for the most active top % of sequences [Default: %default]')
+  parser.add_option('-b', dest='batch_size',
+      default=None, type='int',
+      help='Batch size')
+  parser.add_option('-f', dest='figure_width',
+      default=20, type='float',
       help='Figure width [Default: %default]')
-  parser.add_option(
-      '-g',
-      dest='gain',
-      default=False,
-      action='store_true',
+  parser.add_option('-g', dest='gain',
+      default=False, action='store_true',
       help='Draw a sequence logo for the gain score, too [Default: %default]')
-  parser.add_option(
-      '-l',
-      dest='satmut_len',
-      default=200,
-      type='int',
+  parser.add_option('-l', dest='satmut_len',
+      default=200, type='int',
       help='Length of centered sequence to mutate [Default: %default]')
-  parser.add_option(
-      '-m',
-      dest='min_limit',
-      default=0.005,
-      type='float',
+  parser.add_option('-m', dest='min_limit',
+      default=0.005, type='float',
       help='Minimum heatmap limit [Default: %default]')
-  parser.add_option(
-      '-n',
-      dest='load_sat_npy',
-      default=False,
-      action='store_true',
+  parser.add_option('-n', dest='load_sat_npy',
+      default=False, action='store_true',
       help='Load the predictions from .npy files [Default: %default]')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
-      default='heat',
-      help='Output directory [Default: %default]')
-  parser.add_option(
-      '-r',
-      dest='rng_seed',
-      default=1,
-      type='float',
+  parser.add_option('-o', dest='out_dir',
+      default='heat', help='Output directory [Default: %default]')
+  parser.add_option('-r', dest='rng_seed',
+      default=1, type='float',
       help='Random number generator seed [Default: %default]')
-  parser.add_option(
-      '--rc',
-      dest='rc',
-      default=False,
-      action='store_true',
-      help=
-      'Average the forward and reverse complement predictions when testing [Default: %default]'
-  )
-  parser.add_option(
-      '-s',
-      dest='sample',
-      default=None,
-      type='int',
+  parser.add_option('--rc', dest='rc',
+      default=False, action='store_true',
+      help='Ensemble forward and reverse complement predictions [Default: %default]')
+  parser.add_option('-s', dest='sample',
+      default=None, type='int',
       help='Sample sequences from the test set [Default:%default]')
-  parser.add_option(
-      '--shifts',
-      dest='shifts',
+  parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option(
-      '-t',
-      dest='targets',
+  parser.add_option('-t', dest='targets',
       default='0',
-      help=
-      'Comma-separated list of target indexes to plot (or -1 for all) [Default: %default]'
-  )
+      help='Comma-separated target indexes (or -1 for all) [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -188,12 +149,11 @@ def main():
     job['target_pool'] = job['seq_length'] // targets.shape[1]
 
   t0 = time.time()
-  dr = seqnn.SeqNN()
-  dr.build(job, target_subset=target_subset)
-  print('Model building time %f' % (time.time() - t0), flush=True)
+  model = seqnn.SeqNN()
+  model.build_feed(job, target_subset=target_subset)
 
   if options.batch_size is not None:
-    dr.hp.batch_size = options.batch_size
+    model.hp.batch_size = options.batch_size
 
   # initialize saver
   saver = tf.train.Saver()
@@ -223,14 +183,11 @@ def main():
 
         # initialize batcher
         batcher_sat = batcher.Batcher(
-            sat_seqs_1hot, batch_size=dr.hp.batch_size)
+            sat_seqs_1hot, batch_size=model.hp.batch_size)
 
         # predict
-        sat_preds = dr.predict(
-            sess,
-            batcher_sat,
-            rc=options.rc,
-            shifts=options.shifts)
+        sat_preds = model.predict(sess, batcher_sat,
+                                  rc=options.rc, shifts=options.shifts)
         np.save('%s/seq%d_preds.npy' % (options.out_dir, si), sat_preds)
 
       #################################################################
@@ -284,7 +241,7 @@ def main():
 
         # plot predictions
         plot_predictions(ax_pred, sat_preds[0, :, tii], options.satmut_len,
-                         dr.hp.seq_length, dr.hp.batch_buffer)
+                         model.hp.seq_length, model.hp.batch_buffer)
 
         # plot sequence logo
         plot_seqlogo(ax_logo_loss, seqs_1hot[si], -sat_loss[:, tii])
@@ -487,8 +444,6 @@ def parse_input(input_file, sample):
       hdf5_in = h5py.File(input_file, 'r')
       seqs_1hot = np.array(hdf5_in['test_in'])
       targets = np.array(hdf5_in['test_out'])
-      # seq_headers = np.array(hdf5_in['test_headers'])
-      # target_labels = np.array(hdf5_in['target_labels'])   # TEMP
       hdf5_in.close()
 
       # sample
@@ -496,7 +451,6 @@ def parse_input(input_file, sample):
         sample_i = np.array(random.sample(range(seqs_1hot.shape[0]), sample))
         seqs_1hot = seqs_1hot[sample_i]
         targets = targets[sample_i]
-        # seq_headers = seq_headers[sample_i]
 
       # convert to ACGT sequences
       seqs = dna_io.hot1_dna(seqs_1hot)

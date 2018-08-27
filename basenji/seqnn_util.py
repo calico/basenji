@@ -27,7 +27,7 @@ class SeqNNModel(object):
     self.grad_ops = []
 
     for ti in range(self.hp.num_targets):
-      grad_ti_op = tf.gradients(self.preds_op[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
+      grad_ti_op = tf.gradients(self.preds_train[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
       self.grad_ops.append(grad_ti_op)
 
 
@@ -60,7 +60,7 @@ class SeqNNModel(object):
       if pi in tss_pos:
         # build position-specific, target-specific gradient ops
         for ti in range(self.hp.num_targets):
-          grad_piti_op = tf.gradients(self.preds_op[:,pi,ti],
+          grad_piti_op = tf.gradients(self.preds_eval[:,pi,ti],
                                       [self.layer_reprs[li] for li in self.grad_layers])
           self.grad_pos_ops[-1].append(grad_piti_op)
 
@@ -224,7 +224,9 @@ class SeqNNModel(object):
       return layer_grads, layer_reprs, preds
 
 
-  def _gradients_ensemble(self, sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, return_var=False, return_all=False):
+  def _gradients_ensemble(self, sess, fd, Xb,
+                          ensemble_fwdrc, ensemble_shifts, mc_n,
+                          return_var=False, return_all=False):
     """ Compute gradients over an ensemble of input augmentations.
 
       In
@@ -300,7 +302,7 @@ class SeqNNModel(object):
       Xb_ensemble = hot1_augment(Xb, ensemble_fwdrc[ei], ensemble_shifts[ei])
 
       # update feed dict
-      fd[self.inputs] = Xb_ensemble
+      fd[self.inputs_ph] = Xb_ensemble
 
       # for each monte carlo (or non-mc single) iteration
       for mi in range(mc_n):
@@ -312,7 +314,7 @@ class SeqNNModel(object):
         # prediction
 
         # predict
-        preds_ei, layer_reprs_ei = sess.run([self.preds_op, self.layer_reprs], feed_dict=fd)
+        preds_ei, layer_reprs_ei = sess.run([self.preds_train, self.layer_reprs], feed_dict=fd)
 
         # reverse
         if ensemble_fwdrc[ei] is False:
@@ -448,10 +450,10 @@ class SeqNNModel(object):
 
     while Xb is not None:
       # update feed dict
-      fd[self.inputs] = Xb
+      fd[self.inputs_ph] = Xb
 
       # predict
-      reprs_batch, _ = sess.run([self.layer_reprs, self.preds_op], feed_dict=fd)
+      reprs_batch, _ = sess.run([self.layer_reprs, self.preds_train], feed_dict=fd)
 
       # save representations
       for lii in range(len(self.grad_layers)):
@@ -487,8 +489,18 @@ class SeqNNModel(object):
     return layer_grads, layer_reprs
 
 
-  def hidden(self, sess, batcher, layers=None):
-    """ Compute hidden representations for a test set. """
+  def hidden(self, sess, batcher, layers=None, test_batches=None):
+    """ Compute hidden representations for a test set.
+
+        In
+         sess:          TensorFlow session
+         batcher:       Batcher class with sequences.
+         layers:        Layer indexes to return representations.
+         test_batches:  Number of test batches to use.
+
+        Out
+         preds: S (sequences) x L (unbuffered length) x T (targets) array
+        """
 
     if layers is None:
       layers = list(range(self.hp.cnn_layers))
@@ -505,13 +517,15 @@ class SeqNNModel(object):
     # get first batch
     Xb, _, _, Nb = batcher.next()
 
-    while Xb is not None:
+    batch_num = 0
+    while Xb is not None and (test_batches is None or
+                              batch_num < test_batches):
       # update feed dict
-      fd[self.inputs] = Xb
+      fd[self.inputs_ph] = Xb
 
       # compute predictions
       layer_reprs_batch, preds_batch = sess.run(
-          [self.layer_reprs, self.preds_op], feed_dict=fd)
+          [self.layer_reprs, self.preds_train], feed_dict=fd)
 
       # accumulate representationsmakes the number of members for self smaller and also
       for li in layers:
@@ -527,6 +541,7 @@ class SeqNNModel(object):
 
       # next batch
       Xb, _, _, Nb = batcher.next()
+      batch_num += 1
 
     # reset batcher
     batcher.reset()
@@ -551,7 +566,7 @@ class SeqNNModel(object):
                         target_indexes=None,
                         return_var=False,
                         return_all=False,
-                        penultimate=False):
+                        embed_penultimate=False):
 
     # determine predictions length
     preds_length = self.preds_length
@@ -559,7 +574,7 @@ class SeqNNModel(object):
       preds_length = len(ds_indexes)
 
     # determine num targets
-    if penultimate:
+    if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
       num_targets = self.hp.num_targets
@@ -589,17 +604,14 @@ class SeqNNModel(object):
       Xb_ensemble = hot1_augment(Xb, ensemble_fwdrc[ei], ensemble_shifts[ei])
 
       # update feed dict
-      fd[self.inputs] = Xb_ensemble
+      fd[self.inputs_ph] = Xb_ensemble
 
       # for each monte carlo (or non-mc single) iteration
       for mi in range(mc_n):
         # print('ei=%d, mi=%d, fwdrc=%d, shifts=%d' % (ei, mi, ensemble_fwdrc[ei], ensemble_shifts[ei]), flush=True)
 
         # predict
-        if penultimate:
-          preds_ei = sess.run(self.penultimate_op, feed_dict=fd)
-        else:
-          preds_ei = sess.run(self.preds_op, feed_dict=fd)
+        preds_ei = sess.run(self.preds_eval, feed_dict=fd)
 
         # reverse
         if ensemble_fwdrc[ei] is False:
@@ -631,24 +643,17 @@ class SeqNNModel(object):
 
     return preds_batch, preds_batch_var, preds_all
 
-  def predict(self,
-              sess,
-              batcher,
-              rc=False,
-              shifts=[0],
-              mc_n=0,
-              target_indexes=None,
-              return_var=False,
-              return_all=False,
-              down_sample=1,
-              penultimate=False,
-              test_batches=None,
-              dtype='float32'):
+  def predict_h5_manual(self, sess, batcher,
+                        rc=False, shifts=[0], mc_n=0,
+                        target_indexes=None,
+                        return_var=False, return_all=False,
+                        down_sample=1, embed_penultimate=False,
+                        test_batches=None, dtype='float32'):
     """ Compute predictions on a test set.
 
         In
          sess:           TensorFlow session
-         batcher:        Batcher class with transcript-covering sequences.
+         batcher:        Batcher class with sequences.
          rc:             Average predictions from the forward and reverse
          complement sequences.
          shifts:         Average predictions from sequence shifts left/right.
@@ -657,7 +662,7 @@ class SeqNNModel(object):
          return_var:     Return variance estimates
          down_sample:    Int specifying to consider uniformly spaced sampled
          positions
-         penultimate:    Predict the penultimate layer.
+         embed_penultimate: Predict the embed_penultimate layer.
          test_batches    Number of test batches to use.
          dtype:          Float resolution to return.
 
@@ -673,7 +678,7 @@ class SeqNNModel(object):
       preds_length = len(ds_indexes)
 
     # initialize prediction arrays
-    if penultimate:
+    if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
       num_targets = self.hp.num_targets
@@ -731,7 +736,6 @@ class SeqNNModel(object):
 
     # while we want more batches
     while test_batches is None or batch_num < test_batches:
-
       # get batch
       Xb, _, _, Nb = batcher.next()
 
@@ -742,7 +746,7 @@ class SeqNNModel(object):
         # make ensemble predictions
         preds_batch, preds_batch_var, preds_batch_all = self._predict_ensemble(
             sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n, ds_indexes,
-            target_indexes, return_var, return_all, penultimate)
+            target_indexes, return_var, return_all, embed_penultimate)
 
         # accumulate predictions
         preds[si:si + Nb, :, :] = preds_batch[:Nb, :, :]
@@ -765,6 +769,150 @@ class SeqNNModel(object):
     else:
       return preds
 
+  def predict_h5(self, sess, batcher, test_batches=None,
+                 return_var=False, return_all=False):
+    """ Compute preidctions on an HDF5 test set.
+
+        Args:
+          sess:          TensorFlow session
+          batcher:       Batcher class with sequences.
+          test_batches:  Number of test batches to use.
+          return_var:    Return variance estimates
+          return_all:    Retyrn all predictions.
+
+        Returns:
+          preds: S (sequences) x L (unbuffered length) x T (targets) array
+      """
+    fd = self.set_mode('test')
+
+    # initialize prediction data structures
+    preds = []
+    if return_var:
+      preds_var = []
+    if return_all:
+      preds_all = []
+
+    # count batches
+    batch_num = 0
+
+    # while we want more batches
+    while test_batches is None or batch_num < test_batches:
+      # get batch
+      Xb, _, _, Nb = batcher.next()
+
+      # verify fidelity
+      if Xb is None:
+        break
+      else:
+        # update feed dict
+        fd[self.inputs_ph] = Xb
+
+        # make predictions
+        if return_var or return_all:
+          preds_batch, preds_ensemble_batch = sess.run([self.preds_eval, self.preds_ensemble], feed_dict=fd)
+
+          # move ensemble to back
+          preds_ensemble_batch = np.moveaxis(preds_ensemble_batch, 0, -1)
+
+        else:
+          preds_batch = sess.run(self.preds_eval, feed_dict=fd)
+
+        # accumulate predictions and targets
+        preds.append(preds_batch[:Nb])
+        if return_var:
+          preds_var_batch = np.var(preds_ensemble_batch, axis=-1)
+          preds_var.append(preds_var_batch[:Nb])
+        if return_all:
+          preds_all.append(preds_ensemble_batch[:Nb])
+
+        # next batch
+        batch_num += 1
+
+    # construct arrays
+    preds = np.concatenate(preds, axis=0)
+    if return_var:
+      preds_var = np.concatenate(preds_var, axis=0)
+    if return_all:
+      preds_all = np.concatenate(preds_all, axis=0)
+
+    if return_var:
+      if return_all:
+        return preds, preds_var, preds_all
+      else:
+        return preds, preds_var
+    else:
+      return preds
+
+  def predict_tfr(self, sess, test_batches=None,
+                  return_var=False, return_all=False):
+    """ Compute preidctions on a TFRecord test set.
+
+        Args:
+          sess:          TensorFlow session
+          test_batches:  Number of test batches to use.
+          return_var:    Return variance estimates
+          return_all:    Retyrn all predictions.
+
+        Returns:
+          preds: S (sequences) x L (unbuffered length) x T (targets) array
+      """
+    fd = self.set_mode('test')
+
+    # initialize prediction data structures
+    preds = []
+    preds_var = []
+    preds_all = []
+
+    # sequence index
+    data_available = True
+    batch_num = 0
+    while data_available and (test_batches is None or batch_num < test_batches):
+      try:
+        # make predictions
+        if return_var or return_all:
+          preds_batch, preds_ensemble_batch = sess.run([self.preds_eval, self.preds_ensemble], feed_dict=fd)
+
+          # move ensemble to back
+          preds_ensemble_batch = np.moveaxis(preds_ensemble_batch, 0, -1)
+
+        else:
+          preds_batch = sess.run(self.preds_eval, feed_dict=fd)
+
+        # accumulate predictions and targets
+        preds.append(preds_batch)
+        if return_var:
+          preds_var_batch = np.var(preds_ensemble_batch, axis=-1)
+          preds_var.append(preds_var_batch)
+        if return_all:
+          preds_all.append(preds_ensemble_batch)
+
+        batch_num += 1
+
+      except tf.errors.OutOfRangeError:
+        data_available = False
+
+    if preds:
+      # concatenate into arrays
+      preds = np.concatenate(preds, axis=0)
+      if return_var and preds_var:
+       preds_var = np.concatenate(preds_var, axis=0)
+      if return_all and preds_all:
+        preds_all = np.concatenate(preds_all, axis=0)
+
+    else:
+      # return empty array objects
+      preds = np.array(preds)
+      preds_var = np.array(preds_var)
+      preds_all = np.array(preds_all)
+
+    if return_var:
+      if return_all:
+        return preds, preds_var, preds_all
+      else:
+        return preds, preds_var
+    else:
+      return preds
+
   def predict_genes(self,
                     sess,
                     batcher,
@@ -774,7 +922,7 @@ class SeqNNModel(object):
                     mc_n=0,
                     target_indexes=None,
                     tss_radius=0,
-                    penultimate=False,
+                    embed_penultimate=False,
                     test_batches_per=256,
                     dtype='float32'):
     """ Compute predictions on a test set.
@@ -790,7 +938,7 @@ class SeqNNModel(object):
          mc_n:            Monte Carlo iterations per rc/shift.
          target_indexes:  Optional target subset list
          tss_radius:      Radius of bins to quantify TSS.
-         penultimate:     Predict the penultimate layer.
+         embed_penultimate: Predict the embed_penultimate layer.
          dtype:           Float resolution to return.
 
         Out
@@ -803,7 +951,7 @@ class SeqNNModel(object):
       tss_num += len(gene_seq.tss_list)
 
     # count targets
-    if penultimate:
+    if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
       num_targets = self.hp.num_targets
@@ -819,9 +967,9 @@ class SeqNNModel(object):
 
     while not batcher.empty():
       # predict gene sequences
-      gseq_preds = self.predict(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
-                                target_indexes=target_indexes, penultimate=penultimate,
-                                test_batches=test_batches_per)
+      gseq_preds = self.predict_h5_manual(sess, batcher, rc=rc, shifts=shifts, mc_n=mc_n,
+                                          target_indexes=target_indexes, embed_penultimate=embed_penultimate,
+                                          test_batches=test_batches_per)
       # slice TSSs
       for bsi in range(gseq_preds.shape[0]):
         for tss in gene_seqs[si].tss_list:
@@ -835,7 +983,7 @@ class SeqNNModel(object):
     return tss_preds
 
 
-  def test_from_data_ops(self, sess, test_batches=None):
+  def test_tfr(self, sess, test_batches=None):
     """ Compute model accuracy on a test set, where data is loaded from a queue.
 
         Args:
@@ -845,11 +993,6 @@ class SeqNNModel(object):
         Returns:
           acc:          Accuracy object
       """
-
-    # TODO(dbelanger) this ignores rc and shift ensembling for now.
-    # Accuracy will be slightly lower than if we had used this.
-    # The rc and shift data augmentation need to be pulled into the graph.
-
     fd = self.set_mode('test')
 
     # initialize prediction and target arrays
@@ -859,15 +1002,16 @@ class SeqNNModel(object):
 
     batch_losses = []
     batch_target_losses = []
+    batch_sizes = []
 
     # sequence index
     data_available = True
     batch_num = 0
     while data_available and (test_batches is None or batch_num < test_batches):
       try:
-        # make non-ensembled predictions
-        run_ops = [self.targets_op, self.preds_op,
-                   self.loss_op, self.target_losses]
+        # make predictions
+        run_ops = [self.targets_eval, self.preds_eval,
+                   self.loss_eval, self.loss_eval_targets]
         run_returns = sess.run(run_ops, feed_dict=fd)
         targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
 
@@ -879,6 +1023,7 @@ class SeqNNModel(object):
         # accumulate loss
         batch_losses.append(loss_batch)
         batch_target_losses.append(target_losses_batch)
+        batch_sizes.append(preds_batch.shape[0])
 
         batch_num += 1
 
@@ -891,8 +1036,10 @@ class SeqNNModel(object):
     targets_na = np.concatenate(targets_na, axis=0)
 
     # mean across batches
-    batch_losses = np.mean(batch_losses)
-    batch_target_losses = np.array(batch_target_losses).mean(axis=0)
+    batch_losses = np.array(batch_losses, dtype='float64')
+    batch_losses = np.average(batch_losses, weights=batch_sizes)
+    batch_target_losses = np.array(batch_target_losses, dtype='float64')
+    batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
 
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na,
@@ -900,13 +1047,86 @@ class SeqNNModel(object):
 
     return acc
 
-  def test(self,
-           sess,
-           batcher,
-           rc=False,
-           shifts=[0],
-           mc_n=0,
-           test_batches=None):
+  def test_h5(self, sess, batcher, test_batches=None):
+    """ Compute model accuracy on a test set.
+
+        Args:
+          sess:         TensorFlow session
+          batcher:      Batcher object to provide data
+          test_batches: Number of test batches
+
+        Returns:
+          acc:          Accuracy object
+        """
+    # setup feed dict
+    fd = self.set_mode('test')
+
+    # initialize prediction and target arrays
+    preds = []
+    targets = []
+    targets_na = []
+
+    batch_losses = []
+    batch_target_losses = []
+    batch_sizes = []
+
+    # get first batch
+    batch_num = 0
+    Xb, Yb, NAb, Nb = batcher.next()
+
+    while Xb is not None and (test_batches is None or
+                              batch_num < test_batches):
+      # update feed dict
+      fd[self.inputs_ph] = Xb
+      fd[self.targets_ph] = Yb
+
+      # make predictions
+      run_ops = [self.targets_eval, self.preds_eval,
+                 self.loss_eval, self.loss_eval_targets]
+      run_returns = sess.run(run_ops, feed_dict=fd)
+      targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
+
+      # accumulate predictions and targets
+      preds.append(preds_batch[:Nb,:,:].astype('float16'))
+      targets.append(targets_batch[:Nb,:,:].astype('float16'))
+      targets_na.append(np.zeros([Nb, self.preds_length], dtype='bool'))
+
+      # accumulate loss
+      batch_losses.append(loss_batch)
+      batch_target_losses.append(target_losses_batch)
+      batch_sizes.append(Nb)
+
+      # next batch
+      batch_num += 1
+      Xb, Yb, NAb, Nb = batcher.next()
+
+    # reset batcher
+    batcher.reset()
+
+    # construct arrays
+    targets = np.concatenate(targets, axis=0)
+    preds = np.concatenate(preds, axis=0)
+    targets_na = np.concatenate(targets_na, axis=0)
+
+    # mean across batches
+    batch_losses = np.array(batch_losses, dtype='float64')
+    batch_losses = np.average(batch_losses, weights=batch_sizes)
+    batch_target_losses = np.array(batch_target_losses, dtype='float64')
+    batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
+
+    # instantiate accuracy object
+    acc = accuracy.Accuracy(targets, preds, targets_na,
+                            batch_losses, batch_target_losses)
+
+    return acc
+
+  def test_h5_manual(self,
+                     sess,
+                     batcher,
+                     rc=False,
+                     shifts=[0],
+                     mc_n=0,
+                     test_batches=None):
     """ Compute model accuracy on a test set.
 
         Args:
@@ -951,9 +1171,7 @@ class SeqNNModel(object):
 
     batch_losses = []
     batch_target_losses = []
-
-    # sequence index
-    si = 0
+    batch_size = []
 
     # get first batch
     Xb, Yb, NAb, Nb = batcher.next()
@@ -966,15 +1184,15 @@ class SeqNNModel(object):
           sess, fd, Xb, ensemble_fwdrc, ensemble_shifts, mc_n)
 
       # add target info
-      fd[self.targets] = Yb
-      fd[self.targets_na] = NAb
+      fd[self.targets_ph] = Yb
+      fd[self.targets_na_ph] = NAb
 
       targets_na.append(np.zeros([Nb, self.preds_length], dtype='bool'))
 
       # recompute loss w/ ensembled prediction
       fd[self.preds_adhoc] = preds_batch
       targets_batch, loss_batch, target_losses_batch = sess.run(
-          [self.targets_op, self.loss_adhoc, self.target_losses_adhoc],
+          [self.targets_train, self.loss_adhoc, self.target_losses_adhoc],
           feed_dict=fd)
 
       # accumulate predictions and targets
@@ -1002,9 +1220,7 @@ class SeqNNModel(object):
       # accumulate loss
       batch_losses.append(loss_batch)
       batch_target_losses.append(target_losses_batch)
-
-      # update sequence index
-      si += Nb
+      batch_sizes.append(Nb)
 
       # next batch
       Xb, Yb, NAb, Nb = batcher.next()
@@ -1018,8 +1234,10 @@ class SeqNNModel(object):
     batcher.reset()
 
     # mean across batches
-    batch_losses = np.mean(batch_losses)
-    batch_target_losses = np.array(batch_target_losses).mean(axis=0)
+    batch_losses = np.array(batch_losses, dtype='float64')
+    batch_losses = np.average(batch_losses, weights=batch_sizes)
+    batch_target_losses = np.array(batch_target_losses, dtype='float64')
+    batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
 
     # instantiate accuracy object
     acc = accuracy.Accuracy(targets, preds, targets_na, batch_losses,

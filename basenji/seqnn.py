@@ -21,6 +21,7 @@ import time
 import numpy as np
 import tensorflow as tf
 
+from basenji import augmentation
 from basenji import layers
 from basenji import params
 from basenji import seqnn_util
@@ -32,72 +33,147 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.global_step = tf.train.get_or_create_global_step()
     self.hparams_set = False
 
-  def build(self, job, target_subset=None):
+  def build_feed(self, job, augment_rc=False, augment_shifts=[0],
+                 ensemble_rc=False, ensemble_shifts=[0],
+                 embed_penultimate=False, target_subset=None):
     """Build training ops that depend on placeholders."""
 
     self.hp = params.make_hparams(job)
     self.hparams_set = True
     data_ops = self.make_placeholders()
 
-    self.build_from_data_ops(job, data_ops, target_subset=target_subset)
+    self.build_from_data_ops(job, data_ops,
+          augment_rc=augment_rc,
+          augment_shifts=augment_shifts,
+          ensemble_rc=ensemble_rc,
+          ensemble_shifts=ensemble_shifts,
+          embed_penultimate=embed_penultimate,
+          target_subset=target_subset)
 
   def build_from_data_ops(self, job, data_ops,
-                          augment_rc=False, augment_shifts=[],
-                          target_subset=None):
+                          augment_rc=False, augment_shifts=[0],
+                          ensemble_rc=False, ensemble_shifts=[0],
+                          embed_penultimate=False, target_subset=None):
     """Build training ops from input data ops."""
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
       self.hparams_set = True
-    self.targets = data_ops['label']
-    self.inputs = data_ops['sequence']
-    self.targets_na = data_ops['na']
 
     # training conditional
     self.is_training = tf.placeholder(tf.bool, name='is_training')
 
-    # active only via basenji_train_queues.py for TFRecords
-    if augment_rc or len(augment_shifts) > 0:
-      # augment data ops
-      data_ops_aug, _ = tfrecord_batcher.data_augmentation_from_data_ops(
-          data_ops, augment_rc, augment_shifts)
+    ##################################################
+    # training
 
-      # condition on training
-      data_ops = tf.cond(self.is_training, lambda: data_ops_aug, lambda: data_ops)
+    # training data_ops w/ stochastic augmentation
+    data_ops_train = augmentation.augment_stochastic(
+        data_ops, augment_rc, augment_shifts)
 
-    seqs_repr = self.build_representation(data_ops, target_subset)
-    self.loss_op, self.loss_adhoc = self.build_loss(seqs_repr, data_ops, target_subset)
-    self.build_optimizer(self.loss_op)
+    # compute train representation
+    self.preds_train = self.build_predict(data_ops_train['sequence'],
+                                          None, embed_penultimate, target_subset,
+                                          save_reprs=True)
+    self.target_length = self.preds_train.shape[1].value
+
+    # training losses
+    if not embed_penultimate:
+      loss_returns = self.build_loss(self.preds_train, data_ops_train['label'], target_subset)
+      self.loss_train, self.loss_train_targets, self.targets_train = loss_returns
+
+      # optimizer
+      self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+      self.build_optimizer(self.loss_train)
+
+    ##################################################
+    # eval
+
+    # eval data ops w/ deterministic augmentation
+    data_ops_eval = augmentation.augment_deterministic_set(
+        data_ops, ensemble_rc, ensemble_shifts)
+    data_seq_eval = tf.stack([do['sequence'] for do in data_ops_eval])
+    data_rev_eval = tf.stack([do['reverse_preds'] for do in data_ops_eval])
+
+    # compute eval representation
+    map_elems_eval = (data_seq_eval, data_rev_eval)
+    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
+    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
+    self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
+
+    # eval loss
+    if not embed_penultimate:
+      loss_returns = self.build_loss(self.preds_eval, data_ops['label'], target_subset)
+      self.loss_eval, self.loss_eval_targets, self.targets_eval = loss_returns
+
+    # update # targets
+    if target_subset is not None:
+      self.hp.num_targets = len(target_subset)
+
+    # helper variables
+    self.preds_length = self.preds_train.shape[1]
+
+  def build_sad(self, job, data_ops,
+                ensemble_rc=False, ensemble_shifts=[0],
+                embed_penultimate=False, target_subset=None):
+    """Build SAD predict ops."""
+    if not self.hparams_set:
+      self.hp = params.make_hparams(job)
+      self.hparams_set = True
+
+    # training conditional
+    self.is_training = tf.placeholder(tf.bool, name='is_training')
+
+    # eval data ops w/ deterministic augmentation
+    data_ops_eval = augmentation.augment_deterministic_set(
+        data_ops, ensemble_rc, ensemble_shifts)
+    data_seq_eval = tf.stack([do['sequence'] for do in data_ops_eval])
+    data_rev_eval = tf.stack([do['reverse_preds'] for do in data_ops_eval])
+
+    # compute eval representation
+    map_elems_eval = (data_seq_eval, data_rev_eval)
+    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
+    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
+    self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
+
+    # update # targets
+    if target_subset is not None:
+      self.hp.num_targets = len(target_subset)
+
+    # helper variables
+    self.preds_length = self.preds_eval.shape[1]
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
     # batches
-    self.inputs = tf.placeholder(
+    self.inputs_ph = tf.placeholder(
         tf.float32,
-        shape=(self.hp.batch_size, self.hp.seq_length, self.hp.seq_depth),
+        shape=(None, self.hp.seq_length, self.hp.seq_depth),
         name='inputs')
+
     if self.hp.target_classes == 1:
-      self.targets = tf.placeholder(
+      self.targets_ph = tf.placeholder(
           tf.float32,
-          shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool,
+          shape=(None, self.hp.seq_length // self.hp.target_pool,
                  self.hp.num_targets),
           name='targets')
     else:
-      self.targets = tf.placeholder(
+      self.targets_ph = tf.placeholder(
           tf.int32,
-          shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool,
+          shape=(None, self.hp.seq_length // self.hp.target_pool,
                  self.hp.num_targets),
           name='targets')
-    self.targets_na = tf.placeholder(
-        tf.bool, shape=(self.hp.batch_size, self.hp.seq_length // self.hp.target_pool))
+
+    self.targets_na_ph = tf.placeholder(tf.bool,
+        shape=(None, self.hp.seq_length // self.hp.target_pool),
+        name='targets_na')
 
     data = {
-        'sequence': self.inputs,
-        'label': self.targets,
-        'na': self.targets_na
+        'sequence': self.inputs_ph,
+        'label': self.targets_ph,
+        'na': self.targets_na_ph
     }
     return data
 
-  def _make_conv_block_args(self, layer_index):
+  def _make_conv_block_args(self, layer_index, layer_reprs):
     """Packages arguments to be used by layers.conv_block."""
     return {
         'conv_params': self.hp.cnn_params[layer_index],
@@ -107,36 +183,41 @@ class SeqNN(seqnn_util.SeqNNModel):
         'batch_renorm': self.hp.batch_renorm,
         'batch_renorm_momentum': self.hp.batch_renorm_momentum,
         'l2_scale': self.hp.cnn_l2_scale,
-        'layer_reprs': self.layer_reprs,
+        'layer_reprs': layer_reprs,
         'name': 'conv-%d' % layer_index
     }
 
-  def build_representation(self, data_ops, target_subset):
+  def build_predict(self, inputs, reverse_preds=None, embed_penultimate=False, target_subset=None, save_reprs=False):
     """Construct per-location real-valued predictions."""
-    inputs = data_ops['sequence']
     assert inputs is not None
-
     print('Targets pooled by %d to length %d' %
           (self.hp.target_pool, self.hp.seq_length // self.hp.target_pool))
 
     ###################################################
     # convolution layers
     ###################################################
-    self.filter_weights = []
-    self.layer_reprs = [inputs]
+    filter_weights = []
+    layer_reprs = [inputs]
 
     seqs_repr = inputs
     for layer_index in range(self.hp.cnn_layers):
-      with tf.variable_scope('cnn%d' % layer_index):
+      with tf.variable_scope('cnn%d' % layer_index, reuse=tf.AUTO_REUSE):
         # convolution block
-        args_for_block = self._make_conv_block_args(layer_index)
+        args_for_block = self._make_conv_block_args(layer_index, layer_reprs)
         seqs_repr = layers.conv_block(seqs_repr=seqs_repr, **args_for_block)
 
         # save representation
-        self.layer_reprs.append(seqs_repr)
+        layer_reprs.append(seqs_repr)
+
+    if save_reprs:
+      self.layer_reprs = layer_reprs
 
     # final nonlinearity
     seqs_repr = tf.nn.relu(seqs_repr)
+
+    ###################################################
+    # slice out side buffer
+    ###################################################
 
     # update batch buffer to reflect pooling
     seq_length = seqs_repr.shape[1].value
@@ -146,59 +227,102 @@ class SeqNN(seqnn_util.SeqNNModel):
         ' by the CNN pooling %d') % (self.hp.batch_buffer, pool_preds)
     batch_buffer_pool = self.hp.batch_buffer // pool_preds
 
-
-    ###################################################
-    # slice out side buffer
-    ###################################################
-
-    # predictions
+    # slice out buffer
     seq_length = seqs_repr.shape[1]
     seqs_repr = seqs_repr[:, batch_buffer_pool:
                           seq_length - batch_buffer_pool, :]
-    seq_length = seqs_repr.shape[1].value
-    self.preds_length = seq_length
-
-    # save penultimate representation
-    self.penultimate_op = seqs_repr
-
+    seq_length = seqs_repr.shape[1]
 
     ###################################################
     # final layer
     ###################################################
-    with tf.variable_scope('final'):
-      final_filters = self.hp.num_targets * self.hp.target_classes
-      final_repr = tf.layers.dense(
-          inputs=seqs_repr,
-          units=final_filters,
-          activation=None,
-          kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
-          kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
-      print('Convolution w/ %d %dx1 filters to final targets' %
-          (final_filters, seqs_repr.shape[2]))
+    if embed_penultimate:
+      final_repr = seqs_repr
+    else:
+      with tf.variable_scope('final', reuse=tf.AUTO_REUSE):
+        final_filters = self.hp.num_targets * self.hp.target_classes
+        final_repr = tf.layers.dense(
+            inputs=seqs_repr,
+            units=final_filters,
+            activation=None,
+            kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
+            kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
+        print('Convolution w/ %d %dx1 filters to final targets' %
+            (final_filters, seqs_repr.shape[2]))
 
-      if target_subset is not None:
-        # get convolution parameters
-        filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
-        bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
+        if target_subset is not None:
+          # get convolution parameters
+          filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
+          bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
 
-        # subset to specific targets
-        filters_subset = tf.gather(filters_full, target_subset, axis=1)
-        bias_subset = tf.gather(bias_full, target_subset, axis=0)
+          # subset to specific targets
+          filters_subset = tf.gather(filters_full, target_subset, axis=1)
+          bias_subset = tf.gather(bias_full, target_subset, axis=0)
 
-        # substitute a new limited convolution
-        final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
-        final_repr = tf.nn.bias_add(final_repr, bias_subset)
+          # substitute a new limited convolution
+          final_repr = tf.tensordot(seqs_repr, filters_subset, 1)
+          final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
-        # update # targets
-        self.hp.num_targets = len(target_subset)
+        # expand length back out
+        if self.hp.target_classes > 1:
+          final_repr = tf.reshape(final_repr,
+                                  (-1, seq_length, self.hp.num_targets,
+                                   self.hp.target_classes))
 
-      # expand length back out
-      if self.hp.target_classes > 1:
-        final_repr = tf.reshape(final_repr,
-                                (self.hp.batch_size, -1, self.hp.num_targets,
-                                 self.hp.target_classes))
+    # transform for reverse complement
+    if reverse_preds is not None:
+      final_repr = tf.cond(reverse_preds,
+                           lambda: tf.reverse(final_repr, axis=[1]),
+                           lambda: final_repr)
 
-    return final_repr
+    ###################################################
+    # link function
+    ###################################################
+    if embed_penultimate:
+      predictions = final_repr
+    else:
+      # work-around for specifying my own predictions
+      # self.preds_adhoc = tf.placeholder(
+      #     tf.float32, shape=final_repr.shape, name='preds-adhoc')
+
+      # float 32 exponential clip max
+      exp_max = 50
+
+      # choose link
+      if self.hp.link in ['identity', 'linear']:
+        predictions = tf.identity(final_repr, name='preds')
+
+      elif self.hp.link == 'relu':
+        predictions = tf.relu(final_repr, name='preds')
+
+      elif self.hp.link == 'exp':
+        final_repr_clip = tf.clip_by_value(final_repr, -exp_max, exp_max)
+        predictions = tf.exp(final_repr_clip, name='preds')
+
+      elif self.hp.link == 'exp_linear':
+        predictions = tf.where(
+            final_repr > 0,
+            final_repr + 1,
+            tf.exp(tf.clip_by_value(final_repr, -exp_max, exp_max)),
+            name='preds')
+
+      elif self.hp.link == 'softplus':
+        final_repr_clip = tf.clip_by_value(final_repr, -exp_max, 10000)
+        predictions = tf.nn.softplus(final_repr_clip, name='preds')
+
+      else:
+        print('Unknown link function %s' % self.hp.link, file=sys.stderr)
+        exit(1)
+
+      # clip
+      if self.hp.target_clip is not None:
+        predictions = tf.clip_by_value(predictions, 0, self.hp.target_clip)
+
+      # sqrt
+      if self.hp.target_sqrt:
+        predictions = tf.sqrt(predictions)
+
+    return predictions
 
   def build_optimizer(self, loss_op):
     """Construct optimization op that minimizes loss_op."""
@@ -249,93 +373,42 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.step_op = self.opt.apply_gradients(
         self.gvs, global_step=self.global_step)
 
-    self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-
     # summary
     self.merged_summary = tf.summary.merge_all()
 
 
-  def build_loss(self, seqs_repr, data_ops, target_subset=None):
+  def build_loss(self, preds, targets, target_subset=None):
     """Convert per-location real-valued predictions to a loss."""
 
-    # targets
+    # slice buffer
     tstart = self.hp.batch_buffer // self.hp.target_pool
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
-    self.target_length = tend - tstart
-
-    targets = data_ops['label']
     targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
     if target_subset is not None:
       targets = tf.gather(targets, target_subset, axis=2)
 
-    # work-around for specifying my own predictions
-    self.preds_adhoc = tf.placeholder(
-        tf.float32, shape=seqs_repr.shape, name='preds-adhoc')
-
-    # float 32 exponential clip max
-    # exp_max = np.floor(np.log(0.5*tf.float32.max))
-    exp_max = 50
-
-    # choose link
-    if self.hp.link in ['identity', 'linear']:
-      self.preds_op = tf.identity(seqs_repr, name='preds')
-
-    elif self.hp.link == 'relu':
-      self.preds_op = tf.relu(seqs_repr, name='preds')
-
-    elif self.hp.link == 'exp':
-      seqs_repr_clip = tf.clip_by_value(seqs_repr, -exp_max, exp_max)
-      self.preds_op = tf.exp(seqs_repr_clip, name='preds')
-
-    elif self.hp.link == 'exp_linear':
-      self.preds_op = tf.where(
-          seqs_repr > 0,
-          seqs_repr + 1,
-          tf.exp(tf.clip_by_value(seqs_repr, -exp_max, exp_max)),
-          name='preds')
-
-    elif self.hp.link == 'softplus':
-      seqs_repr_clip = tf.clip_by_value(seqs_repr, -exp_max, 10000)
-      self.preds_op = tf.nn.softplus(seqs_repr_clip, name='preds')
-
-    elif self.hp.link == 'softmax':
-      # performed in the loss function, but saving probabilities
-      self.preds_prob = tf.nn.softmax(seqs_repr, name='preds')
-
-    else:
-      print('Unknown link function %s' % self.hp.link, file=sys.stderr)
-      exit(1)
-
     # clip
     if self.hp.target_clip is not None:
-      self.preds_op = tf.clip_by_value(self.preds_op, 0, self.hp.target_clip)
       targets = tf.clip_by_value(targets, 0, self.hp.target_clip)
 
     # sqrt
     if self.hp.target_sqrt:
-      self.preds_op = tf.sqrt(self.preds_op)
       targets = tf.sqrt(targets)
 
     loss_op = None
-    loss_adhoc = None
 
     # choose loss
     if self.hp.loss == 'gaussian':
-      loss_op = tf.squared_difference(self.preds_op, targets)
-      loss_adhoc = tf.squared_difference(self.preds_adhoc, targets)
+      loss_op = tf.squared_difference(preds, targets)
 
     elif self.hp.loss == 'poisson':
       loss_op = tf.nn.log_poisson_loss(
-          targets, tf.log(self.preds_op), compute_full_loss=True)
-      loss_adhoc = tf.nn.log_poisson_loss(
-          targets, tf.log(self.preds_adhoc), compute_full_loss=True)
+          targets, tf.log(preds), compute_full_loss=True)
 
     elif self.hp.loss == 'cross_entropy':
       loss_op = tf.nn.sparse_softmax_cross_entropy_with_logits(
-          labels=(targets - 1), logits=self.preds_op)
-      loss_adhoc = tf.nn.sparse_softmax_cross_entropy_with_logits(
-          labels=(targets - 1), logits=self.preds_adhoc)
+          labels=(targets - 1), logits=preds)
 
     else:
       raise ValueError('Cannot identify loss function %s' % self.hp.loss)
@@ -343,30 +416,26 @@ class SeqNN(seqnn_util.SeqNNModel):
     # reduce lossses by batch and position
     loss_op = tf.reduce_mean(loss_op, axis=[0, 1], name='target_loss')
     loss_op = tf.check_numerics(loss_op, 'Invalid loss', name='loss_check')
+    target_losses = loss_op
 
-    loss_adhoc = tf.reduce_mean(
-        loss_adhoc, axis=[0, 1], name='target_loss_adhoc')
-    tf.summary.histogram('target_loss', loss_op)
-    for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
-      tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
-    self.target_losses = loss_op
-    self.target_losses_adhoc = loss_adhoc
+    if target_subset is None:
+      tf.summary.histogram('target_loss', loss_op)
+      for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
+        tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
 
     # fully reduce
     loss_op = tf.reduce_mean(loss_op, name='loss')
-    loss_adhoc = tf.reduce_mean(loss_adhoc, name='loss_adhoc')
 
     # add regularization terms
     reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     reg_sum = tf.reduce_sum(reg_losses)
     tf.summary.scalar('regularizers', reg_sum)
     loss_op += reg_sum
-    loss_adhoc += reg_sum
 
     # track
     tf.summary.scalar('loss', loss_op)
-    self.targets_op = targets
-    return loss_op, loss_adhoc
+
+    return loss_op, target_losses, targets
 
 
   def set_mode(self, mode):
@@ -391,7 +460,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     return fd
 
-  def train_epoch(self,
+  def train_epoch_h5_manual(self,
                   sess,
                   batcher,
                   fwdrc=True,
@@ -399,10 +468,12 @@ class SeqNN(seqnn_util.SeqNNModel):
                   sum_writer=None,
                   epoch_batches=None,
                   no_steps=False):
-    """Execute one training epoch."""
+    """Execute one training epoch, using HDF5 data
+       and manual augmentation."""
 
     # initialize training loss
     train_loss = []
+    batch_sizes = []
     global_step = 0
 
     # setup feed dict
@@ -412,21 +483,18 @@ class SeqNN(seqnn_util.SeqNNModel):
     Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
 
     batch_num = 0
-    while Xb is not None and Nb == self.hp.batch_size and (
-        epoch_batches is None or batch_num < epoch_batches):
-
+    while Xb is not None and (epoch_batches is None or batch_num < epoch_batches):
       # update feed dict
-      fd[self.inputs] = Xb
-      fd[self.targets] = Yb
-      fd[self.targets_na] = NAb
+      fd[self.inputs_ph] = Xb
+      fd[self.targets_ph] = Yb
 
       if no_steps:
-        run_returns = sess.run([self.merged_summary, self.loss_op] + \
+        run_returns = sess.run([self.merged_summary, self.loss_train] + \
                                 self.update_ops, feed_dict=fd)
         summary, loss_batch = run_returns[:2]
       else:
         run_returns = sess.run(
-          [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops,
+          [self.merged_summary, self.loss_train, self.global_step, self.step_op] + self.update_ops,
           feed_dict=fd)
         summary, loss_batch, global_step = run_returns[:3]
 
@@ -435,9 +503,8 @@ class SeqNN(seqnn_util.SeqNNModel):
         sum_writer.add_summary(summary, global_step)
 
       # accumulate loss
-      # avail_sum = np.logical_not(NAb[:Nb,:]).sum()
-      # train_loss.append(loss_batch / avail_sum)
       train_loss.append(loss_batch)
+      batch_sizes.append(Xb.shape[0])
 
       # next batch
       Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
@@ -447,16 +514,72 @@ class SeqNN(seqnn_util.SeqNNModel):
     if epoch_batches is None:
       batcher.reset()
 
-    return np.mean(train_loss), global_step
+    avg_loss = np.average(train_loss, weights=batch_sizes)
 
-  def train_epoch_from_data_ops(self,
-                                sess,
-                                sum_writer=None,
-                                epoch_batches=None):
-    """ Execute one training epoch """
+    return avg_loss, global_step
+
+  def train_epoch_h5(self,
+                     sess,
+                     batcher,
+                     sum_writer=None,
+                     epoch_batches=None,
+                     no_steps=False):
+    """Execute one training epoch using HDF5 data,
+       and compute-graph augmentation"""
 
     # initialize training loss
     train_loss = []
+    batch_sizes = []
+    global_step = 0
+
+    # setup feed dict
+    fd = self.set_mode('train')
+
+    # get first batch
+    Xb, Yb, NAb, Nb = batcher.next()
+
+    batch_num = 0
+    while Xb is not None and (epoch_batches is None or batch_num < epoch_batches):
+      # update feed dict
+      fd[self.inputs_ph] = Xb
+      fd[self.targets_ph] = Yb
+
+      if no_steps:
+        run_returns = sess.run([self.merged_summary, self.loss_train] + \
+                                self.update_ops, feed_dict=fd)
+        summary, loss_batch = run_returns[:2]
+      else:
+        run_ops = [self.merged_summary, self.loss_train, self.global_step, self.step_op]
+        run_ops += self.update_ops
+        summary, loss_batch, global_step = sess.run(run_ops, feed_dict=fd)[:3]
+
+      # add summary
+      if sum_writer is not None:
+        sum_writer.add_summary(summary, global_step)
+
+      # accumulate loss
+      train_loss.append(loss_batch)
+      batch_sizes.append(Nb)
+
+      # next batch
+      Xb, Yb, NAb, Nb = batcher.next()
+      batch_num += 1
+
+    # reset training batcher if epoch considered all of the data
+    if epoch_batches is None:
+      batcher.reset()
+
+    avg_loss = np.average(train_loss, weights=batch_sizes)
+
+    return avg_loss, global_step
+
+
+  def train_epoch_tfr(self, sess, sum_writer=None, epoch_batches=None):
+    """ Execute one training epoch, using TFRecords data. """
+
+    # initialize training loss
+    train_loss = []
+    batch_sizes = []
     global_step = 0
 
     # setup feed dict
@@ -466,10 +589,10 @@ class SeqNN(seqnn_util.SeqNNModel):
     batch_num = 0
     while data_available and (epoch_batches is None or batch_num < epoch_batches):
       try:
-        run_returns = sess.run(
-            [self.merged_summary, self.loss_op, self.global_step, self.step_op] + self.update_ops,
-            feed_dict=fd)
-        summary, loss_batch, global_step = run_returns[:3]
+        # update_ops won't run
+        run_ops = [self.merged_summary, self.loss_train, self.preds_train, self.global_step, self.step_op] + self.update_ops
+        run_returns = sess.run(run_ops, feed_dict=fd)
+        summary, loss_batch, preds, global_step = run_returns[:4]
 
         # add summary
         if sum_writer is not None:
@@ -477,6 +600,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
         # accumulate loss
         train_loss.append(loss_batch)
+        batch_sizes.append(preds.shape[0])
 
         # next batch
         batch_num += 1
@@ -484,4 +608,6 @@ class SeqNN(seqnn_util.SeqNNModel):
       except tf.errors.OutOfRangeError:
         data_available = False
 
-    return np.mean(train_loss), global_step
+    avg_loss = np.average(train_loss, weights=batch_sizes)
+
+    return avg_loss, global_step

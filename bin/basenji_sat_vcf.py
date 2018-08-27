@@ -180,7 +180,7 @@ def main():
 
   # build model
   dr = basenji.seqnn.SeqNN()
-  dr.build(job)
+  dr.build_feed(job)
 
   # initialize saver
   saver = tf.train.Saver()

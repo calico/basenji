@@ -17,8 +17,46 @@ from __future__ import print_function
 
 import basenji
 
-
 class PredStream:
+  """ Interface to acquire predictions via a buffered stream mechanism
+         rather than getting them all at once and using excessive memory. """
+
+  def __init__(self, sess, model, stream_length, verbose=False):
+    self.sess = sess
+    self.model = model
+    self.verbose = verbose
+
+    self.stream_start = 0
+    self.stream_end = 0
+
+    if stream_length % self.model.hp.batch_size != 0:
+      print(
+          'Make the stream length a multiple of the batch size',
+          file=sys.stderr)
+      exit(1)
+    else:
+      self.stream_batches = stream_length // self.model.hp.batch_size
+
+  def __getitem__(self, i):
+    # acquire predictions, if needed
+    if i >= self.stream_end:
+      # update start
+      self.stream_start = self.stream_end
+
+      if self.verbose:
+        print('Predicting from %d' % self.stream_start, flush=True)
+
+      # predict
+      self.stream_preds = self.model.predict_tfr(self.sess,
+                                                test_batches=self.stream_batches)
+
+      # update end
+      self.stream_end = self.stream_start + self.stream_preds.shape[0]
+
+    return self.stream_preds[i - self.stream_start]
+
+
+class PredStreamFeed:
   """ Interface to acquire predictions via a buffered stream mechanism
          rather than getting them all at once and using excessive memory. """
 
@@ -32,7 +70,7 @@ class PredStream:
     self.stream_start = 0
     self.stream_end = 0
 
-    if self.stream_length % self.model.batch_size != 0:
+    if self.stream_length % self.model.hp.batch_size != 0:
       print(
           'Make the stream length a multiple of the batch size',
           file=sys.stderr)
@@ -50,7 +88,7 @@ class PredStream:
 
       # initialize batcher
       batcher = basenji.batcher.Batcher(
-          stream_seqs_1hot, batch_size=self.model.batch_size)
+          stream_seqs_1hot, batch_size=self.model.hp.batch_size)
 
       # predict
       self.stream_preds = self.model.predict(self.sess, batcher, rc_avg=False)
@@ -62,7 +100,7 @@ class PredGradStream:
   """ Interface to acquire predictions and gradients via a buffered stream
 
          mechanism rather than getting them all at once and using excessive
-         memory. 
+         memory.
   """
 
   def __init__(self, sess, model, seqs_1hot, stream_length):
@@ -75,7 +113,7 @@ class PredGradStream:
     self.stream_start = 0
     self.stream_end = 0
 
-    if self.stream_length % self.model.batch_size != 0:
+    if self.stream_length % self.model.hp.batch_size != 0:
       print(
           'Make the stream length a multiple of the batch size',
           file=sys.stderr)
@@ -93,7 +131,7 @@ class PredGradStream:
 
       # initialize batcher
       batcher = basenji.batcher.Batcher(
-          stream_seqs_1hot, batch_size=self.model.batch_size)
+          stream_seqs_1hot, batch_size=self.model.hp.batch_size)
 
       # predict
       self.stream_grads, self.stream_preds = self.model.gradients(

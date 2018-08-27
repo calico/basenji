@@ -1,0 +1,3 @@
+index	identifier	file	description
+590	ENCSR000EJD_1_1	/home/drk/seqnn/data/human/dnase/encode/covse/ENCSR000EJD_1_1.h5	DNASE:GM12878
+3295	CNhs12331	/home/drk/seqnn/data/human/cage/fantom/coverage_bwa/CNhs12331.h5	CAGE:B lymphoblastoid cell line: GM12878 ENCODE, biol_rep1

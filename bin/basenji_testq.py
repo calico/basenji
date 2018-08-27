@@ -120,7 +120,9 @@ def main():
 
   # initialize model
   model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops)
+  model.build_from_data_ops(job, data_ops,
+                            ensemble_rc=options.rc,
+                            ensemble_shifts=options.shifts)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -136,7 +138,7 @@ def main():
     # test
     t0 = time.time()
     sess.run(test_init_op)
-    test_acc = model.test_from_data_ops(sess)
+    test_acc = model.test_tfr(sess)
 
     test_preds = test_acc.preds
     print('SeqNN test: %ds' % (time.time() - t0))
@@ -167,7 +169,7 @@ def main():
       print(
         '%4d  %7.5f  %.5f  %.5f  %.5f  %s' %
         (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti],
-          test_log_pcor[ti], target_labels[ti]), file=acc_out)
+          test_log_pcor[ti], targets_df.description.iloc[ti]), file=acc_out)
     acc_out.close()
 
     # print normalization factors
@@ -397,8 +399,6 @@ def main():
       ax.grid(True, linestyle=':')
       plt.savefig('%s/pr/t%d.pdf' % (options.out_dir, ti))
       plt.close()
-
-  data_open.close()
 
 
 def ben_hoch(p_values):

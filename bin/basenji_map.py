@@ -128,7 +128,7 @@ def main():
 
   # build model
   model = seqnn.SeqNN()
-  model.build(job, target_subset=target_subset)
+  model.build_feed(job, target_subset=target_subset)
 
   # determine latest pre-dilated layer
   cnn_dilation = np.array([cp.dilation for cp in model.hp.cnn_params])

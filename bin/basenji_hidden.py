@@ -30,7 +30,10 @@ from sklearn.manifold import TSNE
 import statsmodels
 import tensorflow as tf
 
-import basenji
+from basenji import batcher
+from basenji import params
+from basenji import plots
+from basenji import seqnn
 
 ################################################################################
 # basenji_hidden.py
@@ -45,24 +48,15 @@ import basenji
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-l',
-      dest='layers',
-      default=None,
-      help='Comma-separated list of layers to plot')
-  parser.add_option(
-      '-n',
-      dest='num_seqs',
-      default=None,
-      type='int',
+  parser.add_option('-l', dest='layers',
+      default=None, help='Comma-separated list of layers to plot')
+  parser.add_option('-n', dest='num_seqs',
+      default=None, type='int',
       help='Number of sequences to process')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
-      default='hidden',
-      help='Output directory [Default: %default]')
-  parser.add_option(
-      '-t', dest='target_indexes', default=None, help='Target indexes to plot')
+  parser.add_option('-o', dest='out_dir',
+      default='hidden', help='Output directory [Default: %default]')
+  parser.add_option('-t', dest='target_indexes',
+      default=None, help='Paint 2D plots with these target index values.')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -92,17 +86,16 @@ def main():
   #######################################################
   # model parameters and placeholders
   #######################################################
-  job = basenji.dna_io.read_job_params(params_file)
+  job = params.read_job_params(params_file)
 
   job['seq_length'] = test_seqs.shape[1]
   job['seq_depth'] = test_seqs.shape[2]
   job['num_targets'] = test_targets.shape[2]
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
-  job['save_reprs'] = True
 
   t0 = time.time()
-  model = basenji.seqnn.SeqNN()
-  model.build(job)
+  model = seqnn.SeqNN()
+  model.build_feed(job)
 
   if options.target_indexes is None:
     options.target_indexes = range(job['num_targets'])
@@ -115,11 +108,11 @@ def main():
   # test
   #######################################################
   # initialize batcher
-  batcher_test = basenji.batcher.Batcher(
+  batcher_test = batcher.Batcher(
       test_seqs,
       test_targets,
-      batch_size=model.batch_size,
-      pool_width=model.target_pool)
+      batch_size=model.hp.batch_size,
+      pool_width=model.hp.target_pool)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -144,12 +137,14 @@ def main():
       # sample one nt per sequence
       ds_indexes = np.arange(0, layer_repr.shape[1], 256)
       nt_reprs = layer_repr[:, ds_indexes, :].reshape((-1, layer_repr.shape[2]))
+      print('nt_reprs', nt_reprs.shape)
 
       ########################################################
       # plot raw
       sns.set(style='ticks', font_scale=1.2)
       plt.figure()
-      g = sns.clustermap(nt_reprs, xticklabels=False, yticklabels=False)
+      g = sns.clustermap(nt_reprs, cmap='RdBu_r',
+                         xticklabels=False, yticklabels=False)
       g.ax_heatmap.set_xlabel('Representation')
       g.ax_heatmap.set_ylabel('Sequences')
       plt.savefig('%s/l%d_reprs.pdf' % (options.out_dir, li))
@@ -182,7 +177,18 @@ def main():
       nt_2d = model2.fit_transform(nt_reprs)
 
       for ti in options.target_indexes:
-        nt_targets = np.log2(test_targets[:, ds_indexes, ti].flatten() + 1)
+        # slice for target
+        test_targets_ti = test_targets[:,:,ti]
+
+        # repeat to match layer_repr
+        target_repeat = layer_repr.shape[1] // test_targets.shape[1]
+        test_targets_ti = np.repeat(test_targets_ti, target_repeat, axis=1)
+
+        # downsample indexes
+        nt_targets = test_targets_ti[:,ds_indexes].flatten()
+
+        # log transform
+        nt_targets = np.log1p(nt_targets)
 
         plt.figure()
         plt.scatter(
@@ -193,17 +199,17 @@ def main():
         plt.savefig('%s/l%d_nt2d_t%d.pdf' % (options.out_dir, li, ti))
         plt.close()
 
+
       ########################################################
       # plot neuron-neuron correlations
 
-      # mean-normalize representation
-      nt_reprs_norm = nt_reprs - nt_reprs.mean(axis=0)
-
-      # compute covariance matrix
-      hidden_cov = np.dot(nt_reprs_norm.T, nt_reprs_norm)
+      # compute correlation matrix
+      hidden_cov = np.corrcoef(nt_reprs.T)
+      print('hidden_cov', hidden_cov.shape)
 
       plt.figure()
-      g = sns.clustermap(hidden_cov, xticklabels=False, yticklabels=False)
+      g = sns.clustermap(hidden_cov, cmap='RdBu_r',
+                         xticklabels=False, yticklabels=False)
       plt.savefig('%s/l%d_cov.pdf' % (options.out_dir, li))
       plt.close()
 
@@ -258,8 +264,8 @@ def regplot(vals1, vals2, out_pdf, alpha=0.5, x_label=None, y_label=None):
                    'alpha': alpha},
       line_kws={'color': gold})
 
-  xmin, xmax = basenji.plots.scatter_lims(vals1)
-  ymin, ymax = basenji.plots.scatter_lims(vals2)
+  xmin, xmax = plots.scatter_lims(vals1)
+  ymin, ymax = plots.scatter_lims(vals2)
 
   ax.set_xlim(xmin, xmax)
   if x_label is not None:

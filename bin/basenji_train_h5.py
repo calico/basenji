@@ -71,9 +71,14 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
   job['num_targets'] = train_targets.shape[2]
   job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
 
+  augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
+  ensemble_shifts = [int(shift) for shift in FLAGS.ensemble_shifts.split(',')]
+
   t0 = time.time()
   model = seqnn.SeqNN()
-  model.build_feed(job)
+  model.build_feed(job, augment_rc=FLAGS.augment_rc, augment_shifts=augment_shifts,
+     ensemble_rc=FLAGS.ensemble_rc, ensemble_shifts=ensemble_shifts)
+
   print('Model building time %f' % (time.time() - t0))
 
   # adjust for fourier
@@ -112,8 +117,6 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
   #######################################################
   # train
   #######################################################
-  augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
-  ensemble_shifts = [int(shift) for shift in FLAGS.ensemble_shifts.split(',')]
 
   # checkpoints
   saver = tf.train.Saver()
@@ -149,25 +152,14 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
     while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
       t0 = time.time()
 
-      # alternate forward and reverse batches
-      fwdrc = True
-      if FLAGS.augment_rc and epoch % 2 == 1:
-        fwdrc = False
-
-      # cycle shifts
-      shift_i = epoch % len(augment_shifts)
-
       # train
-      train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc=fwdrc,
-                                            shift=augment_shifts[shift_i],
-                                            sum_writer=train_writer,
-                                            epoch_batches=train_epoch_batches,
-                                            no_steps=FLAGS.no_steps)
+      train_loss, steps = model.train_epoch_h5(sess, batcher_train,
+                                               sum_writer=train_writer,
+                                               epoch_batches=train_epoch_batches,
+                                               no_steps=FLAGS.no_steps)
 
       # validate
-      valid_acc = model.test(sess, batcher_valid, mc_n=FLAGS.ensemble_mc,
-                             rc=FLAGS.ensemble_rc, shifts=ensemble_shifts,
-                             test_batches=test_epoch_batches)
+      valid_acc = model.test_h5(sess, batcher_valid, test_batches=test_epoch_batches)
       valid_loss = valid_acc.loss
       valid_r2 = valid_acc.r2().mean()
       del valid_acc

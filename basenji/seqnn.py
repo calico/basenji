@@ -27,9 +27,6 @@ from basenji import params
 from basenji import seqnn_util
 from basenji import tfrecord_batcher
 
-import memory_saving_gradients
-tf.__dict__["gradients"] = memory_saving_gradients.gradients_memory
-
 class SeqNN(seqnn_util.SeqNNModel):
 
   def __init__(self):

@@ -60,9 +60,6 @@ def main():
   parser.add_option('--h5', dest='out_h5',
       default=False, action='store_true',
       help='Output stats to sad.h5 [Default: %default]')
-  parser.add_option('-l', dest='seq_len',
-      default=131072, type='int',
-      help='Sequence length provided to the model [Default: %default]')
   parser.add_option('--local',dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -142,20 +139,8 @@ def main():
   #################################################################
   # setup model
 
-  job = basenji.params.read_job_params(params_file)
-  job['seq_length'] = options.seq_len
-
-  if 'num_targets' not in job:
-    print(
-        "Must specify number of targets (num_targets) in the parameters file.",
-        file=sys.stderr)
-    exit(1)
-
-  if 'target_pool' not in job:
-    print(
-        "Must specify target pooling (target_pool) in the parameters file.",
-        file=sys.stderr)
-    exit(1)
+  job = basenji.params.read_job_params(params_file,
+          require=['seq_length','num_targets','target_pool'])
 
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
@@ -173,7 +158,6 @@ def main():
   # build model
   t0 = time.time()
   model = basenji.seqnn.SeqNN()
-  # model.build_feed(job, target_subset=target_subset)
   model.build_feed(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts,
       target_subset=target_subset, penultimate=options.penultimate)
   print('Model building time %f' % (time.time() - t0), flush=True)
@@ -254,7 +238,7 @@ def main():
 
     # construct first batch
     batch_1hot, batch_snps, snp_i = snps_next_batch(
-        snps, snp_i, options.batch_size, options.seq_len, genome_open)
+        snps, snp_i, options.batch_size, job['seq_length'], genome_open)
 
     while len(batch_snps) > 0:
       ###################################################
@@ -289,7 +273,7 @@ def main():
         for ti in options.track_indexes:
           ref_bw_file = '%s/tracks/%s_t%d_ref.bw' % (options.out_dir, snp.rsid,
                                                      ti)
-          bigwig_write(snp, options.seq_len, ref_preds[:, ti], model,
+          bigwig_write(snp, job['seq_length'], ref_preds[:, ti], model,
                        ref_bw_file, options.genome_file)
 
         for alt_al in snp.alt_alleles:
@@ -351,14 +335,14 @@ def main():
           for ti in options.track_indexes:
             alt_bw_file = '%s/tracks/%s_t%d_alt.bw' % (options.out_dir,
                                                        snp.rsid, ti)
-            bigwig_write(snp, options.seq_len, alt_preds[:, ti], model,
+            bigwig_write(snp, job['seq_length'], alt_preds[:, ti], model,
                          alt_bw_file, options.genome_file)
 
       ###################################################
       # construct next batch
 
       batch_1hot, batch_snps, snp_i = snps_next_batch(
-          snps, snp_i, options.batch_size, options.seq_len, genome_open)
+          snps, snp_i, options.batch_size, job['seq_length'], genome_open)
 
   ###################################################
   # compute SAD distributions across variants

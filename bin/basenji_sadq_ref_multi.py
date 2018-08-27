@@ -54,9 +54,6 @@ def main():
   parser.add_option('--h5', dest='out_h5',
       default=False, action='store_true',
       help='Output stats to sad.h5 [Default: %default]')
-  parser.add_option('-l', dest='seq_len',
-      default=131072, type='int',
-      help='Sequence length provided to the model [Default: %default]')
   parser.add_option('--local',dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')

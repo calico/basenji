@@ -58,9 +58,6 @@ def main():
   parser.add_option('--h5', dest='out_h5',
       default=False, action='store_true',
       help='Output stats to sad.h5 [Default: %default]')
-  parser.add_option('-l', dest='seq_len',
-      default=131072, type='int',
-      help='Sequence length provided to the model [Default: %default]')
   parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -141,14 +138,7 @@ def main():
   #################################################################
   # read parameters
 
-  job = basenji.params.read_job_params(params_file)
-  job['seq_length'] = options.seq_len
-
-  if 'num_targets' not in job:
-    print(
-        "Must specify number of targets (num_targets) in the parameters file.",
-        file=sys.stderr)
-    exit(1)
+  job = basenji.params.read_job_params(params_file, require='seq_length','num_targets'])
 
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
@@ -182,13 +172,13 @@ def main():
   def snp_gen():
     for snp in snps:
       # get SNP sequences
-      snp_1hot_list = bvcf.snp_seq1(snp, options.seq_len, genome_open)
+      snp_1hot_list = bvcf.snp_seq1(snp, job['seq_length'], genome_open)
 
       for snp_1hot in snp_1hot_list:
         yield {'sequence':snp_1hot}
 
   snp_types = {'sequence': tf.float32}
-  snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(options.seq_len),
+  snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(job['seq_length']),
                                             tf.Dimension(4)])}
 
   dataset = tf.data.Dataset().from_generator(snp_gen,

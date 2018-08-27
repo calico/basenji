@@ -210,7 +210,7 @@ def main():
   model = basenji.seqnn.SeqNN()
   model.build_sad(job, data_ops,
                   ensemble_rc=options.rc, ensemble_shifts=options.shifts,
-                  penultimate=options.penultimate, target_subset=target_subset)
+                  embed_penultimate=options.penultimate, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.penultimate:

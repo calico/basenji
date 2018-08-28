@@ -80,7 +80,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     if not embed_penultimate:
       loss_returns = self.build_loss(self.preds_train, data_ops_train['label'],
                                      data_ops.get('genome',None), target_subset)
-      self.loss_train, self.loss_train_targets, self.targets_train = loss_returns
+      self.loss_train, self.loss_train_targets, self.targets_train = loss_returns[:3]
 
       # optimizer
       self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -104,8 +104,8 @@ class SeqNN(seqnn_util.SeqNNModel):
     # eval loss
     if not embed_penultimate:
       loss_returns = self.build_loss(self.preds_eval, data_ops['label'],
-                                     data_ops.get('genome',None), target_subset)
-      self.loss_eval, self.loss_eval_targets, self.targets_eval = loss_returns
+                                     data_ops.get('genome', None), target_subset)
+      self.loss_eval, self.loss_eval_targets, self.targets_eval, self.preds_eval_loss = loss_returns
 
     # update # targets
     if target_subset is not None:
@@ -484,7 +484,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # track
     tf.summary.scalar('loss', loss_op)
 
-    return loss_op, target_losses, targets
+    return loss_op, target_losses, targets, preds
 
 
   def set_mode(self, mode):

@@ -146,9 +146,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
+    self.genome_ph = tf.placeholder(tf.uint8, shape=(None, 1), name='genome')
 
-    # batches
-    self.genome_ph = tf.placeholder(tf.uint8, shape=(self.hp.batch_size,1), name='genome')
     self.inputs_ph = tf.placeholder(
         tf.float32,
         shape=(None, self.hp.seq_length, self.hp.seq_depth),
@@ -246,7 +245,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     if embed_penultimate:
       final_repr = seqs_repr
     else:
-      with tf.variable_scope('final%d' % gi, reuse=tf.AUTO_REUSE):
+      with tf.variable_scope('final', reuse=tf.AUTO_REUSE):
         final_filters = self.hp.sum_targets * self.hp.target_classes
         final_repr = tf.layers.dense(
             inputs=seqs_repr,
@@ -254,8 +253,8 @@ class SeqNN(seqnn_util.SeqNNModel):
             activation=None,
             kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
             kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
-        print('Convolution w/ %d %dx1 filters to final genome %d targets' % \
-              (final_filters, seqs_repr.shape[2], gi))
+        print('Convolution w/ %d %dx1 filters to final targets' % \
+              (final_filters, seqs_repr.shape[2]))
 
         if target_subset is not None:
           print('Target subsetting for multiple genomes is not implemented.', file=sys.stderr)
@@ -263,8 +262,8 @@ class SeqNN(seqnn_util.SeqNNModel):
           # in theory, this could work--just provide one list per genome.
 
           # get convolution parameters
-          filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/kernel'%gi)[0]
-          bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final%d/dense/bias'%gi)[0]
+          filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
+          bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]
 
           # subset to specific targets
           filters_subset = tf.gather(filters_full, target_subset, axis=1)
@@ -432,7 +431,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
       # slice to genome targets
       target_indexes_genome = tf.range(targets_start, targets_end)
-      seqs_repr = tf.gather(seqs_repr, target_indexes_genome, axis=2)
+      preds = tf.gather(preds, target_indexes_genome, axis=2)
       targets = tf.gather(targets, target_indexes_genome, axis=2)
 
     # clip
@@ -470,8 +469,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     if target_subset is None:
       tf.summary.histogram('target_loss', loss_op)
-      for ti in np.linspace(0, self.hp.num_targets - 1, 10).astype('int'):
-        tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
+      # for ti in np.linspace(0, self.hp.sum_targets - 1, 10).astype('int'):
+      #   tf.summary.scalar('loss_t%d' % ti, loss_op[ti])
 
     # fully reduce
     loss_op = tf.reduce_mean(loss_op, name='loss')

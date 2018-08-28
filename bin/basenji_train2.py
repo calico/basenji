@@ -125,7 +125,7 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
           sess.run(test_dataseqs[gi].iterator.initializer)
 
           # compute
-          valid_acc = model.test_from_data_ops(sess, handle, test_dataseqs[gi].handle, test_epoch_batches)
+          valid_acc = model.test_tfr(sess, handle, test_dataseqs[gi].handle, test_epoch_batches)
 
           # save
           valid_losses.append(valid_acc.loss)

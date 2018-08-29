@@ -404,7 +404,7 @@ def contig_sequences(contigs, seq_length, stride, label=None):
 
     while seq_end < ctg.end:
       # record sequence
-      mseqs.append(ModelSeq(ctg.genome, ctg.chr, seq_start, seq_end, label))
+      mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
 
       # update
       seq_start += int(stride*seq_length)

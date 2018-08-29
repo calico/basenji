@@ -120,7 +120,8 @@ def main():
     elif options.sum_stat == 'max':
       seq_cov = seq_cov.max(axis=1, dtype='float32')
     else:
-      print('ERROR: Unrecognized summary statistic "%s".' % options.sum_stat, file=sys.stderr)
+      print('ERROR: Unrecognized summary statistic "%s".' % options.sum_stat,
+            file=sys.stderr)
       exit(1)
 
     # clip

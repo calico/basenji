@@ -38,6 +38,7 @@ import util
 import slurm
 
 import basenji.genome as genome
+from basenji_data import annotate_unmap
 
 '''
 basenji_data2.py
@@ -50,7 +51,9 @@ def main():
   usage = 'usage: %prog [options] <fasta0_file,fasta1_file> <targets0_file,targets1_file>'
   parser = OptionParser(usage)
   parser.add_option('-a', dest='align_net', help='Alignment .net file')
-  parser.add_option('-b', dest='break_t',
+  parser.add_option('-b', dest='blacklist_beds',
+      help='Set blacklist nucleotides to a baseline value.')
+  parser.add_option('--break', dest='break_t',
       default=None, type='int',
       help='Break in half contigs above length [Default: %default]')
   # parser.add_option('-c', dest='clip',
@@ -60,7 +63,7 @@ def main():
       default=1.0, type='float',
       help='Down-sample the segments')
   parser.add_option('-f', dest='fill_min',
-    default=3000000, type='int',
+    default=100000, type='int',
     help='Alignment net fill size minimum [Default: %default]')
   parser.add_option('-g', dest='gap_files',
       help='Comma-separated list of assembly gaps BED files [Default: %default]')
@@ -76,6 +79,9 @@ def main():
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number parallel processes [Default: %default]')
+  parser.add_option('-r', dest='seqs_per_tfr',
+      default=256, type='int',
+      help='Sequences per TFRecord file [Default: %default]')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -85,16 +91,16 @@ def main():
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: seq_length]')
-  parser.add_option('-r', dest='seqs_per_tfr',
-      default=256, type='int',
-      help='Sequences per TFRecord file [Default: %default]')
+  parser.add_option('--soft', dest='soft_clip',
+      default=False, action='store_true',
+      help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
   parser.add_option('-t', dest='test_pct',
-      default=0.05, type='float',
+      default=0.1, type='float',
       help='Proportion of the data for testing [Default: %default]')
   parser.add_option('-u', dest='umap_beds',
       help='Comma-separated genome unmappable segments to set to NA')
   parser.add_option('--umap_t', dest='umap_t',
-      default=0.3, type='float',
+      default=0.5, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
   parser.add_option('--umap_set', dest='umap_set',
       default=None, type='float',
@@ -103,7 +109,7 @@ def main():
       default=128, type='int',
       help='Sum pool width [Default: %default]')
   parser.add_option('-v', dest='valid_pct',
-      default=0.05, type='float',
+      default=0.1, type='float',
       help='Proportion of the data for validation [Default: %default]')
   (options, args) = parser.parse_args()
 
@@ -122,6 +128,9 @@ def main():
 
   if options.gap_files is not None:
     options.gap_files = options.gap_files.split(',')
+
+  if options.blacklist_beds is not None:
+    options.blacklist_beds = options.blacklist_beds.split(',')
 
   num_genomes = len(fasta_files)
   assert(len(targets_files) == num_genomes)
@@ -172,6 +181,11 @@ def main():
   # divide contig connected components between train/valid/test
   contig_sets = divide_contig_components(contig_components, options.test_pct, options.valid_pct)
   train_contigs, valid_contigs, test_contigs = contig_sets
+
+  # rejoin broken contigs within set
+  train_contigs = rejoin_large_contigs(train_contigs)
+  valid_contigs = rejoin_large_contigs(valid_contigs)
+  test_contigs = rejoin_large_contigs(test_contigs)
 
   ################################################################
   # define model sequences
@@ -226,7 +240,6 @@ def main():
     seqs_bed_files.append('%s/sequences%d.bed' % (options.out_dir, gi))
     write_seqs_bed(seqs_bed_files[gi], mseqs_genome[gi], True)
 
-
   ################################################################
   # read sequence coverage values
   ################################################################
@@ -238,12 +251,13 @@ def main():
   read_jobs = []
   for gi in range(num_genomes):
     read_jobs += make_read_jobs(targets_files[gi], seqs_bed_files[gi], gi,
-                                seqs_cov_dir, options.pool_width, options.run_local)
+                                seqs_cov_dir, options)
 
   if options.run_local:
     util.exec_par(read_jobs, options.processes, verbose=True)
   else:
-    slurm.multi_run(read_jobs, options.processes, verbose=True, update_sleep=5)
+    slurm.multi_run(read_jobs, options.processes, verbose=True,
+                    launch_sleep=1, update_sleep=5)
 
   ################################################################
   # write TF Records
@@ -263,84 +277,14 @@ def main():
   write_jobs = []
   for gi in range(num_genomes):
     write_jobs += make_write_jobs(mseqs_genome[gi], fasta_files[gi], seqs_bed_files[gi],
-                                  seqs_cov_dir, tfr_dir, gi, unmap_npys[gi], options.umap_set,
-                                  options.seqs_per_tfr, targets_start[gi], sum_targets, options.run_local)
+                                  seqs_cov_dir, tfr_dir, gi, unmap_npys[gi],
+                                  targets_start[gi], sum_targets, options)
 
   if options.run_local:
     util.exec_par(write_jobs, options.processes, verbose=True)
   else:
-    slurm.multi_run(write_jobs, options.processes, verbose=True, update_sleep=5)
-
-
-################################################################################
-def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
-  """ Intersect the sequence segments with unmappable regions
-         and annoate the segments as NaN to possible be ignored.
-
-    Args:
-      mseqs: list of ModelSeq's
-      unmap_bed: unmappable regions BED file
-      seq_length: sequence length
-      pool_width: pooled bin width
-
-    Returns:
-      seqs_unmap: NxL binary NA indicators
-    """
-
-  # print sequence segments to file
-  seqs_temp = tempfile.NamedTemporaryFile()
-  seqs_bed_file = seqs_temp.name
-  write_seqs_bed(seqs_bed_file, mseqs)
-
-  # hash segments to indexes
-  chr_start_indexes = {}
-  for i in range(len(mseqs)):
-    chr_start_indexes[(mseqs[i].chr, mseqs[i].start)] = i
-
-  # initialize unmappable array
-  pool_seq_length = seq_length // pool_width
-  seqs_unmap = np.zeros((len(mseqs), pool_seq_length), dtype='bool')
-
-  # intersect with unmappable regions
-  p = subprocess.Popen(
-      'bedtools intersect -wo -a %s -b %s' % (seqs_bed_file, unmap_bed),
-      shell=True, stdout=subprocess.PIPE)
-  for line in p.stdout:
-    line = line.decode('utf-8')
-    a = line.split()
-
-    seq_chrom = a[0]
-    seq_start = int(a[1])
-    seq_end = int(a[2])
-    seq_key = (seq_chrom, seq_start)
-
-    assert(a[3].startswith('chr'))
-    unmap_start = int(a[4])
-    unmap_end = int(a[5])
-
-    overlap_start = max(seq_start, unmap_start)
-    overlap_end = min(seq_end, unmap_end)
-
-    pool_seq_unmap_start = math.floor((overlap_start - seq_start) / pool_width)
-    pool_seq_unmap_end = math.ceil((overlap_end - seq_start) / pool_width)
-
-    # skip minor overlaps to the first
-    first_start = seq_start + pool_seq_unmap_start * pool_width
-    first_end = first_start + pool_width
-    first_overlap = first_end - overlap_start
-    if first_overlap < 0.2 * pool_width:
-      pool_seq_unmap_start += 1
-
-    # skip minor overlaps to the last
-    last_start = seq_start + (pool_seq_unmap_end - 1) * pool_width
-    last_overlap = overlap_end - last_start
-    if last_overlap < 0.2 * pool_width:
-      pool_seq_unmap_end -= 1
-
-    seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end] = True
-    assert(seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end].sum() == pool_seq_unmap_end-pool_seq_unmap_start)
-
-  return seqs_unmap
+    slurm.multi_run(write_jobs, options.processes, verbose=True,
+                    launch_sleep=1, update_sleep=5)
 
 
 ################################################################################
@@ -387,7 +331,8 @@ def break_large_contigs(contigs, break_t, verbose=False):
 
 ################################################################################
 def contig_sequences(contigs, seq_length, stride, label=None):
-  ''' Break up a list of Contig's into a list of ModelSeq's. '''
+  ''' Break up a list of Contig's into a list of model length
+       and stride sequence contigs.'''
   mseqs = []
 
   for ctg in contigs:
@@ -510,7 +455,6 @@ def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain
 
   # process contigs
   for ctg_comp_len, ctg_comp in length_contig_components:
-
     # compute gap between current and aim
     test_nt_gap = max(0, test_nt_aim - test_nt)
     valid_nt_gap = max(0, valid_nt_aim - valid_nt)
@@ -637,7 +581,7 @@ def make_net_graph(align_net_file, fill_min, out_dir):
 
 
 ################################################################################
-def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, pool_width, run_local):
+def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, options):
   """Make basenji_data_read.py jobs for one genome."""
 
   # read target datasets
@@ -650,13 +594,24 @@ def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, pool_width, ru
     seqs_cov_stem = '%s/%d-%d' % (seqs_cov_dir, gi, ti)
     seqs_cov_file = '%s.h5' % seqs_cov_stem
 
+    clip_ti = None
+    if 'clip' in targets_df.columns:
+      clip_ti = targets_df['clip'].iloc[ti]
+
     cmd = 'basenji_data_read.py'
-    cmd += ' -w %d' % pool_width
+    cmd += ' -s %s' % targets_df['sum_stat'].iloc[ti]
+    cmd += ' -w %d' % options.pool_width
+    if clip_ti is not None:
+      cmd += ' -c %f' % clip_ti
+    if options.soft_clip:
+      cmd += ' --soft'
+    if options.blacklist_beds[gi]:
+      cmd += ' -b %s' % options.blacklist_beds[gi]
     cmd += ' %s' % genome_cov_file
     cmd += ' %s' % seqs_bed_file
     cmd += ' %s' % seqs_cov_file
 
-    if run_local:
+    if options.run_local:
       cmd += ' &> %s.err' % seqs_cov_stem
       read_jobs.append(cmd)
     else:
@@ -671,7 +626,7 @@ def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, pool_width, ru
 
 ################################################################################
 def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
-                    unmap_npy, umap_set, seqs_per_tfr, targets_start, sum_targets, run_local):
+                    unmap_npy, targets_start, sum_targets, options):
   """Make basenji_data_write.py jobs for one genome."""
 
   write_jobs = []
@@ -679,11 +634,11 @@ def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
   for tvt_set in ['train', 'valid', 'test']:
     tvt_set_indexes = [i for i in range(len(mseqs)) if mseqs[i].label == tvt_set]
     tvt_set_start = tvt_set_indexes[0]
-    tvt_set_end = tvt_set_indexes[-1]
+    tvt_set_end = tvt_set_indexes[-1] + 1
 
     tfr_i = 0
     tfr_start = tvt_set_start
-    tfr_end = min(tfr_start+seqs_per_tfr, tvt_set_end)
+    tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
 
     while tfr_start <= tvt_set_end:
       tfr_stem = '%s/%s-%d-%d' % (tfr_dir, tvt_set, gi, tfr_i)
@@ -696,15 +651,15 @@ def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
       cmd += ' --te %d' % sum_targets
       if unmap_npy is not None:
         cmd += ' -u %s' % unmap_npy
-      if umap_set is not None:
-        cmd += ' --umap_set %f' % umap_set
+      if options.umap_set is not None:
+        cmd += ' --umap_set %f' % options.umap_set
 
       cmd += ' %s' % fasta_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_dir
       cmd += ' %s.tfr' % tfr_stem
 
-      if run_local:
+      if options.run_local:
         cmd += ' &> %s.err' % tfr_stem
         write_jobs.append(cmd)
       else:
@@ -717,10 +672,47 @@ def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
 
       # update
       tfr_i += 1
-      tfr_start += seqs_per_tfr
-      tfr_end = min(tfr_start+seqs_per_tfr, tvt_set_end)
+      tfr_start += options.seqs_per_tfr
+      tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
 
   return write_jobs
+
+
+
+################################################################################
+def rejoin_large_contigs(contigs):
+  """ Rejoin large contigs that were broken up before alignment comparison."""
+
+  # split list by genome/chromosome
+  gchr_contigs = {}
+  for ctg in contigs:
+    gchr = (ctg.genome, ctg.chr)
+    gchr_contigs.setdefault(gchr,[]).append(ctg)
+
+  contigs = []
+  for gchr in gchr_contigs:
+    # sort within chromosome
+    gchr_contigs[gchr].sort(key=lambda x: x.start)
+    # gchr_contigs[gchr] = sorted(gchr_contigs[gchr], key=lambda ctg: ctg.start)
+
+    ctg_ongoing = gchr_contigs[gchr][0]
+    for i in range(1, len(gchr_contigs[gchr])):
+      ctg_this = gchr_contigs[gchr][i]
+      if ctg_ongoing.end == ctg_this.start:
+        # join
+        # ctg_ongoing.end = ctg_this.end
+        ctg_ongoing = ctg_ongoing._replace(end=ctg_this.end)
+      else:
+        # conclude ongoing
+        contigs.append(ctg_ongoing)
+
+        # move to next
+        ctg_ongoing = ctg_this
+
+    # conclude final
+    contigs.append(ctg_ongoing)
+
+  return contigs
 
 
 ################################################################################
@@ -782,7 +774,6 @@ def write_seqs_bed(bed_file, seqs, labels=False):
 Contig = collections.namedtuple('Contig', ['genome', 'chr', 'start', 'end'])
 ModelSeq = collections.namedtuple('ModelSeq', ['genome', 'chr', 'start', 'end', 'label'])
 GraphSeq = collections.namedtuple('GraphSeq', ['genome', 'net', 'chr', 'start', 'end'])
-
 
 ################################################################################
 if __name__ == '__main__':

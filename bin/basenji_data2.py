@@ -244,9 +244,6 @@ def main():
   ################################################################
   # read sequence coverage values
   ################################################################
-
-  exit()
-
   seqs_cov_dir = '%s/seqs_cov' % options.out_dir
   if not os.path.isdir(seqs_cov_dir):
     os.mkdir(seqs_cov_dir)

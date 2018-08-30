@@ -85,18 +85,18 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       saver.restore(sess, FLAGS.restart)
     else:
       # initialize variables
-      t0 = time.time()
       print('Initializing...')
       sess.run(tf.local_variables_initializer())
       sess.run(tf.global_variables_initializer())
-      print('Initialization time %f' % (time.time() - t0))
 
     train_loss = None
     best_loss = None
     early_stop_i = 0
 
     epoch = 0
-    while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
+
+    while (train_epochs is not None and epoch < train_epochs) or \
+          (train_epochs is None and early_stop_i < FLAGS.early_stop):
       t0 = time.time()
 
       # save previous

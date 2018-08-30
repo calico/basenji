@@ -119,7 +119,8 @@ def main():
     fasta_files = args[0].split(',')
     targets_files = args[1].split(',')
 
-  # there is still something stochastic, maybe a dict
+  # note that networkx uses sets, which introduces stochasticity
+  #  that I handle using post-retrieval sorts.
   random.seed(options.seed)
   np.random.seed(options.seed)
 
@@ -243,6 +244,8 @@ def main():
   ################################################################
   # read sequence coverage values
   ################################################################
+
+  exit()
 
   seqs_cov_dir = '%s/seqs_cov' % options.out_dir
   if not os.path.isdir(seqs_cov_dir):
@@ -474,16 +477,18 @@ def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain
 
     # sample train/valid/test
     ri = np.random.choice(range(3), 1, p=[train_pct_gap, valid_pct_gap, test_pct_gap])[0]
+
+    # collect contigs (sorted is required for deterministic sequence order)
     if ri == 0:
-      for ctg in ctg_comp:
+      for ctg in sorted(ctg_comp):
         train_contigs.append(ctg)
       train_nt += ctg_comp_len
     elif ri == 1:
-      for ctg in ctg_comp:
+      for ctg in sorted(ctg_comp):
         valid_contigs.append(ctg)
       valid_nt += ctg_comp_len
     elif ri == 2:
-      for ctg in ctg_comp:
+      for ctg in sorted(ctg_comp):
         test_contigs.append(ctg)
       test_nt += ctg_comp_len
     else:
@@ -598,29 +603,32 @@ def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, options):
     if 'clip' in targets_df.columns:
       clip_ti = targets_df['clip'].iloc[ti]
 
-    cmd = 'basenji_data_read.py'
-    cmd += ' -s %s' % targets_df['sum_stat'].iloc[ti]
-    cmd += ' -w %d' % options.pool_width
-    if clip_ti is not None:
-      cmd += ' -c %f' % clip_ti
-    if options.soft_clip:
-      cmd += ' --soft'
-    if options.blacklist_beds[gi]:
-      cmd += ' -b %s' % options.blacklist_beds[gi]
-    cmd += ' %s' % genome_cov_file
-    cmd += ' %s' % seqs_bed_file
-    cmd += ' %s' % seqs_cov_file
-
-    if options.run_local:
-      cmd += ' &> %s.err' % seqs_cov_stem
-      read_jobs.append(cmd)
+    if os.path.isfile(seqs_cov_file):
+      print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
-      j = slurm.Job(cmd,
-          name='read_t%d' % ti,
-          out_file='%s.out' % seqs_cov_stem,
-          err_file='%s.err' % seqs_cov_stem,
-          queue='standard,tbdisk', mem=15000, time='12:0:0')
-      read_jobs.append(j)
+      cmd = 'basenji_data_read.py'
+      cmd += ' -s %s' % targets_df['sum_stat'].iloc[ti]
+      cmd += ' -w %d' % options.pool_width
+      if clip_ti is not None:
+        cmd += ' -c %f' % clip_ti
+      if options.soft_clip:
+        cmd += ' --soft'
+      if options.blacklist_beds[gi]:
+        cmd += ' -b %s' % options.blacklist_beds[gi]
+      cmd += ' %s' % genome_cov_file
+      cmd += ' %s' % seqs_bed_file
+      cmd += ' %s' % seqs_cov_file
+
+      if options.run_local:
+        cmd += ' &> %s.err' % seqs_cov_stem
+        read_jobs.append(cmd)
+      else:
+        j = slurm.Job(cmd,
+            name='read_t%d' % ti,
+            out_file='%s.out' % seqs_cov_stem,
+            err_file='%s.err' % seqs_cov_stem,
+            queue='standard,tbdisk', mem=15000, time='12:0:0')
+        read_jobs.append(j)
 
   return read_jobs
 

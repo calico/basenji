@@ -87,7 +87,8 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
     early_stop_i = 0
 
     epoch = 0
-    while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
+    while (train_epochs is not None and epoch < train_epochs) or \
+          (train_epochs is None and early_stop_i < FLAGS.early_stop):
       t0 = time.time()
 
       # save previous

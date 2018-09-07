@@ -48,7 +48,7 @@ Compute model sequences from the genome, extracting DNA coverage values.
 
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <fasta0_file,fasta1_file> <targets0_file,targets1_file>'
+  usage = 'usage: %prog [options] <fasta0_file,fasta1_file> <targets_file>'
   parser = OptionParser(usage)
   parser.add_option('-a', dest='align_net', help='Alignment .net file')
   parser.add_option('-b', dest='blacklist_beds',
@@ -117,7 +117,7 @@ def main():
     parser.error('Must provide FASTA and sample coverage label and path files for two genomes.')
   else:
     fasta_files = args[0].split(',')
-    targets_files = args[1].split(',')
+    targets_file = args[1]
 
   # note that networkx uses sets, which introduces stochasticity
   #  that I handle using post-retrieval sorts.
@@ -133,8 +133,12 @@ def main():
   if options.blacklist_beds is not None:
     options.blacklist_beds = options.blacklist_beds.split(',')
 
+  # read targets
+  targets_df = pd.read_table(targets_file)
+
+  # verify genomes
   num_genomes = len(fasta_files)
-  assert(len(targets_files) == num_genomes)
+  assert(len(set(targets_df.genome)) == num_genomes)
 
   ################################################################
   # define genomic contigs
@@ -250,8 +254,8 @@ def main():
 
   read_jobs = []
   for gi in range(num_genomes):
-    read_jobs += make_read_jobs(targets_files[gi], seqs_bed_files[gi], gi,
-                                seqs_cov_dir, options)
+    read_jobs += make_read_jobs(seqs_bed_files[gi], targets_df,
+                                gi, seqs_cov_dir, options)
 
   if options.run_local:
     util.exec_par(read_jobs, options.processes, verbose=True)
@@ -267,18 +271,19 @@ def main():
   if not os.path.isdir(tfr_dir):
     os.mkdir(tfr_dir)
 
+  # set genome target index starts
   sum_targets = 0
-  targets_start = []
+  genome_targets_start = []
   for gi in range(num_genomes):
-    targets_start.append(sum_targets)
-    targets_df = pd.read_table(targets_files[gi])
-    sum_targets += targets_df.shape[0]
+    genome_targets_start.append(sum_targets)
+    targets_df_gi = targets_df[targets_df.genome == gi]
+    sum_targets += targets_df_gi.shape[0]
 
   write_jobs = []
   for gi in range(num_genomes):
     write_jobs += make_write_jobs(mseqs_genome[gi], fasta_files[gi], seqs_bed_files[gi],
                                   seqs_cov_dir, tfr_dir, gi, unmap_npys[gi],
-                                  targets_start[gi], sum_targets, options)
+                                  genome_targets_start[gi], sum_targets, options)
 
   if options.run_local:
     util.exec_par(write_jobs, options.processes, verbose=True)
@@ -583,28 +588,28 @@ def make_net_graph(align_net_file, fill_min, out_dir):
 
 
 ################################################################################
-def make_read_jobs(targets_file, seqs_bed_file, gi, seqs_cov_dir, options):
+def make_read_jobs(seqs_bed_file, targets_df, gi, seqs_cov_dir, options):
   """Make basenji_data_read.py jobs for one genome."""
 
-  # read target datasets
-  targets_df = pd.read_table(targets_file)
+  # filter targets
+  targets_df_gi = targets_df[targets_df.genome == gi]
 
   read_jobs = []
 
-  for ti in range(targets_df.shape[0]):
-    genome_cov_file = targets_df['file'].iloc[ti]
+  for ti in range(targets_df_gi.shape[0]):
+    genome_cov_file = targets_df_gi['file'].iloc[ti]
     seqs_cov_stem = '%s/%d-%d' % (seqs_cov_dir, gi, ti)
     seqs_cov_file = '%s.h5' % seqs_cov_stem
 
     clip_ti = None
-    if 'clip' in targets_df.columns:
-      clip_ti = targets_df['clip'].iloc[ti]
+    if 'clip' in targets_df_gi.columns:
+      clip_ti = targets_df_gi['clip'].iloc[ti]
 
     if os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
-      cmd += ' -s %s' % targets_df['sum_stat'].iloc[ti]
+      cmd += ' -s %s' % targets_df_gi['sum_stat'].iloc[ti]
       cmd += ' -w %d' % options.pool_width
       if clip_ti is not None:
         cmd += ' -c %f' % clip_ti

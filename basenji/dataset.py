@@ -197,12 +197,25 @@ class DatasetSeq:
   def epoch_batch(self, batch_size):
     self.epoch_seqs = max(0, self.epoch_seqs - batch_size)
 
-  def make_iterator(self):
+  def make_initializer(self):
+    """Make initializer."""
+    return self.iterator.make_initializer(self.dataset)
+
+  def make_iterator_initializable(self):
     """Make initializable iterator."""
     if self.num_seqs > 0:
       self.iterator = self.dataset.make_initializable_iterator()
     else:
       self.iterator = None
+
+  def make_iterator_structure(self):
+    """Make iterator from structure."""
+    if self.num_seqs > 0:
+      self.iterator = tf.data.Iterator.from_structure(
+        self.dataset.output_types, self.dataset.output_shapes)
+    else:
+      self.iterator = None
+
 
   def make_handle(self, sess):
     """Make iterator string handle."""

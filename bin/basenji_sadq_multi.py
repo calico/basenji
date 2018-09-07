@@ -91,6 +91,9 @@ def main():
       help='Output stats to sad.zarr [Default: %default]')
 
   # multi
+  parser.add_option('--cpu', dest='cpu',
+      default=False, action='store_true',
+      help='Run without a GPU [Default: %default]')
   parser.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
   parser.add_option('-p', dest='processes',
@@ -132,14 +135,23 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      cmd = 'source activate py3_gpu; basenji_sadq.py %s %s %d' % (
+      if options.cpu:
+        cmd = ''
+      else:
+        cmd = 'source activate py3_gpu;'
+
+      cmd += ' basenji_sadq.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
+
       name = '%s_p%d' % (options.name, pi)
       outf = '%s/job%d.out' % (options.out_dir, pi)
       errf = '%s/job%d.err' % (options.out_dir, pi)
+
+      num_gpu = 1*(not options.cpu)
+
       j = slurm.Job(cmd, name,
           outf, errf,
-          queue=options.queue, gpu=1,
+          queue=options.queue, gpu=num_gpu,
           mem=15000, time='7-0:0:0')
       jobs.append(j)
 

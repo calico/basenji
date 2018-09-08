@@ -41,7 +41,8 @@ def jointplot(vals1,
               figsize=(6, 6),
               sample=None,
               table=False,
-              kind='scatter'):
+              kind='scatter',
+              text_means=False):
 
   if table:
     out_txt = '%s.txt' % out_pdf[:-4]
@@ -88,21 +89,35 @@ def jointplot(vals1,
 
   if square:
     vmin, vmax = scatter_lims(vals1, vals2)
-    ax.set_xlim(vmin, vmax)
-    ax.set_ylim(vmin, vmax)
-
+    xmin = vmin
+    ymin = vmin
+    xmax = vmax
+    ymax = vmax
     ax.plot([vmin, vmax], [vmin, vmax], linestyle='--', color='black')
-
   else:
     xmin, xmax = scatter_lims(vals1)
-    ax.set_xlim(xmin, xmax)
     ymin, ymax = scatter_lims(vals2)
-    ax.set_ylim(ymin, ymax)
+  ax.set_xlim(xmin, xmax)
+  ax.set_ylim(ymin, ymax)
 
   if y_label is not None:
     ax.set_ylabel(y_label)
   if x_label is not None:
     ax.set_xlabel(x_label)
+
+  if text_means:
+    u1 = np.mean(vals1)
+    u2 = np.mean(vals2)
+
+    eps = .05
+    text_xeps = eps*(xmax-xmin)
+    test_yeps = eps*(ymax-ymin)
+
+    # ax.text(xmax+text_xeps, ymin-test_yeps, 'mean %.3f'%u1, horizontalalignment='right', fontsize=14)
+    # ax.text(xmin-text_xeps, ymax+test_yeps, 'mean %.3f'%u2, horizontalalignment='left', fontsize=14)
+
+    ax.text(1-eps, eps, 'mean %.3f'%u1, horizontalalignment='right', transform=ax.transAxes)
+    ax.text(eps, 1-eps, 'mean %.3f'%u2, verticalalignment='top', transform=ax.transAxes)
 
   # ax.grid(True, linestyle=':')
   # plt.tight_layout(w_pad=0, h_pad=0)

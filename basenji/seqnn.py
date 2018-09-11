@@ -112,7 +112,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.hp.num_targets = len(target_subset)
 
     # helper variables
-    self.preds_length = self.preds_train.shape[1]
+    self.preds_length = self.preds_train.shape[1].value
 
   def build_sad(self, job, data_ops,
                 ensemble_rc=False, ensemble_shifts=[0],
@@ -142,7 +142,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.hp.num_targets = len(target_subset)
 
     # helper variables
-    self.preds_length = self.preds_eval.shape[1]
+    self.preds_length = self.preds_eval.shape[1].value
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
@@ -257,10 +257,6 @@ class SeqNN(seqnn_util.SeqNNModel):
               (final_filters, seqs_repr.shape[2]))
 
         if target_subset is not None:
-          print('Target subsetting for multiple genomes is not implemented.', file=sys.stderr)
-          exit(1)
-          # in theory, this could work--just provide one list per genome.
-
           # get convolution parameters
           filters_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/kernel')[0]
           bias_full = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'final/dense/bias')[0]

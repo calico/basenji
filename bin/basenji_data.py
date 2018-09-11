@@ -229,16 +229,21 @@ def main():
     if 'clip' in targets_df.columns:
       clip_ti = targets_df['clip'].iloc[ti]
 
+    scale_ti = 1
+    if 'scale' in targets_df.columns:
+      scale_ti = targets_df['scale'].iloc[ti]
+
     if os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
       cmd += ' -w %d' % options.pool_width
-      cmd += ' -s %s' % targets_df['sum_stat'].iloc[ti]
+      cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
         cmd += ' -c %f' % clip_ti
       if options.soft_clip:
         cmd += ' --soft'
+      cmd += ' -s %f' % scale_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
       cmd += ' %s' % genome_cov_file

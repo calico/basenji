@@ -42,10 +42,13 @@ def main():
   parser.add_option('-c', dest='clip',
       default=None, type='float',
       help='Clip values post-summary to a maximum [Default: %default]')
+  parser.add_option('-s', dest='scale',
+      default=1., type='float',
+      help='Scale values by [Default: %default]')
   parser.add_option('--soft', dest='soft_clip',
       default=False, action='store_true',
       help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
-  parser.add_option('-s', dest='sum_stat',
+  parser.add_option('-u', dest='sum_stat',
       default='sum',
       help='Summary statistic to compute in windows [Default: %default]')
   parser.add_option('-w',dest='pool_width',
@@ -131,6 +134,9 @@ def main():
         seq_cov[clip_mask] = options.clip + np.sqrt(seq_cov[clip_mask] - options.clip)
       else:
         seq_cov = np.clip(seq_cov, 0, options.clip)
+
+    # scale
+    seq_cov = options.scale * seq_cov
 
     # write
     seqs_cov_open['seqs_cov'][si,:] = seq_cov.astype('float16')

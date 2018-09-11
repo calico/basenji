@@ -119,8 +119,7 @@ def main():
     fasta_files = args[0].split(',')
     targets_file = args[1]
 
-  # note that networkx uses sets, which introduces stochasticity
-  #  that I handle using post-retrieval sorts.
+  # there is still some source of stochasticity
   random.seed(options.seed)
   np.random.seed(options.seed)
 
@@ -605,16 +604,21 @@ def make_read_jobs(seqs_bed_file, targets_df, gi, seqs_cov_dir, options):
     if 'clip' in targets_df_gi.columns:
       clip_ti = targets_df_gi['clip'].iloc[ti]
 
+    scale_ti = 1
+    if 'scale' in targets_df_gi.columns:
+      scale_ti = targets_df_gi['scale'].iloc[ti]
+
     if os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
-      cmd += ' -s %s' % targets_df_gi['sum_stat'].iloc[ti]
+      cmd += ' -u %s' % targets_df_gi['sum_stat'].iloc[ti]
       cmd += ' -w %d' % options.pool_width
       if clip_ti is not None:
         cmd += ' -c %f' % clip_ti
       if options.soft_clip:
         cmd += ' --soft'
+      cmd += ' -s %f' % scale_ti
       if options.blacklist_beds[gi]:
         cmd += ' -b %s' % options.blacklist_beds[gi]
       cmd += ' %s' % genome_cov_file

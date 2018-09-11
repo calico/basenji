@@ -345,10 +345,10 @@ def add_cnn_params_dres(params):
   # reduce
 
   while reduce_width < params.conv_reduce_width_max:
-    current_filters = int(current_filters*params.conv_reduce_filters_mult)
+    current_filters = current_filters*params.conv_reduce_filters_mult
 
     cp = ConvParams(
-        filters=current_filters,
+        filters=int(np.round(current_filters)),
         filter_size=params.conv_reduce_filter_size,
         stride=params.conv_reduce_stride,
         pool=params.conv_reduce_pool,
@@ -356,6 +356,8 @@ def add_cnn_params_dres(params):
     params.cnn_params.append(cp)
 
     reduce_width *= cp.pool*cp.stride
+
+  current_filters = int(np.round(current_filters))
 
   ###################################
   # dilated residual

@@ -18,7 +18,7 @@ from __future__ import print_function
 import sys
 
 import matplotlib
-matplotlib.use('PDF')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -81,7 +81,7 @@ def jointplot(vals1,
     joint_kws['line_kws'] = {'color':gold}
 
   g = sns.jointplot(vals1, vals2,
-        color='black', size=figsize,
+        color='black', height=figsize,
         space=0, stat_func=cor_func,
         kind=kind, joint_kws=joint_kws)
 

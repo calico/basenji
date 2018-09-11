@@ -843,13 +843,14 @@ class SeqNNModel(object):
     else:
       return preds
 
-  def predict_tfr(self, sess, test_batches=None,
+  def predict_tfr(self, sess, test_batches=None, sample=1.,
                   return_var=False, return_all=False):
     """ Compute preidctions on a TFRecord test set.
 
         Args:
           sess:          TensorFlow session
           test_batches:  Number of test batches to use.
+          sample:        Down sample positions uniformly.
           return_var:    Return variance estimates
           return_all:    Retyrn all predictions.
 
@@ -857,6 +858,13 @@ class SeqNNModel(object):
           preds: S (sequences) x L (unbuffered length) x T (targets) array
       """
     fd = self.set_mode('test')
+
+    # down sample
+    if sample != 1:
+      assert(0 < sample < 1)
+      sample_pos_len = int(sample*self.preds_length)
+      sample_pos = np.linspace(0, self.preds_length-1,
+                               sample_pos_len, dtype='int')
 
     # initialize prediction data structures
     preds = []
@@ -877,6 +885,12 @@ class SeqNNModel(object):
 
         else:
           preds_batch = sess.run(self.preds_eval, feed_dict=fd)
+
+        # down sample
+        if sample != 1:
+          preds_batch = preds_batch[:,sample_pos,:]
+          if return_var or return_all:
+            preds_ensemble_batch = preds_ensemble_batch[:,sample_pos,:,:]
 
         # accumulate predictions and targets
         preds.append(preds_batch)

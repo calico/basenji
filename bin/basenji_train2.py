@@ -115,11 +115,13 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
       # test validation
       valid_losses = []
-      valid_r2s = []
+      # valid_r2s = []
+      valid_corrs = []
       for gi in range(job['num_genomes']):
         if test_dataseqs[gi].iterator is None:
           valid_losses.append(np.nan)
-          valid_r2s.append(np.nan)
+          # valid_r2s.append(np.nan)
+          valid_corrs.append(np.nan)
         else:
           # initialize
           sess.run(test_dataseqs[gi].iterator.initializer)
@@ -129,12 +131,14 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
           # save
           valid_losses.append(valid_acc.loss)
-          valid_r2s.append(valid_acc.r2().mean())
+          # valid_r2s.append(valid_acc.r2().mean())
+          valid_corrs.append(valid_acc.pearsonr().mean())
           del valid_acc
 
       # summarize
       valid_loss = np.nanmean(valid_losses)
-      valid_r2 = np.nanmean(valid_r2s)
+      # valid_r2 = np.nanmean(valid_r2s)
+      valid_corr = np.nanmean(valid_corrs)
 
       best_str = ''
       if best_loss is None or valid_loss < best_loss:
@@ -156,13 +160,13 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
       # print update
       print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-      print(' Valid loss: %7.5f, Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
+      print(' Valid loss: %7.5f, Valid R: %7.5f,' % (valid_loss, valid_corr), end='')
       print(' Time: %s%s' % (time_str, best_str))
 
       # print genome-specific updates
       for gi in range(job['num_genomes']):
         if not np.isnan(valid_losses[gi]):
-          print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_r2s[gi]))
+          print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_corrs[gi]))
       sys.stdout.flush()
 
       # update epoch
@@ -189,11 +193,11 @@ def make_data_ops(job, train_patterns, test_patterns):
   # make datasets and iterators for each genome's train/test
   for gi in range(job['num_genomes']):
     train_dataseq = make_dataset(train_patterns[gi], mode=tf.estimator.ModeKeys.TRAIN)
-    train_dataseq.make_iterator()
+    train_dataseq.make_iterator_initializable()
     train_dataseqs.append(train_dataseq)
 
     test_dataseq = make_dataset(test_patterns[gi], mode=tf.estimator.ModeKeys.EVAL)
-    test_dataseq.make_iterator()
+    test_dataseq.make_iterator_initializable()
     test_dataseqs.append(test_dataseq)
 
     # verify dataset shapes

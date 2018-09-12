@@ -16,7 +16,9 @@
 from __future__ import print_function
 
 import pdb
+from queue import Queue
 import sys
+from threading import Thread
 import time
 
 import numpy as np
@@ -64,6 +66,11 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
                             FLAGS.augment_rc, augment_shifts,
                             FLAGS.ensemble_rc, ensemble_shifts)
 
+  # launch accuracy compute thread
+  acc_queue = Queue()
+  acc_thread = AccuracyWorker(acc_queue)
+  acc_thread.start()
+
   # checkpoints
   saver = tf.train.Saver()
 
@@ -99,9 +106,6 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
           (train_epochs is None and early_stop_i < FLAGS.early_stop):
       t0 = time.time()
 
-      # save previous
-      train_loss_last = train_loss
-
       # initialize training data epochs
       for gi in range(job['num_genomes']):
         if train_dataseqs[gi].iterator is not None:
@@ -110,18 +114,17 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       # train epoch
       train_losses, steps = model.train2_epoch_ops(sess, handle, train_dataseqs)
 
-      # summarize
-      train_loss = np.nanmean(train_losses)
+      # block for previous accuracy compute
+      acc_queue.join()
 
       # test validation
+      valid_accs = []
       valid_losses = []
-      # valid_r2s = []
-      valid_corrs = []
       for gi in range(job['num_genomes']):
         if test_dataseqs[gi].iterator is None:
+          valid_accs.append(None)
           valid_losses.append(np.nan)
-          # valid_r2s.append(np.nan)
-          valid_corrs.append(np.nan)
+
         else:
           # initialize
           sess.run(test_dataseqs[gi].iterator.initializer)
@@ -130,16 +133,14 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
           valid_acc = model.test_tfr(sess, handle, test_dataseqs[gi].handle, test_epoch_batches)
 
           # save
+          valid_accs.append(valid_acc)
           valid_losses.append(valid_acc.loss)
-          # valid_r2s.append(valid_acc.r2().mean())
-          valid_corrs.append(valid_acc.pearsonr().mean())
-          del valid_acc
 
       # summarize
+      train_loss = np.nanmean(train_losses)
       valid_loss = np.nanmean(valid_losses)
-      # valid_r2 = np.nanmean(valid_r2s)
-      valid_corr = np.nanmean(valid_corrs)
 
+      # consider as best
       best_str = ''
       if best_loss is None or valid_loss < best_loss:
         best_loss = valid_loss
@@ -158,16 +159,9 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       else:
         time_str = '%3.1fh' % (et / 3600)
 
-      # print update
-      print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-      print(' Valid loss: %7.5f, Valid R: %7.5f,' % (valid_loss, valid_corr), end='')
-      print(' Time: %s%s' % (time_str, best_str))
-
-      # print genome-specific updates
-      for gi in range(job['num_genomes']):
-        if not np.isnan(valid_losses[gi]):
-          print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_corrs[gi]))
-      sys.stdout.flush()
+      # compute and write accuracy update
+      # accuracy_update(epoch, steps, train_loss, valid_acc, time_str, best_str)
+      acc_queue.put((epoch, steps, train_losses, valid_losses, valid_accs, time_str, best_str))
 
       # update epoch
       epoch += 1
@@ -224,6 +218,59 @@ def make_data_ops(job, train_patterns, test_patterns):
   data_ops = iterator.get_next()
 
   return data_ops, handle, train_dataseqs, test_dataseqs
+
+class AccuracyWorker(Thread):
+  """Compute accuracy statistics and print update line."""
+  def __init__(self, acc_queue):
+    Thread.__init__(self)
+    self.queue = acc_queue
+    self.daemon = True
+
+  def run(self):
+    while True:
+      try:
+        # get args
+        epoch, steps, train_losses, valid_losses, valid_accs, time_str, best_str = self.queue.get()
+
+        # compute validation accuracy
+        valid_r2s = []
+        valid_corrs = []
+        for gi, valid_acc in enumerate(valid_accs):
+          if np.isnan(valid_losses[gi]):
+            valid_r2s.append(np.nan)
+            valid_corrs.append(np.nan)
+          else:
+            valid_r2s.append(valid_acc.r2().mean())
+            valid_corrs.append(valid_acc.pearsonr().mean())
+
+        # summarize
+        train_loss = np.nanmean(train_losses)
+        valid_loss = np.nanmean(valid_losses)
+        valid_r2 = np.nanmean(valid_r2s)
+        valid_corr = np.nanmean(valid_corrs)
+
+        # print update
+        print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
+        print(' Valid loss: %7.5f, Valid R2: %7.5f, Valid R: %7.5f,' % (valid_loss, valid_r2, valid_corr), end='')
+        print(' Time: %s%s' % (time_str, best_str))
+
+        # print genome-specific updates
+        for gi in range(job['num_genomes']):
+          if not np.isnan(valid_losses[gi]):
+            print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Valid R: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_r2s[gi], valid_corrs[gi]))
+        sys.stdout.flush()
+
+        # delete predictions and targets
+        for valid_acc in valid_accs:
+          if valid_acc is not None:
+            del valid_acc
+
+      except:
+        # communicate error
+        print('ERROR: epoch accuracy and progress update failed.', flush=True)
+
+      # communicate finished task
+      self.queue.task_done()
 
 
 if __name__ == '__main__':

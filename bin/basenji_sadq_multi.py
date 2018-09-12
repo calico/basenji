@@ -138,7 +138,7 @@ def main():
       if options.cpu:
         cmd = ''
       else:
-        cmd = 'source activate py3_gpu;'
+        cmd = 'source activate py36_gpu;'
 
       cmd += ' basenji_sadq.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)

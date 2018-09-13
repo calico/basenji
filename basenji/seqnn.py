@@ -274,6 +274,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         # rename to seqs_repr to consistency
         seqs_repr = tf.nn.relu(matrix_ut_repr)
 
+
     ###################################################
     # final layer
     ###################################################
@@ -468,9 +469,15 @@ class SeqNN(seqnn_util.SeqNNModel):
       raise ValueError('Cannot identify loss function %s' % self.hp.loss)
 
     # reduce lossses by batch and position
-    loss_op = tf.reduce_mean(loss_op, axis=[0, 1], name='target_loss')
+    if self.hp.hic:
+      reduce_axes = [0, 1, 2]
+    else:
+      reduce_axes = [0, 1]
+
+    loss_op = tf.reduce_mean(loss_op, axis=reduce_axes, name='target_loss')
     loss_op = tf.check_numerics(loss_op, 'Invalid loss', name='loss_check')
     target_losses = loss_op
+
 
     # if target_subset is None:
     #   tf.summary.histogram('target_loss', loss_op)

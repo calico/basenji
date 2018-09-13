@@ -109,7 +109,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.hp.num_targets = len(target_subset)
 
     # helper variables
-    self.preds_length = self.preds_train.shape[1]
+    self.preds_length = self.preds_train.shape[1].value
 
   def build_sad(self, job, data_ops,
                 ensemble_rc=False, ensemble_shifts=[0],
@@ -139,7 +139,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.hp.num_targets = len(target_subset)
 
     # helper variables
-    self.preds_length = self.preds_eval.shape[1]
+    self.preds_length = self.preds_eval.shape[1].value
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
@@ -227,51 +227,52 @@ class SeqNN(seqnn_util.SeqNNModel):
         ' by the CNN pooling %d') % (self.hp.batch_buffer, pool_preds)
     batch_buffer_pool = self.hp.batch_buffer // pool_preds
 
+    # slice out buffer
+    seqs_repr = seqs_repr[:, batch_buffer_pool:
+                          seq_length - batch_buffer_pool, :]
+    seq_length = seqs_repr.shape[1].value
+
     ###################################################
     # Hi-C layers
     ###################################################
 
-    # form matrix where i,j concats position i and j
-    repr_length = seqs_repr.shape[2].value
-    matrix_repr1 = tf.tile(seqs_repr, [1,seq_length,1])
-    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_length, seq_length, repr_length])
-    matrix_repr2 = tf.transpose(matrix_repr1, [0, 2, 1, 3])
-    matrix_repr = tf.concat([matrix_repr1, matrix_repr2], axis=-1, name='matrix_concat')
+    if self.hp.hic:
+      with tf.variable_scope('matrix', reuse=tf.AUTO_REUSE):
+        # form matrix where i,j concats position i and j
+        repr_length = seqs_repr.shape[2].value
+        matrix_repr1 = tf.tile(seqs_repr, [1,seq_length,1])
+        matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_length, seq_length, repr_length])
+        matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+        matrix_repr = tf.concat([matrix_repr1, matrix_repr2], axis=-1, name='matrix_concat')
 
-    # run (1,1) convolution back to latest repr_length
-    matrix_repr = tf.layers.conv2d(
-        matrix_repr,
-        filters=repr_length,
-        kernel_size=(1,1),
-        padding='same',
-        use_bias=False,
-        kernel_initializer=tf.contrib.layers.xavier_initializer(),
-        kernel_regularizer=tf.contrib.layers.l2_regularizer(self.hp.cnn_l2_scale))
+        # run (1,1) convolution back to latest repr_length
+        matrix_repr = tf.layers.conv2d(
+            matrix_repr,
+            filters=repr_length,
+            kernel_size=(1,1),
+            padding='same',
+            use_bias=False,
+            kernel_initializer=tf.contrib.layers.xavier_initializer(),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(self.hp.cnn_l2_scale))
 
-    matrix_repr = tf.layers.batch_normalization(
-        matrix_repr,
-        momentum=self.hp.batch_norm_momentum,
-        training=self.is_training,
-        renorm=self.hp.batch_renorm,
-        renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
-        renorm_momentum=self.hp.batch_renorm_momentum,
-        fused=True)
+        # mean to make symmetric
+        matrix_repr = (matrix_repr + tf.transpose(matrix_repr, [0,2,1,3])) / 2
 
-    matrix_repr = tf.nn.relu(matrix_repr)
+        # slice upper triangular
+        matrix_ut_repr = self.upper_triangular(matrix_repr)
 
-    ###################################################
-    # slice out side buffer
-    ###################################################
+        # batch normalize
+        matrix_ut_repr = tf.layers.batch_normalization(
+            matrix_ut_repr,
+            momentum=self.hp.batch_norm_momentum,
+            training=self.is_training,
+            renorm=self.hp.batch_renorm,
+            renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
+            renorm_momentum=self.hp.batch_renorm_momentum,
+            fused=True)
 
-    # predictions
-    seq_length = matrix_repr.shape[1]
-    matrix_repr = matrix_repr[:, batch_buffer_pool:(seq_length-batch_buffer_pool), :, :]
-    matrix_repr = matrix_repr[:, :, batch_buffer_pool:(seq_length-batch_buffer_pool), :]
-    seq_length = matrix_repr.shape[1].value
-    self.preds_length = seq_length
-
-    # save penultimate representation
-    self.penultimate_op = matrix_repr
+        # rename to seqs_repr to consistency
+        seqs_repr = tf.nn.relu(matrix_ut_repr)
 
     ###################################################
     # final layer
@@ -288,7 +289,7 @@ class SeqNN(seqnn_util.SeqNNModel):
             kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
             kernel_regularizer=tf.contrib.layers.l1_regularizer(self.hp.final_l1_scale))
         print('Convolution w/ %d %dx1 filters to final targets' %
-            (final_filters, seqs_repr.shape[2]))
+            (final_filters, seqs_repr.shape[-1]))
 
         if target_subset is not None:
           # get convolution parameters
@@ -427,13 +428,17 @@ class SeqNN(seqnn_util.SeqNNModel):
     # slice buffer
     tstart = self.hp.batch_buffer // self.hp.target_pool
     tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
-
     if self.hp.hic:
       targets = targets[:, :, tstart:tend, :]
       targets = tf.identity(targets[:, tstart:tend, :, :], name='targets_op')
     else:
       targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
 
+    # upper triangular
+    if self.hp.hic:
+      targets = self.upper_triangular(targets)
+
+    # target subset
     if target_subset is not None:
         targets = tf.gather(targets, target_subset, axis=-1)
 
@@ -463,12 +468,7 @@ class SeqNN(seqnn_util.SeqNNModel):
       raise ValueError('Cannot identify loss function %s' % self.hp.loss)
 
     # reduce lossses by batch and position
-    if self.hp.hic:
-      reduce_axes = [0, 1, 2]
-    else:
-      reduce_axes = [0, 1]
-
-    loss_op = tf.reduce_mean(loss_op, axis=reduce_axes, name='target_loss')
+    loss_op = tf.reduce_mean(loss_op, axis=[0, 1], name='target_loss')
     loss_op = tf.check_numerics(loss_op, 'Invalid loss', name='loss_check')
     target_losses = loss_op
 
@@ -665,3 +665,17 @@ class SeqNN(seqnn_util.SeqNNModel):
     avg_loss = np.average(train_loss, weights=batch_sizes)
 
     return avg_loss, global_step
+
+  def upper_triangular(self, matrix_repr):
+    seq_len = matrix_repr.shape[1].value
+    num_channels = matrix_repr.shape[-1].value
+
+    # determine upper triangular indexes
+    triu_tup = np.triu_indices(seq_len, self.hp.hic_diag_offset)
+    triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
+
+    # unroll matrix
+    unroll_repr = tf.reshape(matrix_repr, [-1, seq_len**2, num_channels])
+
+    # slice upper triangular
+    return tf.gather(unroll_repr, triu_index, axis=1)

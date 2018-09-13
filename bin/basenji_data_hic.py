@@ -182,7 +182,6 @@ def main():
   mseqs = train_mseqs + valid_mseqs + test_mseqs
   mseqs_labels = ['train']*len(train_mseqs) + ['valid']*len(valid_mseqs) + ['test']*len(test_mseqs)
 
-
   ################################################################
   # mappability
   ################################################################

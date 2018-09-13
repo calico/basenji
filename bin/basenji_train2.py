@@ -219,6 +219,7 @@ def make_data_ops(job, train_patterns, test_patterns):
 
   return data_ops, handle, train_dataseqs, test_dataseqs
 
+
 class AccuracyWorker(Thread):
   """Compute accuracy statistics and print update line."""
   def __init__(self, acc_queue):
@@ -231,6 +232,7 @@ class AccuracyWorker(Thread):
       try:
         # get args
         epoch, steps, train_losses, valid_losses, valid_accs, time_str, best_str = self.queue.get()
+        num_genomes = len(train_losses)
 
         # compute validation accuracy
         valid_r2s = []
@@ -255,9 +257,10 @@ class AccuracyWorker(Thread):
         print(' Time: %s%s' % (time_str, best_str))
 
         # print genome-specific updates
-        for gi in range(job['num_genomes']):
+        for gi in range(num_genomes):
           if not np.isnan(valid_losses[gi]):
-            print(' Genome:%d,                    Train loss: %7.5f, Valid loss: %7.5f, Valid R2: %7.5f, Valid R: %7.5f' % (gi, train_losses[gi], valid_losses[gi], valid_r2s[gi], valid_corrs[gi]))
+            print(' Genome:%d,                    Train loss: %7.5f,' % (gi, train_losses[gi]), end='')
+            print(' Valid loss: %7.5f, Valid R2: %7.5f, Valid R: %7.5f' % (valid_losses[gi], valid_r2s[gi], valid_corrs[gi]))
         sys.stdout.flush()
 
         # delete predictions and targets

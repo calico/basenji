@@ -162,7 +162,7 @@ def main():
   # load SNPs
 
   # read sorted SNPs from VCF
-  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, validate_ref_fasta=options.genome_fasta)
+  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, validate_ref_fasta=options.genome_fasta, flip_ref=True)
 
   # filter for worker SNPs
   if options.processes is not None:
@@ -210,7 +210,7 @@ def main():
   model = seqnn.SeqNN()
   model.build_sad(job, data_ops,
                   ensemble_rc=options.rc, ensemble_shifts=options.shifts,
-                  penultimate=options.penultimate, target_subset=target_subset)
+                  embed_penultimate=options.penultimate, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.penultimate:
@@ -348,6 +348,10 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
   snp_ids = np.array([snp.rsid for snp in snps], 'S')
   sad_out.create_dataset('snp', data=snp_ids)
 
+  # write reference allele
+  snp_refs = np.array([snp.ref_allele for snp in snps], 'S')
+  sad_out.create_dataset('ref', data=snp_refs)
+
   # write targets
   sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))
   sad_out.create_dataset('target_labels', data=np.array(target_labels, 'S'))
@@ -390,7 +394,7 @@ class SNPCluster:
 
     # extract reference
     if self.start < 0:
-      ref_seq = 'N'*(1-self.start) +  genome_open.fetch(self.chr, 0, self.end).upper()
+      ref_seq = 'N'*(-self.start) + genome_open.fetch(self.chr, 0, self.end).upper()
     else:
       ref_seq = genome_open.fetch(self.chr, self.start, self.end).upper()
 
@@ -413,7 +417,7 @@ class SNPCluster:
     # make alternative 1 hot coded sequences
     #  (assuming SNP is 1-based indexed)
     for snp in self.snps:
-      alt_1hot = make_alt_1hot(ref_1hot, snp.seq_pos, snp.ref_allele, snp.alt_allele)
+      alt_1hot = make_alt_1hot(ref_1hot, snp.seq_pos, snp.ref_allele, snp.alt_alleles[0])
       seqs1_list.append(alt_1hot)
 
     return seqs1_list

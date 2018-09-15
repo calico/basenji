@@ -507,7 +507,7 @@ def dna_length_1hot(seq, length):
   return seq_1hot, seq
 
 
-def vcf_snps(vcf_file, require_sorted=False, validate_ref_fasta=None, pos2=False):
+def vcf_snps(vcf_file, require_sorted=False, validate_ref_fasta=None, flip_ref=False, pos2=False):
   """ Load SNPs from a VCF file """
   if vcf_file[-3:] == '.gz':
     vcf_in = gzip.open(vcf_file, 'rt')
@@ -556,8 +556,24 @@ def vcf_snps(vcf_file, require_sorted=False, validate_ref_fasta=None, pos2=False
       snp_pos = snps[-1].pos-1
       ref_snp = genome_open.fetch(snps[-1].chr, snp_pos, snp_pos+ref_n)
       if snps[-1].ref_allele != ref_snp:
-        print('ERROR: %s does not match reference %s' % (snps[-1], ref_snp), file=sys.stderr)
-        exit(1)
+        if not flip_ref:
+          # bail
+          print('ERROR: %s does not match reference %s' % (snps[-1], ref_snp), file=sys.stderr)
+          exit(1)
+
+        else:
+          alt_n = len(snps[-1].alt_alleles[0])
+          ref_snp = genome_open.fetch(snps[-1].chr, snp_pos, snp_pos+alt_n)
+
+          # if alt matches fasta reference
+          if snps[-1].alt_alleles[0] == ref_snp:
+            # flip alleles
+            snps[-1].flip_alleles()
+
+          else:
+            # bail
+            print('ERROR: %s does not match reference %s' % (snps[-1], ref_snp), file=sys.stderr)
+            exit(1)
 
     line = vcf_in.readline()
 
@@ -602,7 +618,7 @@ class SNP:
     self.rsid = a[2]
     self.ref_allele = a[3]
     self.alt_alleles = a[4].split(',')
-    self.alt_allele = self.alt_alleles[0]
+    # self.alt_allele = self.alt_alleles[0]
 
     if self.rsid == '.':
       self.rsid = '%s:%d' % (self.chr, self.pos)
@@ -610,6 +626,11 @@ class SNP:
     self.pos2 = None
     if pos2:
       self.pos2 = int(a[5])
+
+  def flip_alleles(self):
+    """ Flip reference and first alt allele."""
+    assert(len(self.alt_alleles) == 1)
+    self.ref_allele, self.alt_alleles[0] = self.alt_alleles[0], self.ref_allele
 
   def get_alleles(self):
     """ Return a list of all alleles """

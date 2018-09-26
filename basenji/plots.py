@@ -42,7 +42,8 @@ def jointplot(vals1,
               sample=None,
               table=False,
               kind='scatter',
-              text_means=False):
+              text_means=False,
+              tight=False):
 
   if table:
     out_txt = '%s.txt' % out_pdf[:-4]
@@ -120,7 +121,8 @@ def jointplot(vals1,
     ax.text(eps, 1-eps, 'mean %.3f'%u2, verticalalignment='top', transform=ax.transAxes)
 
   # ax.grid(True, linestyle=':')
-  # plt.tight_layout(w_pad=0, h_pad=0)
+  if tight:
+    plt.tight_layout(w_pad=0, h_pad=0)
 
   plt.savefig(out_pdf)
   plt.close()
@@ -132,15 +134,17 @@ def regplot(vals1,
             poly_order=1,
             alpha=0.5,
             point_size=10,
+            colors=None,
             cor='pearsonr',
             print_sig=False,
-            square=True,
+            square=False,
             x_label=None,
             y_label=None,
             title=None,
             figsize=(6, 6),
             sample=None,
-            table=False):
+            table=False,
+            tight=False):
 
   if table:
     out_txt = '%s.txt' % out_pdf[:-4]
@@ -157,15 +161,21 @@ def regplot(vals1,
   plt.figure(figsize=figsize)
 
   gold = sns.color_palette('husl', 8)[1]
-  ax = sns.regplot(
-      vals1,
-      vals2,
-      color='black',
-      order=poly_order,
-      scatter_kws={'color': 'black',
-                   's': point_size,
-                   'alpha': alpha},
-      line_kws={'color': gold})
+
+  if colors is None:
+    ax = sns.regplot(vals1, vals2, color='black',
+        order=poly_order,
+        scatter_kws={'color': 'black',
+                     's': point_size,
+                     'alpha': alpha},
+        line_kws={'color': gold})
+  else:
+    plt.scatter(vals1, vals2, c=colors,
+        s=point_size, alpha=alpha, cmap='RdBu')
+    plt.colorbar()
+    ax = sns.regplot(vals1, vals2,
+        scatter=False, order=poly_order,
+        line_kws={'color':gold})
 
   if square:
     xmin, xmax = scatter_lims(vals1, vals2)
@@ -207,7 +217,7 @@ def regplot(vals1,
 
     ax.text(
         xmin + xlim_eps,
-        ymax - 3 * ylim_eps,
+        ymax - 2 * ylim_eps,
         corr_str,
         horizontalalignment='left',
         fontsize=12)
@@ -215,7 +225,8 @@ def regplot(vals1,
   # ax.grid(True, linestyle=':')
   sns.despine()
 
-  # plt.tight_layout(w_pad=0, h_pad=0)
+  if tight:
+    plt.tight_layout()
 
   plt.savefig(out_pdf)
   plt.close()

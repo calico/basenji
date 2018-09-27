@@ -16,6 +16,7 @@
 from __future__ import print_function
 import gzip
 import os
+import pdb
 import subprocess
 import sys
 import tempfile
@@ -58,9 +59,9 @@ def intersect_seqs_snps(vcf_file, gene_seqs, vision_p=1):
   seq_indexes = {}
   for si in range(len(gene_seqs)):
     gs = gene_seqs[si]
-    gene_seq_key = (gs.chr, gs.start)
+    gene_seq_key = (gs.chrom, gs.start)
     seq_indexes[gene_seq_key] = si
-    print('%s\t%d\t%d' % (gs.chr, gs.start, gs.end), file=seq_bed_out)
+    print('%s\t%d\t%d' % (gs.chrom, gs.start, gs.end), file=seq_bed_out)
   seq_bed_out.close()
 
   # hash SNPs to indexes

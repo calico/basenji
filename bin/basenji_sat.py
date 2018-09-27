@@ -186,8 +186,8 @@ def main():
             sat_seqs_1hot, batch_size=model.hp.batch_size)
 
         # predict
-        sat_preds = model.predict(sess, batcher_sat,
-                                  rc=options.rc, shifts=options.shifts)
+        sat_preds = model.predict_h5(sess, batcher_sat,
+                                     rc=options.rc, shifts=options.shifts)
         np.save('%s/seq%d_preds.npy' % (options.out_dir, si), sat_preds)
 
       #################################################################

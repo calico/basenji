@@ -25,6 +25,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import pysam
+import pyBigWig
 import tensorflow as tf
 
 import basenji.dna_io as dna_io
@@ -44,9 +45,14 @@ Predict sequences from a BED file.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <bed_file>'
   parser = OptionParser(usage)
+  parser.add_option('-b', dest='bigwig_indexes',
+      default='', help='Comma-separated list of target indexes to write BigWigs')
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/assembly/hg19.fa' % os.environ['HG19'],
+      default='%s/assembly/ucsc/hg38.fa' % os.environ['HG38'],
       help='Genome FASTA for sequences [Default: %default]')
+  parser.add_option('-g', dest='genome_file',
+      default='%s/assembly/ucsc/human.hg38.genome' % os.environ['HG38'],
+      help='Chromosome length information [Default: %default]')
   parser.add_option('-l', dest='mid_len',
       default=256, type='int',
       help='Length of center sequence to sum predictions for [Default: %default]')
@@ -94,6 +100,12 @@ def main():
     parser.error('Must provide parameter and model files and BED file')
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
+  options.bigwig_indexes = [int(bi) for bi in options.bigwig_indexes.split(',')]
+
+  if len(options.bigwig_indexes) > 0:
+    bigwig_dir = os.path.splitext(options.out_h5_file)[0]
+    if not os.path.isdir(bigwig_dir):
+      os.mkdir(bigwig_dir)
 
   #################################################################
   # read parameters and collet target information
@@ -194,9 +206,70 @@ def main():
       # write
       out_h5['preds'][si] = preds
 
+      # write bigwig
+      for ti in options.bigwig_indexes:
+        bw_file = '%s/s%d_t%d.bw' % (bigwig_dir, si, ti)
+        bigwig_write(preds_full[:,ti], seqs_coords[si], bw_file,
+                     options.genome_file, model.hp.batch_buffer)
+
   # close output HDF5
   out_h5.close()
 
+
+def bigwig_open(bw_file, genome_file):
+  """ Open the bigwig file for writing and write the header. """
+
+  bw_out = pyBigWig.open(bw_file, 'w')
+
+  chrom_sizes = []
+  for line in open(genome_file):
+    a = line.split()
+    chrom_sizes.append((a[0], int(a[1])))
+
+  bw_out.addHeader(chrom_sizes)
+
+  return bw_out
+
+
+def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_buffer=0):
+  """ Write a signal track to a BigWig file over the region
+         specified by seqs_coords.
+
+    Args
+     signal:      Sequences x Length signal array
+     seq_coords:  (chr,start,end)
+     bw_file:     BigWig filename
+     genome_file: Chromosome lengths file
+     seq_buffer:  Length skipped on each side of the region.
+    """
+  target_length = len(signal)
+
+  # open bigwig
+  bw_out = bigwig_open(bw_file, genome_file)
+
+  # initialize entry arrays
+  entry_starts = []
+  entry_ends = []
+
+  # set entries
+  chrm, start, end = seq_coords
+  preds_pool = (end - start - 2 * seq_buffer) // target_length
+
+  bw_start = start + seq_buffer
+  for li in range(target_length):
+    bw_end = bw_start + preds_pool
+    entry_starts.append(bw_start)
+    entry_ends.append(bw_end)
+    bw_start = bw_end
+
+  # add
+  bw_out.addEntries(
+          [chrm]*target_length,
+          entry_starts,
+          ends=entry_ends,
+          values=[float(s) for s in signal])
+
+  bw_out.close()
 
 def bed_seqs(bed_file, fasta_file, seq_len):
   """Extract and extend BED sequences to seq_len."""

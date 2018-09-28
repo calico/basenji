@@ -158,16 +158,16 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
       shift_i = epoch % len(augment_shifts)
 
       # train
-      train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc=fwdrc,
-                                            shift=augment_shifts[shift_i],
-                                            sum_writer=train_writer,
-                                            epoch_batches=train_epoch_batches,
-                                            no_steps=FLAGS.no_steps)
+      train_loss, steps = model.train_epoch_h5(sess, batcher_train, fwdrc=fwdrc,
+                                               shift=augment_shifts[shift_i],
+                                               sum_writer=train_writer,
+                                               epoch_batches=train_epoch_batches,
+                                               no_steps=FLAGS.no_steps)
 
       # validate
-      valid_acc = model.test(sess, batcher_valid, mc_n=FLAGS.ensemble_mc,
-                             rc=FLAGS.ensemble_rc, shifts=ensemble_shifts,
-                             test_batches=test_epoch_batches)
+      valid_acc = model.test_h5(sess, batcher_valid, mc_n=FLAGS.ensemble_mc,
+                                rc=FLAGS.ensemble_rc, shifts=ensemble_shifts,
+                                test_batches=test_epoch_batches)
       valid_loss = valid_acc.loss
       valid_r2 = valid_acc.r2().mean()
       del valid_acc

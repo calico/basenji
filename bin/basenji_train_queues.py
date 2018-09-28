@@ -15,8 +15,9 @@
 # =========================================================================
 from __future__ import print_function
 
-import pdb
+from queue import Queue
 import sys
+from threading import Thread
 import time
 
 import numpy as np
@@ -61,6 +62,11 @@ def run(params_file, train_pattern, test_pattern, train_epochs, train_epoch_batc
                             FLAGS.augment_rc, augment_shifts,
                             FLAGS.ensemble_rc, ensemble_shifts)
 
+  # launch accuracy compute thread
+  acc_queue = Queue()
+  acc_thread = AccuracyWorker(acc_queue)
+  acc_thread.start()
+
   # checkpoints
   saver = tf.train.Saver()
 
@@ -87,7 +93,8 @@ def run(params_file, train_pattern, test_pattern, train_epochs, train_epoch_batc
     early_stop_i = 0
 
     epoch = 0
-    while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
+    while (train_epochs is not None and epoch < train_epochs) or \
+          (train_epochs is None and early_stop_i < FLAGS.early_stop):
       t0 = time.time()
 
       # save previous
@@ -97,16 +104,17 @@ def run(params_file, train_pattern, test_pattern, train_epochs, train_epoch_batc
       sess.run(train_init_op)
       train_loss, steps = model.train_epoch_tfr(sess, train_writer, train_epoch_batches)
 
+      # block for previous accuracy compute
+      acc_queue.join()
+
       # test validation
       sess.run(test_init_op)
       valid_acc = model.test_tfr(sess, test_epoch_batches)
-      valid_loss = valid_acc.loss
-      valid_r2 = valid_acc.r2().mean()
-      del valid_acc
 
+      # consider as best
       best_str = ''
-      if best_loss is None or valid_loss < best_loss:
-        best_loss = valid_loss
+      if best_loss is None or valid_acc.loss < best_loss:
+        best_loss = valid_acc.loss
         best_str = ', best!'
         early_stop_i = 0
         saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
@@ -114,33 +122,47 @@ def run(params_file, train_pattern, test_pattern, train_epochs, train_epoch_batc
         early_stop_i += 1
 
       # measure time
-      et = time.time() - t0
-      if et < 600:
-        time_str = '%3ds' % et
-      elif et < 6000:
-        time_str = '%3dm' % (et / 60)
+      epoch_time = time.time() - t0
+      if epoch_time < 600:
+        time_str = '%3ds' % epoch_time
+      elif epoch_time < 6000:
+        time_str = '%3dm' % (epoch_time / 60)
       else:
-        time_str = '%3.1fh' % (et / 3600)
+        time_str = '%3.1fh' % (epoch_time / 3600)
 
-      # print update
-      print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-      print(' Valid loss: %7.5f,  Valid R2: %7.5f,' % (valid_loss, valid_r2), end='')
-      print(' Time: %s%s' % (time_str, best_str))
-      sys.stdout.flush()
+      # compute and write accuracy update
+      # accuracy_update(epoch, steps, train_loss, valid_acc, time_str, best_str)
+      acc_queue.put((epoch, steps, train_loss, valid_acc, time_str, best_str))
 
       # update epoch
       epoch += 1
+
+    # finish queue
+    acc_queue.join()
 
     if FLAGS.logdir:
       train_writer.close()
 
 
-def make_data_ops(job, train_pattern, test_pattern):
-  """Make input data operations."""
+def accuracy_update(epoch, steps, train_loss, valid_acc, time_str, best_str):
+  """Compute and write accuracy update."""
 
-  def make_dataset(tfr_pattern, mode):
-    return dataset.DatasetSeq(
-        tfr_pattern,
+  # compute validation accuracy
+  valid_r2 = valid_acc.r2().mean()
+  valid_corr = valid_acc.pearsonr().mean()
+
+  # print update
+  update_line = 'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,' % (epoch+1, steps, train_loss, valid_acc.loss)
+  update_line += '  Valid R2: %7.5f,  Valid R: %7.5f, Time: %s%s' % (valid_r2, valid_corr, time_str, best_str)
+  print(update_line, flush=True)
+
+  del valid_acc
+
+
+def make_data_ops(job, train_file, test_file):
+  def make_dataset(filename, mode):
+    return tfrecord_batcher.tfrecord_dataset(
+        filename,
         job['batch_size'],
         job['seq_length'],
         job['target_length'],
@@ -167,6 +189,39 @@ def make_data_ops(job, train_pattern, test_pattern):
   test_init_op = iterator.make_initializer(test_dataset)
 
   return data_ops, train_init_op, test_init_op
+
+
+class AccuracyWorker(Thread):
+  """Compute accuracy statistics and print update line."""
+  def __init__(self, acc_queue):
+    Thread.__init__(self)
+    self.queue = acc_queue
+    self.daemon = True
+
+  def run(self):
+    while True:
+      try:
+        # get args
+        epoch, steps, train_loss, valid_acc, time_str, best_str = self.queue.get()
+
+        # compute validation accuracy
+        valid_r2 = valid_acc.r2().mean()
+        valid_corr = valid_acc.pearsonr().mean()
+
+        # print update
+        update_line = 'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,' % (epoch+1, steps, train_loss, valid_acc.loss)
+        update_line += '  Valid R2: %7.5f,  Valid R: %7.5f, Time: %s%s' % (valid_r2, valid_corr, time_str, best_str)
+        print(update_line, flush=True)
+
+        # delete predictions and targets
+        del valid_acc
+
+      except:
+        # communicate error
+        print('ERROR: epoch accuracy and progress update failed.', flush=True)
+
+      # communicate finished task
+      self.queue.task_done()
 
 
 if __name__ == '__main__':

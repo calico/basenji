@@ -18,8 +18,10 @@ from __future__ import print_function
 from optparse import OptionParser
 
 import os
+import pdb
 import pickle
 from queue import Queue
+import random
 import sys
 from threading import Thread
 
@@ -266,6 +268,13 @@ def bed_seqs(bed_file, fasta_file, seq_len):
           (seq_len-len(seq_dna),chrm,start,end), file=sys.stderr)
       seq_dna += 'N'*(seq_len-len(seq_dna))
 
+    # randomly set all N's
+    seq_dna = list(seq_dna)
+    for i in range(len(seq_dna)):
+      if seq_dna[i] == 'N':
+        seq_dna[i] = random.choice('ACGT')
+    seq_dna = ''.join(seq_dna)
+
     # append
     seqs_dna.append(seq_dna)
 
@@ -329,49 +338,7 @@ class PlotWorker(Thread):
     while True:
       # unload predictions
       seq_dna, seq_preds, si = self.queue.get()
-      print('Writing %d' % si, flush=True)
-
-      # seq_preds is (1 + 3*mut_len) x (target_len) x (num_targets)
-      seq_preds = np.array(seq_preds)
-      num_preds = seq_preds.shape[0]
-      num_targets = seq_preds.shape[-1]
-
-      # reverse engineer mutagenesis position parameters
-      mut_len = (num_preds - 1) // 3
-      mut_mid = len(seq_dna) // 2
-      mut_start = mut_mid - mut_len//2
-      mut_end = mut_start + mut_len
-
-      # one hot code mutagenized DNA
-      seq_dna_mut = seq_dna[mut_start:mut_end]
-      seq_1hot_mut = dna_io.dna_1hot(seq_dna_mut)
-
-      # initialize scores
-      seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
-
-      # sum across length
-      seq_preds_sum = seq_preds.sum(axis=1, dtype='float32')
-
-      # predictions index (starting at first mutagenesis)
-      pi = 1
-
-      # for each mutated position
-      for mi in range(mut_len):
-        # for each nucleotide
-        for ni in range(4):
-          if seq_1hot_mut[mi,ni]:
-            # reference score
-            seq_scores[mi,ni,:] = seq_preds_sum[0,:]
-          else:
-            # mutation score
-            seq_scores[mi,ni,:] = seq_preds_sum[pi,:]
-            pi += 1
-
-      # normalize positions
-      seq_scores -= seq_scores.mean(axis=1, keepdims=True)
-
-      # write to HDF5
-      self.scores_h5['scores'][si,:,:,:] = seq_scores.astype('float16')
+      print('Plotting %d' % si, flush=True)
 
       # communicate finished task
       self.queue.task_done()
@@ -387,52 +354,57 @@ class ScoreWorker(Thread):
 
   def run(self):
     while True:
-      # unload predictions
-      seq_dna, seq_preds, si = self.queue.get()
-      print('Writing %d' % si, flush=True)
+      try:
+        # unload predictions
+        seq_dna, seq_preds, si = self.queue.get()
+        print('Writing %d' % si, flush=True)
 
-      # seq_preds is (1 + 3*mut_len) x (target_len) x (num_targets)
-      seq_preds = np.array(seq_preds)
-      num_preds = seq_preds.shape[0]
-      num_targets = seq_preds.shape[-1]
+        # seq_preds is (1 + 3*mut_len) x (target_len) x (num_targets)
+        seq_preds = np.array(seq_preds)
+        num_preds = seq_preds.shape[0]
+        num_targets = seq_preds.shape[-1]
 
-      # reverse engineer mutagenesis position parameters
-      mut_len = (num_preds - 1) // 3
-      mut_mid = len(seq_dna) // 2
-      mut_start = mut_mid - mut_len//2
-      mut_end = mut_start + mut_len
+        # reverse engineer mutagenesis position parameters
+        mut_len = (num_preds - 1) // 3
+        mut_mid = len(seq_dna) // 2
+        mut_start = mut_mid - mut_len//2
+        mut_end = mut_start + mut_len
 
-      # one hot code mutagenized DNA
-      seq_dna_mut = seq_dna[mut_start:mut_end]
-      seq_1hot_mut = dna_io.dna_1hot(seq_dna_mut)
+        # one hot code mutagenized DNA
+        seq_dna_mut = seq_dna[mut_start:mut_end]
+        seq_1hot_mut = dna_io.dna_1hot(seq_dna_mut)
 
-      # initialize scores
-      seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
+        # initialize scores
+        seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
 
-      # sum across length
-      seq_preds_sum = seq_preds.sum(axis=1, dtype='float32')
+        # sum across length
+        seq_preds_sum = seq_preds.sum(axis=1, dtype='float32')
 
-      # predictions index (starting at first mutagenesis)
-      pi = 1
+        # predictions index (starting at first mutagenesis)
+        pi = 1
 
-      # for each mutated position
-      for mi in range(mut_len):
-        # for each nucleotide
-        for ni in range(4):
-          if seq_1hot_mut[mi,ni]:
-            # reference score
-            seq_scores[mi,ni,:] = seq_preds_sum[0,:]
-          else:
-            # mutation score
-            seq_scores[mi,ni,:] = seq_preds_sum[pi,:]
-            pi += 1
+        # for each mutated position
+        for mi in range(mut_len):
+          # for each nucleotide
+          for ni in range(4):
+            if seq_1hot_mut[mi,ni]:
+              # reference score
+              seq_scores[mi,ni,:] = seq_preds_sum[0,:]
+            else:
+              # mutation score
+              seq_scores[mi,ni,:] = seq_preds_sum[pi,:]
+              pi += 1
 
-      # normalize positions
-      seq_scores -= seq_scores.mean(axis=1, keepdims=True)
+        # normalize positions
+        seq_scores -= seq_scores.mean(axis=1, keepdims=True)
 
-      # write to HDF5
-      self.scores_h5['scores'][si,:,:,:] = seq_scores.astype('float16')
-      self.scores_h5['seqs'][si,:,:] = seq_1hot_mut
+        # write to HDF5
+        self.scores_h5['scores'][si,:,:,:] = seq_scores.astype('float16')
+        self.scores_h5['seqs'][si,:,:] = seq_1hot_mut
+
+      except:
+        # communicate error
+        print('ERROR: Sequence %d failed' % si, file=sys.stderr, flush=True)
 
       # communicate finished task
       self.queue.task_done()

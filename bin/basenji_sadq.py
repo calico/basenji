@@ -49,6 +49,9 @@ def main():
   parser.add_option('-c', dest='csv',
       default=False, action='store_true',
       help='Print table as CSV [Default: %default]')
+  parser.add_option('--cpu', dest='cpu',
+      default=False, action='store_true',
+      help='Run without a GPU [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default='%s/assembly/hg19.fa' % os.environ['HG19'],
       help='Genome FASTA for sequences [Default: %default]')
@@ -186,7 +189,8 @@ def main():
                                              output_shapes=snp_shapes)
   dataset = dataset.batch(job['batch_size'])
   dataset = dataset.prefetch(2*job['batch_size'])
-  dataset = dataset.apply(tf.contrib.data.prefetch_to_device('/device:GPU:0'))
+  if not options.cpu:
+    dataset = dataset.apply(tf.contrib.data.prefetch_to_device('/device:GPU:0'))
 
   iterator = dataset.make_one_shot_iterator()
   data_ops = iterator.get_next()

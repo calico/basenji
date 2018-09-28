@@ -16,6 +16,7 @@
 from __future__ import print_function
 
 
+import random
 import sys
 
 import numpy as np
@@ -27,7 +28,7 @@ import numpy as np
 ################################################################################
 
 
-def dna_1hot(seq, seq_len=None):
+def dna_1hot(seq, seq_len=None, n_random=False):
   """ dna_1hot
 
     Args:
@@ -64,6 +65,9 @@ def dna_1hot(seq, seq_len=None):
         seq_code[i, 2] = 1
       elif nt == 'T':
         seq_code[i, 3] = 1
+      elif n_random:
+        ni = random.randint(0,3)
+        seq_code[i, ni] = 1
 
   return seq_code
 

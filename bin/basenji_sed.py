@@ -288,7 +288,7 @@ def main():
         # predict alleles
         allele_tss_preds = model.predict_genes(sess, batcher_gene, allele_gene_seqs,
                                                 rc=options.rc, shifts=options.shifts,
-                                                penultimate=options.penultimate,
+                                                embed_penultimate=options.penultimate,
                                                 tss_radius=options.tss_radius)
 
         # reshape (Alleles x TSSs) x Targets to Alleles x TSSs x Targets

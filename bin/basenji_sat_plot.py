@@ -17,29 +17,24 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import os
+import pdb
 import random
-import subprocess
 import sys
-import tempfile
-import time
 
 import h5py
+import numpy as np
+import pandas as pd
+
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 from PIL import Image
-import numpy as np
 import seaborn as sns
-import tensorflow as tf
 
-from basenji import batcher
-from basenji import dna_io
-from basenji import params
 from basenji import plots
-from basenji import seqnn
 
 '''
-basenji_sat.py
+basenji_sat_plot.py
 
 Perform an in silico saturated mutagenesis of the given test sequences
 using the given model.
@@ -52,211 +47,118 @@ Note:
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <model_file> <input_file>'
+  usage = 'usage: %prog [options] <scores_file>'
   parser = OptionParser(usage)
   parser.add_option('-a', dest='activity_enrich',
       default=1, type='float',
       help='Enrich for the most active top % of sequences [Default: %default]')
-  parser.add_option('-b', dest='batch_size',
-      default=None, type='int',
-      help='Batch size')
   parser.add_option('-f', dest='figure_width',
       default=20, type='float',
       help='Figure width [Default: %default]')
   parser.add_option('-g', dest='gain',
       default=False, action='store_true',
       help='Draw a sequence logo for the gain score, too [Default: %default]')
-  parser.add_option('-l', dest='satmut_len',
-      default=200, type='int',
+  parser.add_option('-l', dest='plot_len',
+      default=300, type='int',
       help='Length of centered sequence to mutate [Default: %default]')
   parser.add_option('-m', dest='min_limit',
-      default=0.005, type='float',
+      default=0.01, type='float',
       help='Minimum heatmap limit [Default: %default]')
-  parser.add_option('-n', dest='load_sat_npy',
-      default=False, action='store_true',
-      help='Load the predictions from .npy files [Default: %default]')
   parser.add_option('-o', dest='out_dir',
-      default='heat', help='Output directory [Default: %default]')
+      default='sat_plot', help='Output directory [Default: %default]')
   parser.add_option('-r', dest='rng_seed',
       default=1, type='float',
       help='Random number generator seed [Default: %default]')
-  parser.add_option('--rc', dest='rc',
-      default=False, action='store_true',
-      help='Ensemble forward and reverse complement predictions [Default: %default]')
   parser.add_option('-s', dest='sample',
       default=None, type='int',
-      help='Sample sequences from the test set [Default:%default]')
-  parser.add_option('--shifts', dest='shifts',
-      default='0',
-      help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option('-t', dest='targets',
-      default='0',
-      help='Comma-separated target indexes (or -1 for all) [Default: %default]')
+      help='Sample N sequences from the set [Default:%default]')
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
+      help='File specifying target indexes and labels in table format')
   (options, args) = parser.parse_args()
 
-  if len(args) != 3:
-    parser.error(
-        'Must provide parameters and model files and input sequences (as a '
-        'FASTA file or test data in an HDF file')
+  if len(args) != 1:
+    parser.error('Must provide scores HDF5 file')
   else:
-    params_file = args[0]
-    model_file = args[1]
-    input_file = args[2]
+    scores_h5_file = args[0]
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
-  options.shifts = [int(shift) for shift in options.shifts.split(',')]
+  np.random.seed(options.rng_seed)
 
-  random.seed(options.rng_seed)
+  # determine targets
+  targets_df = pd.read_table(options.targets_file)
+  num_targets = targets_df.shape[0]
 
-  #################################################################
-  # parse input file
-  #################################################################
-  seqs, seqs_1hot, targets = parse_input(input_file, options.sample)
+  # open scores
+  scores_h5 = h5py.File(scores_h5_file)
+  num_seqs = scores_h5['seqs'].shape[0]
+  mut_len = scores_h5['scores'].shape[1]
 
-  # decide which targets to obtain
-  if options.targets == '-1':
-    target_indexes = range(targets.shape[2])
-    target_subset = None
-  else:
-    target_indexes = [int(ti) for ti in options.targets.split(',')]
-    target_subset = target_indexes
+  # determine plot region
+  mut_mid = mut_len // 2
+  plot_start = mut_mid - (options.plot_len//2)
+  plot_end = plot_start + options.plot_len
 
-  # enrich for active sequences
-  if targets is not None:
-    seqs, seqs_1hot, targets = enrich_activity(
-        seqs, seqs_1hot, targets, options.activity_enrich, target_indexes)
+  # plot attributes
+  sns.set(style='white', font_scale=1)
+  spp = subplot_params(options.plot_len)
 
-  seqs_n = seqs_1hot.shape[0]
+  # determine sequences
+  seq_indexes = np.arange(num_seqs)
 
-  #################################################################
-  # setup model
-  #################################################################
-  job = params.read_job_params(params_file)
+  if options.sample and options.sample < num_seqs:
+    seq_indexes = np.random.choice(seq_indexes, size=options.sample, replace=False)
 
-  job['seq_length'] = seqs_1hot.shape[1]
-  job['seq_depth'] = seqs_1hot.shape[2]
+  for si in seq_indexes:
+    # read sequence
+    seq_1hot = scores_h5['seqs'][si,plot_start:plot_end]
 
-  if targets is None:
-    if 'num_targets' not in job or 'target_pool' not in job:
-      print(
-          'Must provide num_targets and target_pool in parameters file',
-          file=sys.stderr)
-      exit(1)
-  else:
-    job['num_targets'] = targets.shape[2]
-    job['target_pool'] = job['seq_length'] // targets.shape[1]
+    # read scores
+    scores = scores_h5['scores'][si,plot_start:plot_end,:,:]
 
-  t0 = time.time()
-  model = seqnn.SeqNN()
-  model.build_feed(job, target_subset=target_subset)
+    # reference scores
+    ref_scores = scores[seq_1hot]
 
-  if options.batch_size is not None:
-    model.hp.batch_size = options.batch_size
+    for tii in range(num_targets):
+      ti = targets_df['index'].iloc[tii]
 
-  # initialize saver
-  saver = tf.train.Saver()
+      scores_ti = scores[:,:,ti]
 
-  with tf.Session() as sess:
-    # load variables into session
-    saver.restore(sess, model_file)
+      # compute scores relative to reference
+      delta_ti = scores_ti - ref_scores[:,[ti]]
 
-    for si in range(seqs_n):
-      print('Mutating sequence %d / %d' % (si + 1, seqs_n), flush=True)
+      # compute loss and gain
+      delta_loss = delta_ti.min(axis=1)
+      delta_gain = delta_ti.max(axis=1)
 
-      # write sequence
-      fasta_out = open('%s/seq%d.fa' % (options.out_dir, si), 'w')
-      end_len = (len(seqs[si]) - options.satmut_len) // 2
-      print('>seq%d\n%s' % (si, seqs[si][end_len:-end_len]), file=fasta_out)
-      fasta_out.close()
+      # setup plot
+      plt.figure(figsize=(options.figure_width, 4))
+      ax_logo_loss = plt.subplot2grid(
+          (3, spp['heat_cols']), (0, spp['logo_start']),
+          colspan=spp['logo_span'])
+      ax_sad = plt.subplot2grid(
+          (3, spp['heat_cols']), (1, spp['sad_start']),
+          colspan=spp['sad_span'])
+      ax_heat = plt.subplot2grid(
+          (3, spp['heat_cols']), (2, 0), colspan=spp['heat_cols'])
 
-      #################################################################
-      # predict modifications
+      # plot sequence logo
+      plot_seqlogo(ax_logo_loss, seq_1hot, -delta_loss)
+      if options.gain:
+        plot_seqlogo(ax_logo_gain, seq_1hot, delta_gain)
 
-      if options.load_sat_npy:
-        sat_preds = np.load('%s/seq%d_preds.npy' % (options.out_dir, si))
+      # plot SAD
+      plot_sad(ax_sad, delta_loss, delta_gain)
 
-      else:
-        # supplement with saturated mutagenesis
-        sat_seqs_1hot = satmut_seqs(seqs_1hot[si:si + 1], options.satmut_len)
+      # plot heat map
+      plot_heat(ax_heat, delta_ti.T, options.min_limit)
 
-        # initialize batcher
-        batcher_sat = batcher.Batcher(
-            sat_seqs_1hot, batch_size=model.hp.batch_size)
+      plt.tight_layout()
+      plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir, si, ti), dpi=600)
+      plt.close()
 
-        # predict
-        sat_preds = model.predict_h5(sess, batcher_sat,
-                                     rc=options.rc, shifts=options.shifts)
-        np.save('%s/seq%d_preds.npy' % (options.out_dir, si), sat_preds)
-
-      #################################################################
-      # compute delta, loss, and gain matrices
-
-      # compute the matrix of prediction deltas: (4 x L_sm x T) array
-      sat_delta = delta_matrix(seqs_1hot[si], sat_preds, options.satmut_len)
-
-      # sat_loss, sat_gain = loss_gain(sat_delta, sat_preds[si], options.satmut_len)
-      sat_loss = sat_delta.min(axis=0)
-      sat_gain = sat_delta.max(axis=0)
-
-      ##############################################
-      # plot
-
-      for tii in range(len(target_indexes)):
-        # setup plot
-        sns.set(style='white', font_scale=1)
-        spp = subplot_params(sat_delta.shape[1])
-
-        if options.gain:
-          plt.figure(figsize=(options.figure_width, 5))
-          ax_pred = plt.subplot2grid(
-              (5, spp['heat_cols']), (0, spp['pred_start']),
-              colspan=spp['pred_span'])
-          ax_logo_loss = plt.subplot2grid(
-              (5, spp['heat_cols']), (1, spp['logo_start']),
-              colspan=spp['logo_span'])
-          ax_logo_gain = plt.subplot2grid(
-              (5, spp['heat_cols']), (2, spp['logo_start']),
-              colspan=spp['logo_span'])
-          ax_sad = plt.subplot2grid(
-              (5, spp['heat_cols']), (3, spp['sad_start']),
-              colspan=spp['sad_span'])
-          ax_heat = plt.subplot2grid(
-              (5, spp['heat_cols']), (4, 0), colspan=spp['heat_cols'])
-
-        else:
-          plt.figure(figsize=(options.figure_width, 4))
-          ax_pred = plt.subplot2grid(
-              (4, spp['heat_cols']), (0, spp['pred_start']),
-              colspan=spp['pred_span'])
-          ax_logo_loss = plt.subplot2grid(
-              (4, spp['heat_cols']), (1, spp['logo_start']),
-              colspan=spp['logo_span'])
-          ax_sad = plt.subplot2grid(
-              (4, spp['heat_cols']), (2, spp['sad_start']),
-              colspan=spp['sad_span'])
-          ax_heat = plt.subplot2grid(
-              (4, spp['heat_cols']), (3, 0), colspan=spp['heat_cols'])
-
-        # plot predictions
-        plot_predictions(ax_pred, sat_preds[0, :, tii], options.satmut_len,
-                         model.hp.seq_length, model.hp.batch_buffer)
-
-        # plot sequence logo
-        plot_seqlogo(ax_logo_loss, seqs_1hot[si], -sat_loss[:, tii])
-        if options.gain:
-          plot_seqlogo(ax_logo_gain, seqs_1hot[si], sat_gain[:, tii])
-
-        # plot SAD
-        plot_sad(ax_sad, sat_loss[:, tii], sat_gain[:, tii])
-
-        # plot heat map
-        plot_heat(ax_heat, sat_delta[:, :, tii], options.min_limit)
-
-        plt.tight_layout()
-        plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir, si, target_indexes[tii]), dpi=600)
-        plt.close()
 
 
 def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
@@ -398,67 +300,6 @@ def loss_gain(sat_delta, sat_preds_si, satmut_len):
   sat_gain = sat_max - sat_preds_si[sm_start:sm_end, :]
 
   return sat_loss, sat_gain
-
-
-def parse_input(input_file, sample):
-  """ Parse an input file that might be FASTA or HDF5. """
-
-  try:
-    # input_file is FASTA
-
-    # read sequences and headers
-    seqs = []
-    seq_headers = []
-    for line in open(input_file):
-      if line[0] == '>':
-        seq_headers.append(line[1:].rstrip())
-        seqs.append('')
-      else:
-        seqs[-1] += line.rstrip()
-
-    # convert to arrays
-    seqs = np.array(seqs)
-    seq_headers = np.array(seq_headers)
-
-    # one hot code sequences
-    seqs_1hot = []
-    for seq in seqs:
-      seqs_1hot.append(dna_io.dna_1hot(seq))
-    seqs_1hot = np.array(seqs_1hot)
-
-    # sample
-    if sample:
-      sample_i = np.array(random.sample(xrange(seqs_1hot.shape[0]), sample))
-      seqs_1hot = seqs_1hot[sample_i]
-      seq_headers = seq_headers[sample_i]
-      seqs = seqs[sample_i]
-
-    # initialize targets variable
-    targets = None
-
-  except (UnicodeDecodeError):
-    # input_file is HDF5
-
-    try:
-      # load (sampled) test data from HDF5
-      hdf5_in = h5py.File(input_file, 'r')
-      seqs_1hot = np.array(hdf5_in['test_in'])
-      targets = np.array(hdf5_in['test_out'])
-      hdf5_in.close()
-
-      # sample
-      if sample:
-        sample_i = np.array(random.sample(range(seqs_1hot.shape[0]), sample))
-        seqs_1hot = seqs_1hot[sample_i]
-        targets = targets[sample_i]
-
-      # convert to ACGT sequences
-      seqs = dna_io.hot1_dna(seqs_1hot)
-
-    except IOError:
-      parser.error('Could not parse input file as FASTA or HDF5.')
-
-  return seqs, seqs_1hot, targets
 
 
 def plot_heat(ax, sat_delta_ti, min_limit):
@@ -632,8 +473,6 @@ def subplot_params(seq_len):
   if seq_len < 500:
     spp = {
         'heat_cols': 400,
-        'pred_start': 0,
-        'pred_span': 322,
         'sad_start': 1,
         'sad_span': 321,
         'logo_start': 0,
@@ -642,8 +481,6 @@ def subplot_params(seq_len):
   else:
     spp = {
         'heat_cols': 400,
-        'pred_start': 0,
-        'pred_span': 321,
         'sad_start': 1,
         'sad_span': 320,
         'logo_start': 0,

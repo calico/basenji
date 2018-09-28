@@ -73,7 +73,9 @@ def jointplot(vals1,
   else:
     cor_func = None
 
-  if kind == 'scatter':
+  if kind == 'hex':
+    joint_kws = {}
+  elif kind == 'scatter':
     joint_kws = {'alpha':alpha, 's':point_size}
   else:
     gold = sns.color_palette('husl',8)[1]

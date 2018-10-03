@@ -159,7 +159,7 @@ def main():
   t0 = time.time()
   model = basenji.seqnn.SeqNN()
   model.build_feed(job, ensemble_rc=options.rc, ensemble_shifts=options.shifts,
-      target_subset=target_subset, penultimate=options.penultimate)
+      embed_penultimate=options.penultimate, target_subset=target_subset)
   print('Model building time %f' % (time.time() - t0), flush=True)
 
   if options.penultimate:
@@ -376,7 +376,7 @@ def main():
 def bigwig_write(snp, seq_len, preds, model, bw_file, genome_file):
   bw_open = bigwig_open(bw_file, genome_file)
 
-  seq_chrom = snp.chrom
+  seq_chrom = snp.chr
   seq_start = snp.pos - seq_len // 2
 
   bw_chroms = [seq_chrom] * len(preds)

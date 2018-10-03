@@ -15,6 +15,7 @@
 # =========================================================================
 from __future__ import print_function
 
+import gc
 import pdb
 from queue import Queue
 import sys
@@ -116,6 +117,11 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
       # block for previous accuracy compute
       acc_queue.join()
+      if epoch > 0:
+        for valid_acc in valid_accs:
+            if valid_acc is not None:
+              del valid_acc
+      gc.collect()
 
       # test validation
       valid_accs = []
@@ -130,7 +136,7 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
           sess.run(test_dataseqs[gi].iterator.initializer)
 
           # compute
-          valid_acc = model.test_tfr(sess, handle, test_dataseqs[gi].handle, test_epoch_batches)
+          valid_acc = model.test_tfr(sess, test_dataseqs[gi], handle, test_epoch_batches)
 
           # save
           valid_accs.append(valid_acc)

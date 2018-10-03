@@ -116,7 +116,7 @@ def main():
   parser.add_option(
       '-s',
       dest='smooth_sd',
-      default=32,
+      default=16,
       type='float',
       help=
       'Gaussian standard deviation to smooth coverage estimates with [Default: %default]'
@@ -464,7 +464,7 @@ class GenomeCoverage:
                stranded=False,
                smooth_sd=32,
                clip_max=None,
-               clip_max_multi=2,
+               clip_max_multi=None,
                shift_center=False,
                shift_forward=0,
                shift_reverse=0,

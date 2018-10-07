@@ -319,7 +319,7 @@ def plot_heat(ax, sat_delta_ti, min_limit):
       vmax=vlim,
       xticklabels=False,
       ax=ax)
-  ax.yaxis.set_ticklabels('TGCA', rotation='horizontal')  # , size=10)
+  ax.yaxis.set_ticklabels('ACGT', rotation='horizontal')  # , size=10)
 
 
 def plot_predictions(ax, preds, satmut_len, seq_len, buffer):

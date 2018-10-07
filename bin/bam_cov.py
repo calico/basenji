@@ -23,6 +23,7 @@ import h5py
 import itertools
 import math
 import os
+import pdb
 import random
 import sys
 import time
@@ -495,14 +496,8 @@ class GenomeCoverage:
     self.clip_max = clip_max
     self.clip_max_multi = clip_max_multi
 
-    if self.clip_max:
-      # choose adaptive thresholds
-      self.adaptive_t = {}
-      for clip_value in range(2, self.clip_max + 1):
-        # aiming for 0.01 cumulative density above the threshold.
-        #  decreasing the density increases the thresholds.
-        cdf_matcher = lambda u: (0.01 - (1-poisson.cdf(clip_value, u)))**2
-        self.adaptive_t[clip_value] = minimize(cdf_matcher, clip_value)['x'][0]
+    self.adaptive_cdf = 0.01
+    self.adaptive_t = {}
 
     self.fasta = None
     if fasta_file is not None:
@@ -614,7 +609,7 @@ class GenomeCoverage:
             row_nzcols_set(self.multi_weight_matrix, ri, multi_positions_weight)
 
       # set new position-specific clip thresholds
-      # self.set_clips(genome_coverage)
+      self.set_clips(genome_coverage)
 
       print(' Done.', flush=True)
 
@@ -1010,35 +1005,35 @@ class GenomeCoverage:
 
     return gi
 
-  # def genome_chr(self, genome_indexes, chrom):
-  #   """ Filter and convert an array of genome indexes
-  #           to indexes for a specific chromosome.
+  def genome_chr(self, genome_indexes, chrom):
+    """ Filter and convert an array of genome indexes
+            to indexes for a specific chromosome.
 
-  #       Args
-  #        genome_indexes (np.array):
-  #        chrom (str):
+        Args
+         genome_indexes (np.array):
+         chrom (str):
 
-  #       Returns
-  #        chrom_indexes (np.array)
-  #       """
+        Returns
+         chrom_indexes (np.array)
+        """
 
-  #   chrom_subtract = 0
-  #   for lchrom in self.chrom_lengths:
-  #     if chrom == lchrom:
-  #       break
-  #     else:
-  #       chrom_subtract += self.chrom_lengths[lchrom]
+    chrom_subtract = 0
+    for lchrom in self.chrom_lengths:
+      if chrom == lchrom:
+        break
+      else:
+        chrom_subtract += self.chrom_lengths[lchrom]
 
-  #   # filter up to chromosome
-  #   chrom_indexes = genome_indexes[genome_indexes >= chrom_subtract]
+    # filter up to chromosome
+    chrom_indexes = genome_indexes[genome_indexes >= chrom_subtract]
 
-  #   # adjust
-  #   chrom_indexes -= chrom_subtract
+    # adjust
+    chrom_indexes -= chrom_subtract
 
-  #   # filter beyond chromosome
-  #   chrom_indexes = chrom_indexes[chrom_indexes < self.chrom_lengths[chrom]]
+    # filter beyond chromosome
+    chrom_indexes = chrom_indexes[chrom_indexes < self.chrom_lengths[chrom]]
 
-  #   return chrom_indexes
+    return chrom_indexes
 
   def learn_shift_pair(self, bam_file):
     """ Learn the optimal fragment shift from paired end fragments. """
@@ -1433,39 +1428,85 @@ class GenomeCoverage:
     return ri
 
 
-  def clip_multi(self, coverage):
-    """ Clip coverage at adaptively-determined thresholds.
+  def set_clips(self, coverage):
+    """ Hash indexes to clip at various thresholds.
+
+        Must run this before running clip_multi, which will use
+        self.multi_clip_indexes. The objective is to estimate
+        coverage conservatively w/ clip_max and smoothing before
+        asking whether the raw coverage count is compelling.
 
         In:
-         coverage (np.array): Pre-clipped genome/chromosome coverage.
+         coverage (np.array): Pre-clipped genome coverage.
+
+        Out:
+          self.adaptive_t (int->float): Clip values mapped to coverage thresholds
+                                        above which to apply them.
+          self.multi_clip_indexes (int->np.array): Clip values mapped to genomic
+                                                   indexes to clip.
         """
 
+    # choose clip thresholds
+    if len(self.adaptive_t) == 0:
+      for clip_value in range(2, self.clip_max + 1):
+        # aiming for .01 cumulative density above the threshold.
+        #  decreasing the density increases the thresholds.
+        cdf_matcher = lambda u: (self.adaptive_cdf - (1-poisson.cdf(clip_value, u)))**2
+        self.adaptive_t[clip_value] = minimize(cdf_matcher, clip_value)['x'][0]
+
     # take indexes with coverage between this clip threshold and the next
-    multi_clip_indexes = {}
+    self.multi_clip_indexes = {}
     for clip_value in range(2, self.clip_max):
       mci = np.where((coverage > self.adaptive_t[clip_value]) &
                      (coverage <= self.adaptive_t[clip_value + 1]))[0]
       if len(mci) > 0:
-        multi_clip_indexes[clip_value] = mci
-
-      # print('Sites clipped to %d: %d' % (clip_value, len(mci)))
+        self.multi_clip_indexes[clip_value] = mci
+      print('Sites clipped to %d: %d' % (clip_value, len(mci)))
 
     # set the last clip_value
     mci = np.where(coverage > self.adaptive_t[self.clip_max])[0]
     if len(mci) > 0:
-      multi_clip_indexes[self.clip_max] = mci
+      self.multi_clip_indexes[self.clip_max] = mci
+    print('Sites clipped to %d: %d' % (self.clip_max, len(mci)))
 
-    # clip indexes at each value
-    clipped_indexes = np.zeros(len(coverage), dtype='bool')
-    for clip_value, clip_indexes in multi_clip_indexes.items():
-      # clip these indexes at this clip_value
-      coverage[clip_indexes] = np.clip(coverage[clip_indexes], 0, clip_value)
 
-      # remember we clipped these indexes
-      clipped_indexes[clip_indexes] = True
+  def clip_multi(self, coverage, chrom=None):
+    """ Clip coverage at adaptively-determined thresholds.
 
-    # clip the remainder to 1
-    coverage[~clipped_indexes] = np.clip(coverage[~clipped_indexes], 0, 1)
+        Must run set_clips to set self.multi_clip_indexes. If self.adaptive_t
+        is empty, I know it hasn't been run yet.
+
+        In:
+         coverage (np.array): Pre-clipped genome/chromosome coverage.
+         chrom (str): Single chromosome coverage.
+
+        Out:
+         coverage (np.array): Clipped coverage values
+        """
+
+    if len(self.adaptive_t) == 0:
+      # we haven't chosen clip thresholds yet. be conservative.
+      coverage = np.clip(coverage, 0, self.clip_max)
+
+    else:
+      # track clipped indexes
+      clipped_indexes = np.zeros(len(coverage), dtype='bool')
+
+      # clip indexes at each value
+      for clip_value, clip_indexes in self.multi_clip_indexes.items():
+
+        # adjust for single chromosome
+        if chrom is not None:
+          clip_indexes = self.genome_chr(clip_indexes, chrom)
+
+        # clip these indexes at this clip_value
+        coverage[clip_indexes] = np.clip(coverage[clip_indexes], 0, clip_value)
+
+        # remember we clipped these indexes
+        clipped_indexes[clip_indexes] = True
+
+      # clip the remainder to 1
+      coverage[~clipped_indexes] = np.clip(coverage[~clipped_indexes], 0, 1)
 
 
   def write(self, output_file, single_or_pair, zero_eps=.003):
@@ -1517,17 +1558,16 @@ class GenomeCoverage:
       cl = lengths_list[ci]
 
       # compute multi-mapper chromosome coverage
-      chrom_weight_matrix = self.multi_weight_matrix[:, gi:gi + cl]
+      chrom_weight_matrix = self.multi_weight_matrix[:,gi:gi+cl]
       chrom_multi_coverage = np.array(
           chrom_weight_matrix.sum(axis=0, dtype='float32')).squeeze()
 
       # sum with unique coverage
-      chrom_coverage_array = self.unique_counts[gi:
-                                                gi + cl] + chrom_multi_coverage
+      chrom_coverage_array = self.unique_counts[gi:gi+cl] + chrom_multi_coverage
 
       # limit duplicates
       if self.clip_max:
-        self.clip_multi(chrom_coverage_array)
+        self.clip_multi(chrom_coverage_array, chroms_list[ci])
 
       # Gaussian smooth
       if self.smooth_sd > 0:

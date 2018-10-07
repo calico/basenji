@@ -100,7 +100,11 @@ def main():
     parser.error('Must provide parameter and model files and BED file')
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
-  options.bigwig_indexes = [int(bi) for bi in options.bigwig_indexes.split(',')]
+
+  if options.bigwig_indexes is not None:
+    options.bigwig_indexes = [int(bi) for bi in options.bigwig_indexes.split(',')]
+  else:
+    options.bigwig_indexes = []
 
   if len(options.bigwig_indexes) > 0:
     bigwig_dir = os.path.splitext(options.out_h5_file)[0]

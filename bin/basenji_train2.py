@@ -77,7 +77,12 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
   # checkpoints
   saver = tf.train.Saver()
 
-  with tf.Session() as sess:
+  # specify CPU parallelism
+  session_conf = tf.ConfigProto(
+        intra_op_parallelism_threads=2,
+        inter_op_parallelism_threads=5)
+
+  with tf.Session(config=session_conf) as sess:
     train_writer = tf.summary.FileWriter(FLAGS.logdir + '/train',
                                          sess.graph) if FLAGS.logdir else None
 

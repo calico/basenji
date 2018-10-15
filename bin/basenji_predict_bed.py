@@ -46,7 +46,7 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <bed_file>'
   parser = OptionParser(usage)
   parser.add_option('-b', dest='bigwig_indexes',
-      default='', help='Comma-separated list of target indexes to write BigWigs')
+      default=None, help='Comma-separated list of target indexes to write BigWigs')
   parser.add_option('-f', dest='genome_fasta',
       default='%s/assembly/ucsc/hg38.fa' % os.environ['HG38'],
       help='Genome FASTA for sequences [Default: %default]')

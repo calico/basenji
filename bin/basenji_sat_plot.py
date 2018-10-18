@@ -310,7 +310,7 @@ def plot_heat(ax, sat_delta_ti, min_limit):
         sat_delta_ti (4 x L_sm array): Single target delta matrix for saturated mutagenesis region,
         min_limit (float): Minimum heatmap limit.
     """
-  vlim = max(min_limit, abs(sat_delta_ti).max())
+  vlim = max(min_limit, np.nanmax(np.abs(sat_delta_ti)))
   sns.heatmap(
       sat_delta_ti,
       linewidths=0,

@@ -63,7 +63,7 @@ def main():
       default=0.01, type='float',
       help='Minimum heatmap limit [Default: %default]')
   parser.add_option('-o', dest='out_dir',
-      default='sat_plot', help='Output directory [Default: %default]')
+      default='sat_plot2', help='Output directory [Default: %default]')
   parser.add_option('-r', dest='rng_seed',
       default=1, type='float',
       help='Random number generator seed [Default: %default]')
@@ -106,7 +106,6 @@ def main():
 
   # determine sequences
   seq_indexes = np.arange(num_seqs)
-  seq_indexes = [12]
 
   if options.sample and options.sample < num_seqs:
     seq_indexes = np.random.choice(seq_indexes, size=options.sample, replace=False)
@@ -251,9 +250,12 @@ def expand_scores_align(scores1, scores2, seq1_1hot, seq2_1hot, seq1_align, seq2
 def global_align(seq1_1hot, seq2_1hot):
   """Align two 1-hot encoded sequences."""
 
+  align_opts = {'gap_open_penalty':10, 'gap_extend_penalty':1, 'match_score':5, 'mismatch_score':-4}
+
   seq1_dna = DNA(dna_io.hot1_dna(seq1_1hot))
   seq2_dna = DNA(dna_io.hot1_dna(seq2_1hot))
-  seq_align = global_pairwise_align_nucleotide(seq1_dna, seq2_dna)[0]
+  # seq_align = global_pairwise_align_nucleotide(seq1_dna, seq2_dna, *align_opts)[0]
+  seq_align = global_pairwise_align_nucleotide(seq1_dna, seq2_dna, gap_open_penalty=10, gap_extend_penalty=1, match_score=5, mismatch_score=-4)[0]
   seq1_align = str(seq_align[0])
   seq2_align = str(seq_align[1])
   return seq1_align, seq2_align

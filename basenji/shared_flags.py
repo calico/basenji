@@ -37,6 +37,3 @@ tf.flags.DEFINE_integer('test_epoch_batches', None,
 tf.flags.DEFINE_boolean('no_steps', False, 'Update ops but no step ops')
 tf.flags.DEFINE_string('restart', None, 'Restart training the model')
 tf.flags.DEFINE_integer('early_stop', 25, 'Stop training if validation loss stagnates.')
-
-# eval options
-tf.flags.DEFINE_boolean('acc_thread', False, 'Evaluate validation accuracy in a separate thread.')

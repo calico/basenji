@@ -1010,6 +1010,69 @@ class SeqNNModel(object):
       """
     fd = self.set_mode('test')
 
+    # reset metrics
+    sess.run(self.reset_metrics_op)
+
+    # set handle
+    if handle_ph is not None:
+      fd[handle_ph] = dataset.handle
+
+    # initialize batch lists
+    batch_losses = []
+    batch_target_losses = []
+    batch_sizes = []
+
+    # sequence index
+    data_available = True
+    batch_num = 0
+    si = 0
+    while data_available and (test_batches is None or batch_num < test_batches):
+      try:
+        # make predictions
+        # run_ops = [self.batch_size_op, self.loss_eval, self.loss_eval_targets, self.pearsonr_ops]
+        # run_returns = sess.run(run_ops, feed_dict=fd)
+        # batch_size, loss_batch, target_losses_batch, pearsonr_running = run_returns
+
+        run_ops = [self.batch_size_op, self.loss_eval, self.loss_eval_targets]
+        run_returns = sess.run(run_ops, feed_dict=fd)
+        batch_size, loss_batch, target_losses_batch = run_returns
+        pearsonr_running = np.zeros(len(target_losses_batch))
+
+        # accumulate loss
+        batch_losses.append(loss_batch)
+        batch_target_losses.append(target_losses_batch)
+        batch_sizes.append(batch_size)
+
+        batch_num += 1
+        si += batch_size
+
+      except tf.errors.OutOfRangeError:
+        data_available = False
+
+    # mean across batches
+    batch_losses = np.array(batch_losses, dtype='float64')
+    batch_losses = np.average(batch_losses, weights=batch_sizes)
+    batch_target_losses = np.array(batch_target_losses, dtype='float64')
+    batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
+
+    return batch_losses, batch_target_losses, pearsonr_running
+
+
+  def test_tfr_orig(self, sess, dataset, handle_ph=None, test_batches=None):
+    """ Compute model accuracy on a test set, where data is loaded from a queue.
+
+        Args:
+          sess:         TensorFlow session
+          test_batches: Number of test batches to use.
+
+        Returns:
+          acc:          Accuracy object
+      """
+    fd = self.set_mode('test')
+
+    # reset metrics
+    sess.run(self.reset_metrics_op)
+
     if handle_ph is not None:
       fd[handle_ph] = dataset.handle
 
@@ -1036,9 +1099,10 @@ class SeqNNModel(object):
       try:
         # make predictions
         run_ops = [self.targets_eval, self.preds_eval_loss,
-                   self.loss_eval, self.loss_eval_targets]
+                   self.loss_eval, self.loss_eval_targets] + self.pearsonr_ops
         run_returns = sess.run(run_ops, feed_dict=fd)
-        targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
+        targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns[:4]
+        pearsonr = run_returns[4:]
         batch_size, _, num_targets = preds_batch.shape
 
         # w/ target knowledge, create arrays
@@ -1069,10 +1133,11 @@ class SeqNNModel(object):
     batch_target_losses = np.average(batch_target_losses, axis=0, weights=batch_sizes)
 
     # instantiate accuracy object
-    acc = accuracy.Accuracy(targets, preds, targets_na,
-                            batch_losses, batch_target_losses)
+    # acc = accuracy.Accuracy(targets, preds, targets_na,
+    #                         batch_losses, batch_target_losses)
 
-    return acc
+    return batch_losses
+
 
   def test_h5(self, sess, batcher, test_batches=None):
     """ Compute model accuracy on a test set.

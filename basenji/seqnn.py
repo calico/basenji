@@ -54,7 +54,7 @@ class SeqNN(seqnn_util.SeqNNModel):
                           augment_rc=False, augment_shifts=[0],
                           ensemble_rc=False, ensemble_shifts=[0],
                           embed_penultimate=False, target_subset=None):
-    """Build training ops from input data ops."""
+    """Buildbuld training ops from input data ops."""
 
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
@@ -101,11 +101,19 @@ class SeqNN(seqnn_util.SeqNNModel):
     self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
-    # eval loss
+    # eval loss and metrics
     if not embed_penultimate:
       loss_returns = self.build_loss(self.preds_eval, data_ops['label'],
                                      data_ops.get('genome', None), target_subset)
       self.loss_eval, self.loss_eval_targets, self.targets_eval, self.preds_eval_loss = loss_returns
+
+      # PearsonR metric
+      self.pearsonr_ops = self.build_pearsonr(self.preds_eval, data_ops['label'],
+                                              data_ops.get('genome', None), target_subset)
+
+      # reset metrics op
+      metric_vars = tf.get_collection(tf.GraphKeys.METRIC_VARIABLES)
+      self.reset_metrics_op = tf.variables_initializer(metric_vars)
 
     # update # targets
     if target_subset is not None:
@@ -113,6 +121,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # helper variables
     self.preds_length = self.preds_train.shape[1].value
+    self.batch_size_op = tf.shape(self.preds_eval)[0]
+
 
   def build_sad(self, job, data_ops,
                 ensemble_rc=False, ensemble_shifts=[0],
@@ -482,6 +492,75 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     return loss_op, target_losses, targets, preds
 
+  def build_pearsonr(self, preds, targets, genome=None, target_subset=None):
+    """Compute target PearsonR using streaming variance statistics."""
+
+    ##################################################
+    # slice positions / transform targets
+
+    tstart = self.hp.batch_buffer // self.hp.target_pool
+    tend = (self.hp.seq_length - self.hp.batch_buffer) // self.hp.target_pool
+    targets = tf.identity(targets[:, tstart:tend, :], name='targets_op')
+
+    # clip
+    if self.hp.target_clip is not None:
+      targets = tf.clip_by_value(targets, 0, self.hp.target_clip)
+
+    # sqrt
+    if self.hp.target_sqrt:
+      targets = tf.sqrt(targets)
+
+    ##################################################
+    # compute target-wise pearsonr
+
+    pearsonr_updates = []
+    for ti in range(self.hp.sum_targets):
+      _, ru = tf.contrib.metrics.streaming_pearson_correlation(preds[:,:,ti], targets[:,:,ti])
+      pearsonr_updates.append(ru)
+
+    ##################################################
+    # slice
+
+    if target_subset is not None:
+      # manually specify targets
+      pearsonr_updates = tf.gather(pearsonr_updates, target_subset)
+
+    else:
+      # take genome index from first example of batch
+      try:
+        genome_i = genome[0,0]
+      except ValueError:
+        genome_i = tf.constant(0)
+
+      # find genome target start and end
+      genome_starts = []
+      genome_ends = []
+      gti = 0
+      for gi in range(self.hp.num_genomes):
+        genome_starts.append(gti)
+        gti += self.hp.num_targets[gi]
+        genome_ends.append(gti)
+      genome_starts = tf.constant(genome_starts)
+      genome_ends = tf.constant(genome_ends)
+
+      targets_start = tf.gather(genome_starts, genome_i)
+      targets_end = tf.gather(genome_ends, genome_i)
+
+      # slice to genome targets
+      target_indexes_genome = tf.range(targets_start, targets_end)
+      pearsonr_updates = tf.gather(pearsonr_updates, target_indexes_genome)
+
+    return pearsonr_updates
+
+  def build_pearsonr_easy(self, preds, targets):
+    """Compute target PearsonR using streaming variance statistics."""
+
+    pearsonr_updates = []
+    for ti in range(targets.shape[2].value):
+        _, ru = tf.contrib.metrics.streaming_pearson_correlation(preds[:,:,ti], targets[:,:,ti])
+        pearsonr_updates.append(ru)
+
+    return pearsonr_updates
 
   def set_mode(self, mode):
     """ Construct a feed dictionary to specify the model's mode. """

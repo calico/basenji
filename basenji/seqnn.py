@@ -84,6 +84,11 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
       self.build_optimizer(self.loss_train)
 
+      # allegedly correct, but outperformed by skipping
+      # with tf.control_dependencies(self.update_ops):
+      #   self.build_optimizer(self.loss_train)
+
+
     ##################################################
     # eval
 

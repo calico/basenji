@@ -43,6 +43,7 @@ class SAD5:
 
 
     def __getitem__(self, si_ti):
+        cdf_buf = 1e-5
         if isinstance(si_ti, slice):
             print('SAD5 slice is not implemented.', file=sys.stderr)
             exit(1)
@@ -50,25 +51,31 @@ class SAD5:
         # single target
         elif isinstance(si_ti, tuple):
             si, ti = si_ti
-            sad_st = self.sad_matrix[si,ti]
+            sad_st = self.sad_matrix[si,ti].astype('float32')
             sad_st_q = self.target_cauchy_fit[ti].cdf(sad_st)
+            if sad_st_q > 0.5:
+                sad_st_q -= cdf_buf
+            else:
+                sad_st_q += cdf_buf
             sad_norm = self.target_cauchy_norm[ti].ppf(sad_st_q)
 
         elif isinstance(si_ti, (list,np.ndarray)):
             si = si_ti
-            sad_s = self.sad_matrix[si,:]
+            sad_s = self.sad_matrix[si,:].astype('float32')
             sad_norm = np.zeros(sad_s.shape)
             for ti in range(self.num_targets):
                 sad_s_q = self.target_cauchy_fit[ti].cdf(sad_s[:,ti])
+                sad_s_q = np.where(sad_s_q > 0.5, sad_s_q-cdf_buf, sad_s_q+cdf_buf)
                 sad_norm[:,ti] = self.target_cauchy_norm[ti].ppf(sad_s_q)
 
         # single SNP, multiple targets
         else:
             si = si_ti
-            sad_s = self.sad_matrix[si,:]
+            sad_s = self.sad_matrix[si,:].astype('float32')
             sad_norm = np.zeros(sad_s.shape)
             for ti in range(self.num_targets):
                 sad_s_q = self.target_cauchy_fit[ti].cdf(sad_s[ti])
+                sad_s_q = np.where(sad_s_q > 0.5, sad_s_q-cdf_buf, sad_s_q+cdf_buf)
                 sad_norm[ti] = self.target_cauchy_norm[ti].ppf(sad_s_q)
 
         return sad_norm

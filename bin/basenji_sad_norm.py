@@ -120,10 +120,6 @@ def main():
 
         jointplot(np.linspace(0,1,len(sort_i)), cauchy_q[sort_i], quantile_pdf,
                   square=True, cor=None, x_label='Empirical', y_label='Cauchy')
-        # plt.figure()
-        # g = sns.jointplot(np.linspace(0,1,len(sort_i)), cauchy_q[sort_i], joint_kws={'alpha':0.5, 's':10})
-        # plt.savefig()
-        # plt.close()
 
     # QC plots
     norm_dir = '%s/norm' % options.out_dir

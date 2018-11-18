@@ -115,6 +115,12 @@ def main():
       help='Output directory [Default: %default]'
   )
   parser.add_option(
+      '-q',
+      dest='mapq_t',
+      default=2,
+      type='int',
+      help='Filter alignments for MAPQ >= threshold [Default: %default]')
+  parser.add_option(
       '-s',
       dest='smooth_sd',
       default=32,
@@ -179,7 +185,8 @@ def main():
       shift_center=options.shift_center,
       shift_forward=options.shift_forward_end,
       shift_reverse=options.shift_reverse_end,
-      fasta_file=options.fasta_file)
+      fasta_file=options.fasta_file,
+      mapq_t=options.mapq_t)
 
   # estimate fragment shift
   if options.shift_center:
@@ -469,6 +476,7 @@ class GenomeCoverage:
                shift_center=False,
                shift_forward=0,
                shift_reverse=0,
+               mapq_t=1,
                fasta_file=None):
 
     self.stranded = stranded
@@ -498,6 +506,8 @@ class GenomeCoverage:
 
     self.adaptive_cdf = 0.01
     self.adaptive_t = {}
+
+    self.mapq_t = mapq_t
 
     self.fasta = None
     if fasta_file is not None:
@@ -1178,7 +1188,7 @@ class GenomeCoverage:
       last_read_id = ''
 
     for align in pysam.AlignmentFile(bam_file):
-      if not align.is_unmapped:
+      if not align.is_unmapped and align.mapq >= self.mapq_t:
         read_id = (align.query_name, align.is_read1)
 
         # set alignment shift
@@ -1186,8 +1196,10 @@ class GenomeCoverage:
 
         # set alignment event position
         chrom_pos = align.reference_start - 1 + align_shift_forward
+        chrom_pos = min(chrom_pos, self.chrom_lengths[align.reference_name]-1)
         if align.is_reverse:
           chrom_pos = align.reference_end - 1 - align_shift_reverse
+          chrom_pos = max(chrom_pos, 0)
 
         # set genome index
         if self.stranded:
@@ -1195,6 +1207,7 @@ class GenomeCoverage:
           gi = self.genome_index(align.reference_id, chrom_pos, strand)
         else:
           gi = self.genome_index(align.reference_id, chrom_pos)
+        assert(gi < len(self.unique_counts))
 
         # count unique
         if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
@@ -1378,8 +1391,10 @@ class GenomeCoverage:
       # determine shifted event position
       if multi_strand == '+':
         multi_pos = int(multi_start[1:])-1 + align_shift_forward
+        multi_pos = min(multi_pos, self.chrom_lengths[multi_chrom]-1)
       elif multi_strand == '-':
         multi_pos = int(multi_start[1:])-1 + cigar_len(multi_cigar)-1 - align_shift_reverse
+        multi_pos = max(multi_pos, 0)
       else:
         print('Bad assumption of initial +- for BWA multimap position: %s' % multi_start, file=sys.stderr)
         exit(1)

@@ -148,7 +148,7 @@ def main():
   seqs_cov_open.close()
 
 
-def read_blacklist(blacklist_bed, black_buffer=16):
+def read_blacklist(blacklist_bed, black_buffer=20):
   """Construct interval trees of blacklist
      regions for each chromosome."""
   black_chr_trees = {}

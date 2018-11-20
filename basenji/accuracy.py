@@ -18,13 +18,12 @@ import numpy as np
 import scipy.stats as stats
 import sklearn.metrics as metrics
 
-
-"""accuracy.py
+"""
+accuracy.py
 
 Accuracy class to more succinctly store predictions/targets and
 compute accuracy statistics.
 """
-
 
 class Accuracy:
 
@@ -40,7 +39,7 @@ class Accuracy:
     self.loss = loss
     self.target_losses = target_losses
 
-    self.num_targets = self.targets.shape[-1]
+    self.num_targets = len(self.target_losses)
 
   def pearsonr(self, log=False, pseudocount=1, clip=None):
     """ Compute target PearsonR vector. """

@@ -17,7 +17,9 @@ from __future__ import print_function
 
 import os
 import pdb
+from queue import Queue
 import sys
+from threading import Thread
 import time
 
 import numpy as np
@@ -34,8 +36,13 @@ FLAGS = tf.app.flags.FLAGS
 def main(_):
   np.random.seed(FLAGS.seed)
 
+  # split comma-separated files
   train_files = FLAGS.train_data.split(',')
   test_files = FLAGS.test_data.split(',')
+
+  # determine whether to save predictions/targets
+  if not FLAGS.r2 and not FLAGS.r:
+    FLAGS.metrics_sample = 0.
 
   run(params_file=FLAGS.params,
       train_files=train_files,
@@ -64,6 +71,13 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
   model.build_from_data_ops(job, data_ops,
                             FLAGS.augment_rc, augment_shifts,
                             FLAGS.ensemble_rc, ensemble_shifts)
+
+  # launch accuracy metrics compute thread
+  if FLAGS.metrics_thread:
+    metrics_queue = Queue()
+    metrics_thread = MetricsWorker(metrics_queue)
+    metrics_thread.start()
+
 
   # checkpoints
   saver = tf.train.Saver()
@@ -114,25 +128,28 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       # train epoch
       train_losses, steps = model.train2_epoch_ops(sess, handle, train_dataseqs)
 
+      if FLAGS.metrics_thread:
+        # block for previous metrics compute
+        metrics_queue.join()
+
       # test validation
+      valid_accs = []
       valid_losses = []
-      valid_pearsonr = []
       for gi in range(job['num_genomes']):
         if test_dataseqs[gi].iterator is None:
-          # valid_accs.append(None)
+          valid_accs.append(None)
           valid_losses.append(np.nan)
-          valid_pearsonr.append([])
 
         else:
           # initialize
           sess.run(test_dataseqs[gi].iterator.initializer)
 
           # compute
-          valid_losses_gi, _, valid_pearsonr_gi = model.test_tfr(sess, test_dataseqs[gi], handle, test_epoch_batches)
+          valid_acc = model.test_tfr(sess, test_dataseqs[gi], handle, test_epoch_batches, FLAGS.metrics_sample)
 
           # save
-          valid_losses.append(valid_losses_gi)
-          valid_pearsonr.append(valid_pearsonr_gi)
+          valid_accs.append(valid_acc)
+          valid_losses.append(valid_acc.loss)
 
       # summarize
       train_loss = np.nanmean(train_losses)
@@ -157,12 +174,18 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       else:
         time_str = '%3.1fh' % (et / 3600)
 
-      # compute and write accuracy update
-      update_args = (epoch, steps, train_losses, valid_losses, valid_pearsonr, time_str, best_str)
-      accuracy_update(*update_args)
+      # compute and write accuracy metrics update
+      update_args = (epoch, steps, train_losses, valid_losses, valid_accs, time_str, best_str)
+      if FLAGS.metrics_thread:
+        metrics_queue.put(update_args)
+      else:
+        metrics_update(*update_args)
 
       # update epoch
       epoch += 1
+
+    # block for final metrics compute
+    metrics_queue.join()
 
     if FLAGS.logdir:
       train_writer.close()
@@ -218,34 +241,74 @@ def make_data_ops(job, train_patterns, test_patterns):
   return data_ops, handle, train_dataseqs, test_dataseqs
 
 
-def accuracy_update(epoch, steps, train_losses, valid_losses, valid_target_pearsonrs, time_str, best_str):
-  """Compute and print accuracy update."""
+def metrics_update(epoch, steps, train_losses, valid_losses, valid_accs, time_str, best_str):
+  """Compute and print accuracy metrics update."""
   num_genomes = len(train_losses)
 
-  # take pearsonr means
-  valid_pearsonrs = []
-  for gi in range(len(valid_target_pearsonrs)):
-    if len(valid_target_pearsonrs[gi]) > 0:
-      valid_pearsonrs.append(np.mean(valid_target_pearsonrs[gi]))
-    else:
-      valid_pearsonrs.append(np.nan)
-
-  # summarize
+  # summarize losses
   train_loss = np.nanmean(train_losses)
   valid_loss = np.nanmean(valid_losses)
-  valid_pearsonr = np.nanmean(valid_pearsonrs)
 
-  # print update
+
+  # take means across targets within genoem
+  valid_rs = np.zeros(num_genomes)
+  valid_r2s = np.zeros(num_genomes)
+  for gi, valid_acc in enumerate(valid_accs):
+    if np.isnan(valid_losses[gi]):
+      valid_rs[gi] = np.nan
+      valid_r2s[gi] = np.nan
+    else:
+      if FLAGS.r:
+        valid_rs[gi] = valid_acc.pearsonr().mean()
+      if FLAGS.r2:
+        valid_r2s[gi] = valid_acc.r2().mean()
+  valid_r2_mean = np.nanmean(valid_r2s)
+  valid_r_mean = np.nanmean(valid_rs)
+
+  # print cross-genome update
   print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-  print(' Valid loss: %7.5f, Valid R: %7.5f,' % (valid_loss, valid_pearsonr), end='')
+  print(' Valid loss: %7.5f,' % valid_loss, end='')
+  if FLAGS.r2:
+    print(' Valid R2: %7.5f,' % valid_r2_mean, end='')
+  if FLAGS.r:
+    print(' Valid R: %7.5f,' % valid_r_mean, end='')
   print(' Time: %s%s' % (time_str, best_str))
 
   # print genome-specific updates
   for gi in range(num_genomes):
     if not np.isnan(valid_losses[gi]):
       print(' Genome:%d,                    Train loss: %7.5f,' % (gi, train_losses[gi]), end='')
-      print(' Valid loss: %7.5f, Valid R: %7.5f' % (valid_losses[gi], valid_pearsonrs[gi]))
+      print(' Valid loss: %7.5f,' % valid_losses[gi], end='')
+      if FLAGS.r2:
+        print(' Valid R2: %7.5f,' % valid_r2s[gi], end='')
+      if FLAGS.r:
+        print(' Valid R: %7.5f,' % valid_rs[gi], end='')
+      print('')
   sys.stdout.flush()
+
+  # delete predictions and targets
+  for valid_acc in valid_accs:
+    if valid_acc is not None:
+      del valid_acc
+
+class MetricsWorker(Thread):
+  """Compute accuracy metrics and print update line."""
+  def __init__(self, metrics_queue):
+    Thread.__init__(self)
+    self.queue = metrics_queue
+    self.daemon = True
+
+  def run(self):
+    while True:
+      try:
+        metrics_update(*self.queue.get())
+
+      except:
+        # communicate error
+        print('ERROR: epoch accuracy and progress update failed.', flush=True)
+
+      # communicate finished task
+      self.queue.task_done()
 
 if __name__ == '__main__':
   tf.app.run(main)

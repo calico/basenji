@@ -37,3 +37,9 @@ tf.flags.DEFINE_integer('test_epoch_batches', None,
 tf.flags.DEFINE_boolean('no_steps', False, 'Update ops but no step ops')
 tf.flags.DEFINE_string('restart', None, 'Restart training the model')
 tf.flags.DEFINE_integer('early_stop', 25, 'Stop training if validation loss stagnates.')
+
+# eval options
+tf.flags.DEFINE_boolean('metrics_thread', False, 'Evaluate validation metrics in a separate thread.')
+tf.flags.DEFINE_boolean('r', False, 'Compute validation set PearsonrR.')
+tf.flags.DEFINE_boolean('r2', False, 'Compute validation set R2.')
+tf.flags.DEFINE_float('metrics_sample', 1.0, 'Sample sequence positions for computing metrics.')

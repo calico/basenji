@@ -50,10 +50,16 @@ def conv_block(seqs_repr, conv_params, is_training,
 
   # Batch norm
   if batch_norm:
+    if conv_params.skip_layers > 0:
+      gamma_init = tf.zeros_initializer()
+    else:
+      gamma_init = tf.ones_initializer()
+
     seqs_repr_next = tf.layers.batch_normalization(
         seqs_repr_next,
         momentum=batch_norm_momentum,
         training=is_training,
+        gamma_initializer=gamma_init,
         renorm=batch_renorm,
         renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
         renorm_momentum=batch_renorm_momentum,

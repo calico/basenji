@@ -292,7 +292,7 @@ def main():
             print('Population unavailable.', file=sys.stderr)
 
         # retrieve scores and LD
-        snp_ldscores, df_ld, snps_scores = sad5.retrieve_snp(snp_id, chrm, pos)
+        snp_ldscores, df_ld, snps_scores = sad5.retrieve_snp(snp_id, chrm, pos, ld_t=0.5)
 
         # mask
         snp_ldscores = snp_ldscores[target_mask]

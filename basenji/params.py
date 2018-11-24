@@ -345,6 +345,7 @@ def add_cnn_params_dres(params):
   # reduce
 
   while reduce_width < params.conv_reduce_width_max:
+    # current_filters = int(current_filters*params.conv_reduce_filters_mult)
     current_filters = current_filters*params.conv_reduce_filters_mult
 
     cp = ConvParams(

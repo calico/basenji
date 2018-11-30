@@ -370,6 +370,18 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
   snp_ids = np.array([snp.rsid for snp in snps], 'S')
   sad_out.create_dataset('snp', data=snp_ids)
 
+  # write SNP chr
+  snp_chr = np.array([snp.chr for snp in snps], 'S')
+  sad_out.create_dataset('chr', data=snp_chr)
+
+  # write SNP pos
+  snp_pos = np.array([snp.pos for snp in snps], dtype='uint32')
+  sad_out.create_dataset('pos', data=snp_pos)
+
+  # write SNP reference allele
+  snp_refs = np.array([snp.ref_allele for snp in snps], 'S')
+  sad_out.create_dataset('ref', data=snp_refs)
+
   # write targets
   sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))
   sad_out.create_dataset('target_labels', data=np.array(target_labels, 'S'))

@@ -9,15 +9,14 @@ import sys
 import numpy as np
 import pandas as pd
 import h5py
-from tqdm import tqdm
 
 from google.cloud import bigquery
 
 import dash
+import dash_table as dt
 import dash.dependencies as dd
 import dash_core_components as dcc
 import dash_html_components as html
-import dash_table_experiments as dt
 import plotly.graph_objs as go
 
 from basenji.sad5 import ChrSAD5
@@ -54,7 +53,12 @@ def main():
     #############################################
     # layout
 
-    app = dash.Dash()
+    column_widths = [('SNP',150), ('Association',125),
+                     ('Score',125), ('ScoreQ',125), ('R',125),
+                     ('Experiment',125), ('Description',200)]
+    scc = [{'if': {'column_id': cw[0]}, 'width':cw[1]} for cw in column_widths]
+
+    app = dash.Dash(__name__)
     app.css.append_css({"external_url": "https://codepen.io/chriddyp/pen/bWLwgP.css"})
 
     app.layout = html.Div([
@@ -89,7 +93,7 @@ def main():
                         {'label':'1kG European', 'value':'EUR'},
                         {'label':'1kG South Asian', 'value':'SAS'}
                     ],
-                    value='EUR'
+                    value='-'
                 )
             ], style={'width': '250', 'display': 'inline-block'}),
 
@@ -110,20 +114,28 @@ def main():
         html.Div([
             dt.DataTable(
                 id='table',
-                rows=[],
-                columns=['SNP', 'Association', 'Score', 'ScoreQ', 'R', 'Experiment', 'Description'],
-                column_widths=[150, 125, 125, 125, 125, 200],
+                data=[],
+                columns=[{'id':cw[0],'name':cw[0]} for cw in column_widths],
+                style_cell_conditional=scc,
                 editable=False,
-                filterable=True,
-                sortable=True,
-                resizable=True,
-                sortColumn='Association',
-                row_selectable=True,
-                selected_row_indices=[],
-                max_rows_in_viewport=20
+                filtering=True,
+                sorting=True,
+                n_fixed_rows=20
             )
         ])
     ])
+
+        # html.Div([
+        #     dt.DataTable(
+        #         id='table',
+        #         data=[],
+        #         columns=[cw[0] for cw in column_widths],
+        #         style_cell_conditional=scc,
+        #         editable=False,
+        #         filtering=True,
+        #         sorting=True,
+        #         n_fixed_rows=20
+        #     )
 
 
     #############################################
@@ -160,7 +172,7 @@ def main():
 
         return snp_sad, snp_pct
 
-    def snp_rows(snp_id, dataset, ld_r=1., verbose=True):
+    def snp_rows(snp_id, dataset, ld_r2=1., verbose=True):
         """Construct table rows for the given SNP id and its LD set
            in the given dataset."""
         rows = []
@@ -175,8 +187,8 @@ def main():
 
             # round floats
             snp_sad = np.around(snp_sad,4)
-            snp_assoc = np.around(snp_sad*ld_r, 4)
-            ld_r_round = np.around(ld_r, 4)
+            snp_assoc = np.around(snp_sad*ld_r2, 4)
+            ld_r2_round = np.around(ld_r2, 4)
 
             # extract target scores and info
             for ti, tid in enumerate(sad5.target_ids):
@@ -186,7 +198,7 @@ def main():
                         'Association': snp_assoc[ti],
                         'Score': snp_sad[ti],
                         'ScoreQ': snp_pct[ti],
-                        'R': ld_r_round,
+                        'R': ld_r2_round,
                         'Experiment': tid,
                         'Description': sad5.target_labels[ti]})
         elif verbose:
@@ -204,12 +216,33 @@ def main():
                 dataset_mask.append(sad5.target_labels[ti].startswith(dataset))
         return np.array(dataset_mask, dtype='bool')
 
+    def snp_scores(snp_id, dataset, ld_r2=1.):
+        """Compute an array of scores for this SNP
+           in the specified dataset."""
+
+        dataset_mask = make_data_mask(dataset)
+
+        scores = np.zeros(dataset_mask.sum(), dtype='float64')
+
+        # search for SNP
+        chrm, snp_i = sad5.snp_chr_index(snp_id)
+        if snp_i is not None:
+            # read SAD
+            snp_sad, _ = read_sad(chrm, snp_i)
+
+            # filter datasets
+            snp_sad = snp_sad[dataset_mask]
+
+            # add
+            scores += snp_sad*ld_r2
+
+        return scores
 
     #############################################
     # callbacks
 
     @app.callback(
-        dd.Output('table', 'rows'),
+        dd.Output('table', 'data'),
         [dd.Input('snp_submit', 'n_clicks')],
         [
             dd.State('snp_id','value'),
@@ -222,45 +255,13 @@ def main():
         if verbose:
             print('Tabling')
 
-        # look up SNP index
-        chrm, snp_i = sad5.snp_chr_index(snp_id)
+        # add snp_id rows
+        rows = snp_rows(snp_id, dataset)
 
-        # look up position
-        pos = sad5.snp_pos(snp_i, chrm)
-
-        # set population
-        try:
-            sad5.set_population(population)
-        except ValueError:
-            print('Population unavailable.', file=sys.stderr)
-
-        # retrieve scores and LD
-        snp_ldscores, df_ld, snps_scores = sad5.retrieve_snp(snp_id, chrm, pos, ld_t=0.5)
-
-        # construct rows
-        rows = []
-
-        # for each SNP
-        for i, v in tqdm(df_ld.iterrows()):
-            # round floats
-            snp_sad = np.around(snps_scores[i], 4)
-            snp_assoc = np.around(snp_sad*v.r, 4)
-            ld_r_round = np.around(v.r, 4)
-
-            # read percentiles
-            snp_pct = sad5.chr_sad5[chrm].sad_pct(snp_sad)
-
-            # for each target
-            for ti, tid in enumerate(sad5.target_ids):
-                if dataset == 'All' or sad5.target_labels[ti].startswith(dataset):
-                    rows.append({
-                        'SNP': v.snp,
-                        'Association': snp_assoc[ti],
-                        'Score': snp_sad[ti],
-                        'ScoreQ': snp_pct[ti],
-                        'R': ld_r_round,
-                        'Experiment': tid,
-                        'Description': sad5.target_labels[ti]})
+        if population != '-':
+            df_ld = query_ld(population, snp_id)
+            for i, v in df_ld.iterrows():
+                rows += snp_rows(v.snp, dataset, v.r)
 
         return rows
 
@@ -279,35 +280,25 @@ def main():
 
         target_mask = make_data_mask(dataset)
 
-        # look up SNP index
-        chrm, snp_i = sad5.snp_chr_index(snp_id)
+        # add snp_id rows
+        query_scores = snp_scores(snp_id, dataset)
 
-        # look up position
-        pos = sad5.snp_pos(snp_i, chrm)
-
-        # set population
-        try:
-            sad5.set_population(population)
-        except ValueError:
-            print('Population unavailable.', file=sys.stderr)
-
-        # retrieve scores and LD
-        snp_ldscores, df_ld, snps_scores = sad5.retrieve_snp(snp_id, chrm, pos, ld_t=0.5)
-
-        # mask
-        snp_ldscores = snp_ldscores[target_mask]
+        if population != '-':
+            df_ld = query_ld(population, snp_id)
+            for i, v in df_ld.iterrows():
+                query_scores += snp_scores(v.snp, dataset, v.r)
 
         # sort
-        sorted_indexes = np.argsort(snp_ldscores)
+        sorted_indexes = np.argsort(query_scores)
 
         # range
-        ymax = np.abs(snp_ldscores).max()
+        ymax = np.abs(query_scores).max()
         ymax *= 1.2
 
         return {
             'data': [go.Scatter(
-                x=np.arange(len(snp_ldscores)),
-                y=snp_ldscores[sorted_indexes],
+                x=np.arange(len(query_scores)),
+                y=query_scores[sorted_indexes],
                 text=sad5.target_ids[target_mask][sorted_indexes],
                 mode='markers'
             )],
@@ -315,7 +306,7 @@ def main():
                 'height': 400,
                 'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
                 'yaxis': {'range': [-ymax,ymax]},
-                'xaxis': {'range': [-1,1+len(snp_ldscores)]}
+                'xaxis': {'range': [-1,1+len(query_scores)]}
             }
         }
 

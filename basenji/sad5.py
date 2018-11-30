@@ -1,15 +1,19 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import glob
 import pdb
+import os
 
 import h5py
 import numpy as np
 from scipy.stats import cauchy
 
+from basenji.emerald import EmeraldVCF
+
 '''
 sad5.py
 
-SAD HDF5 interface.
+Interfaces to normalized and population-adjusted SAD scores.
 '''
 
 class SAD5:
@@ -20,8 +24,15 @@ class SAD5:
         self.sad_matrix = self.sad_h5_open[sad_key]
         self.num_snps, self.num_targets = self.sad_matrix.shape
 
-        self.target_ids = [tl.decode('UTF-8') for tl in self.sad_h5_open['target_ids']]
-        self.target_labels = [tl.decode('UTF-8') for tl in self.sad_h5_open['target_labels']]
+        self.target_ids = np.array([tl.decode('UTF-8') for tl in self.sad_h5_open['target_ids']])
+        self.target_labels = np.array([tl.decode('UTF-8') for tl in self.sad_h5_open['target_labels']])
+
+        # read SAD percentile indexes into memory
+        self.pct_sad = np.array(self.sad_h5_open['SAD_pct'])
+
+        # read percentiles
+        self.percentiles = np.around(self.sad_h5_open['percentiles'], 3)
+        self.percentiles = np.append(self.percentiles, self.percentiles[-1])
 
         # fit, if not present
         if recompute_norm or not 'target_cauchy_fit_loc' in self.sad_h5_open:
@@ -43,6 +54,8 @@ class SAD5:
 
 
     def __getitem__(self, si_ti):
+        """Return normalized scores for the given SNP and target indexes."""
+
         cdf_buf = 1e-5
         if isinstance(si_ti, slice):
             print('SAD5 slice is not implemented.', file=sys.stderr)
@@ -158,6 +171,116 @@ class SAD5:
         self.sad_h5_open.close()
         self.sad_h5_open = h5py.File(self.sad_h5_file, 'r')
 
+    def pos(self, snp_i):
+        return self.sad_h5_open['pos'][snp_i]
+
+    def sad_pct(self, sad):
+        # compute percentile indexes
+        sadq = []
+        for ti in range(len(sad)):
+            sadq.append(int(np.searchsorted(self.pct_sad[ti], sad[ti])))
+
+        # return percentiles
+        return self.percentiles[sadq]
 
     def snps(self):
         return np.array(self.sad_h5_open['snp'])
+
+
+class ChrSAD5:
+    def __init__(self, sad_h5_path, population='EUR', index_chr=False):
+        self.index_chr = index_chr
+        self.set_population(population)
+        self.open_chr_sad5(sad_h5_path)
+        self.index_snps()
+        self.target_info()
+
+
+    def index_snps(self):
+        """Hash RSID's to HDF5 index."""
+        self.snp_indexes = {}
+
+        # for each chromosome
+        for ci in self.chr_sad5:
+
+            # hash SNP ids to indexes
+            snps = self.chr_sad5[ci].snps()
+            for i, snp_id in enumerate(snps):
+                snp_id = snp_id.decode('UTF-8')
+                if self.index_chr:
+                    self.snp_indexes[snp_id] = (ci,i)
+                else:
+                    self.snp_indexes[snp_id] = i
+
+            # clean up
+            del snps
+
+    def open_chr_sad5(self, sad_h5_path):
+        self.chr_sad5 = {}
+
+        # TEMP
+        # for sad_h5_file in glob.glob('%s/*/sad.h5' % sad_h5_path):
+        for sad_h5_file in glob.glob('%s/chr1/sad.h5' % sad_h5_path):
+            sad5 = SAD5(sad_h5_file)
+            chrm = sad_h5_file.split('/')[-2]
+            if chrm.startswith('chr'):
+                chrm = chrm[3:]
+            self.chr_sad5[chrm] = sad5
+
+    def retrieve_snp(self, snp_id, chrm, pos, ld_t=0.1):
+        if chrm.startswith('chr'):
+            chrm = chrm[3:]
+
+        if snp_id in self.snp_indexes:
+            snp_i = self.snp_indexes[snp_id]
+
+            # retrieve LD variants
+            ld_df = self.emerald_vcf.query_ld(snp_id, chrm, pos, ld_t=ld_t)
+
+            # retrieve scores for LD snps
+            ld_snp_indexes = np.zeros(ld_df.shape[0], dtype='uint32')
+            for si, ld_snp_id in enumerate(ld_df.snp):
+                if self.index_chr:
+                    _, ld_snp_i = self.snp_indexes[ld_snp_id]
+                else:
+                    ld_snp_i = self.snp_indexes[ld_snp_id]
+                ld_snp_indexes[si] = ld_snp_i
+            snps_scores = self.chr_sad5[chrm][ld_snp_indexes]
+
+            # (1xN)(NxT) = (1xT)
+            ld_r1 = np.reshape(ld_df.r.values, (1,-1))
+            snp_ldscores = np.squeeze(np.matmul(ld_r1, snps_scores))
+
+            return snp_ldscores, ld_df, snps_scores
+        else:
+            return [], [], None
+
+    def set_population(self, population):
+        self.pop_vcf_stem = '%s/popgen/1000G/phase3/%s/1000G.%s.QC' % (os.environ['HG19'], population.lower(), population.upper())
+        if glob.glob('%s*' % self.pop_vcf_stem):
+            self.emerald_vcf = EmeraldVCF(self.pop_vcf_stem)
+        else:
+            raise ValueError('Population %s not found' % population)
+
+    def snp_chr_index(self, snp_id):
+        if not self.index_chr:
+            raise RuntimeError('SNPs not indexed to retrieve chromosome')
+        else:
+            return self.snp_indexes.get(snp_id, (None,None))
+
+    def snp_index(self, snp_id):
+        if self.index_chr:
+            chrm, snp_i = self.snp_indexes[snp_id]
+        else:
+            snp_i = self.snp_indexes.get(snp_id, None)
+        return snp_i
+
+    def snp_pos(self, snp_i, chrm):
+        return self.chr_sad5[chrm].pos(snp_i)
+
+    def target_info(self):
+        # easy access to target information
+        chrm = list(self.chr_sad5.keys())[0]
+        self.target_ids = self.chr_sad5[chrm].target_ids
+        self.target_labels = self.chr_sad5[chrm].target_labels
+        self.num_targets = len(self.target_ids)

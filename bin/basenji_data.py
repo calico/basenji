@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import collections
+import heapq
 import math
 import pdb
 import os
@@ -48,6 +49,9 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
+  parser.add_option('--break', dest='break_t',
+      default=None, type='int',
+      help='Break in half contigs above length [Default: %default]')
   # parser.add_option('-c', dest='clip',
   #     default=None, type='float',
   #     help='Clip target values to have minimum [Default: %default]')
@@ -139,6 +143,10 @@ def main():
   # filter for large enough
   contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
 
+  # break up large contigs
+  if options.break_t is not None:
+    contigs = break_large_contigs(contigs, options.break_t)
+
   # down-sample
   if options.sample_pct < 1.0:
     contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
@@ -168,6 +176,11 @@ def main():
     contig_sets = divide_contigs_chr(contigs, test_chr, valid_chr)
 
   train_contigs, valid_contigs, test_contigs = contig_sets
+
+  # rejoin broken contigs within set
+  train_contigs = rejoin_large_contigs(train_contigs)
+  valid_contigs = rejoin_large_contigs(valid_contigs)
+  test_contigs = rejoin_large_contigs(test_contigs)
 
   ################################################################
   # define model sequences
@@ -370,7 +383,6 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
     seq_end = int(a[2])
     seq_key = (seq_chrom, seq_start)
 
-    assert(a[3].startswith('chr'))
     unmap_start = int(a[4])
     unmap_end = int(a[5])
 
@@ -397,6 +409,54 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
     assert(seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end].sum() == pool_seq_unmap_end-pool_seq_unmap_start)
 
   return seqs_unmap
+
+
+################################################################################
+def break_large_contigs(contigs, break_t, verbose=False):
+  """Break large contigs in half until all contigs are under
+     the size threshold."""
+
+  # initialize a heapq of contigs and lengths
+  contig_heapq = []
+  for ctg in contigs:
+    ctg_len = ctg.end - ctg.start
+    heapq.heappush(contig_heapq, (-ctg_len, ctg))
+
+  ctg_len = break_t + 1
+  while ctg_len > break_t:
+
+    # pop largest contig
+    ctg_nlen, ctg = heapq.heappop(contig_heapq)
+    ctg_len = -ctg_nlen
+
+    # if too large
+    if ctg_len > break_t:
+      if verbose:
+        print('Breaking %s:%d-%d (%d nt)' % (ctg.chr,ctg.start,ctg.end,ctg_len))
+
+      # break in two
+      ctg_mid = ctg.start + ctg_len//2
+
+      try:
+        ctg_left = Contig(ctg.genome, ctg.chr, ctg.start, ctg_mid)
+        ctg_right = Contig(ctg.genome, ctg.chr, ctg_mid, ctg.end)
+      except AttributeError:
+        ctg_left = Contig(ctg.chr, ctg.start, ctg_mid)
+        ctg_right = Contig(ctg.chr, ctg_mid, ctg.end)
+
+      # add left
+      ctg_left_len = ctg_left.end - ctg_left.start
+      heapq.heappush(contig_heapq, (-ctg_left_len, ctg_left))
+
+      # add right
+      ctg_right_len = ctg_right.end - ctg_right.start
+      heapq.heappush(contig_heapq, (-ctg_right_len, ctg_right))
+
+  # return to list
+  contigs = [len_ctg[1] for len_ctg in contig_heapq]
+
+  return contigs
+
 
 ################################################################################
 def contig_sequences(contigs, seq_length, stride, label=None):
@@ -571,6 +631,41 @@ def limit_contigs(contigs, filter_bed):
   os.remove(ctg_bed_file)
 
   return fcontigs
+
+
+################################################################################
+def rejoin_large_contigs(contigs):
+  """ Rejoin large contigs that were broken up before alignment comparison."""
+
+  # split list by chromosome
+  chr_contigs = {}
+  for ctg in contigs:
+    chr_contigs.setdefault(ctg.chr,[]).append(ctg)
+
+  contigs = []
+  for chrm in chr_contigs:
+    # sort within chromosome
+    chr_contigs[chrm].sort(key=lambda x: x.start)
+
+    ctg_ongoing = chr_contigs[chrm][0]
+    for i in range(1, len(chr_contigs[chrm])):
+      ctg_this = chr_contigs[chrm][i]
+      if ctg_ongoing.end == ctg_this.start:
+        # join
+        # ctg_ongoing.end = ctg_this.end
+        ctg_ongoing = ctg_ongoing._replace(end=ctg_this.end)
+      else:
+        # conclude ongoing
+        contigs.append(ctg_ongoing)
+
+        # move to next
+        ctg_ongoing = ctg_this
+
+    # conclude final
+    contigs.append(ctg_ongoing)
+
+  return contigs
+
 
 ################################################################################
 def write_seqs_bed(bed_file, seqs, labels=False):

@@ -40,7 +40,7 @@ def main():
   usage = 'usage: %prog [options] <fasta_file> <seqs_bed_file> <seqs_cov_dir> <tfr_file>'
   parser = OptionParser(usage)
   parser.add_option('-g', dest='genome_index',
-      default=0, type='int', help='Genome index')
+      default=None, type='int', help='Genome index')
   parser.add_option('-s', dest='start_i',
       default=0, type='int',
       help='Sequence start index [Default: %default]')
@@ -84,11 +84,17 @@ def main():
 
   seqs_cov_files = []
   ti = 0
-  seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
+  if options.genome_index is None:
+    seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
+  else:
+    seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
   while os.path.isfile(seqs_cov_file):
     seqs_cov_files.append(seqs_cov_file)
     ti += 1
-    seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
+    if options.genome_index is None:
+      seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
+    else:
+      seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
 
   if len(seqs_cov_files) == 0:
     print('Sequence coverage files not found, e.g. %s' % seqs_cov_file, file=sys.stderr)
@@ -151,10 +157,15 @@ def main():
       # one hot code
       seq_1hot = dna_1hot(seq_dna)
 
-      example = tf.train.Example(features=tf.train.Features(feature={
-          'genome': _int_feature(options.genome_index),
-          'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-          'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
+      if options.genome_index is None:
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
+            'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
+      else:
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'genome': _int_feature(options.genome_index),
+            'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
+            'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
 
       writer.write(example.SerializeToString())
 

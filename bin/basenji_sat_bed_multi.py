@@ -78,7 +78,8 @@ def main():
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
-    parser.error('Must provide parameters and model files and VCF file')
+    print(args)
+    parser.error('Must provide parameters and model files and BED file')
   else:
     params_file = args[0]
     model_file = args[1]
@@ -105,7 +106,7 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      cmd = 'source activate py3_gpu; basenji_sat_bed.py %s %s %d' % (
+      cmd = 'source activate tf1.12-gpu; basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
       name = 'sat_p%d' % pi
       outf = '%s/job%d.out' % (options.out_dir, pi)

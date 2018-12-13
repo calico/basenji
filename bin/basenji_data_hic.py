@@ -245,6 +245,8 @@ def main():
     slurm.multi_run(read_jobs, options.processes, verbose=True,
                     launch_sleep=1, update_sleep=5)
 
+  # subprocess.call('./basenji_data_read_sub.py', shell=True)
+
   ################################################################
   # write TF Records
   ################################################################

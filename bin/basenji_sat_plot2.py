@@ -97,9 +97,15 @@ def main():
   mut_len = scores1_h5['scores'].shape[1]
 
   # determine plot region
-  mut_mid = mut_len // 2
-  plot_start = mut_mid - (options.plot_len//2)
-  plot_end = plot_start + options.plot_len
+  if options.plot_len > mut_len:
+    print('Scored mutations length %d is less than requested plot length %d' % \
+        (mut_len, options.plot_len), file=sys.stderr)
+    plot_start = 0
+    plot_end = mut_len
+  else:
+    mut_mid = mut_len // 2
+    plot_start = mut_mid - (options.plot_len//2)
+    plot_end = plot_start + options.plot_len
 
   # plot attributes
   sns.set(style='white', font_scale=1)

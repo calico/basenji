@@ -218,9 +218,7 @@ class ChrSAD5:
     def open_chr_sad5(self, sad_h5_path):
         self.chr_sad5 = {}
 
-        # TEMP
-        # for sad_h5_file in glob.glob('%s/*/sad.h5' % sad_h5_path):
-        for sad_h5_file in glob.glob('%s/chr1/sad.h5' % sad_h5_path):
+        for sad_h5_file in glob.glob('%s/*/sad.h5' % sad_h5_path):
             sad5 = SAD5(sad_h5_file)
             chrm = sad_h5_file.split('/')[-2]
             if chrm.startswith('chr'):

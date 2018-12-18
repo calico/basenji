@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 import pysam
 import tensorflow as tf
-import zarr
+# import zarr
 
 import basenji.dna_io
 import basenji.vcf as bvcf
@@ -281,7 +281,7 @@ def main():
 
       # summarize and write
       sum_write_thread = threading.Thread(target=summarize_write,
-            args=(batch_preds, sad_out, szi, options.log_pseudo))
+            args=(batch_preds, sad_out, szi, options.sad_stats, options.log_pseudo))
       sum_write_thread.start()
 
       # update SNP index
@@ -321,7 +321,7 @@ def main():
     sad_out.close()
 
 
-def summarize_write(batch_preds, sad_out, szi, log_pseudo):
+def summarize_write(batch_preds, sad_out, szi, stats, log_pseudo):
   num_targets = batch_preds.shape[-1]
   pi = 0
   while pi < batch_preds.shape[0]:
@@ -338,23 +338,27 @@ def summarize_write(batch_preds, sad_out, szi, log_pseudo):
     alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
 
     # compare reference to alternative via mean subtraction
-    # sad_vec = alt_preds - ref_preds
-    sad = alt_preds_sum - ref_preds_sum
+    if 'SAD' in stats:
+      sad = alt_preds_sum - ref_preds_sum
+      sad_out['SAD'][szi,:] = sad.astype('float16')
 
     # compare reference to alternative via mean log division
-    # sar = np.log2(alt_preds_sum + log_pseudo) \
-    #         - np.log2(ref_preds_sum + log_pseudo)
+    if 'SAR' in stats:
+      sar = np.log2(alt_preds_sum + log_pseudo) \
+            - np.log2(ref_preds_sum + log_pseudo)
+      sad_out['SAR'][szi,:] = sar.astype('float16')
 
     # compare geometric means
-    # sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
-    #             - np.log2(ref_preds.astype('float64') + log_pseudo)
-    # geo_sad = sar_vec.sum(axis=0)
+    if 'geoSAD' in stats:
+      sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
+                  - np.log2(ref_preds.astype('float64') + log_pseudo)
+      geo_sad = sar_vec.sum(axis=0)
+      sad_out['geoSAD'][szi,:] = geo_sad.astype('float16')
 
     # compute max difference position
     # max_li = np.argmax(np.abs(sar_vec), axis=0)
-
-    sad_out['SAD'][szi,:] = sad.astype('float16')
     # sad_out['xSAR'][szi,:] = np.array([sar_vec[max_li[ti],ti] for ti in range(num_targets)], dtype='float16')
+
     szi += 1
 
 

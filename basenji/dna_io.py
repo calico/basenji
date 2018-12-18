@@ -15,7 +15,6 @@
 
 from __future__ import print_function
 
-
 import random
 import sys
 
@@ -304,3 +303,6 @@ def hot1_set(seq_1hot, pos, nt):
     seq_1hot[pos, 3] = 1
   else:
     print('Invalid nucleotide set %s' % nt, file=sys.stderr)
+
+def dna_rc(seq):
+  return seq.translate(str.maketrans("ATCGatcg","TAGCtagc"))[::-1]

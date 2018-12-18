@@ -66,6 +66,9 @@ def main():
       help='File specifying target indexes and labels in table format')
 
   # _multi.py options
+  parser.add_option('-n', dest='name',
+      default='sat',
+      help='SLURM job name prefix [Default: %default]')
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
@@ -105,9 +108,9 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      cmd = 'source activate py3_gpu; basenji_sat_bed.py %s %s %d' % (
+      cmd = 'source activate tf1.12-gpu; basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
-      name = 'sat_p%d' % pi
+      name = '%s_p%d' % (options.name, pi)
       outf = '%s/job%d.out' % (options.out_dir, pi)
       errf = '%s/job%d.err' % (options.out_dir, pi)
       j = slurm.Job(cmd, name,

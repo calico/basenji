@@ -82,8 +82,7 @@ def conv_block(seqs_repr, conv_params, is_training,
 
   # Pool
   if conv_params.pool > 1:
-    # seqs_repr_next = tf.layers.max_pooling1d(
-    seqs_repr_next = tf.layers.average_pooling1d(
+    seqs_repr_next = tf.layers.max_pooling1d(
         inputs=seqs_repr_next,
         pool_size=conv_params.pool,
         strides=conv_params.pool,

@@ -338,7 +338,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         predictions = tf.identity(final_repr, name='preds')
 
       elif self.hp.link == 'relu':
-        predictions = tf.relu(final_repr, name='preds')
+        predictions = tf.nn.relu(final_repr, name='preds')
 
       elif self.hp.link == 'exp':
         final_repr_clip = tf.clip_by_value(final_repr, -exp_max, exp_max)

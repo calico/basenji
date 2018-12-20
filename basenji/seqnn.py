@@ -183,6 +183,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     return {
         'conv_params': self.hp.cnn_params[layer_index],
         'is_training': self.is_training,
+        'nonlinearity': self.hp.nonlinearity,
         'batch_norm': self.hp.batch_norm,
         'batch_norm_momentum': self.hp.batch_norm_momentum,
         'batch_renorm': self.hp.batch_renorm,
@@ -218,7 +219,13 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.layer_reprs = layer_reprs
 
     # final nonlinearity
-    seqs_repr = tf.nn.relu(seqs_repr)
+    if self.hp.nonlinearity == 'relu':
+      seqs_repr = tf.nn.relu(seqs_repr)
+    elif self.hp.nonlinearity == 'gelu':
+      seqs_repr = tf.nn.sigmoid(1.702 * seqs_repr) * seqs_repr
+    else:
+      print('Unrecognized nonlinearity "%s"' % self.hp.nonlinearity, file=sys.stderr)
+      exit(1)
 
     ###################################################
     # slice out side buffer

@@ -52,7 +52,7 @@ Notes:
  -The adaptive trimming statistics are awry for paired end shift_center datasets
   like ChIP-seq because the events are initially double counted in order to use
   uint16 rather than a larger data structure.
- -Review before using the unsorted mode for paired end reads.
+ -For that reason and others, I recommend
 '''
 
 ################################################################################
@@ -619,19 +619,16 @@ class GenomeCoverage:
             row_nzcols_set(self.multi_weight_matrix, ri, multi_positions_weight)
 
       # set new position-specific clip thresholds
-      self.set_clips(genome_coverage)
-
-      print(' Done.', flush=True)
+      if self.clip_max is not None:
+        self.set_clips(genome_coverage)
 
       # clean up temp storage
       gc.collect()
 
       # assess coverage
       iteration_change /= self.multi_weight_matrix.shape[0]
-      print(
-          ' Iteration completed in %ds with %.3f change per multi-read' %
-          (time.time() - t_it, iteration_change),
-          flush=True)
+      print(' Complete iteration in %ds with %.3f change per multi-read' %
+          (time.time() - t_it, iteration_change), flush=True)
       if iteration_change < converge_t:
         break
 
@@ -754,7 +751,7 @@ class GenomeCoverage:
     multi_positions = sorted(set(self.multi_weight_matrix.indices))
 
     # traverse the genome and count multi-mappers in bins
-    genome_starts_consider = np.arange(0, self.genome_length, 2 * fragment_sd3)
+    genome_starts_consider = np.arange(0, self.genome_length, 2 * fragment_sd3)[1:-1]
     genome_starts_multi = np.zeros(len(genome_starts_consider))
     gsi = 0
     mpi = 0
@@ -791,10 +788,8 @@ class GenomeCoverage:
       gsm = genome_starts_multi[gsi]
 
       if gsm > last_gsm:
-        print(
-            ' GC training sequence accumulation: %d with %d multi-map positions.'
-            % (ntier, last_gsm),
-            flush=True)
+        print(' GC training sequences: %d with %d multi-map positions.'
+            % (ntier, last_gsm), flush=True)
         ntier = 0
 
       # determine chromosome and position
@@ -821,7 +816,7 @@ class GenomeCoverage:
         # compute coverage
         seq_cov = self.unique_counts[gi - fragment_sd3:
                                      gi + fragment_sd3] + pseudocount
-        if self.clip_max:
+        if self.clip_max is not None:
           seq_cov = np.clip(seq_cov, 0, 2)
         gauss_cov = (seq_cov * gauss_kernel).sum() * gauss_invsum
         train_cov.append(np.log2(gauss_cov))
@@ -837,10 +832,8 @@ class GenomeCoverage:
       # advance multi tracker
       last_gsm = gsm
 
-    print(
-        ' GC training sequence accumulation: %d with %d multi-map positions.' %
-        (ntier, last_gsm),
-        flush=True)
+    print(' GC training sequences: %d with %d multi-map positions.' %
+        (ntier, last_gsm), flush=True)
 
     # convert to arrays
     train_gc = np.array(train_gc)
@@ -1188,14 +1181,14 @@ class GenomeCoverage:
       last_read_id = ''
 
     for align in pysam.AlignmentFile(bam_file):
-      if not align.is_unmapped and align.mapq >= self.mapq_t:
+      if not align.is_unmapped and align.mapq >= self.mapq_t and not align.is_duplicate:
         read_id = (align.query_name, align.is_read1)
 
         # set alignment shift
         align_shift_forward, align_shift_reverse = self.align_shifts(align)
 
         # set alignment event position
-        chrom_pos = align.reference_start - 1 + align_shift_forward
+        chrom_pos = align.reference_start + align_shift_forward
         chrom_pos = min(chrom_pos, self.chrom_lengths[align.reference_name]-1)
         if align.is_reverse:
           chrom_pos = align.reference_end - 1 - align_shift_reverse
@@ -1207,6 +1200,7 @@ class GenomeCoverage:
           gi = self.genome_index(align.reference_id, chrom_pos, strand)
         else:
           gi = self.genome_index(align.reference_id, chrom_pos)
+        assert(gi >= 0)
         assert(gi < len(self.unique_counts))
 
         # count unique
@@ -1389,6 +1383,7 @@ class GenomeCoverage:
       multi_strand = multi_start[0]
 
       # determine shifted event position
+      #  (are positions 0 or 1-based? SAM is 1-based so that's my best guess)
       if multi_strand == '+':
         multi_pos = int(multi_start[1:])-1 + align_shift_forward
         multi_pos = min(multi_pos, self.chrom_lengths[multi_chrom]-1)

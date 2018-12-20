@@ -81,7 +81,8 @@ def main():
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
-    parser.error('Must provide parameters and model files and VCF file')
+    print(args)
+    parser.error('Must provide parameters and model files and BED file')
   else:
     params_file = args[0]
     model_file = args[1]

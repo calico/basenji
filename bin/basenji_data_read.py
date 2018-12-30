@@ -21,6 +21,7 @@ import sys
 
 import h5py
 import numpy as np
+import pyBigWig
 import intervaltree
 
 from basenji_data import ModelSeq

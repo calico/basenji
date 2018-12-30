@@ -38,7 +38,7 @@ import util
 import slurm
 
 import basenji.genome as genome
-from basenji_data import annotate_unmap, break_large_contigs, rejoin_large_contigs
+from basenji_data import annotate_unmap, rejoin_large_contigs
 
 '''
 basenji_data2.py
@@ -290,6 +290,52 @@ def main():
     slurm.multi_run(write_jobs, options.processes, verbose=True,
                     launch_sleep=1, update_sleep=5)
 
+
+################################################################################
+def break_large_contigs(contigs, break_t, verbose=False):
+  """Break large contigs in half until all contigs are under
+     the size threshold."""
+
+  # initialize a heapq of contigs and lengths
+  contig_heapq = []
+  for ctg in contigs:
+    ctg_len = ctg.end - ctg.start
+    heapq.heappush(contig_heapq, (-ctg_len, ctg))
+
+  ctg_len = break_t + 1
+  while ctg_len > break_t:
+
+    # pop largest contig
+    ctg_nlen, ctg = heapq.heappop(contig_heapq)
+    ctg_len = -ctg_nlen
+
+    # if too large
+    if ctg_len > break_t:
+      if verbose:
+        print('Breaking %s:%d-%d (%d nt)' % (ctg.chr,ctg.start,ctg.end,ctg_len))
+
+      # break in two
+      ctg_mid = ctg.start + ctg_len//2
+
+      try:
+        ctg_left = Contig(ctg.genome, ctg.chr, ctg.start, ctg_mid)
+        ctg_right = Contig(ctg.genome, ctg.chr, ctg_mid, ctg.end)
+      except AttributeError:
+        ctg_left = Contig(ctg.chr, ctg.start, ctg_mid)
+        ctg_right = Contig(ctg.chr, ctg_mid, ctg.end)
+
+      # add left
+      ctg_left_len = ctg_left.end - ctg_left.start
+      heapq.heappush(contig_heapq, (-ctg_left_len, ctg_left))
+
+      # add right
+      ctg_right_len = ctg_right.end - ctg_right.start
+      heapq.heappush(contig_heapq, (-ctg_right_len, ctg_right))
+
+  # return to list
+  contigs = [len_ctg[1] for len_ctg in contig_heapq]
+
+  return contigs
 
 ################################################################################
 def contig_sequences(contigs, seq_length, stride, label=None):

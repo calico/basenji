@@ -82,19 +82,14 @@ def main():
   seqs_cov_open.create_dataset('seqs_cov', shape=(num_seqs, seq_len_pool), dtype='float16')
 
   # open genome coverage file
-  genome_cov_open = h5py.File(genome_cov_file, 'r')
+  genome_cov_open = CovFace(genome_cov_file)
 
   # for each model sequence
   for si in range(num_seqs):
     mseq = model_seqs[si]
 
     # read coverage
-    if mseq.chr in genome_cov_open:
-      seq_cov_nt = genome_cov_open[mseq.chr][mseq.start:mseq.end]
-    else:
-      print("WARNING: %s doesn't see %s:%d-%d. Setting to all zeros." %
-            (cov_file, mseq.chr, mseq.start, mseq.end))
-      seq_cov_nt = np.zeros(mseq.end - mseq.start, dtype='float16')
+    seq_cov_nt = genome_cov_open.read(mseq.chr, mseq.start, mseq.end)
 
     # determine baseline coverage
     baseline_cov = np.percentile(seq_cov_nt, 10)
@@ -166,6 +161,38 @@ def read_blacklist(blacklist_bed, black_buffer=20):
       black_chr_trees[chrm][start:end] = True
 
   return black_chr_trees
+
+
+class CovFace:
+  def __init__(self, cov_file):
+    self.cov_file = cov_file
+    self.bigwig = False
+
+    cov_ext = os.path.splitext(self.cov_file)[1].lower()
+    if cov_ext in ['.bw','.bigwig']:
+      self.cov_open = pyBigWig.open(self.cov_file, 'r')
+      self.bigwig = True
+    elif cov_ext in ['.h5', '.hdf5', '.w5', '.wdf5']:
+      self.cov_open = hdpy.File(self.cov_file, 'r')
+    else:
+      print('Cannot identify coverage file extension "%s".' % cov_ext,
+            file=sys.stderr)
+      exit(1)
+
+  def read(self, chrm, start, end):
+    if self.bigwig:
+      cov = self.cov_open.values(chrm, start, end, numpy=True).astype('float16')
+    else:
+      if chrm in self.cov_open:
+        cov = self.cov_open[chrm][start:end]
+      else:
+        print("WARNING: %s doesn't see %s:%d-%d. Setting to all zeros." % \
+          (self.cov_file, chrm, start, end), file=sys.stderr)
+        cov = np.zeros(end-start, dtype='float16')
+    return cov
+
+  def close(self):
+    self.cov_open.close()
 
 ################################################################################
 # __main__

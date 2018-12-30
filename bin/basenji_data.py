@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import collections
+import heapq
 import math
 import pdb
 import os
@@ -48,6 +49,9 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
+  parser.add_option('--break', dest='break_t',
+      default=None, type='int',
+      help='Break in half contigs above length [Default: %default]')
   # parser.add_option('-c', dest='clip',
   #     default=None, type='float',
   #     help='Clip target values to have minimum [Default: %default]')
@@ -139,6 +143,10 @@ def main():
   # filter for large enough
   contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
 
+  # break up large contigs
+  if options.break_t is not None:
+    contigs = break_large_contigs(contigs, options.break_t)
+
   # down-sample
   if options.sample_pct < 1.0:
     contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
@@ -169,13 +177,18 @@ def main():
 
   train_contigs, valid_contigs, test_contigs = contig_sets
 
+  # rejoin broken contigs within set
+  train_contigs = rejoin_large_contigs(train_contigs)
+  valid_contigs = rejoin_large_contigs(valid_contigs)
+  test_contigs = rejoin_large_contigs(test_contigs)
+
   ################################################################
   # define model sequences
   ################################################################
   # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train)
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test)
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test)
+  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, label='train')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -184,7 +197,6 @@ def main():
 
   # merge
   mseqs = train_mseqs + valid_mseqs + test_mseqs
-  mseqs_labels = ['train']*len(train_mseqs) + ['valid']*len(valid_mseqs) + ['test']*len(test_mseqs)
 
 
   ################################################################
@@ -198,7 +210,6 @@ def main():
     # filter unmappable
     mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
     mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_labels = [mseqs_labels[i] for i in range(len(mseqs_labels)) if mseqs_map_mask[i]]
     mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
 
     # write to file
@@ -207,7 +218,7 @@ def main():
 
   # write sequences to BED
   seqs_bed_file = '%s/sequences.bed' % options.out_dir
-  write_seqs_bed(seqs_bed_file, mseqs, mseqs_labels)
+  write_seqs_bed(seqs_bed_file, mseqs, True)
 
 
   ################################################################
@@ -231,16 +242,21 @@ def main():
     if 'clip' in targets_df.columns:
       clip_ti = targets_df['clip'].iloc[ti]
 
+    scale_ti = 1
+    if 'scale' in targets_df.columns:
+      scale_ti = targets_df['scale'].iloc[ti]
+
     if os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
       cmd += ' -w %d' % options.pool_width
-      cmd += ' -s %s' % targets_df['sum_stat'].iloc[ti]
+      cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
         cmd += ' -c %f' % clip_ti
       if options.soft_clip:
         cmd += ' --soft'
+      cmd += ' -s %f' % scale_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
       cmd += ' %s' % genome_cov_file
@@ -278,7 +294,7 @@ def main():
   write_jobs = []
 
   for tvt_set in ['train', 'valid', 'test']:
-    tvt_set_indexes = [i for i in range(len(mseqs_labels)) if mseqs_labels[i] == tvt_set]
+    tvt_set_indexes = [i for i in range(len(mseqs)) if mseqs[i].label == tvt_set]
     tvt_set_start = tvt_set_indexes[0]
     tvt_set_end = tvt_set_indexes[-1] + 1
 
@@ -367,7 +383,6 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
     seq_end = int(a[2])
     seq_key = (seq_chrom, seq_start)
 
-    assert(a[3].startswith('chr'))
     unmap_start = int(a[4])
     unmap_end = int(a[5])
 
@@ -397,17 +412,64 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
 
 
 ################################################################################
-def contig_sequences(contigs, seq_length, stride):
+def break_large_contigs(contigs, break_t, verbose=False):
+  """Break large contigs in half until all contigs are under
+     the size threshold."""
+
+  # initialize a heapq of contigs and lengths
+  contig_heapq = []
+  for ctg in contigs:
+    ctg_len = ctg.end - ctg.start
+    heapq.heappush(contig_heapq, (-ctg_len, ctg))
+
+  ctg_len = break_t + 1
+  while ctg_len > break_t:
+
+    # pop largest contig
+    ctg_nlen, ctg = heapq.heappop(contig_heapq)
+    ctg_len = -ctg_nlen
+
+    # if too large
+    if ctg_len > break_t:
+      if verbose:
+        print('Breaking %s:%d-%d (%d nt)' % (ctg.chr,ctg.start,ctg.end,ctg_len))
+
+      # break in two
+      ctg_mid = ctg.start + ctg_len//2
+
+      try:
+        ctg_left = Contig(ctg.genome, ctg.chr, ctg.start, ctg_mid)
+        ctg_right = Contig(ctg.genome, ctg.chr, ctg_mid, ctg.end)
+      except AttributeError:
+        ctg_left = Contig(ctg.chr, ctg.start, ctg_mid)
+        ctg_right = Contig(ctg.chr, ctg_mid, ctg.end)
+
+      # add left
+      ctg_left_len = ctg_left.end - ctg_left.start
+      heapq.heappush(contig_heapq, (-ctg_left_len, ctg_left))
+
+      # add right
+      ctg_right_len = ctg_right.end - ctg_right.start
+      heapq.heappush(contig_heapq, (-ctg_right_len, ctg_right))
+
+  # return to list
+  contigs = [len_ctg[1] for len_ctg in contig_heapq]
+
+  return contigs
+
+
+################################################################################
+def contig_sequences(contigs, seq_length, stride, label=None):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
 
-  for chrom, ctg_start, ctg_end in contigs:
-    seq_start = ctg_start
+  for ctg in contigs:
+    seq_start = ctg.start
     seq_end = seq_start + seq_length
 
-    while seq_end < ctg_end:
+    while seq_end < ctg.end:
       # record sequence
-      mseqs.append(ModelSeq(chrom, seq_start, seq_end))
+      mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
 
       # update
       seq_start += int(stride*seq_length)
@@ -572,19 +634,53 @@ def limit_contigs(contigs, filter_bed):
 
 
 ################################################################################
-def write_seqs_bed(bed_file, seqs, labels=None):
+def rejoin_large_contigs(contigs):
+  """ Rejoin large contigs that were broken up before alignment comparison."""
+
+  # split list by chromosome
+  chr_contigs = {}
+  for ctg in contigs:
+    chr_contigs.setdefault(ctg.chr,[]).append(ctg)
+
+  contigs = []
+  for chrm in chr_contigs:
+    # sort within chromosome
+    chr_contigs[chrm].sort(key=lambda x: x.start)
+
+    ctg_ongoing = chr_contigs[chrm][0]
+    for i in range(1, len(chr_contigs[chrm])):
+      ctg_this = chr_contigs[chrm][i]
+      if ctg_ongoing.end == ctg_this.start:
+        # join
+        # ctg_ongoing.end = ctg_this.end
+        ctg_ongoing = ctg_ongoing._replace(end=ctg_this.end)
+      else:
+        # conclude ongoing
+        contigs.append(ctg_ongoing)
+
+        # move to next
+        ctg_ongoing = ctg_this
+
+    # conclude final
+    contigs.append(ctg_ongoing)
+
+  return contigs
+
+
+################################################################################
+def write_seqs_bed(bed_file, seqs, labels=False):
   '''Write sequences to BED file.'''
   bed_out = open(bed_file, 'w')
   for i in range(len(seqs)):
     line = '%s\t%d\t%d' % (seqs[i].chr, seqs[i].start, seqs[i].end)
-    if labels is not None:
-      line += '\t%s' % labels[i]
+    if labels:
+      line += '\t%s' % seqs[i].label
     print(line, file=bed_out)
   bed_out.close()
 
 ################################################################################
 Contig = collections.namedtuple('Contig', ['chr', 'start', 'end'])
-ModelSeq = collections.namedtuple('ModelSeq', ['chr', 'start', 'end'])
+ModelSeq = collections.namedtuple('ModelSeq', ['chr', 'start', 'end', 'label'])
 
 
 ################################################################################

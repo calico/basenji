@@ -132,7 +132,7 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      cmd = 'source activate py36_gpu; basenji_sadq_ref.py %s %s %d' % (
+      cmd = 'source activate tf1.12-gpu; basenji_sadq_ref.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
 
       name = '%s_p%d' % (options.name, pi)
@@ -198,7 +198,7 @@ def collect_h5(file_name, out_dir, num_procs):
       values = np.zeros(job0_h5_open[key].shape)
       final_h5_open.create_dataset(key, data=values)
 
-    elif key in ['ref','snp']:
+    elif key in ['ref','snp','chr','pos']:
       final_h5_open.create_dataset(key, shape=(num_variants,), dtype=job0_h5_open[key].dtype)
 
     else:

@@ -25,15 +25,18 @@ import sys
 
 import h5py
 import numpy as np
-import zarr
+try:
+  import zarr
+except ImportError:
+  pass
 
 import slurm
 
 """
-basenji_sadq_multi.py
+basenji_sadf_multi.py
 
 Compute SNP expression difference scores for variants in a VCF file,
-using multiple processes.
+using the feed dict over multiple processes.
 """
 
 ################################################################################
@@ -42,8 +45,9 @@ using multiple processes.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
-
-  # sadq
+  parser.add_option('-b',dest='batch_size',
+      default=256, type='int',
+      help='Batch size [Default: %default]')
   parser.add_option('-c', dest='csv',
       default=False, action='store_true',
       help='Print table as CSV [Default: %default]')
@@ -65,9 +69,18 @@ def main():
   parser.add_option('-o',dest='out_dir',
       default='sad',
       help='Output directory for tables and plots [Default: %default]')
+  parser.add_option('-p', dest='processes',
+      default=None, type='int',
+      help='Number of processes, passed by multi script')
   parser.add_option('--pseudo', dest='log_pseudo',
       default=1, type='float',
       help='Log2 pseudocount [Default: %default]')
+  parser.add_option('-q', dest='queue',
+      default='k80',
+      help='SLURM queue on which to run the jobs [Default: %default]')
+  parser.add_option('-r', dest='restart',
+      default=False, action='store_true',
+      help='Restart a partially completed job [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -75,7 +88,7 @@ def main():
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
   parser.add_option('--stats', dest='sad_stats',
-      default='SAD',
+      default='SAD,xSAR',
       help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
@@ -89,22 +102,6 @@ def main():
   parser.add_option('-z', dest='out_zarr',
       default=False, action='store_true',
       help='Output stats to sad.zarr [Default: %default]')
-
-  # multi
-  parser.add_option('--cpu', dest='cpu',
-      default=False, action='store_true',
-      help='Run without a GPU [Default: %default]')
-  parser.add_option('--name', dest='name',
-      default='sad', help='SLURM name prefix [Default: %default]')
-  parser.add_option('-p', dest='processes',
-      default=None, type='int',
-      help='Number of processes, passed by multi script')
-  parser.add_option('-q', dest='queue',
-      default='k80',
-      help='SLURM queue on which to run the jobs [Default: %default]')
-  parser.add_option('-r', dest='restart',
-      default=False, action='store_true',
-      help='Restart a partially completed job [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -135,23 +132,14 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      if options.cpu:
-        cmd = ''
-      else:
-        cmd = 'source activate py36_gpu;'
-
-      cmd += ' basenji_sadq.py %s %s %d' % (
+      cmd = 'source activate tf1.12-gpu; basenji_sadf.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
-
-      name = '%s_p%d' % (options.name, pi)
+      name = 'sad_p%d' % pi
       outf = '%s/job%d.out' % (options.out_dir, pi)
       errf = '%s/job%d.err' % (options.out_dir, pi)
-
-      num_gpu = 1*(not options.cpu)
-
       j = slurm.Job(cmd, name,
           outf, errf,
-          queue=options.queue, gpu=num_gpu,
+          queue=options.queue, gpu=1,
           mem=15000, time='7-0:0:0')
       jobs.append(j)
 

@@ -15,7 +15,6 @@
 # =========================================================================
 
 from optparse import OptionParser
-import gc
 import glob
 import os
 import pickle
@@ -25,12 +24,15 @@ import sys
 
 import h5py
 import numpy as np
-import zarr
+try:
+  import zarr
+except ImportError:
+  pass
 
 import slurm
 
 """
-basenji_sadq_ref_multi.py
+basenji_sad_ref_multi.py
 
 Compute SNP expression difference scores for variants in a VCF file,
 using multiple processes.
@@ -43,7 +45,7 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
 
-  # sadq
+  # sad
   parser.add_option('-c', dest='center_pct',
       default=0.25, type='float',
       help='Require clustered SNPs lie in center region [Default: %default]')
@@ -132,7 +134,7 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      cmd = 'source activate py36_gpu; basenji_sadq_ref.py %s %s %d' % (
+      cmd = 'source activate tf1.12-gpu; basenji_sad_ref.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
 
       name = '%s_p%d' % (options.name, pi)

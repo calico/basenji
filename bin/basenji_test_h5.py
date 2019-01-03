@@ -31,7 +31,6 @@ import pandas as pd
 import pyBigWig
 from scipy.stats import spearmanr, poisson
 import seaborn as sns
-from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
 import tensorflow as tf
 
@@ -41,9 +40,9 @@ from basenji import plots
 from basenji import seqnn
 
 """
-basenji_test.py
+basenji_test_h5.py
 
-Test the accuracy of a trained model.
+Test the accuracy of a trained model from HDF5 via feed_dict.
 
 Notes
  -This probably needs work for the pooled large sequence version. I tried to

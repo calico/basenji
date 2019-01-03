@@ -135,6 +135,9 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
       # accuracy_update(epoch, steps, train_loss, valid_acc, time_str, best_str)
       acc_queue.put((epoch, steps, train_loss, valid_acc, time_str, best_str))
 
+      # checkpoint latest
+      saver.save(sess, '%s/model_check.tf' % FLAGS.logdir)
+
       # update epoch
       epoch += 1
 

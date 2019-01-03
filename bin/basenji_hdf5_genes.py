@@ -51,7 +51,7 @@ def main():
   parser.add_option(
       '-g',
       dest='genome_file',
-      default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
+      default=None,
       help='Chromosome lengths file [Default: %default]')
   parser.add_option(
       '-l',

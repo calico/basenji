@@ -51,7 +51,7 @@ def main():
       default=20, type='float',
       help='Figure width [Default: %default]')
   parser.add_option('--f1', dest='genome1_fasta',
-      default='%s/assembly/hg19.fa' % os.environ['HG19'],
+      default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA which which major allele sequences will be drawn')
   parser.add_option('--f2', dest='genome2_fasta',
       default=None,

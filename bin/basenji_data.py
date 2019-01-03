@@ -50,7 +50,7 @@ def main():
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
   parser.add_option('--break', dest='break_t',
-      default=None, type='int',
+      default=786432, type='int',
       help='Break in half contigs above length [Default: %default]')
   # parser.add_option('-c', dest='clip',
   #     default=None, type='float',
@@ -120,6 +120,12 @@ def main():
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
+  if options.stride_train <= 0 or options.stride_train > 1:
+    parser.error('Train stride =%f must be in [0,1]' % options.stride_train)
+
+  if options.stride_test <= 0 or options.stride_test > 1:
+    parser.error('Test stride =%f must be in [0,1]' % options.stride_test)
+
   ################################################################
   # define genomic contigs
   ################################################################
@@ -146,10 +152,6 @@ def main():
   # break up large contigs
   if options.break_t is not None:
     contigs = break_large_contigs(contigs, options.break_t)
-
-  # down-sample
-  if options.sample_pct < 1.0:
-    contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
 
   # print contigs to BED file
   ctg_bed_file = '%s/contigs.bed' % options.out_dir
@@ -215,6 +217,10 @@ def main():
     # write to file
     unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
     np.save(unmap_npy, mseqs_unmap)
+
+    # down-sample
+  if options.sample_pct < 1.0:
+    mseqs = random.sample(mseqs, int(options.sample_pct*len(contigs)))
 
   # write sequences to BED
   seqs_bed_file = '%s/sequences.bed' % options.out_dir

@@ -37,7 +37,7 @@ import basenji.vcf as bvcf
 from basenji.stream import PredStream
 
 '''
-basenji_sadq_ref.py
+basenji_sad_ref.py
 
 Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
 This versions saves computation by clustering nearby SNPs in order to
@@ -54,10 +54,10 @@ def main():
       default=0.25, type='float',
       help='Require clustered SNPs lie in center region [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/assembly/hg19.fa' % os.environ['HG19'],
+      default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genome_file',
-      default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
+      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
   parser.add_option('--h5', dest='out_h5',
       default=False, action='store_true',
@@ -95,9 +95,9 @@ def main():
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
-  parser.add_option('-z', dest='out_zarr',
-      default=False, action='store_true',
-      help='Output stats to sad.zarr [Default: %default]')
+  # parser.add_option('-z', dest='out_zarr',
+  #     default=False, action='store_true',
+  #     help='Output stats to sad.zarr [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -162,7 +162,8 @@ def main():
   # load SNPs
 
   # read sorted SNPs from VCF
-  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, validate_ref_fasta=options.genome_fasta, flip_ref=True)
+  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=True,
+                       validate_ref_fasta=options.genome_fasta)
 
   # filter for worker SNPs
   if options.processes is not None:
@@ -442,17 +443,29 @@ class SNPWorker(Thread):
   def run(self):
     while True:
       # unload predictions
-      ref_preds, alt_preds, si = self.queue.get()
+      ref_preds, alt_preds, szi = self.queue.get()
 
       # sum across length
       ref_preds_sum = ref_preds.sum(axis=0, dtype='float64')
       alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
 
       # compare reference to alternative via mean subtraction
-      sad = alt_preds_sum - ref_preds_sum
+      if 'SAD' in stats:
+        sad = alt_preds_sum - ref_preds_sum
+        self.sad_out['SAD'][szi,:] = sad.astype('float16')
 
-      # write to HDF5
-      self.sad_out['SAD'][si,:] = sad.astype('float16')
+      # compare reference to alternative via mean log division
+      if 'SAR' in stats:
+        sar = np.log2(alt_preds_sum + log_pseudo) \
+                       - np.log2(ref_preds_sum + log_pseudo)
+        self.sad_out['SAR'][szi,:] = sar.astype('float16')
+
+      # compare geometric means
+      if 'geoSAD' in stats:
+        sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
+                    - np.log2(ref_preds.astype('float64') + log_pseudo)
+        geo_sad = sar_vec.sum(axis=0)
+        self.sad_out['geoSAD'][szi,:] = geo_sad.astype('float16')
 
       # communicate finished task
       self.queue.task_done()

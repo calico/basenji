@@ -15,7 +15,6 @@
 # =========================================================================
 
 from optparse import OptionParser
-import gc
 import glob
 import os
 import pickle
@@ -25,12 +24,15 @@ import sys
 
 import h5py
 import numpy as np
-import zarr
+try:
+  import zarr
+except ImportError:
+  pass
 
 import slurm
 
 """
-basenji_sadq_multi.py
+basenji_sad_ref_multi.py
 
 Compute SNP expression difference scores for variants in a VCF file,
 using multiple processes.
@@ -43,15 +45,15 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
 
-  # sadq
-  parser.add_option('-c', dest='csv',
-      default=False, action='store_true',
-      help='Print table as CSV [Default: %default]')
+  # sad
+  parser.add_option('-c', dest='center_pct',
+      default=0.25, type='float',
+      help='Require clustered SNPs lie in center region [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/assembly/hg19.fa' % os.environ['HG19'],
+      default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genome_file',
-      default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
+      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
   parser.add_option('--h5', dest='out_h5',
       default=False, action='store_true',
@@ -91,9 +93,6 @@ def main():
       help='Output stats to sad.zarr [Default: %default]')
 
   # multi
-  parser.add_option('--cpu', dest='cpu',
-      default=False, action='store_true',
-      help='Run without a GPU [Default: %default]')
   parser.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
   parser.add_option('-p', dest='processes',
@@ -135,23 +134,16 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      if options.cpu:
-        cmd = ''
-      else:
-        cmd = 'source activate py36_gpu;'
-
-      cmd += ' basenji_sadq.py %s %s %d' % (
+      cmd = 'source activate tf1.12-gpu; basenji_sad_ref.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
 
       name = '%s_p%d' % (options.name, pi)
       outf = '%s/job%d.out' % (options.out_dir, pi)
       errf = '%s/job%d.err' % (options.out_dir, pi)
 
-      num_gpu = 1*(not options.cpu)
-
       j = slurm.Job(cmd, name,
           outf, errf,
-          queue=options.queue, gpu=num_gpu,
+          queue=options.queue, gpu=1,
           mem=15000, time='7-0:0:0')
       jobs.append(j)
 
@@ -208,7 +200,7 @@ def collect_h5(file_name, out_dir, num_procs):
       values = np.zeros(job0_h5_open[key].shape)
       final_h5_open.create_dataset(key, data=values)
 
-    elif key == 'snp':
+    elif key in ['ref','snp','chr','pos']:
       final_h5_open.create_dataset(key, shape=(num_variants,), dtype=job0_h5_open[key].dtype)
 
     else:

@@ -80,7 +80,7 @@ def main():
   parser.add_option(
       '-g',
       dest='genome_file',
-      default='%s/tutorials/data/human.hg19.genome' % os.environ['BASENJIDIR'],
+      default=None,
       help='Chromosome length information [Default: %default]')
   parser.add_option(
       '--mc',

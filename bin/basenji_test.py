@@ -61,7 +61,7 @@ def main():
       default=1, type='int',
       help='Down sample by taking uniformly spaced positions [Default: %default]')
   parser.add_option('-g', dest='genome_file',
-      default='%s/tutorials/data/human.hg19.genome' % os.environ['BASENJIDIR'],
+      default=None,
       help='Chromosome length information [Default: %default]')
   parser.add_option('--mc', dest='mc_n',
       default=0, type='int',

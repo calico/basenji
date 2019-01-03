@@ -58,10 +58,10 @@ def main():
       default=False, action='store_true',
       help='Print table as CSV [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/assembly/hg19.fa' % os.environ['HG19'],
+      default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genome_file',
-      default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
+      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
   parser.add_option('--h5', dest='out_h5',
       default=False, action='store_true',

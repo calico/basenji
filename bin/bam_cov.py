@@ -93,7 +93,7 @@ def main():
   parser.add_option(
       '-f',
       dest='fasta_file',
-      default='%s/assembly/hg19.fa' % os.environ['HG19'],
+      default=None,
       help='FASTA to obtain sequence to control for GC% [Default: %default]')
   parser.add_option(
       '-g',

@@ -181,6 +181,9 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       else:
         metrics_update(*update_args)
 
+      # checkpoint
+      saver.save(sess, '%s/model_check.tf' % FLAGS.logdir)
+
       # update epoch
       epoch += 1
 

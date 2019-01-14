@@ -144,7 +144,7 @@ def main():
       j = slurm.Job(cmd, name,
           outf, errf,
           queue=options.queue, gpu=1,
-          mem=15000, time='7-0:0:0')
+          mem=45000, time='7-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
@@ -200,7 +200,7 @@ def collect_h5(file_name, out_dir, num_procs):
       values = np.zeros(job0_h5_open[key].shape)
       final_h5_open.create_dataset(key, data=values)
 
-    elif key in ['ref','snp']:
+    elif key in ['ref','snp','chr','pos']:
       final_h5_open.create_dataset(key, shape=(num_variants,), dtype=job0_h5_open[key].dtype)
 
     else:

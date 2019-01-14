@@ -115,7 +115,7 @@ class TestData(unittest.TestCase):
     seq_coords = read_seq_coords(seqs_bed_file)
 
     # read targets
-    targets_df = pd.read_table(self.targets_file)
+    targets_df = pd.read_table(self.targets_file, index_col=0)
 
     # read one hot coding from TF Records
     train_tfrs_str = '%s/tfrecords/train-0.tfr' % self.out_dir

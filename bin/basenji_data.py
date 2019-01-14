@@ -231,7 +231,7 @@ def main():
   # read sequence coverage values
   ################################################################
   # read target datasets
-  targets_df = pd.read_table(targets_file)
+  targets_df = pd.read_table(targets_file, index_col=0)
 
   seqs_cov_dir = '%s/seqs_cov' % options.out_dir
   if not os.path.isdir(seqs_cov_dir):

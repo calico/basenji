@@ -239,7 +239,7 @@ def main():
 
   snp_queue = Queue()
   for i in range(1):
-    sw = SNPWorker(snp_queue, sad_out)
+    sw = SNPWorker(snp_queue, sad_out, options.sad_stats, options.log_pseudo)
     sw.start()
     snp_threads.append(sw)
 
@@ -434,11 +434,13 @@ class SNPCluster:
 
 class SNPWorker(Thread):
   """Compute summary statistics and write to HDF."""
-  def __init__(self, snp_queue, sad_out):
+  def __init__(self, snp_queue, sad_out, stats, log_pseudo=1):
     Thread.__init__(self)
     self.queue = snp_queue
     self.daemon = True
     self.sad_out = sad_out
+    self.stats = stats
+    self.log_pseudo = log_pseudo
 
   def run(self):
     while True:
@@ -450,20 +452,20 @@ class SNPWorker(Thread):
       alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
 
       # compare reference to alternative via mean subtraction
-      if 'SAD' in stats:
+      if 'SAD' in self.stats:
         sad = alt_preds_sum - ref_preds_sum
         self.sad_out['SAD'][szi,:] = sad.astype('float16')
 
       # compare reference to alternative via mean log division
-      if 'SAR' in stats:
-        sar = np.log2(alt_preds_sum + log_pseudo) \
-                       - np.log2(ref_preds_sum + log_pseudo)
+      if 'SAR' in self.stats:
+        sar = np.log2(alt_preds_sum + self.log_pseudo) \
+                       - np.log2(ref_preds_sum + self.log_pseudo)
         self.sad_out['SAR'][szi,:] = sar.astype('float16')
 
       # compare geometric means
-      if 'geoSAD' in stats:
-        sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
-                    - np.log2(ref_preds.astype('float64') + log_pseudo)
+      if 'geoSAD' in self.stats:
+        sar_vec = np.log2(alt_preds.astype('float64') + self.log_pseudo) \
+                    - np.log2(ref_preds.astype('float64') + self.log_pseudo)
         geo_sad = sar_vec.sum(axis=0)
         self.sad_out['geoSAD'][szi,:] = geo_sad.astype('float16')
 

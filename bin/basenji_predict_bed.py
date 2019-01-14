@@ -120,7 +120,7 @@ def main():
   if options.targets_file is None:
     target_subset = None
   else:
-    targets_df = pd.read_table(options.targets_file)
+    targets_df = pd.read_table(options.targets_file, index_col=0)
     target_subset = targets_df.index
     if len(target_subset) == num_targets:
       target_subset = None

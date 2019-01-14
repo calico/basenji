@@ -87,7 +87,7 @@ def main():
   np.random.seed(options.rng_seed)
 
   # determine targets
-  targets_df = pd.read_table(options.targets_file)
+  targets_df = pd.read_table(options.targets_file, index_col=0)
   num_targets = targets_df.shape[0]
 
   # open scores

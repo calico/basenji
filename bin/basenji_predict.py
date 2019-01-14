@@ -28,7 +28,7 @@ from basenji import params
 from basenji import seqnn
 
 """
-basenji_predict_tfr.py
+basenji_predict.py
 
 Predict sequences from TFRecords.
 """
@@ -85,10 +85,10 @@ def main():
   # read targets
   if options.targets_file is None:
     options.targets_file = '%s/targets.txt' % data_dir
-    targets_df = pd.read_table(options.targets_file)
+    targets_df = pd.read_table(options.targets_file, index_col=0)
     target_subset = None
   else:
-    targets_df = pd.read_table(options.targets_file)
+    targets_df = pd.read_table(options.targets_file, index_col=0)
     target_subset = targets_df.index
 
   # read model parameters

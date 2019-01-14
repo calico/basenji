@@ -133,7 +133,7 @@ def main():
     options.blacklist_beds = options.blacklist_beds.split(',')
 
   # read targets
-  targets_df = pd.read_table(targets_file)
+  targets_df = pd.read_table(targets_file, index_col=0)
 
   # verify genomes
   num_genomes = len(fasta_files)

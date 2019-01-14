@@ -237,7 +237,7 @@ def main():
   # file targets
   elif os.path.isfile(options.target_indexes):
     target_indexes_file = options.target_indexes
-    targets_df = pd.read_table(target_indexes_file)
+    targets_df = pd.read_table(target_indexes_file, index_col=0)
     options.target_indexes = targets_df.index
 
   # comma-separated targets

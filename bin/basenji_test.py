@@ -108,7 +108,7 @@ def main():
 
   # read targets
   targets_file = '%s/targets.txt' % data_dir
-  targets_df = pd.read_table(targets_file)
+  targets_df = pd.read_table(targets_file, index_col=0)
 
   # read model parameters
   job = params.read_job_params(params_file)

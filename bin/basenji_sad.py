@@ -153,7 +153,7 @@ def main():
     target_subset = None
 
   else:
-    targets_df = pd.read_table(options.targets_file)
+    targets_df = pd.read_table(options.targets_file, index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
     target_subset = targets_df.index

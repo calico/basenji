@@ -20,6 +20,10 @@ import time
 
 import numpy as np
 import tensorflow as tf
+try:
+  import tensorflow_probability as tfp
+except ImportError:
+  pass
 
 from basenji import augmentation
 from basenji import layers
@@ -206,6 +210,21 @@ class SeqNN(seqnn_util.SeqNNModel):
     assert inputs is not None
     print('Targets pooled by %d to length %d' %
           (self.hp.target_pool, self.hp.seq_length // self.hp.target_pool))
+
+    if self.hp.augment_mutation > 0:
+      # sample mutation binary mask across sequences
+      mut_mask_probs = self.hp.augment_mutation*np.ones((self.hp.seq_length,1))
+      mut_mask_dist = tfp.distributions.Bernoulli(probs=mut_mask_probs, dtype=tf.float32)
+      mut_mask = mut_mask_dist.sample(tf.shape(inputs)[0])
+
+      # sample random nucleotide for mutations
+      mut_1hot_probs = 0.25*np.ones((self.hp.seq_length,4))
+      mut_1hot_dist = tfp.distributions.OneHotCategorical(probs=mut_1hot_probs, dtype=tf.float32)
+      mut_1hot = mut_1hot_dist.sample(tf.shape(inputs)[0])
+
+      # modify sequence
+      inputs_mut = inputs - mut_mask*inputs + mut_mask*mut_1hot
+      inputs = tf.cond(self.is_training, lambda: inputs_mut, lambda: inputs)
 
     ###################################################
     # convolution layers

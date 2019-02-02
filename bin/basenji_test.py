@@ -35,6 +35,7 @@ from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, av
 import tensorflow as tf
 
 from basenji import batcher
+from basenji import dataset
 from basenji import params
 from basenji import plots
 from basenji import seqnn
@@ -54,6 +55,8 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('--ai', dest='accuracy_indexes',
       help='Comma-separated list of target indexes to make accuracy scatter plots.')
+  parser.add_option('-b', dest='track_bed',
+      help='BED file describing regions so we can output BigWig tracks')
   parser.add_option('--clip', dest='target_clip',
       default=None, type='float',
       help='Clip targets and predictions to a maximum value [Default: %default]')
@@ -81,8 +84,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option('-t', dest='track_bed',
-      help='BED file describing regions so we can output BigWig tracks')
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
+      help='File specifying target indexes and labels in table format')
   parser.add_option('--ti', dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
   parser.add_option('--tfr', dest='tfr_pattern',
@@ -107,15 +111,16 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   # read targets
-  targets_file = '%s/targets.txt' % data_dir
-  targets_df = pd.read_table(targets_file, index_col=0)
+  if options.targets_file is None:
+    options. targets_file = '%s/targets.txt' % data_dir
+  targets_df = pd.read_table(options.targets_file, index_col=0)
 
   # read model parameters
   job = params.read_job_params(params_file)
 
   # construct data ops
   tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
-  data_ops, test_init_op = make_data_ops(job, tfr_pattern_path)
+  data_ops, test_init_op, test_dataseq = make_data_ops(job, tfr_pattern_path)
 
   # initialize model
   model = seqnn.SeqNN()
@@ -137,11 +142,10 @@ def main():
     # test
     t0 = time.time()
     sess.run(test_init_op)
-    test_acc = model.test_tfr(sess)
-    print('SeqNN test: %ds' % (time.time() - t0))
+    test_acc = model.test_tfr(sess, test_dataseq)
 
     test_preds = test_acc.preds
-    test_targets = test_acc.targets
+    print('SeqNN test: %ds' % (time.time() - t0))
 
     if options.save:
       np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
@@ -166,10 +170,10 @@ def main():
 
     acc_out = open('%s/acc.txt' % options.out_dir, 'w')
     for ti in range(len(test_r2)):
-      print(
-        '%4d  %7.5f  %.5f  %.5f  %.5f  %s' %
-        (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti],
-          test_log_pcor[ti], targets_df.description.iloc[ti]), file=acc_out)
+      print('%4d  %7.5f  %.5f  %.5f  %.5f  %10s  %s' %
+              (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti], test_log_pcor[ti],
+               targets_df.identifier.iloc[ti], targets_df.description.iloc[ti]),
+            file=acc_out)
     acc_out.close()
 
     # print normalization factors
@@ -309,9 +313,6 @@ def main():
 
       # sample every few bins (adjust to plot the # points I want)
       ds_indexes = np.arange(0, test_preds.shape[1], 8)
-      # ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
-      # ds_indexes_targets = ds_indexes_preds + (
-      #     model.hp.batch_buffer // model.hp.target_pool)
 
       # subset and flatten
       test_targets_ti_flat = test_targets_ti[:, ds_indexes].flatten(
@@ -511,25 +512,19 @@ def bigwig_write(bw_file,
 
 def make_data_ops(job, tfr_pattern):
   def make_dataset(pat, mode):
-    return tfrecord_batcher.tfrecord_dataset(
-        pat,
-        job['batch_size'],
-        job['seq_length'],
-        job.get('seq_depth', 4),
-        job['target_length'],
-        job['num_targets'],
-        mode=mode,
-        repeat=False)
+    return dataset.DatasetSeq(
+      tfr_pattern,
+      job['batch_size'],
+      job['seq_length'],
+      job['target_length'],
+      mode=mode)
 
-  test_dataset = make_dataset(tfr_pattern, mode=tf.estimator.ModeKeys.EVAL)
+  test_dataseq = make_dataset(tfr_pattern, mode=tf.estimator.ModeKeys.EVAL)
+  test_dataseq.make_iterator_structure()
+  data_ops = test_dataseq.iterator.get_next()
+  test_init_op = test_dataseq.make_initializer()
 
-  iterator = tf.data.Iterator.from_structure(
-      test_dataset.output_types, test_dataset.output_shapes)
-  data_ops = iterator.get_next()
-
-  test_init_op = iterator.make_initializer(test_dataset)
-
-  return data_ops, test_init_op
+  return data_ops, test_init_op, test_dataseq
 
 
 ################################################################################

@@ -88,7 +88,7 @@ def main():
   np.random.seed(options.rng_seed)
 
   # determine targets
-  targets_df = pd.read_table(options.targets_file)
+  targets_df = pd.read_table(options.targets_file, index_col=0)
   num_targets = targets_df.shape[0]
 
   # open scores
@@ -135,14 +135,26 @@ def main():
 
       # setup plot
       plt.figure(figsize=(options.figure_width, 4))
+      if options.gain:
+        grid_rows = 4
+      else:
+        grid_rows = 3
+      row_i = 0
       ax_logo_loss = plt.subplot2grid(
-          (3, spp['heat_cols']), (0, spp['logo_start']),
+          (grid_rows, spp['heat_cols']), (row_i, spp['logo_start']),
           colspan=spp['logo_span'])
+      row_i += 1
+      if options.gain:
+        ax_logo_gain = plt.subplot2grid(
+          (grid_rows, spp['heat_cols']), (row_i, spp['logo_start']),
+          colspan=spp['logo_span'])
+        row_i += 1
       ax_sad = plt.subplot2grid(
-          (3, spp['heat_cols']), (1, spp['sad_start']),
+          (grid_rows, spp['heat_cols']), (row_i, spp['sad_start']),
           colspan=spp['sad_span'])
+      row_i += 1
       ax_heat = plt.subplot2grid(
-          (3, spp['heat_cols']), (2, 0), colspan=spp['heat_cols'])
+          (grid_rows, spp['heat_cols']), (row_i, 0), colspan=spp['heat_cols'])
 
       # plot sequence logo
       plot_seqlogo(ax_logo_loss, seq_1hot, -delta_loss)
@@ -155,7 +167,7 @@ def main():
       # plot heat map
       plot_heat(ax_heat, delta_ti.T, options.min_limit)
 
-      plt.tight_layout()
+      # plt.tight_layout()
       plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir, si, ti), dpi=600)
       plt.close()
 
@@ -319,7 +331,7 @@ def plot_heat(ax, sat_delta_ti, min_limit):
       vmax=vlim,
       xticklabels=False,
       ax=ax)
-  ax.yaxis.set_ticklabels('TGCA', rotation='horizontal')  # , size=10)
+  ax.yaxis.set_ticklabels('ACGT', rotation='horizontal')  # , size=10)
 
 
 def plot_predictions(ax, preds, satmut_len, seq_len, buffer):

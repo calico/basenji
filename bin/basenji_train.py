@@ -15,129 +15,77 @@
 # =========================================================================
 from __future__ import print_function
 
+
+from queue import Queue
 import sys
+from threading import Thread
 import time
 
-import h5py
 import numpy as np
 import tensorflow as tf
 
-from basenji import batcher
 from basenji import params
 from basenji import seqnn
 from basenji import shared_flags
+from basenji import tfrecord_batcher
 
 FLAGS = tf.app.flags.FLAGS
 
-################################################################################
-# main
-################################################################################
+
 def main(_):
   np.random.seed(FLAGS.seed)
 
   run(params_file=FLAGS.params,
-      data_file=FLAGS.data,
+      train_file=FLAGS.train_data,
+      test_file=FLAGS.test_data,
       train_epochs=FLAGS.train_epochs,
       train_epoch_batches=FLAGS.train_epoch_batches,
       test_epoch_batches=FLAGS.test_epoch_batches)
 
 
-def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_batches):
+def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
+        test_epoch_batches):
 
-  #######################################################
-  # load data
-  #######################################################
-  data_open = h5py.File(data_file)
-
-  train_seqs = data_open['train_in']
-  train_targets = data_open['train_out']
-  train_na = None
-  if 'train_na' in data_open:
-    train_na = data_open['train_na']
-
-  valid_seqs = data_open['valid_in']
-  valid_targets = data_open['valid_out']
-  valid_na = None
-  if 'valid_na' in data_open:
-    valid_na = data_open['valid_na']
-
-  #######################################################
-  # model parameters and placeholders
-  #######################################################
-  job = params.read_job_params(params_file)
-
-  job['seq_length'] = train_seqs.shape[1]
-  job['seq_depth'] = train_seqs.shape[2]
-  job['num_targets'] = train_targets.shape[2]
-  job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
-
-  t0 = time.time()
-  model = seqnn.SeqNN()
-  model.build_feed(job)
-  print('Model building time %f' % (time.time() - t0))
-
-  # adjust for fourier
-  job['fourier'] = 'train_out_imag' in data_open
-  if job['fourier']:
-    train_targets_imag = data_open['train_out_imag']
-    valid_targets_imag = data_open['valid_out_imag']
-
-  #######################################################
-  # prepare batcher
-  #######################################################
-  if job['fourier']:
-    batcher_train = batcher.BatcherF(
-        train_seqs,
-        train_targets,
-        train_targets_imag,
-        train_na,
-        model.hp.batch_size,
-        model.hp.target_pool,
-        shuffle=True)
-    batcher_valid = batcher.BatcherF(valid_seqs, valid_targets,
-                                     valid_targets_imag, valid_na,
-                                     model.batch_size, model.target_pool)
-  else:
-    batcher_train = batcher.Batcher(
-        train_seqs,
-        train_targets,
-        train_na,
-        model.hp.batch_size,
-        model.hp.target_pool,
-        shuffle=True)
-    batcher_valid = batcher.Batcher(valid_seqs, valid_targets, valid_na,
-                                    model.hp.batch_size, model.hp.target_pool)
-  print('Batcher initialized')
-
-  #######################################################
-  # train
-  #######################################################
+  # parse shifts
   augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
   ensemble_shifts = [int(shift) for shift in FLAGS.ensemble_shifts.split(',')]
+
+  # read parameters
+  job = params.read_job_params(params_file)
+
+  # load data
+  data_ops, training_init_op, test_init_op = make_data_ops(
+      job, train_file, test_file)
+
+  # initialize model
+  model = seqnn.SeqNN()
+  model.build_from_data_ops(job, data_ops,
+                            FLAGS.augment_rc, augment_shifts,
+                            FLAGS.ensemble_rc, ensemble_shifts)
+
+  # launch accuracy compute thread
+  acc_queue = Queue()
+  acc_thread = AccuracyWorker(acc_queue)
+  acc_thread.start()
 
   # checkpoints
   saver = tf.train.Saver()
 
-  config = tf.ConfigProto()
-  if FLAGS.log_device_placement:
-    config.log_device_placement = True
-  with tf.Session(config=config) as sess:
-    t0 = time.time()
+  with tf.Session() as sess:
+    train_writer = tf.summary.FileWriter(FLAGS.logdir + '/train',
+                                         sess.graph) if FLAGS.logdir else None
 
-    # set seed
-    tf.set_random_seed(FLAGS.seed)
-
-    if FLAGS.logdir:
-      train_writer = tf.summary.FileWriter(FLAGS.logdir + '/train', sess.graph)
-    else:
-      train_writer = None
+    coord = tf.train.Coordinator()
+    tf.train.start_queue_runners(coord=coord)
 
     if FLAGS.restart:
       # load variables into session
       saver.restore(sess, FLAGS.restart)
     else:
       # initialize variables
+      t0 = time.time()
       print('Initializing...')
+      sess.run(tf.local_variables_initializer())
       sess.run(tf.global_variables_initializer())
       print('Initialization time %f' % (time.time() - t0))
 
@@ -146,35 +94,28 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
     early_stop_i = 0
 
     epoch = 0
-    while (train_epochs is None or epoch < train_epochs) and early_stop_i < FLAGS.early_stop:
+    while (train_epochs is not None and epoch < train_epochs) or \
+          (train_epochs is None and early_stop_i < FLAGS.early_stop):
       t0 = time.time()
 
-      # alternate forward and reverse batches
-      fwdrc = True
-      if FLAGS.augment_rc and epoch % 2 == 1:
-        fwdrc = False
+      # save previous
+      train_loss_last = train_loss
 
-      # cycle shifts
-      shift_i = epoch % len(augment_shifts)
+      # train epoch
+      sess.run(training_init_op)
+      train_loss, steps = model.train_epoch_tfr(sess, train_writer, train_epoch_batches)
 
-      # train
-      train_loss, steps = model.train_epoch(sess, batcher_train, fwdrc=fwdrc,
-                                            shift=augment_shifts[shift_i],
-                                            sum_writer=train_writer,
-                                            epoch_batches=train_epoch_batches,
-                                            no_steps=FLAGS.no_steps)
+      # block for previous accuracy compute
+      acc_queue.join()
 
-      # validate
-      valid_acc = model.test(sess, batcher_valid, mc_n=FLAGS.ensemble_mc,
-                             rc=FLAGS.ensemble_rc, shifts=ensemble_shifts,
-                             test_batches=test_epoch_batches)
-      valid_loss = valid_acc.loss
-      valid_r2 = valid_acc.r2().mean()
-      del valid_acc
+      # test validation
+      sess.run(test_init_op)
+      valid_acc = model.test_tfr(sess, test_epoch_batches)
 
+      # consider as best
       best_str = ''
-      if best_loss is None or valid_loss < best_loss:
-        best_loss = valid_loss
+      if best_loss is None or valid_acc.loss < best_loss:
+        best_loss = valid_acc.loss
         best_str = ', best!'
         early_stop_i = 0
         saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
@@ -182,33 +123,104 @@ def run(params_file, data_file, train_epochs, train_epoch_batches, test_epoch_ba
         early_stop_i += 1
 
       # measure time
-      et = time.time() - t0
-      if et < 600:
-        time_str = '%3ds' % et
-      elif et < 6000:
-        time_str = '%3dm' % (et / 60)
+      epoch_time = time.time() - t0
+      if epoch_time < 600:
+        time_str = '%3ds' % epoch_time
+      elif epoch_time < 6000:
+        time_str = '%3dm' % (epoch_time / 60)
       else:
-        time_str = '%3.1fh' % (et / 3600)
+        time_str = '%3.1fh' % (epoch_time / 3600)
 
-      # print update
-      print(
-          'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,  Valid R2: %7.5f,  Time: %s%s'
-          % (epoch + 1, steps, train_loss, valid_loss, valid_r2, time_str, best_str))
-      sys.stdout.flush()
+      # compute and write accuracy update
+      # accuracy_update(epoch, steps, train_loss, valid_acc, time_str, best_str)
+      acc_queue.put((epoch, steps, train_loss, valid_acc, time_str, best_str))
 
-      if FLAGS.check_all:
-        saver.save(sess, '%s/model_check%d.tf' % (FLAGS.logdir, epoch))
+      # checkpoint latest
+      saver.save(sess, '%s/model_check.tf' % FLAGS.logdir)
 
       # update epoch
       epoch += 1
 
+    # finish queue
+    acc_queue.join()
 
     if FLAGS.logdir:
       train_writer.close()
 
 
-################################################################################
-# __main__
-################################################################################
+def accuracy_update(epoch, steps, train_loss, valid_acc, time_str, best_str):
+  """Compute and write accuracy update."""
+
+  # compute validation accuracy
+  valid_r2 = valid_acc.r2().mean()
+  valid_corr = valid_acc.pearsonr().mean()
+
+  # print update
+  update_line = 'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,' % (epoch+1, steps, train_loss, valid_acc.loss)
+  update_line += '  Valid R2: %7.5f,  Valid R: %7.5f, Time: %s%s' % (valid_r2, valid_corr, time_str, best_str)
+  print(update_line, flush=True)
+
+  del valid_acc
+
+
+def make_data_ops(job, train_file, test_file):
+  def make_dataset(filename, mode):
+    return tfrecord_batcher.tfrecord_dataset(
+        filename,
+        job['batch_size'],
+        job['seq_length'],
+        job.get('seq_depth', 4),
+        job['target_length'],
+        job['num_targets'],
+        mode=mode,
+        repeat=False,
+        hic=bool(job.get('hic',False)))
+
+  training_dataset = make_dataset(train_file, mode=tf.estimator.ModeKeys.TRAIN)
+  test_dataset = make_dataset(test_file, mode=tf.estimator.ModeKeys.EVAL)
+
+  iterator = tf.data.Iterator.from_structure(
+      training_dataset.output_types, training_dataset.output_shapes)
+  data_ops = iterator.get_next()
+
+  training_init_op = iterator.make_initializer(training_dataset)
+  test_init_op = iterator.make_initializer(test_dataset)
+
+  return data_ops, training_init_op, test_init_op
+
+
+class AccuracyWorker(Thread):
+  """Compute accuracy statistics and print update line."""
+  def __init__(self, acc_queue):
+    Thread.__init__(self)
+    self.queue = acc_queue
+    self.daemon = True
+
+  def run(self):
+    while True:
+      try:
+        # get args
+        epoch, steps, train_loss, valid_acc, time_str, best_str = self.queue.get()
+
+        # compute validation accuracy
+        valid_r2 = valid_acc.r2().mean()
+        valid_corr = valid_acc.pearsonr().mean()
+
+        # print update
+        update_line = 'Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,  Valid loss: %7.5f,' % (epoch+1, steps, train_loss, valid_acc.loss)
+        update_line += '  Valid R2: %7.5f,  Valid R: %7.5f, Time: %s%s' % (valid_r2, valid_corr, time_str, best_str)
+        print(update_line, flush=True)
+
+        # delete predictions and targets
+        del valid_acc
+
+      except:
+        # communicate error
+        print('ERROR: epoch accuracy and progress update failed.', flush=True)
+
+      # communicate finished task
+      self.queue.task_done()
+
+
 if __name__ == '__main__':
   tf.app.run(main)

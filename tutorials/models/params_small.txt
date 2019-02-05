@@ -11,6 +11,8 @@ learning_rate	0.002
 
 num_targets 3
 target_pool 128
+seq_length 131072
+target_length 1024
 
 cnn_dropout	0.1
 

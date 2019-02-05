@@ -146,6 +146,10 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
   hp.add_hparam('cnn_l2_scale', job.get('cnn_l2_scale', 0.))
   hp.add_hparam('final_l1_scale', job.get('final_l1_scale', 0.))
 
+  hp.add_hparam('augment_mutation', job.get('augment_mutation', 0))
+
+  hp.add_hparam('nonlinearity', job.get('nonlinearity', 'relu'))
+
   ###################################################
   # loss
 

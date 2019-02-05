@@ -51,7 +51,7 @@ def main():
   parser.add_option(
       '-g',
       dest='genome_file',
-      default='%s/assembly/human.hg19.genome' % os.environ['HG19'],
+      default=None,
       help='Chromosome lengths file [Default: %default]')
   parser.add_option(
       '-l',
@@ -209,7 +209,7 @@ def main():
     t0 = time.time()
 
     # get wig files and labels
-    target_wigs_df = pd.read_table(options.target_wigs_file)
+    target_wigs_df = pd.read_table(options.target_wigs_file, index_col=0)
     target_wigs = OrderedDict()
     target_labels = []
     for i in range(target_wigs_df.shape[0]):
@@ -353,7 +353,7 @@ def bigwig_tss_targets(wig_file, tss_list, seq_coords, pool_width=1):
 
 ################################################################################
 def check_wigs(target_wigs_file):
-  target_wigs_df = pd.read_table(target_wigs_file)
+  target_wigs_df = pd.read_table(target_wigs_file, index_col=0)
   for wig_file in target_wigs_df.file:
     if not os.path.isfile(wig_file):
       print('Cannot find %s' % wig_file, file=sys.stderr)

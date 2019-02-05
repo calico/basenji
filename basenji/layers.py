@@ -12,25 +12,33 @@ from basenji import ops
 def conv_block(seqs_repr, conv_params, is_training,
                batch_norm, batch_norm_momentum,
                batch_renorm, batch_renorm_momentum,
-               l2_scale, layer_reprs, name=''):
+               nonlinearity, l2_scale, layer_reprs, name=''):
   """Construct a single (dilated) CNN block.
 
   Args:
-    seqs_repr: [batchsize, length, num_channels] input sequence
-    conv_params: convolution parameters
-    is_training: whether is a training graph or not
-    batch_norm: whether to use batchnorm
-    bn_momentum: batch norm momentum
+    seqs_repr:    [batchsize, length, num_channels] input sequence
+    conv_params:  convolution parameters
+    is_training:  whether is a training graph or not
+    batch_norm:   whether to use batchnorm
+    bn_momentum:  batch norm momentum
     batch_renorm: whether to use batch renormalization in batchnorm
-    l2_scale: L2 weight regularization scale
-    name: optional name for the block
+    nonlinearity: relu/gelu/etc
+    l2_scale:     L2 weight regularization scale
+    name:         optional name for the block
 
   Returns:
     updated representation for the sequence
   """
-  # ReLU
-  seqs_repr_next = tf.nn.relu(seqs_repr)
-  tf.logging.info('ReLU')
+  # nonlinearity
+  if nonlinearity == 'relu':
+      seqs_repr_next = tf.nn.relu(seqs_repr)
+      tf.logging.info('ReLU')
+  elif nonlinearity == 'gelu':
+      seqs_repr_next = tf.nn.sigmoid(1.702 * seqs_repr) * seqs_repr
+      tf.logging.info('GELU')
+  else:
+      print('Unrecognized nonlinearity "%s"' % nonlinearity, file=sys.stderr)
+      exit(1)
 
   # Convolution
   seqs_repr_next = tf.layers.conv1d(
@@ -50,10 +58,16 @@ def conv_block(seqs_repr, conv_params, is_training,
 
   # Batch norm
   if batch_norm:
+    if conv_params.skip_layers > 0:
+      gamma_init = tf.zeros_initializer()
+    else:
+      gamma_init = tf.ones_initializer()
+
     seqs_repr_next = tf.layers.batch_normalization(
         seqs_repr_next,
         momentum=batch_norm_momentum,
         training=is_training,
+        gamma_initializer=gamma_init,
         renorm=batch_renorm,
         renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
         renorm_momentum=batch_renorm_momentum,

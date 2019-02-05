@@ -9,3 +9,4 @@ basenji.egg-info/
 */.DS_Store
 */._.DS_Store
 bin/tutorials/.ipynb_checkpoints/
+data/hg19.fa*

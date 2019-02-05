@@ -49,7 +49,7 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <bed_file>'
   parser = OptionParser(usage)
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/assembly/hg19.fa' % os.environ['HG19'],
+      default=None,
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-l', dest='mut_len',
       default=200, type='int',
@@ -137,7 +137,7 @@ def main():
     target_subset = None
 
   else:
-    targets_df = pd.read_table(options.targets_file)
+    targets_df = pd.read_table(options.targets_file, index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
     target_subset = targets_df.index
@@ -571,7 +571,7 @@ def plot_heat(ax, sat_delta_ti, min_limit):
       vmax=vlim,
       xticklabels=False,
       ax=ax)
-  ax.yaxis.set_ticklabels('TGCA', rotation='horizontal')  # , size=10)
+  ax.yaxis.set_ticklabels('ACGT', rotation='horizontal')  # , size=10)
 
 
 def plot_predictions(ax, preds, satmut_len, seq_len, buffer):

@@ -150,7 +150,8 @@ def main():
 
   t0 = time.time()
   model = seqnn.SeqNN()
-  model.build_feed(job, target_subset=target_subset)
+  model.build_feed(job, ensemble_rc=options.rc,
+      ensemble_shifts=options.shifts, target_subset=target_subset)
 
   if options.batch_size is not None:
     model.hp.batch_size = options.batch_size
@@ -186,8 +187,7 @@ def main():
             sat_seqs_1hot, batch_size=model.hp.batch_size)
 
         # predict
-        sat_preds = model.predict(sess, batcher_sat,
-                                  rc=options.rc, shifts=options.shifts)
+        sat_preds = model.predict_h5(sess, batcher_sat)
         np.save('%s/seq%d_preds.npy' % (options.out_dir, si), sat_preds)
 
       #################################################################
@@ -478,7 +478,7 @@ def plot_heat(ax, sat_delta_ti, min_limit):
       vmax=vlim,
       xticklabels=False,
       ax=ax)
-  ax.yaxis.set_ticklabels('TGCA', rotation='horizontal')  # , size=10)
+  ax.yaxis.set_ticklabels('ACGT', rotation='horizontal')  # , size=10)
 
 
 def plot_predictions(ax, preds, satmut_len, seq_len, buffer):

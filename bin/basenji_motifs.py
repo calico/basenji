@@ -67,7 +67,7 @@ def main():
   parser.add_option(
       '-m',
       dest='meme_db',
-      default='%s/data/motifs/Homo_sapiens.meme' % os.environ['BASSETDIR'],
+      default='%s/data/motifs/Homo_sapiens.meme' % os.environ['BASENJIDIR'],
       help='MEME database used to annotate motifs')
   parser.add_option(
       '-p',

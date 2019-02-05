@@ -47,7 +47,7 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <genes_hdf5_file>'
   parser = OptionParser(usage)
   parser.add_option('-g', dest='genome_file',
-      default='%s/assembly/human.hg19.genome'%os.environ['HG19'],
+      default='%s/data/human.hg19.genome'%os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
   parser.add_option('-l', dest='gene_list',
       help='Process only gene ids in the given file')

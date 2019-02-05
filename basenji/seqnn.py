@@ -20,6 +20,10 @@ import time
 
 import numpy as np
 import tensorflow as tf
+try:
+  import tensorflow_probability as tfp
+except ImportError:
+  pass
 
 from basenji import augmentation
 from basenji import layers
@@ -83,6 +87,11 @@ class SeqNN(seqnn_util.SeqNNModel):
       # optimizer
       self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
       self.build_optimizer(self.loss_train)
+
+      # allegedly correct, but outperformed by skipping
+      # with tf.control_dependencies(self.update_ops):
+      #   self.build_optimizer(self.loss_train)
+
 
     ##################################################
     # eval
@@ -178,6 +187,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     return {
         'conv_params': self.hp.cnn_params[layer_index],
         'is_training': self.is_training,
+        'nonlinearity': self.hp.nonlinearity,
         'batch_norm': self.hp.batch_norm,
         'batch_norm_momentum': self.hp.batch_norm_momentum,
         'batch_renorm': self.hp.batch_renorm,
@@ -192,6 +202,21 @@ class SeqNN(seqnn_util.SeqNNModel):
     assert inputs is not None
     print('Targets pooled by %d to length %d' %
           (self.hp.target_pool, self.hp.seq_length // self.hp.target_pool))
+
+    if self.hp.augment_mutation > 0:
+      # sample mutation binary mask across sequences
+      mut_mask_probs = self.hp.augment_mutation*np.ones((self.hp.seq_length,1))
+      mut_mask_dist = tfp.distributions.Bernoulli(probs=mut_mask_probs, dtype=tf.float32)
+      mut_mask = mut_mask_dist.sample(tf.shape(inputs)[0])
+
+      # sample random nucleotide for mutations
+      mut_1hot_probs = 0.25*np.ones((self.hp.seq_length,4))
+      mut_1hot_dist = tfp.distributions.OneHotCategorical(probs=mut_1hot_probs, dtype=tf.float32)
+      mut_1hot = mut_1hot_dist.sample(tf.shape(inputs)[0])
+
+      # modify sequence
+      inputs_mut = inputs - mut_mask*inputs + mut_mask*mut_1hot
+      inputs = tf.cond(self.is_training, lambda: inputs_mut, lambda: inputs)
 
     ###################################################
     # convolution layers
@@ -213,7 +238,13 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.layer_reprs = layer_reprs
 
     # final nonlinearity
-    seqs_repr = tf.nn.relu(seqs_repr)
+    if self.hp.nonlinearity == 'relu':
+      seqs_repr = tf.nn.relu(seqs_repr)
+    elif self.hp.nonlinearity == 'gelu':
+      seqs_repr = tf.nn.sigmoid(1.702 * seqs_repr) * seqs_repr
+    else:
+      print('Unrecognized nonlinearity "%s"' % self.hp.nonlinearity, file=sys.stderr)
+      exit(1)
 
     ###################################################
     # slice out side buffer

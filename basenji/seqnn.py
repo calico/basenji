@@ -197,6 +197,21 @@ class SeqNN(seqnn_util.SeqNNModel):
         'name': 'conv-%d' % layer_index
     }
 
+  def _make_conv2_block_args(self, layer_index, layer_reprs):
+    """Packages arguments to be used by layers.conv_block."""
+    return {
+        'conv_params': self.hp.cnn2_params[layer_index],
+        'is_training': self.is_training,
+        'nonlinearity': self.hp.nonlinearity,
+        'batch_norm': self.hp.batch_norm,
+        'batch_norm_momentum': self.hp.batch_norm_momentum,
+        'batch_renorm': self.hp.batch_renorm,
+        'batch_renorm_momentum': self.hp.batch_renorm_momentum,
+        'l2_scale': self.hp.cnn_l2_scale,
+        'layer_reprs': layer_reprs,
+        'name': 'conv2-%d' % layer_index
+    }
+
   def build_predict(self, inputs, reverse_preds=None, embed_penultimate=False, target_subset=None, save_reprs=False):
     """Construct per-location real-valued predictions."""
     assert inputs is not None
@@ -233,9 +248,6 @@ class SeqNN(seqnn_util.SeqNNModel):
 
         # save representation
         layer_reprs.append(seqs_repr)
-
-    if save_reprs:
-      self.layer_reprs = layer_reprs
 
     # final nonlinearity
     if self.hp.nonlinearity == 'relu':
@@ -283,28 +295,40 @@ class SeqNN(seqnn_util.SeqNNModel):
             kernel_size=(1,1),
             padding='same',
             use_bias=False,
-            kernel_initializer=tf.contrib.layers.xavier_initializer(),
+            kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
             kernel_regularizer=tf.contrib.layers.l2_regularizer(self.hp.cnn_l2_scale))
 
-        # mean to make symmetric
+        # enforce symmetry
         matrix_repr = (matrix_repr + tf.transpose(matrix_repr, [0,2,1,3])) / 2
+        layer_reprs.append(matrix_repr)
+
+        # hic conv2d layers
+        for layer_index in range(self.hp.cnn2_layers):
+          with tf.variable_scope('cnn%d' % layer_index, reuse=tf.AUTO_REUSE):
+            # convolution block
+            args_for_block = self._make_conv2_block_args(layer_index, layer_reprs)
+            matrix_repr = layers.conv2_block(matrix_repr, **args_for_block)
+
+            # reinforce symmetry
+            matrix_repr = (matrix_repr + tf.transpose(matrix_repr, [0,2,1,3])) / 2
+
+            # save representation
+            layer_reprs.append(matrix_repr)
 
         # slice upper triangular
-        matrix_ut_repr = self.upper_triangular(matrix_repr)
+        seqs_repr = self.upper_triangular(matrix_repr)
 
-        # batch normalize
-        matrix_ut_repr = tf.layers.batch_normalization(
-            matrix_ut_repr,
-            momentum=self.hp.batch_norm_momentum,
-            training=self.is_training,
-            renorm=self.hp.batch_renorm,
-            renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
-            renorm_momentum=self.hp.batch_renorm_momentum,
-            fused=True)
+        # final nonlinearity
+        if self.hp.nonlinearity == 'relu':
+          seqs_repr = tf.nn.relu(seqs_repr)
+        elif self.hp.nonlinearity == 'gelu':
+          seqs_repr = tf.nn.sigmoid(1.702 * seqs_repr) * seqs_repr
+        else:
+          print('Unrecognized nonlinearity "%s"' % self.hp.nonlinearity, file=sys.stderr)
+          exit(1)
 
-        # rename to seqs_repr to consistency
-        seqs_repr = tf.nn.relu(matrix_ut_repr)
-
+    if save_reprs:
+      self.layer_reprs = layer_reprs
 
     ###################################################
     # final layer

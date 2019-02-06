@@ -177,6 +177,10 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
   # transform CNN hparams to specific params
   add_cnn_params(hp)
 
+  if hp.hic:
+    add_hparams_hic(hp, job)
+    add_cnn2_params(hp)
+
   ###################################################
   # google3
 
@@ -272,7 +276,7 @@ def add_hparams_dres(params, job):
   params.add_hparam('conv_reduce_pool', job.get('conv_reduce_pool', 2))
   params.add_hparam('conv_reduce_dropout', job.get('conv_reduce_dropout', 0.))
 
-  params.add_hparam('conv_reduce_width_max', job.get('conv_reduce_width_max', 128))
+  # params.add_hparam('conv_reduce_width_max', job.get('conv_reduce_width_max', 128))
 
   # dilated residual
   params.add_hparam('conv_dilate_filters', job.get('conv_dilate_filters', 128))
@@ -283,6 +287,16 @@ def add_hparams_dres(params, job):
   # final
   params.add_hparam('conv_final_filters', job.get('conv_final_filters', 1024))
   params.add_hparam('conv_final_dropout', job.get('conv_final_dropout', 0.))
+
+
+def add_hparams_hic(params, job):
+  """Add CNN hyper-parameters for Hi-C dilated residual network."""
+
+  # dilated residual
+  params.add_hparam('conv_hic_filters', job.get('conv_hic_filters', 128))
+  params.add_hparam('conv_hic_rate_mult', job.get('conv_hic_rate_mult', 2))
+  params.add_hparam('conv_hic_rate_max', job.get('conv_hic_rate_max', 64))
+  params.add_hparam('conv_hic_dropout', job.get('conv_hic_dropout', 0.))
 
 
 def add_cnn_params(params):
@@ -345,7 +359,7 @@ def add_cnn_params_dres(params):
   ###################################
   # reduce
 
-  while reduce_width < params.conv_reduce_width_max:
+  while reduce_width < params.target_pool:
     current_filters = int(current_filters*params.conv_reduce_filters_mult)
 
     cp = ConvParams(
@@ -390,6 +404,32 @@ def add_cnn_params_dres(params):
   params.cnn_params.append(cp)
 
   params.cnn_layers = len(params.cnn_params)
+
+
+def add_cnn2_params(params):
+  params.cnn2_params = []
+
+  current_dilation = 1
+  while current_dilation <= params.conv_hic_rate_max:
+    # dilate
+    cp = ConvParams(
+        filters=params.conv_hic_filters,
+        filter_size=3,
+        dilation=current_dilation)
+    params.cnn2_params.append(cp)
+
+    # residual
+    cp = ConvParams(
+        filters=params.conv_final_filters,
+        filter_size=1,
+        skip_layers=2,
+        dropout=params.conv_hic_dropout)
+    params.cnn2_params.append(cp)
+
+    current_dilation *= params.conv_hic_rate_mult
+    current_dilation = int(np.round(current_dilation))
+
+  params.cnn2_layers = len(params.cnn2_params)
 
 
 class ConvParams(

@@ -119,6 +119,11 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
         best_str = ', best!'
         early_stop_i = 0
         saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
+
+        # TEMP
+        np.save('%s/valid%d_preds.npy' % (FLAGS.logdir, epoch), valid_acc.preds)
+        np.save('%s/valid%d_targets.npy' % (FLAGS.logdir, epoch), valid_acc.targets)
+
       else:
         early_stop_i += 1
 

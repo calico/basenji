@@ -174,7 +174,7 @@ class CovFace:
       self.cov_open = pyBigWig.open(self.cov_file, 'r')
       self.bigwig = True
     elif cov_ext in ['.h5', '.hdf5', '.w5', '.wdf5']:
-      self.cov_open = hdpy.File(self.cov_file, 'r')
+      self.cov_open = h5py.File(self.cov_file, 'r')
     else:
       print('Cannot identify coverage file extension "%s".' % cov_ext,
             file=sys.stderr)

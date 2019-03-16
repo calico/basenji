@@ -144,7 +144,7 @@ def main():
       j = slurm.Job(cmd, name,
           outf, errf,
           queue=options.queue, gpu=1,
-          mem=45000, time='7-0:0:0')
+          mem=37000, time='7-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

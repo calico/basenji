@@ -119,8 +119,8 @@ def jointplot(vals1,
     # ax.text(xmax+text_xeps, ymin-test_yeps, 'mean %.3f'%u1, horizontalalignment='right', fontsize=14)
     # ax.text(xmin-text_xeps, ymax+test_yeps, 'mean %.3f'%u2, horizontalalignment='left', fontsize=14)
 
-    ax.text(1-eps, eps, 'mean %.3f'%u1, horizontalalignment='right', transform=ax.transAxes)
-    ax.text(eps, 1-eps, 'mean %.3f'%u2, verticalalignment='top', transform=ax.transAxes)
+    ax.text(1-eps, eps, 'Mean %.3f'%u1, horizontalalignment='right', transform=ax.transAxes)
+    ax.text(eps, 1-eps, 'Mean %.3f'%u2, verticalalignment='top', transform=ax.transAxes)
 
   # ax.grid(True, linestyle=':')
   if tight:

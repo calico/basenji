@@ -39,10 +39,11 @@ from basenji import plots
 from basenji import seqnn
 
 '''
-basenji_sat.py
+basenji_sat_h5.py
 
 Perform an in silico saturated mutagenesis of the given test sequences
-using the given model.
+using the given model. Not planning to develop from this file anymore,
+in favor of providing either BED or VCF files.
 
 Note:
  -Currently written assuming we have targets associated with each input sequence.

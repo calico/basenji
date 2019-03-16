@@ -33,7 +33,6 @@ basenji_sat_bed_multi.py
 
 Perform an in silico saturation mutagenesis of sequences in a BED file,
 using multiple processes.
-
 """
 
 ################################################################################

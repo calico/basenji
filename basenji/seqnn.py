@@ -54,6 +54,21 @@ class SeqNN(seqnn_util.SeqNNModel):
           embed_penultimate=embed_penultimate,
           target_subset=target_subset)
 
+  def build_feed_sad(self, job,
+                     ensemble_rc=False, ensemble_shifts=[0],
+                     embed_penultimate=False, target_subset=None):
+    """Build SAD predict ops that depend on placeholders."""
+
+    self.hp = params.make_hparams(job)
+    self.hparams_set = True
+    data_ops = self.make_placeholders()
+
+    self.build_sad(job, data_ops,
+                   ensemble_rc=ensemble_rc,
+                   ensemble_shifts=ensemble_shifts,
+                   embed_penultimate=embed_penultimate,
+                   target_subset=target_subset)
+
   def build_from_data_ops(self, job, data_ops,
                           augment_rc=False, augment_shifts=[0],
                           ensemble_rc=False, ensemble_shifts=[0],

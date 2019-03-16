@@ -168,13 +168,13 @@ class SeqNN(seqnn_util.SeqNNModel):
       self.targets_ph = tf.placeholder(
           tf.float32,
           shape=(None, self.hp.seq_length // self.hp.target_pool,
-                 self.hp.max_targets),
+                 self.hp.sum_targets),
           name='targets')
     else:
       self.targets_ph = tf.placeholder(
           tf.int32,
           shape=(None, self.hp.seq_length // self.hp.target_pool,
-                 self.hp.max_targets),
+                 self.hp.sum_targets),
           name='targets')
 
     self.targets_na_ph = tf.placeholder(tf.bool,
@@ -308,7 +308,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         # expand length back out
         if self.hp.target_classes > 1:
           final_repr = tf.reshape(final_repr,
-                                  (-1, seq_length, self.hp.max_targets,
+                                  (-1, seq_length, self.hp.sum_targets,
                                    self.hp.target_classes))
 
     # transform for reverse complement

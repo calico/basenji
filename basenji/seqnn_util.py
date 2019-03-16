@@ -578,7 +578,7 @@ class SeqNNModel(object):
     if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
-      num_targets = self.hp.num_targets
+      num_targets = self.hp.sum_targets
       if target_indexes is not None:
         num_targets = len(target_indexes)
 
@@ -682,7 +682,7 @@ class SeqNNModel(object):
     if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
-      num_targets = self.hp.num_targets
+      num_targets = self.hp.sum_targets
       if target_indexes is not None:
         num_targets = len(target_indexes)
 
@@ -969,7 +969,7 @@ class SeqNNModel(object):
     if embed_penultimate:
       num_targets = self.hp.cnn_params[-1].filters
     else:
-      num_targets = self.hp.num_targets
+      num_targets = self.hp.sum_targets
       if target_indexes is not None:
         num_targets = len(target_indexes)
 

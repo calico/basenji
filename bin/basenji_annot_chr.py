@@ -4,6 +4,7 @@ from optparse import OptionParser
 
 import gc
 import joblib
+import multiprocessing
 import pdb
 import os
 import subprocess
@@ -27,21 +28,24 @@ Format Basenji SAD output for LD score analysis.
 def main():
     usage = 'usage: %prog [options] <sad_dir>'
     parser = OptionParser(usage)
-    parser.add_option('-c', dest='chroms',
-            default=None, type='int',
-            help='Limit to first N chromosomes')
     parser.add_option('-d', dest='decomposition_dim',
             default=None, type='int')
     parser.add_option('-m', dest='model',
             default='pca', help='Matrix factorization model [Default: %default]')
     parser.add_option('-o', dest='out_dir', default='.')
-    parser.add_option('-p', dest='plink_stem',
+    parser.add_option('-p', dest='threads',
+            default=8, type='int',
+            help='Parallel threads [Default: %default]')
+    parser.add_option('--plink', dest='plink_stem',
             default='%s/popgen/1000G_EUR_Phase3_plink/1000G.EUR.QC' % os.environ['HG19'])
     parser.add_option('-r', dest='restart',
             default=False, action='store_true',
             help='Restart an interrupted job [Default: %default]')
     parser.add_option('-s', dest='sad_stat',
             default='SAD', help='SAD statistic [Default: %default]')
+    parser.add_option('--sep', dest='separate',
+            default=False, action='store_true',
+            help='Write separate output files for each target.')
     parser.add_option('-t', dest='targets_file',
             default=None, help='Read only the specified targets')
     parser.add_option('-x', dest='memory_max',
@@ -76,7 +80,9 @@ def main():
     ############################################
     # fit dimension reduction model
 
-    if options.decomposition_dim is not None:
+    if options.decomposition_dim is None:
+        model = None
+    else:
         model_pkl_file = '%s/model.pkl' % options.out_dir
         if options.restart and os.path.isfile(model_pkl_file):
             model = joblib.load(model_pkl_file)
@@ -84,11 +90,6 @@ def main():
         else:
             X_sad = sample_sad(sad_dir, options.memory_max,
                                options.sad_stat, targets_df)
-
-            if options.unsigned:
-                X_sad = np.abs(X_sad)
-
-            X_sad = X_sad.astype('float32')
 
             if options.model.lower() == 'pca':
                 print('Computing PCA to %d' % options.decomposition_dim)
@@ -98,13 +99,14 @@ def main():
             elif options.model.lower() == 'nmf':
                 print('Computing NMF to %d' % options.decomposition_dim)
                 model = NMF(n_components=options.decomposition_dim, init='nndsvda')
+                X_sad = np.abs(X_sad)
 
             else:
                 print('Unrecognized matrix factorization model "%s"' % options.model,
                       file=sys.stderr)
                 exit(1)
 
-            model.fit(X_sad)
+            model.fit(X_sad.astype('float32'))
             joblib.dump(model, model_pkl_file)
             del X_sad
 
@@ -117,96 +119,114 @@ def main():
     else:
         annot_ext = 'sannot'
 
-    max_chr = 22
-    if options.chroms is not None:
-        max_chr = options.chroms
+    hac_args = []
 
-    for ci in range(1,max_chr+1):
-        print('Reading chr%d BIM' % ci, flush=True)
-        annot_file = '%s/sad.%s.%s' % (options.out_dir, ci, annot_ext)
-
-        if not options.restart or not os.path.isfile(annot_file+'.gz'):
-            chrom_bim = '%s.%d.bim' % (options.plink_stem, ci)
-
-            # read SAD
+    for ci in range(1,23):
+        chr_annot_file = '%s/sad.%s.%s' % (options.out_dir, ci, annot_ext)
+        if options.restart and os.path.isfile(chr_annot_file+'.gz'):
+            print('%s.gz found.' % chr_annot_file)
+        else:
+            chr_bim_file = '%s.%d.bim' % (options.plink_stem, ci)
             sad_chr_file = '%s/chr%d/sad.h5' % (sad_dir, ci)
-            if os.path.isfile(sad_chr_file):
-                sad_chr_h5 = h5py.File(sad_chr_file, 'r')
+            if not os.path.isfile(sad_chr_file):
+                print('%s not found.' % sad_chr_file)
+            else:
+                hac_args.append((sad_chr_file, chr_bim_file, chr_annot_file, model, targets_df,
+                                 options.sad_stat, options.unsigned, options.separate))
+                # h5_annot_chr(sad_chr_file, chr_bim_file, chr_annot_file, model,
+                #              targets_df, options.sad_stat, options.unsigned)
 
-                if targets_df is None:
-                    X_sad = sad_chr_h5[options.sad_stat][:,:]
-                    annot_labels = [tid.decode('UTF-8') for tid in sad_chr_h5['target_ids']]
-                else:
-                    X_sad = sad_chr_h5[options.sad_stat][:,targets_df.index]
-                    annot_labels = list(targets_df.identifier.values)
+    mp = multiprocessing.Pool(options.threads)
+    mp.starmap(h5_annot_chr, hac_args)
 
-                # up convert
-                X_sad = X_sad.astype('float32')
 
-                ref_sad = [nt.decode('UTF-8') for nt in sad_chr_h5['ref']]
+def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sad_stat='SAD', unsigned=False, separate=False):
+    """ h5_annot_chr
 
-                # read SAD zarr
-                # sad_chr_file = '%s/chr%d/sad_table.zarr' % (sad_dir, ci)
-                # sad_chr_zarr = zarr.open_group(sad_chr_file, 'r')
-                # X_sad = np.array(sad_chr_zarr['SAD'])
+    Process one chromosome's SAD from from BIM to annot.
+    """
+    print(sad_file, flush=True)
 
-                if options.unsigned:
-                    X_sad = np.abs(X_sad)
+    sad_h5 = h5py.File(sad_file, 'r')
 
-                # reduce dimension
-                if options.decomposition_dim is not None:
-                    X_dim = model.transform(X_sad)
-                    del X_sad
-                    X_sad = X_dim
+    X_sad = sad_h5[sad_stat]
+    ref_sad = [nt.decode('UTF-8') for nt in sad_h5['ref']]
 
-                    # re-label the annotations
-                    annot_labels = ['sad-%d' % (i+1) for i in range(X_sad.shape[1])]
+    if model is not None:
+        annot_labels = ['sad-%d' % (i+1) for i in range(model.n_components)]
+    elif targets_df is None:
+        annot_labels = [tid.decode('UTF-8') for tid in sad_h5['target_ids']]
+    else:
+        annot_labels = list(targets_df.identifier.values)
 
-                # initialize output file
-                annot_out = open(annot_file, 'w')
-                header_cols = ['CHR', 'BP', 'SNP', 'CM', 'A1', 'A2'] + annot_labels
-                print('\t'.join(header_cols), file=annot_out)
+    # initialize output file
+    if not separate:
+        annot_out = open(annot_file, 'w')
+        header_cols = ['CHR', 'BP', 'SNP', 'CM', 'A1', 'A2'] + annot_labels
+        print('\t'.join(header_cols), file=annot_out)
+    else:
+        annot_files = []
+        annot_outs = []
+        for annot in annot_labels:
+            annot_files.append(annot_file.replace('/sad.', '/sad.%s.' % annot))
+            annot_outs.append(open(annot_files[-1], 'w'))
+            header_cols = ['CHR', 'BP', 'SNP', 'CM', 'A1', 'A2', annot]
+            print('\t'.join(header_cols), file=annot_outs[-1])
 
-                # process .bim
-                si = 0
-                for line in open(chrom_bim):
-                    a = line.split()
-                    rsid = a[1]
-                    cm = a[2]
-                    pos = a[3]
-                    a1 = a[4]
-                    a2 = a[5]
+    # process .bim
+    si = 0
+    for line in open(bim_file):
+        a = line.split()
+        chrm = a[0]
+        rsid = a[1]
+        cm = a[2]
+        pos = a[3]
+        a1 = a[4]
+        a2 = a[5]
 
-                    if ref_sad[si] == a2:
-                        # take prediction
-                        sad_si = X_sad[si]
+        if ref_sad[si] == a2:
+            # take prediction
+            sad_si = X_sad[si]
 
-                    elif ref_sad[si] == a1:
-                        # flip prediction
-                        sad_si = -X_sad[si]
+        elif ref_sad[si] == a1:
+            # flip prediction
+            sad_si = -X_sad[si]
 
-                    else:
-                        print('ERROR: %s SAD reference %s does not match Plink A1 %s or A2 %s' % \
-                                (rsid, ref_sad[si], a1, a2), file=sys.stderr)
-                        exit(1)
+        else:
+            print("ERROR: %s SAD ref %s doesn't match A1 %s or A2 %s" % \
+                    (rsid, ref_sad[si], a1, a2), file=sys.stderr)
+            exit(1)
 
-                    if options.unsigned:
-                        sad_si = np.abs(sad_si)
+        if targets_df is not None:
+            sad_si = sad_si[targets_df.index]
 
-                    cols = [str(ci), pos, rsid, cm, a1, a2]
-                    cols += ['%.4f'%x for x in sad_si]
-                    print('\t'.join(cols), file=annot_out)
+        if model is not None:
+            if type(model) == NMF:
+                sad_si = np.abs(sad_si)
+            sad_si = model.transform(sad_si.astype('float32'))
 
-                    si += 1
+        if unsigned:
+            sad_si = np.abs(sad_si)
 
-                annot_out.close()
+        if not separate:
+            cols = [chrm, pos, rsid, cm, a1, a2]
+            cols += ['%.4f'%x for x in sad_si]
+            print('\t'.join(cols), file=annot_out)
+        else:
+            for ti in range(len(annot_labels)):
+                cols = [chrm, pos, rsid, cm, a1, a2, '%.4f' % sad_si[ti]]
+                print('\t'.join(cols), file=annot_outs[ti])
 
-                # compress
-                subprocess.call('gzip -f %s' % annot_file, shell=True)
+        si += 1
 
-                # clean memory
-                del X_sad
-                gc.collect()
+    # compress
+    if not separate:
+        annot_out.close()
+        subprocess.call('gzip -f %s' % annot_file, shell=True)
+    else:
+        for annot_out in annot_outs:
+            annot_out.close()
+        subprocess.call('gzip -f %s' % ' '.join(annot_files), shell=True)
 
 
 def sample_sad(sad_dir, sad_max, sad_stat='SAD', targets_df=None):

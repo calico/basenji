@@ -40,6 +40,13 @@ basenji_sat_vcf.py
 
 Perform an in silico saturated mutagenesis of the sequences surrounding variants
 given in a VCF file.
+
+TODO:
+-Convert to tf.data following basenji_sat_bed.py. Unlike there, we can just make
+ the plots here.
+-Choose some plots, by computing cosine nearest neighbor graph between flattened
+ target profiles and cluster. Choose cluster representatives with largest variant
+ scores.
 '''
 
 ################################################################################
@@ -81,9 +88,6 @@ def main():
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
-  parser.add_option('-s', dest='seq_len',
-      default=131072, type='int',
-      help='Input sequence length [Default: %default]')
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
@@ -107,16 +111,20 @@ def main():
   #################################################################
   # prep SNP sequences
   #################################################################
+
+  # read parameters
+  job = params.read_job_params(params_file, require=['seq_length', 'num_targets'])
+
   # load SNPs
   snps = vcf.vcf_snps(vcf_file)
 
   # get one hot coded input sequences
   if not options.genome2_fasta:
     seqs_1hot, seq_headers, snps, seqs = vcf.snps_seq1(
-        snps, options.seq_len, options.genome1_fasta, return_seqs=True)
+        snps, job['seq_length'], options.genome1_fasta, return_seqs=True)
   else:
     seqs_1hot, seq_headers, snps, seqs = vcf.snps2_seq1(
-        snps, options.seq_len, options.genome1_fasta,
+        snps, job['seq_length'], options.genome1_fasta,
         options.genome2_fasta, return_seqs=True)
 
   seqs_n = seqs_1hot.shape[0]
@@ -124,7 +132,6 @@ def main():
   #################################################################
   # setup model
   #################################################################
-  job = params.read_job_params(params_file, require=['seq_length', 'num_targets'])
 
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
@@ -138,12 +145,6 @@ def main():
     target_subset = targets_df.index
     if len(target_subset) == job['num_targets']:
         target_subset = None
-
-  if 'num_targets' not in job or 'target_pool' not in job:
-    print(
-        'Must provide num_targets and target_pool in parameters file',
-        file=sys.stderr)
-    exit(1)
 
   # build model
   model = seqnn.SeqNN()

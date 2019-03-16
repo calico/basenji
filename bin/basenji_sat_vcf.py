@@ -24,6 +24,7 @@ import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
 import tensorflow as tf
 
@@ -31,8 +32,8 @@ from basenji import batcher
 from basenji import params
 from basenji import seqnn
 from basenji import vcf
-from basenji_sat import delta_matrix, satmut_seqs, subplot_params
-from basenji_sat import plot_heat, plot_sad, plot_seqlogo
+from basenji_sat_h5 import delta_matrix, satmut_seqs, subplot_params
+from basenji_sat_h5 import plot_heat, plot_sad, plot_seqlogo
 
 '''
 basenji_sat_vcf.py
@@ -59,6 +60,9 @@ def main():
   parser.add_option('-g', dest='gain',
       default=False, action='store_true',
       help='Draw a sequence logo for the gain score, too [Default: %default]')
+  # parser.add_option('-k', dest='plot_k',
+  #     default=None, type='int',
+  #     help='Plot the top k targets at each end.')
   parser.add_option('-l', dest='satmut_len',
       default=200, type='int',
       help='Length of centered sequence to mutate [Default: %default]')
@@ -83,9 +87,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option('-t', dest='targets',
-      default='0',
-      help='Comma-separated target indexes [Default: %default]')
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
+      help='File specifying target indexes and labels in table format')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -100,17 +104,11 @@ def main():
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
-  # decide which targets to obtain
-  target_indexes = [int(ti) for ti in options.targets.split(',')]
-
   #################################################################
   # prep SNP sequences
   #################################################################
   # load SNPs
   snps = vcf.vcf_snps(vcf_file)
-
-  for si in range(len(snps)):
-    print(snps[si])
 
   # get one hot coded input sequences
   if not options.genome2_fasta:
@@ -126,10 +124,20 @@ def main():
   #################################################################
   # setup model
   #################################################################
-  job = params.read_job_params(params_file)
+  job = params.read_job_params(params_file, require=['seq_length', 'num_targets'])
 
-  job['seq_length'] = seqs_1hot.shape[1]
-  job['seq_depth'] = seqs_1hot.shape[2]
+  if options.targets_file is None:
+    target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
+    target_labels = ['']*len(target_ids)
+    target_subset = None
+
+  else:
+    targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
+    target_ids = targets_df.identifier
+    target_labels = targets_df.description
+    target_subset = targets_df.index
+    if len(target_subset) == job['num_targets']:
+        target_subset = None
 
   if 'num_targets' not in job or 'target_pool' not in job:
     print(
@@ -139,8 +147,8 @@ def main():
 
   # build model
   model = seqnn.SeqNN()
-  model.build_feed(job, ensemble_rc=options.rc,
-      ensemble_shifts=options.shifts, target_subset=target_indexes)
+  model.build_feed_sad(job, ensemble_rc=options.rc,
+      ensemble_shifts=options.shifts, target_subset=target_subset)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -196,7 +204,7 @@ def main():
       ##############################################
       # plot
 
-      for ti in range(len(target_indexes)):
+      for ti in range(len(target_subset)):
         # setup plot
         sns.set(style='white', font_scale=1)
         spp = subplot_params(sat_delta.shape[1])
@@ -237,7 +245,7 @@ def main():
         plot_heat(ax_heat, sat_delta[:, :, ti], options.min_limit)
 
         plt.tight_layout()
-        plt.savefig('%s/%s_t%d.pdf' % (options.out_dir, header_fs, ti), dpi=600)
+        plt.savefig('%s/%s_t%d.pdf' % (options.out_dir, header_fs, target_subset[ti]), dpi=600)
         plt.close()
 
 

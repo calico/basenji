@@ -32,10 +32,13 @@ import h5py
 import numpy as np
 import pandas as pd
 
-import util
-import slurm
+from basenji import genome
+from basenji import util
 
-import basenji.genome
+try:
+  import slurm
+except ModuleNotFoundError:
+  pass
 
 '''
 basenji_data.py
@@ -129,12 +132,12 @@ def main():
   ################################################################
   # define genomic contigs
   ################################################################
-  chrom_contigs = basenji.genome.load_chromosomes(fasta_file)
+  chrom_contigs = genome.load_chromosomes(fasta_file)
 
   # remove gaps
   if options.gaps_file:
-    chrom_contigs = basenji.genome.split_contigs(chrom_contigs,
-                                                 options.gaps_file)
+    chrom_contigs = genome.split_contigs(chrom_contigs,
+                                         options.gaps_file)
 
   # ditch the chromosomes for contigs
   contigs = []

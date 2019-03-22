@@ -34,11 +34,14 @@ import numpy as np
 import pandas as pd
 import pybedtools
 
-import util
-import slurm
-
-import basenji.genome as genome
+from basenji import genome
+from basenji import util
 from basenji_data import annotate_unmap, rejoin_large_contigs
+
+try:
+  import slurm
+except ModuleNotFoundError:
+  pass
 
 '''
 basenji_data2.py

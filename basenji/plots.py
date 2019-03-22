@@ -43,7 +43,9 @@ def jointplot(vals1,
               table=False,
               kind='scatter',
               text_means=False,
-              tight=False):
+              tight=False,
+              outlier_low=None,
+              outlier_high=None):
 
   if table:
     out_txt = '%s.txt' % out_pdf[:-4]
@@ -83,6 +85,20 @@ def jointplot(vals1,
     joint_kws['scatter_kws'] = {'color':'black', 's':point_size, 'alpha':alpha}
     joint_kws['line_kws'] = {'color':gold}
 
+  # compute summary stat pre-filter
+  u1 = np.mean(vals1)
+  u2 = np.mean(vals2)
+
+  # filter outliers for aesthetic purposes
+  if outlier_low is not None:
+    vals1 = vals1[vals1 > outlier_low]
+    vals2 = vals2[vals2 > outlier_low]
+  if outlier_high is not None:
+    vals1 = vals1[vals1 < outlier_high]
+    vals2 = vals2[vals2 < outlier_high]
+  assert(len(vals1) > 0)
+  assert(len(vals1) == len(vals2))
+
   g = sns.jointplot(vals1, vals2,
         color='black', height=figsize,
         space=0, stat_func=cor_func,
@@ -109,9 +125,6 @@ def jointplot(vals1,
     ax.set_xlabel(x_label)
 
   if text_means:
-    u1 = np.mean(vals1)
-    u2 = np.mean(vals2)
-
     eps = .05
     text_xeps = eps*(xmax-xmin)
     test_yeps = eps*(ymax-ymin)

@@ -181,7 +181,7 @@ def main():
 
     # build model
     model = seqnn.SeqNN()
-    model.build_feed(job)
+    model.build_feed_sad(job)
 
     if options.batch_size is not None:
       model.hp.batch_size = options.batch_size

@@ -43,6 +43,9 @@ def main():
             help='Restart an interrupted job [Default: %default]')
     parser.add_option('-s', dest='sad_stat',
             default='SAD', help='SAD statistic [Default: %default]')
+    parser.add_option('--sep', dest='separate',
+            default=False, action='store_true',
+            help='Write separate output files for each target.')
     parser.add_option('-t', dest='targets_file',
             default=None, help='Read only the specified targets')
     parser.add_option('-x', dest='memory_max',
@@ -128,8 +131,8 @@ def main():
             if not os.path.isfile(sad_chr_file):
                 print('%s not found.' % sad_chr_file)
             else:
-                hac_args.append((sad_chr_file, chr_bim_file, chr_annot_file, model,
-                             targets_df, options.sad_stat, options.unsigned))
+                hac_args.append((sad_chr_file, chr_bim_file, chr_annot_file, model, targets_df,
+                                 options.sad_stat, options.unsigned, options.separate))
                 # h5_annot_chr(sad_chr_file, chr_bim_file, chr_annot_file, model,
                 #              targets_df, options.sad_stat, options.unsigned)
 
@@ -137,7 +140,7 @@ def main():
     mp.starmap(h5_annot_chr, hac_args)
 
 
-def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sad_stat='SAD', unsigned=False):
+def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sad_stat='SAD', unsigned=False, separate=False):
     """ h5_annot_chr
 
     Process one chromosome's SAD from from BIM to annot.
@@ -157,9 +160,18 @@ def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sa
         annot_labels = list(targets_df.identifier.values)
 
     # initialize output file
-    annot_out = open(annot_file, 'w')
-    header_cols = ['CHR', 'BP', 'SNP', 'CM', 'A1', 'A2'] + annot_labels
-    print('\t'.join(header_cols), file=annot_out)
+    if not separate:
+        annot_out = open(annot_file, 'w')
+        header_cols = ['CHR', 'BP', 'SNP', 'CM', 'A1', 'A2'] + annot_labels
+        print('\t'.join(header_cols), file=annot_out)
+    else:
+        annot_files = []
+        annot_outs = []
+        for annot in annot_labels:
+            annot_files.append(annot_file.replace('/sad.', '/sad.%s.' % annot))
+            annot_outs.append(open(annot_files[-1], 'w'))
+            header_cols = ['CHR', 'BP', 'SNP', 'CM', 'A1', 'A2', annot]
+            print('\t'.join(header_cols), file=annot_outs[-1])
 
     # process .bim
     si = 0
@@ -196,16 +208,25 @@ def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sa
         if unsigned:
             sad_si = np.abs(sad_si)
 
-        cols = [chrm, pos, rsid, cm, a1, a2]
-        cols += ['%.4f'%x for x in sad_si]
-        print('\t'.join(cols), file=annot_out)
+        if not separate:
+            cols = [chrm, pos, rsid, cm, a1, a2]
+            cols += ['%.4f'%x for x in sad_si]
+            print('\t'.join(cols), file=annot_out)
+        else:
+            for ti in range(len(annot_labels)):
+                cols = [chrm, pos, rsid, cm, a1, a2, '%.4f' % sad_si[ti]]
+                print('\t'.join(cols), file=annot_outs[ti])
 
         si += 1
 
-    annot_out.close()
-
     # compress
-    subprocess.call('gzip -f %s' % annot_file, shell=True)
+    if not separate:
+        annot_out.close()
+        subprocess.call('gzip -f %s' % annot_file, shell=True)
+    else:
+        for annot_out in annot_outs:
+            annot_out.close()
+        subprocess.call('gzip -f %s' % ' '.join(annot_files), shell=True)
 
 
 def sample_sad(sad_dir, sad_max, sad_stat='SAD', targets_df=None):

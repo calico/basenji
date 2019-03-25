@@ -879,12 +879,12 @@ class SeqNNModel(object):
           preds_batch = sess.run(self.preds_eval, feed_dict=fd)
 
         # accumulate predictions and targets
-        preds.append(preds_batch)
+        preds.append(preds_batch.astype('float16'))
         if return_var:
           preds_var_batch = np.var(preds_ensemble_batch, axis=-1)
-          preds_var.append(preds_var_batch)
+          preds_var.append(preds_var_batch.astype('float16'))
         if return_all:
-          preds_all.append(preds_ensemble_batch)
+          preds_all.append(preds_ensemble_batch.astype('float16'))
 
         batch_num += 1
 

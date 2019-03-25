@@ -275,8 +275,8 @@ def add_hparams_dres(params, job):
   params.add_hparam('conv_reduce_stride', job.get('conv_reduce_stride', 1))
   params.add_hparam('conv_reduce_pool', job.get('conv_reduce_pool', 2))
   params.add_hparam('conv_reduce_dropout', job.get('conv_reduce_dropout', 0.))
-
-  # params.add_hparam('conv_reduce_width_max', job.get('conv_reduce_width_max', 128))
+  params.add_hparam('conv_reduce_width_max', job.get('conv_reduce_width_max',
+                                                     params.target_pool))
 
   # dilated residual
   params.add_hparam('conv_dilate_filters', job.get('conv_dilate_filters', 128))
@@ -359,7 +359,7 @@ def add_cnn_params_dres(params):
   ###################################
   # reduce
 
-  while reduce_width < params.target_pool:
+  while reduce_width < params.conv_reduce_width_max:
     current_filters = int(current_filters*params.conv_reduce_filters_mult)
 
     cp = ConvParams(

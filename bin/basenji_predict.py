@@ -26,6 +26,7 @@ import tensorflow as tf
 from basenji import dataset
 from basenji import params
 from basenji import seqnn
+from basenji_test import bigwig_open, bigwig_write
 
 """
 basenji_predict.py
@@ -100,9 +101,9 @@ def main():
 
   # initialize model
   model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops, ensemble_rc=options.rc,
-                            ensemble_shifts=options.shifts,
-                            target_subset=target_subset)
+  model.build_sad(job, data_ops, ensemble_rc=options.rc,
+                  ensemble_shifts=options.shifts,
+                  target_subset=target_subset)
 
   # initialize saver
   saver = tf.train.Saver()
@@ -147,22 +148,7 @@ def main():
     if options.track_indexes:
       track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
 
-    bed_set = 'test'
-    if options.valid:
-      bed_set = 'valid'
-
     for ti in track_indexes:
-      test_targets_ti = test_targets[:, :, ti]
-
-      # make true targets bigwig
-      bw_file = '%s/tracks/t%d_true.bw' % (options.out_dir, ti)
-      bigwig_write(
-          bw_file,
-          test_targets_ti,
-          options.track_bed,
-          options.genome_file,
-          bed_set=bed_set)
-
       # make predictions bigwig
       bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)
       bigwig_write(
@@ -170,92 +156,7 @@ def main():
           test_preds[:, :, ti],
           options.track_bed,
           options.genome_file,
-          model.hp.batch_buffer,
-          bed_set=bed_set)
-
-
-def bigwig_open(bw_file, genome_file):
-  """ Open the bigwig file for writing and write the header. """
-
-  bw_out = pyBigWig.open(bw_file, 'w')
-
-  chrom_sizes = []
-  for line in open(genome_file):
-    a = line.split()
-    chrom_sizes.append((a[0], int(a[1])))
-
-  bw_out.addHeader(chrom_sizes)
-
-  return bw_out
-
-
-def bigwig_write(bw_file,
-                 signal_ti,
-                 track_bed,
-                 genome_file,
-                 buffer=0,
-                 bed_set='test'):
-  """ Write a signal track to a BigWig file over the regions
-         specified by track_bed.
-
-    Args
-     bw_file:     BigWig filename
-     signal_ti:   Sequences X Length array for some target
-     track_bed:   BED file specifying sequence coordinates
-     genome_file: Chromosome lengths file
-     buffer:      Length skipped on each side of the region.
-    """
-
-  bw_out = bigwig_open(bw_file, genome_file)
-
-  si = 0
-  bw_hash = {}
-
-  # set entries
-  for line in open(track_bed):
-    a = line.split()
-    if a[3] == bed_set:
-      chrom = a[0]
-      start = int(a[1])
-      end = int(a[2])
-
-      preds_pool = (end - start - 2 * buffer) // signal_ti.shape[1]
-
-      bw_start = start + buffer
-      for li in range(signal_ti.shape[1]):
-        bw_end = bw_start + preds_pool
-        bw_hash.setdefault((chrom,bw_start,bw_end),[]).append(signal_ti[si,li])
-        bw_start = bw_end
-
-      si += 1
-
-  # average duplicates
-  bw_entries = []
-  for bw_key in bw_hash:
-    bw_signal = np.mean(bw_hash[bw_key])
-    bwe = tuple(list(bw_key)+[bw_signal])
-    bw_entries.append(bwe)
-
-  # sort entries
-  bw_entries.sort()
-
-  # add entries
-  for line in open(genome_file):
-    chrom = line.split()[0]
-
-    bw_entries_chroms = [be[0] for be in bw_entries if be[0] == chrom]
-    bw_entries_starts = [be[1] for be in bw_entries if be[0] == chrom]
-    bw_entries_ends = [be[2] for be in bw_entries if be[0] == chrom]
-    bw_entries_values = [float(be[3]) for be in bw_entries if be[0] == chrom]
-
-    if len(bw_entries_chroms) > 0:
-      bw_out.addEntries(
-          bw_entries_chroms,
-          bw_entries_starts,
-          ends=bw_entries_ends,
-          values=bw_entries_values)
-
-  bw_out.close()
+          model.hp.batch_buffer)
 
 
 def make_data_ops(job, tfr_pattern):

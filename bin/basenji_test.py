@@ -16,6 +16,7 @@
 
 from __future__ import print_function
 from optparse import OptionParser
+import pdb
 import os
 import random
 import sys
@@ -145,6 +146,7 @@ def main():
     test_acc = model.test_tfr(sess, test_dataseq)
 
     test_preds = test_acc.preds
+    test_targets = test_acc.targets
     print('SeqNN test: %ds' % (time.time() - t0))
 
     if options.save:
@@ -235,6 +237,7 @@ def main():
     print('Test AUROC:     %7.5f' % np.mean(aurocs))
     print('Test AUPRC:     %7.5f' % np.mean(auprcs))
 
+
   #######################################################
   # BigWig tracks
 
@@ -252,10 +255,6 @@ def main():
     if options.track_indexes:
       track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
 
-    bed_set = 'test'
-    if options.valid:
-      bed_set = 'valid'
-
     for ti in track_indexes:
       test_targets_ti = test_targets[:, :, ti]
 
@@ -266,7 +265,7 @@ def main():
           test_targets_ti,
           options.track_bed,
           options.genome_file,
-          bed_set=bed_set)
+          model.hp.batch_buffer)
 
       # make predictions bigwig
       bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)
@@ -275,17 +274,8 @@ def main():
           test_preds[:, :, ti],
           options.track_bed,
           options.genome_file,
-          model.hp.batch_buffer,
-          bed_set=bed_set)
+          model.hp.batch_buffer)
 
-    # make NA bigwig
-    # bw_file = '%s/tracks/na.bw' % options.out_dir
-    # bigwig_write(
-    #     bw_file,
-    #     test_na,
-    #     options.track_bed,
-    #     options.genome_file,
-    #     bed_set=bed_set)
 
   #######################################################
   # accuracy plots
@@ -446,7 +436,7 @@ def bigwig_write(bw_file,
                  track_bed,
                  genome_file,
                  buffer=0,
-                 bed_set='test'):
+                 bed_set=None):
   """ Write a signal track to a BigWig file over the regions
          specified by track_bed.
 
@@ -466,7 +456,7 @@ def bigwig_write(bw_file,
   # set entries
   for line in open(track_bed):
     a = line.split()
-    if a[3] == bed_set:
+    if bed_set is None or a[3] == bed_set:
       chrom = a[0]
       start = int(a[1])
       end = int(a[2])

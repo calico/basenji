@@ -28,7 +28,8 @@ import seaborn as sns
 import tensorflow as tf
 import basenji
 
-"""basenji_norm.py
+"""
+basenji_norm.py
 
 Compute prediction summary statistics for normalization.
 """
@@ -39,57 +40,32 @@ Compute prediction summary statistics for normalization.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <test_hdf5_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-l',
-      dest='sample_len',
-      default=1,
-      type='int',
+  parser.add_option('-l', dest='sample_len',
+      default=1, type='int',
       help='Uniformly sample across the seq length [Default: %default]')
-  parser.add_option(
-      '--mc',
-      dest='mc_n',
-      default=0,
-      type='int',
+  parser.add_option('--mc', dest='mc_n',
+      default=0, type='int',
       help='Monte carlo test iterations [Default: %default]')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
+  parser.add_option('-o', dest='out_dir',
       default='test_out',
       help='Output directory for test statistics [Default: %default]')
-  parser.add_option(
-      '--rc',
-      dest='rc',
-      default=False,
-      action='store_true',
-      help=
-      'Average the fwd and rc predictions [Default: %default]')
-  parser.add_option(
-      '-s',
-      dest='sample_seqs',
-      default=1,
-      type='float',
+  parser.add_option('--rc', dest='rc',
+      default=False, action='store_true',
+      help='Average the fwd and rc predictions [Default: %default]')
+  parser.add_option('-s', dest='sample_seqs',
+      default=1., type='float',
       help='Sample sequences [Default: %default]')
-  parser.add_option(
-      '--save',
-      dest='save',
-      default=False,
-      action='store_true')
-  parser.add_option(
-      '--shifts',
-      dest='shifts',
+  parser.add_option('--save', dest='save',
+      default=False, action='store_true',
+      help='Save predictions to HDF5. [Default: %default]')
+  parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option(
-      '--train',
-      dest='train',
-      default=False,
-      action='store_true',
+  parser.add_option('--train', dest='train',
+      default=False, action='store_true',
       help='Process the training set [Default: %default]')
-  parser.add_option(
-      '-v',
-      dest='valid',
-      default=False,
-      action='store_true',
+  parser.add_option('-v', dest='valid',
+      default=False, action='store_true',
       help='Process the validation set [Default: %default]')
   (options, args) = parser.parse_args()
 
@@ -177,8 +153,9 @@ def main():
     print('SeqNN test: %ds' % (time.time() - t0))
 
   if options.save:
-    np.save('%s/preds.npy' % options.out_dir, test_preds)
-    # np.save('%s/targets.npy' % options.out_dir, test_targets)
+    preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
+    preds_h5.create_dataset('preds', data=test_preds)
+    preds_h5.close()
 
   #######################################################
   # normalize

@@ -32,7 +32,8 @@ import pandas as pd
 import pyBigWig
 from scipy.stats import spearmanr, poisson
 import seaborn as sns
-from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
+from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import precision_recall_curve, average_precision_score
 import tensorflow as tf
 
 from basenji import batcher
@@ -150,8 +151,12 @@ def main():
     print('SeqNN test: %ds' % (time.time() - t0))
 
     if options.save:
-      np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
-      np.save('%s/targets.npy' % options.out_dir, test_acc.targets)
+      preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
+      preds_h5.create_dataset('preds', data=test_preds)
+      preds_h5.close()
+      targets_h5 = h5py.File('%s/targets.h5' % options.out_dir, 'w')
+      targets_h5.create_dataset('targets', data=test_targets)
+      targets_h5.close()
 
     # compute stats
     t0 = time.time()
@@ -264,8 +269,7 @@ def main():
           bw_file,
           test_targets_ti,
           options.track_bed,
-          options.genome_file,
-          model.hp.batch_buffer)
+          options.genome_file)
 
       # make predictions bigwig
       bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)
@@ -446,6 +450,7 @@ def bigwig_write(bw_file,
      track_bed:   BED file specifying sequence coordinates
      genome_file: Chromosome lengths file
      buffer:      Length skipped on each side of the region.
+     bed_set:     Filter BED file for train/valid/test
     """
 
   bw_out = bigwig_open(bw_file, genome_file)

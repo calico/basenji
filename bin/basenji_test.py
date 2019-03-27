@@ -31,7 +31,8 @@ import pandas as pd
 import pyBigWig
 from scipy.stats import spearmanr, poisson
 import seaborn as sns
-from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
+from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import precision_recall_curve, average_precision_score
 import tensorflow as tf
 
 from basenji import batcher
@@ -144,8 +145,12 @@ def main():
     test_targets = test_acc.targets
 
     if options.save:
-      np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
-      np.save('%s/targets.npy' % options.out_dir, test_acc.targets)
+      preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
+      preds_h5.create_dataset('preds', data=test_preds)
+      preds_h5.close()
+      targets_h5 = h5py.File('%s/targets.h5' % options.out_dir, 'w')
+      targets_h5.create_dataset('targets', data=test_targets)
+      targets_h5.close()
 
     # compute stats
     t0 = time.time()
@@ -166,10 +171,9 @@ def main():
 
     acc_out = open('%s/acc.txt' % options.out_dir, 'w')
     for ti in range(len(test_r2)):
-      print(
-        '%4d  %7.5f  %.5f  %.5f  %.5f  %s' %
-        (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti],
-          test_log_pcor[ti], targets_df.description.iloc[ti]), file=acc_out)
+      print('%4d  %7.5f  %.5f  %.5f  %.5f  %s' %
+            (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti],
+              test_log_pcor[ti], targets_df.description.iloc[ti]), file=acc_out)
     acc_out.close()
 
     # print normalization factors
@@ -248,10 +252,6 @@ def main():
     if options.track_indexes:
       track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
 
-    bed_set = 'test'
-    if options.valid:
-      bed_set = 'valid'
-
     for ti in track_indexes:
       test_targets_ti = test_targets[:, :, ti]
 
@@ -261,8 +261,7 @@ def main():
           bw_file,
           test_targets_ti,
           options.track_bed,
-          options.genome_file,
-          bed_set=bed_set)
+          options.genome_file)
 
       # make predictions bigwig
       bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)
@@ -271,17 +270,8 @@ def main():
           test_preds[:, :, ti],
           options.track_bed,
           options.genome_file,
-          model.hp.batch_buffer,
-          bed_set=bed_set)
+          model.hp.batch_buffer)
 
-    # make NA bigwig
-    # bw_file = '%s/tracks/na.bw' % options.out_dir
-    # bigwig_write(
-    #     bw_file,
-    #     test_na,
-    #     options.track_bed,
-    #     options.genome_file,
-    #     bed_set=bed_set)
 
   #######################################################
   # accuracy plots
@@ -445,7 +435,7 @@ def bigwig_write(bw_file,
                  track_bed,
                  genome_file,
                  buffer=0,
-                 bed_set='test'):
+                 bed_set=None):
   """ Write a signal track to a BigWig file over the regions
          specified by track_bed.
 
@@ -455,6 +445,7 @@ def bigwig_write(bw_file,
      track_bed:   BED file specifying sequence coordinates
      genome_file: Chromosome lengths file
      buffer:      Length skipped on each side of the region.
+     bed_set:     Filter BED file for train/valid/test
     """
 
   bw_out = bigwig_open(bw_file, genome_file)
@@ -465,7 +456,7 @@ def bigwig_write(bw_file,
   # set entries
   for line in open(track_bed):
     a = line.split()
-    if a[3] == bed_set:
+    if bed_set is None or a[3] == bed_set:
       chrom = a[0]
       start = int(a[1])
       end = int(a[2])

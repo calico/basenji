@@ -8,11 +8,13 @@ import pyBigWig
 import tensorflow as tf
 
 from basenji.dna_io import hot1_dna
+from basenji.tfrecord_batcher import order_tfrecords
 
 '''
-Name
+tfr_bw.py
 
-Description...
+Generate BigWig tracks from TFRecords.
+Experimental!
 '''
 
 ################################################################################
@@ -22,9 +24,9 @@ def main():
     usage = 'usage: %prog [options] <tfr_dir> <out_bw>'
     parser = OptionParser(usage)
     parser.add_option('-f', dest='fasta_file',
-            default='%s/assembly/hg38.fa' % os.environ['HG38'])
+            default='%s/assembly/ucsc/hg38.fa' % os.environ['HG38'])
     parser.add_option('-g', dest='genome_file',
-            default='%s/assembly/hg38.human.genome' % os.environ['HG38'])
+            default='%s/assembly/ucsc/hg38.human.genome' % os.environ['HG38'])
     parser.add_option('-l', dest='target_length',
             default=1024, type='int',
             help='TFRecord target length [Default: %default]')
@@ -63,7 +65,8 @@ def main():
     fasta_open = pysam.Fastafile(options.fasta_file)
 
     # initialize one shot iterator
-    next_op = make_next_op('%s/%s-0-0.tfr' % (tfr_dir, options.data_split))
+    # next_op = make_next_op('%s/%s-0-0.tfr' % (tfr_dir, options.data_split))
+    next_op = make_next_op('%s/%s-0-*.tfr' % (tfr_dir, options.data_split))
 
     # read sequence values
     with tf.Session() as sess:
@@ -72,6 +75,9 @@ def main():
         # read sequence
         seq_bed_line = seq_bed_open.readline()
         a = seq_bed_line.rstrip().split('\t')
+        while a[-1] != options.data_split:
+            seq_bed_line = seq_bed_open.readline()
+            a = seq_bed_line.rstrip().split('\t')
         chrm = a[0]
         start = int(a[1])
         end = int(a[2])
@@ -81,7 +87,11 @@ def main():
         seq_1hot = next_datum['sequence'].reshape((-1,4))
         seq_1hot_dna = hot1_dna(seq_1hot)
         seq_fasta = fasta_open.fetch(chrm, start, end).upper()
-        assert(seq_1hot_dna == seq_fasta)
+        if seq_1hot_dna != seq_fasta:
+            seq_diff = [seq_1hot_dna[i] != seq_fasta[i] for i in range(len(seq_fasta))]
+            seq_diff = np.array(seq_match, dtype='bool')
+            print('WARNING: %s:%d-%d differs by %d nts (%.4f)' % \
+                    (chrm, start, end, seq_match.sum(), seq_match.mean()))
 
         # read targets
         targets = next_datum['target'].reshape(options.target_length, -1)
@@ -100,7 +110,6 @@ def main():
     # write chr values
     for chrm, _ in header:
         print(chrm)
-
         out_bw_open.addEntries(chrm, 0, values=chr_values[chrm], span=1, step=1)
 
     # close files
@@ -109,7 +118,13 @@ def main():
 
 def make_next_op(tfr_pattern):
     # read TF Records
-    dataset = tf.data.Dataset.list_files(tfr_pattern)
+    # dataset = tf.data.Dataset.list_files(tfr_pattern)
+    tfr_files = order_tfrecords(tfr_pattern)
+    if tfr_files:
+        dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+    else:
+        print('Cannot order TFRecords %s' % tfr_pattern, file=sys.stderr)
+        dataset = tf.data.Dataset.list_files(tfr_pattern)
 
     def file_to_records(filename):
         return tf.data.TFRecordDataset(filename, compression_type='ZLIB')

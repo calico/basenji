@@ -13,6 +13,7 @@
 # limitations under the License.
 # =========================================================================
 from __future__ import print_function
+import os
 import pdb
 import sys
 
@@ -54,7 +55,13 @@ class DatasetSeq:
     """Make Dataset w/ transformations."""
 
     # initialize dataset from
-    dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+    # dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+    tfr_files = order_tfrecords(self.tfr_pattern)
+    if tfr_files:
+      dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+    else:
+      print('Cannot order TFRecords %s' % self.tfr_pattern, file=sys.stderr)
+      dataset = tf.data.Dataset.list_files(self.tfr_pattern)
 
     # map_func
     def file_to_records(filename):
@@ -223,3 +230,20 @@ class DatasetSeq:
       self.handle = None
     else:
       self.handle = sess.run(self.iterator.string_handle())
+
+
+def order_tfrecords(tfr_pattern):
+  """Check for TFRecords files fitting my pattern in succession,
+     else return empty list."""
+  tfr_files = []
+
+  if tfr_pattern.count('*') == 1:
+    i = 0
+    tfr_file = tfr_pattern.replace('*', str(i))
+
+    while os.path.isfile(tfr_file):
+      tfr_files.append(tfr_file)
+      i += 1
+      tfr_file = tfr_pattern.replace('*', str(i))
+
+  return tfr_files

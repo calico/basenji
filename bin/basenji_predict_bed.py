@@ -53,14 +53,14 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/assembly/ucsc/human.hg38.genome' % os.environ['HG38'],
       help='Chromosome length information [Default: %default]')
-  parser.add_option('-l', dest='mid_len',
-      default=256, type='int',
-      help='Length of center sequence to sum predictions for [Default: %default]')
+  # parser.add_option('-l', dest='mid_len',
+  #     default=256, type='int',
+  #     help='Length of center sequence to sum predictions for [Default: %default]')
   parser.add_option('-o', dest='out_h5_file',
-      default='sat_bed.h5', help='Output HDF5 [Default: %default]')
-  parser.add_option('--plots', dest='plots',
-      default=False, action='store_true',
-      help='Make heatmap plots [Default: %default]')
+      default='predict.h5', help='Output HDF5 [Default: %default]')
+  # parser.add_option('--plots', dest='plots',
+  #     default=False, action='store_true',
+  #     help='Make heatmap plots [Default: %default]')
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')

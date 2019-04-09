@@ -114,7 +114,7 @@ def main():
   #################################################################
   # read parameters and collet target information
 
-  job = params.read_job_params(params_file)
+  job = params.read_job_params(params_file, require=['num_targets','seq_length'])
 
   num_targets = np.sum(job['num_targets'])
   if options.targets_file is None:

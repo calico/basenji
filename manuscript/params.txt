@@ -1,5 +1,6 @@
 batch_size	2
 batch_buffer	4096
+num_targets	4229
 
 link		exp_linear
 loss		poisson

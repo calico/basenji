@@ -18,6 +18,7 @@ from __future__ import print_function
 from optparse import OptionParser
 import os
 
+import h5py
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -77,6 +78,9 @@ def main():
     model_file = args[1]
     data_dir = args[2]
 
+  if options.track_bed is not None and options.sample_down < 1:
+    parser.error('Cannot down sample and write BigWigs.')
+
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
@@ -120,26 +124,28 @@ def main():
     sess.run(test_init_op)
     test_preds = model.predict_tfr(sess, sample=options.sample_down)
 
-    np.save('%s/preds.npy' % options.out_dir, test_preds)
+    preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
+    preds_h5.create_dataset('preds', data=test_preds)
+    preds_h5.close()
 
     # print normalization factors
     target_means = test_preds.mean(axis=(0,1), dtype='float64')
     target_means_median = np.median(target_means)
-    target_means /= target_means_median
+    # target_means /= target_means_median
     norm_out = open('%s/normalization.txt' % options.out_dir, 'w')
-    print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
+    # print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
+    for ti in range(len(target_means)):
+      print(ti, target_means[ti], target_means_median/target_means[ti], file=norm_out)
     norm_out.close()
 
 
   #######################################################
   # BigWig tracks
 
-  # NOTE: THESE ASSUME THERE WAS NO DOWN-SAMPLING ABOVE
-
   # print bigwig tracks for visualization
   if options.track_bed:
     if options.genome_file is None:
-      parser.error('Must provide genome file in order to print valid BigWigs')
+      parser.error('Must provide genome file in order to print valid BigWigs.')
 
     if not os.path.isdir('%s/tracks' % options.out_dir):
       os.mkdir('%s/tracks' % options.out_dir)

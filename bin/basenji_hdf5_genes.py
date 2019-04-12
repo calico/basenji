@@ -409,7 +409,7 @@ def cluster_tss(transcript_genes, transcripts, merge_distance):
 def wig5_tss_targets(w5_file, tss_list, seq_coords, pool_width=1):
   ''' Read gene target values from a bigwig
   Args:
-    wig_file: wiggle HDF5 filename
+    w5_file: wiggle HDF5 filename
     tss_list: list of TSS instances
     seq_coords: list of (chrom,start,end) sequence coordinates
     pool_width: average pool adjacent nucleotides of this width
@@ -444,12 +444,12 @@ def wig5_tss_targets(w5_file, tss_list, seq_coords, pool_width=1):
 
     except RuntimeError:
       if seq_chrom not in warned_chroms:
-        print("WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s" % (wig_file,tss.identifier,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
+        print("WARNING: %s doesn't see %s (%s:%d-%d). Setting to all zeros. No additional warnings will be offered for %s" % (w5_file,tss.identifier,seq_chrom,seq_start,seq_end,seq_chrom), file=sys.stderr)
         warned_chroms.add(seq_chrom)
 
     # check NaN
     if np.isnan(tss_targets[tss_i]):
-      print('WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' % (tss.identifier, seq_chrom, seq_start, seq_end, wig_file), file=sys.stderr)
+      print('WARNING: %s (%s:%d-%d) pulled NaN from %s. Setting to zero.' % (tss.identifier, seq_chrom, seq_start, seq_end, w5_file), file=sys.stderr)
       tss_targets[tss_i] = 0
 
   # close w5 file

@@ -114,7 +114,7 @@ def main():
 
   # read targets
   if options.targets_file is None:
-    options. targets_file = '%s/targets.txt' % data_dir
+    options.targets_file = '%s/targets.txt' % data_dir
   targets_df = pd.read_table(options.targets_file, index_col=0)
 
   # read model parameters
@@ -186,9 +186,11 @@ def main():
     # print normalization factors
     target_means = test_preds.mean(axis=(0,1), dtype='float64')
     target_means_median = np.median(target_means)
-    target_means /= target_means_median
+    # target_means /= target_means_median
     norm_out = open('%s/normalization.txt' % options.out_dir, 'w')
-    print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
+    # print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
+    for ti in range(len(target_means)):
+      print(ti, target_means[ti], target_means_median/target_means[ti], file=norm_out)
     norm_out.close()
 
     # clean up
@@ -269,7 +271,9 @@ def main():
           bw_file,
           test_targets_ti,
           options.track_bed,
-          options.genome_file)
+          options.genome_file,
+          model.hp.batch_buffer)
+      # buffer unnecessary, but there are overlaps without it
 
       # make predictions bigwig
       bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)

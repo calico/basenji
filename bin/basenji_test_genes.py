@@ -112,13 +112,9 @@ def main():
       dest='replicate_labels_file',
       help=
       'Compare replicate experiments, aided by the given file with long labels')
-  parser.add_option(
-      '-t',
-      dest='target_indexes',
-      default=None,
-      help=
-      'File or Comma-separated list of target indexes to scatter plot true versus predicted values'
-  )
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
+      help='File specifying target indexes and labels in table format')
   parser.add_option(
       '--table',
       dest='print_tables',
@@ -214,6 +210,9 @@ def main():
 
     print(' Done in %ds.' % (time.time() - t0))
 
+  # up-convert
+  tss_preds = tss_preds.astype('float32')
+
   #################################################################
   # convert to genes
 
@@ -226,27 +225,16 @@ def main():
   #################################################################
   # determine targets
 
-  # all targets
-  if options.target_indexes is None:
-    if gene_data.num_targets is None:
-      print('No targets to test against')
-      exit()
-    else:
-      options.target_indexes = np.arange(gene_data.num_targets)
-
-  # file targets
-  elif os.path.isfile(options.target_indexes):
-    target_indexes_file = options.target_indexes
-    targets_df = pd.read_table(target_indexes_file, index_col=0)
-    options.target_indexes = targets_df.index
-
-  # comma-separated targets
+  # read targets
+  if options.targets_file is not None:
+    targets_df = pd.read_table(options.targets_file, index_col=0)
+    target_indexes = targets_df.index
   else:
-    options.target_indexes = [
-        int(ti) for ti in options.target_indexes.split(',')
-    ]
-
-  options.target_indexes = np.array(options.target_indexes)
+    if gene_data.num_targets is None:
+      print('No targets to test against.')
+      exit(1)
+    else:
+      target_indexes = np.arange(gene_data.num_targets)
 
   #################################################################
   # correlation statistics
@@ -256,11 +244,11 @@ def main():
   sys.stdout.flush()
 
   cor_table(gene_data.tss_targets, tss_preds, gene_data.target_ids,
-            gene_data.target_labels, options.target_indexes,
+            gene_data.target_labels, target_indexes,
             '%s/tss_cors.txt' % options.out_dir)
 
   cor_table(gene_targets, gene_preds, gene_data.target_ids,
-            gene_data.target_labels, options.target_indexes,
+            gene_data.target_labels, target_indexes,
             '%s/gene_cors.txt' % options.out_dir, draw_plots=True)
 
   print(' Done in %ds.' % (time.time() - t0))
@@ -274,12 +262,12 @@ def main():
     sys.stdout.flush()
 
     gene_table(gene_data.tss_targets, tss_preds, gene_data.tss_ids(),
-               gene_data.target_labels, options.target_indexes,
+               gene_data.target_labels, target_indexes,
                '%s/transcript' % options.out_dir, options.plot_scatter)
 
     gene_table(gene_targets, gene_preds,
                gene_data.gene_ids(), gene_data.target_labels,
-               options.target_indexes, '%s/gene' % options.out_dir,
+               target_indexes, '%s/gene' % options.out_dir,
                options.plot_scatter)
 
     print(' Done in %ds.' % (time.time() - t0))
@@ -295,8 +283,8 @@ def main():
     print('Normalizing values across targets.', end='')
     sys.stdout.flush()
 
-    gene_targets_qn = normalize_targets(gene_targets[:, options.target_indexes], log_pseudo=1)
-    gene_preds_qn = normalize_targets(gene_preds[:, options.target_indexes], log_pseudo=1)
+    gene_targets_qn = normalize_targets(gene_targets[:, target_indexes], log_pseudo=1)
+    gene_preds_qn = normalize_targets(gene_preds[:, target_indexes], log_pseudo=1)
 
     print(' Done in %ds.' % (time.time() - t0))
 
@@ -376,7 +364,7 @@ def main():
     # replicate_correlations(replicate_lists, gene_data.tss_targets,
         # tss_preds, options.target_indexes, '%s/transcript_reps' % options.out_dir)
     replicate_correlations(
-        replicate_lists, gene_targets, gene_preds, options.target_indexes,
+        replicate_lists, gene_targets, gene_preds, target_indexes,
         '%s/gene_reps' % options.out_dir)  # , scatter_plots=True)
 
   #################################################################
@@ -390,8 +378,8 @@ def main():
   # alternative TSS
 
   if options.tss_alt:
-    alternative_tss(gene_data.tss_targets[:,options.target_indexes],
-                    tss_preds[:,options.target_indexes], gene_data,
+    alternative_tss(gene_data.tss_targets[:,target_indexes],
+                    tss_preds[:,target_indexes], gene_data,
                     options.out_dir, log_pseudo=1)
 
 

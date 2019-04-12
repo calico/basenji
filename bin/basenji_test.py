@@ -55,6 +55,8 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('--ai', dest='accuracy_indexes',
       help='Comma-separated list of target indexes to make accuracy scatter plots.')
+  parser.add_option('-b', dest='track_bed',
+      help='BED file describing regions so we can output BigWig tracks')
   parser.add_option('--clip', dest='target_clip',
       default=None, type='float',
       help='Clip targets and predictions to a maximum value [Default: %default]')
@@ -82,8 +84,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option('-t', dest='track_bed',
-      help='BED file describing regions so we can output BigWig tracks')
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
+      help='File specifying target indexes and labels in table format')
   parser.add_option('--ti', dest='track_indexes',
       help='Comma-separated list of target indexes to output BigWig tracks')
   parser.add_option('--tfr', dest='tfr_pattern',
@@ -108,8 +111,9 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   # read targets
-  targets_file = '%s/targets.txt' % data_dir
-  targets_df = pd.read_table(targets_file, index_col=0)
+  if options.targets_file is None:
+    options.targets_file = '%s/targets.txt' % data_dir
+  targets_df = pd.read_table(options.targets_file, index_col=0)
 
   # read model parameters
   job = params.read_job_params(params_file)
@@ -179,9 +183,11 @@ def main():
     # print normalization factors
     target_means = test_preds.mean(axis=(0,1), dtype='float64')
     target_means_median = np.median(target_means)
-    target_means /= target_means_median
+    # target_means /= target_means_median
     norm_out = open('%s/normalization.txt' % options.out_dir, 'w')
-    print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
+    # print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
+    for ti in range(len(target_means)):
+      print(ti, target_means[ti], target_means_median/target_means[ti], file=norm_out)
     norm_out.close()
 
     # clean up
@@ -261,7 +267,9 @@ def main():
           bw_file,
           test_targets_ti,
           options.track_bed,
-          options.genome_file)
+          options.genome_file,
+          model.hp.batch_buffer)
+      # buffer unnecessary, but there are overlaps without it
 
       # make predictions bigwig
       bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)

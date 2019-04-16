@@ -74,29 +74,6 @@ def main():
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
-    params_file = args[0]
-    model_file = args[1]
-    bed_file = args[2]
-
-  elif len(args) == 5:
-    # multi worker
-    options_pkl_file = args[0]
-    params_file = args[1]
-    model_file = args[2]
-    bed_file = args[3]
-    worker_index = int(args[4])
-
-    # load options
-    options_pkl = open(options_pkl_file, 'rb')
-    options = pickle.load(options_pkl)
-    options_pkl.close()
-
-    # update output directory
-    options.out_dir = '%s/job%d' % (options.out_dir, worker_index)
-  else:
-    parser.error('Must provide parameter and model files and BED file')
-
-  if len(args) == 3:
     # single worker
     params_file = args[0]
     model_file = args[1]

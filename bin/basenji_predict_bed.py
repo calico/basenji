@@ -48,16 +48,17 @@ def main():
   parser.add_option('-b', dest='bigwig_indexes',
       default=None, help='Comma-separated list of target indexes to write BigWigs')
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/assembly/ucsc/hg38.fa' % os.environ['HG38'],
+      default=None,
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genome_file',
-      default='%s/assembly/ucsc/human.hg38.genome' % os.environ['HG38'],
+      default=None,
       help='Chromosome length information [Default: %default]')
   # parser.add_option('-l', dest='mid_len',
   #     default=256, type='int',
   #     help='Length of center sequence to sum predictions for [Default: %default]')
-  parser.add_option('-o', dest='out_h5_file',
-      default='predict.h5', help='Output HDF5 [Default: %default]')
+  parser.add_option('-o', dest='out_dir',
+      default='pred_out',
+      help='Output directory [Default: %default]')
   # parser.add_option('--plots', dest='plots',
   #     default=False, action='store_true',
   #     help='Make heatmap plots [Default: %default]')
@@ -93,11 +94,13 @@ def main():
     options = pickle.load(options_pkl)
     options_pkl.close()
 
-    # update output hdf5
-    options.out_h5_file = options.out_h5_file.replace('.h5', '_job%d.h5'%worker_index)
-
+    # update output directory
+    options.out_dir = '%s/job%d' % (options.out_dir, worker_index)
   else:
     parser.error('Must provide parameter and model files and BED file')
+
+  if not os.path.isdir(options.out_dir):
+    os.mkdir(options.out_dir)
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
@@ -107,7 +110,7 @@ def main():
     options.bigwig_indexes = []
 
   if len(options.bigwig_indexes) > 0:
-    bigwig_dir = os.path.splitext(options.out_h5_file)[0]
+    bigwig_dir = '%s/bigwig' % options.out_dir
     if not os.path.isdir(bigwig_dir):
       os.mkdir(bigwig_dir)
 
@@ -126,7 +129,6 @@ def main():
       target_subset = None
     else:
       num_targets = len(target_subset)
-
 
   #################################################################
   # sequence dataset
@@ -157,9 +159,10 @@ def main():
   #################################################################
   # setup output
 
-  if os.path.isfile(options.out_h5_file):
-    os.remove(options.out_h5_file)
-  out_h5 = h5py.File(options.out_h5_file, 'w')
+  out_h5_file = '%s/predict.h5' % options.out_dir
+  if os.path.isfile(out_h5_file):
+    os.remove(out_h5_file)
+  out_h5 = h5py.File(out_h5_file, 'w')
   out_h5.create_dataset('preds', shape=(num_seqs, num_targets), dtype='float16')
 
   # store sequence coordinates
@@ -285,8 +288,8 @@ def bed_seqs(bed_file, fasta_file, seq_len):
   for line in open(bed_file):
     a = line.split()
     chrm = a[0]
-    start = int(a[1])
-    end = int(a[2])
+    start = int(float(a[1]))
+    end = int(float(a[2]))
 
     # determine sequence limits
     mid = (start + end) // 2

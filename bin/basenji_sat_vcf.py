@@ -146,21 +146,23 @@ def main():
     if len(target_subset) == job['num_targets']:
         target_subset = None
 
-  # build model
-  model = seqnn.SeqNN()
-  model.build_feed_sad(job, ensemble_rc=options.rc,
-      ensemble_shifts=options.shifts, target_subset=target_subset)
+  if not options.load_sat_npy:
+    # build model
+    model = seqnn.SeqNN()
+    model.build_feed_sad(job, ensemble_rc=options.rc,
+        ensemble_shifts=options.shifts, target_subset=target_subset)
 
-  # initialize saver
-  saver = tf.train.Saver()
+    # initialize saver
+    saver = tf.train.Saver()
 
   #################################################################
   # predict and process
   #################################################################
 
   with tf.Session() as sess:
-    # load variables into session
-    saver.restore(sess, model_file)
+    if not options.load_sat_npy:
+      # load variables into session
+      saver.restore(sess, model_file)
 
     for si in range(seqs_n):
       header = seq_headers[si]

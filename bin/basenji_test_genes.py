@@ -799,7 +799,7 @@ def quantile_accuracy(gene_targets, gene_preds, gene_stat, out_pdf, numq=4):
   ''' Plot accuracy (PearsonR) in quantile bins across targets. '''
 
   # plot PearsonR in variance statistic bins
-  quant_indexes = stats.quantile_indexes(gene_stat, numq)
+  quant_indexes = quantile_indexes(gene_stat, numq)
 
   quantiles_series = []
   targets_series = []
@@ -886,6 +886,32 @@ def quantile_accuracy(gene_targets, gene_preds, gene_stat, out_pdf, numq=4):
   table_out.close()
 
 
+def quantile_indexes(values, numq):
+  """ Return a list of lists of indexes referring to data points in the
+       corresponding quantiles."""
+  # obtain indexes sorted by value
+  indexes_sorted = np.argsort(values)
+
+  # determine max index of quantiles
+  quantile_maxes = np.linspace(0, len(values), numq+1).astype('int')[1:]
+
+  # initialize data structure
+  quant_indexes = []
+  for qmi in range(numq):
+    quant_indexes.append([])
+
+  qmi = 0
+  for i in range(len(values)):
+    if i >= quantile_maxes[qmi]:
+      # next quantile
+      qmi += 1
+
+    # append original index to this quantile's list
+    quant_indexes[qmi].append(indexes_sorted[i])
+
+  return quant_indexes
+
+
 def variance_accuracy(gene_targets, gene_preds, out_prefix, log_pseudo=None):
   """ Compare MSE accuracy to gene mean and variance.
 
@@ -939,7 +965,7 @@ def variance_accuracy(gene_targets, gene_preds, out_prefix, log_pseudo=None):
 
   # plot MSE distributions in CV bins
   numq = 5
-  quant_indexes = stats.quantile_indexes(gene_cv, numq)
+  quant_indexes = quantile_indexes(gene_cv, numq)
   quant_mse = []
   for qi in range(numq):
     for gi in quant_indexes[qi]:

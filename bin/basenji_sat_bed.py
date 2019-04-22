@@ -77,14 +77,14 @@ def main():
     # single worker
     params_file = args[0]
     model_file = args[1]
-    vcf_file = args[2]
+    bed_file = args[2]
 
   elif len(args) == 5:
     # multi worker
     options_pkl_file = args[0]
     params_file = args[1]
     model_file = args[2]
-    vcf_file = args[3]
+    bed_file = args[3]
     worker_index = int(args[4])
 
     # load options
@@ -96,7 +96,7 @@ def main():
     options.out_dir = '%s/job%d' % (options.out_dir, worker_index)
 
   else:
-    parser.error('Must provide parameters and model files and QTL VCF file')
+    parser.error('Must provide parameters and model files and QTL BED file')
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)

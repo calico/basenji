@@ -63,6 +63,9 @@ def main():
       help='Minimum heatmap limit [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='sat_plot', help='Output directory [Default: %default]')
+  parser.add_option('--png', dest='save_png',
+      default=False, action='store_true',
+      help='Write PNG as opposed to PDF [Default: %default]')
   parser.add_option('-r', dest='rng_seed',
       default=1, type='float',
       help='Random number generator seed [Default: %default]')
@@ -81,6 +84,10 @@ def main():
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
+
+  save_ext = 'pdf'
+  if options.save_png:
+    save_ext = 'png'
 
   np.random.seed(options.rng_seed)
 
@@ -119,7 +126,7 @@ def main():
     ref_scores = scores[seq_1hot]
 
     for tii in range(num_targets):
-      ti = targets_df['index'].iloc[tii]
+      ti = targets_df.index[tii]
 
       scores_ti = scores[:,:,ti]
 
@@ -165,7 +172,7 @@ def main():
       plot_heat(ax_heat, delta_ti.T, options.min_limit)
 
       # plt.tight_layout()
-      plt.savefig('%s/seq%d_t%d.pdf' % (options.out_dir, si, ti), dpi=600)
+      plt.savefig('%s/seq%d_t%d.%s' % (options.out_dir, si, ti, save_ext), dpi=600)
       plt.close()
 
 

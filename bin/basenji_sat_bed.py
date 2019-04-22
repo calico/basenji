@@ -74,6 +74,7 @@ def main():
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
+    # single worker
     params_file = args[0]
     model_file = args[1]
     bed_file = args[2]
@@ -93,6 +94,7 @@ def main():
 
     # update output directory
     options.out_dir = '%s/job%d' % (options.out_dir, worker_index)
+
   else:
     parser.error('Must provide parameter and model files and BED file')
 

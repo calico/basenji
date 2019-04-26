@@ -90,10 +90,10 @@ def main():
       help='Random seed [Default: %default]')
   parser.add_option('--stride_train', dest='stride_train',
       default=1., type='float',
-      help='Stride to advance train sequences [Default: seq_length]')
+      help='Stride to advance train sequences [Default: %default]')
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
-      help='Stride to advance valid and test sequences [Default: seq_length]')
+      help='Stride to advance valid and test sequences [Default: %default]')
   parser.add_option('--soft', dest='soft_clip',
       default=False, action='store_true',
       help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
@@ -125,6 +125,18 @@ def main():
   # there is still some source of stochasticity
   random.seed(options.seed)
   np.random.seed(options.seed)
+
+  # transform proportion strides to base pairs
+  if options.stride_train <= 1:
+    print('stride_train %.f'%options.stride_train, end='')
+    options.stride_train = options.stride_train*options.seq_length
+    print(' converted to %f' % options.stride_train)
+  options.stride_train = int(np.round(options.stride_train))
+  if options.stride_test <= 1:
+    print('stride_test %.f'%options.stride_test, end='')
+    options.stride_test = options.stride_test*options.seq_length
+    print(' converted to %f' % options.stride_test)
+  options.stride_test = int(np.round(options.stride_test))
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
@@ -199,9 +211,12 @@ def main():
   ################################################################
 
   # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, label='test')
+  train_mseqs = contig_sequences(train_contigs, options.seq_length,
+                                 options.stride_train, label='train')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length,
+                                 options.stride_test, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length,
+                                options.stride_test, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -355,8 +370,8 @@ def contig_sequences(contigs, seq_length, stride, label=None):
       mseqs.append(ModelSeq(ctg.genome, ctg.chr, seq_start, seq_end, label))
 
       # update
-      seq_start += int(stride*seq_length)
-      seq_end += int(stride*seq_length)
+      seq_start += stride
+      seq_end += stride
 
   return mseqs
 
@@ -640,7 +655,7 @@ def make_read_jobs(seqs_bed_file, targets_df, gi, seqs_cov_dir, options):
             name='read_t%d' % ti,
             out_file='%s.out' % seqs_cov_stem,
             err_file='%s.err' % seqs_cov_stem,
-            queue='standard,tbdisk', mem=15000, time='12:0:0')
+            queue='standard', mem=15000, time='12:0:0')
         read_jobs.append(j)
 
   return read_jobs
@@ -688,7 +703,7 @@ def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
               name='write_%s-%d' % (tvt_set, tfr_i),
               out_file='%s.out' % tfr_stem,
               err_file='%s.err' % tfr_stem,
-              queue='standard,tbdisk', mem=15000, time='12:0:0')
+              queue='standard', mem=15000, time='12:0:0')
         write_jobs.append(j)
 
       # update

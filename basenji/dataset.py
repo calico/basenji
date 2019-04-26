@@ -73,7 +73,7 @@ class DatasetSeq:
 
       # interleave files
       dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
+          tf.data.experimental.parallel_interleave(
               map_func=file_to_records, sloppy=True,
               cycle_length=NUM_FILES_TO_PARALLEL_INTERLEAVE))
 

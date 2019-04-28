@@ -93,8 +93,8 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
                                          sess.graph) if FLAGS.logdir else None
 
     # start queue runners
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
+    # coord = tf.train.Coordinator()
+    # tf.train.start_queue_runners(coord=coord)
 
     # generate handles
     for gi in range(job['num_genomes']):

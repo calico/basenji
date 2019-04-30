@@ -75,6 +75,7 @@ def augment_deterministic(data_ops, augment_rc=False, augment_shift=0):
   Args:
     data_ops: dict with keys 'sequence,' 'label,' and 'na.'
     augment_rc: Boolean
+<<<<<<< HEAD
     augment_shift: Int
   Returns
     data_ops: augmented data, with all existing keys transformed
@@ -86,6 +87,14 @@ def augment_deterministic(data_ops, augment_rc=False, augment_shift=0):
     data_ops_aug['label'] = data_ops['label']
   if 'na' in data_ops:
     data_ops_aug['na'] = data_ops['na']
+=======
+    augment_shifts: Int
+  Returns
+    data_ops: augmented data
+  """
+
+  data_ops_aug = {'label': data_ops['label'], 'na': data_ops['na']}
+>>>>>>> 29dd294bf104eb6f38559a6665fc2ff7d233afc9
 
   if augment_shift == 0:
     data_ops_aug['sequence'] = data_ops['sequence']
@@ -109,8 +118,15 @@ def augment_deterministic_rc(data_ops):
   Returns
     data_ops_aug: augmented data ops
   """
+<<<<<<< HEAD
   data_ops_aug = ops.reverse_complement_transform(data_ops)
   data_ops_aug['reverse_preds'] = tf.ones((), dtype=tf.bool)
+=======
+  seq, label, na = [data_ops[k] for k in ['sequence', 'label', 'na']]
+  seq, label, na = ops.reverse_complement_transform(seq, label, na)
+  reverse_preds = tf.ones((), dtype=tf.bool)
+  data_ops_aug = {'sequence': seq, 'label': label, 'na': na, 'reverse_preds':reverse_preds}
+>>>>>>> 29dd294bf104eb6f38559a6665fc2ff7d233afc9
   return data_ops_aug
 
 
@@ -122,10 +138,18 @@ def augment_stochastic_rc(data_ops):
   Returns
     data_ops_aug: augmented data
   """
+<<<<<<< HEAD
   reverse_preds = tf.random_uniform(shape=[]) > 0.5
   data_ops_aug = tf.cond(reverse_preds, lambda: ops.reverse_complement_transform(data_ops),
                                         lambda: data_ops.copy())
   data_ops_aug['reverse_preds'] = reverse_preds
+=======
+  seq, label, na = [data_ops[k] for k in ['sequence', 'label', 'na']]
+  reverse_preds = tf.random_uniform(shape=[]) > 0.5
+  seq, label, na = tf.cond(reverse_preds, lambda: ops.reverse_complement_transform(seq, label, na),
+                                          lambda: (seq, label, na))
+  data_ops_aug = {'sequence': seq, 'label': label, 'na': na, 'reverse_preds':reverse_preds}
+>>>>>>> 29dd294bf104eb6f38559a6665fc2ff7d233afc9
   return data_ops_aug
 
 

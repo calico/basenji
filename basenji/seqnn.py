@@ -165,6 +165,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # helper variables
     self.preds_length = self.preds_eval.shape[1]
 
+
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
     # batches
@@ -561,7 +562,6 @@ class SeqNN(seqnn_util.SeqNNModel):
       batcher.reset()
 
     avg_loss = np.average(train_loss, weights=batch_sizes)
-
     return avg_loss, global_step
 
   def train_epoch_h5(self,

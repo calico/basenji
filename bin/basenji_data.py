@@ -280,7 +280,7 @@ def main():
             name='read_t%d' % ti,
             out_file='%s.out' % seqs_cov_stem,
             err_file='%s.err' % seqs_cov_stem,
-            queue='standard,tbdisk', mem=15000, time='12:0:0')
+            queue='standard', mem=15000, time='12:0:0')
         read_jobs.append(j)
 
   if options.run_local:
@@ -335,7 +335,7 @@ def main():
               name='write_%s-%d' % (tvt_set, tfr_i),
               out_file='%s.out' % tfr_stem,
               err_file='%s.err' % tfr_stem,
-              queue='standard,tbdisk', mem=15000, time='12:0:0')
+              queue='standard', mem=15000, time='12:0:0')
         write_jobs.append(j)
 
       # update

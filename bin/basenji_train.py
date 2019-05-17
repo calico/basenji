@@ -35,6 +35,10 @@ FLAGS = tf.app.flags.FLAGS
 def main(_):
   np.random.seed(FLAGS.seed)
 
+  # determine whether to save predictions/targets
+  if not FLAGS.r2 and not FLAGS.r:
+    FLAGS.metrics_sample = 0.
+
   run(params_file=FLAGS.params,
       train_file=FLAGS.train_data,
       test_file=FLAGS.test_data,
@@ -75,8 +79,8 @@ def run(params_file, train_file, test_file, train_epochs, train_epoch_batches,
     train_writer = tf.summary.FileWriter(FLAGS.logdir + '/train',
                                          sess.graph) if FLAGS.logdir else None
 
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
+    # coord = tf.train.Coordinator()
+    # tf.train.start_queue_runners(coord=coord)
 
     if FLAGS.restart:
       # load variables into session

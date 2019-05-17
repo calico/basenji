@@ -106,10 +106,7 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
 
   hp.add_hparam('seq_depth', job.get('seq_depth', 4))
   hp.add_hparam('num_genomes', job.get('num_genomes', 1))
-  if hp.num_genomes == 1:
-    hp.add_hparam('num_targets', [job['num_targets']])
-  else:
-    hp.add_hparam('num_targets', job['num_targets'])
+  hp.add_hparam('num_targets', job['num_targets'])
   hp.add_hparam('max_targets', np.max(hp.num_targets))
   hp.add_hparam('sum_targets', np.sum([hp.num_targets]))
   hp.add_hparam('target_classes', job.get('target_classes', 1))

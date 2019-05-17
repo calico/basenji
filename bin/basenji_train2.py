@@ -61,6 +61,9 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
 
   # read parameters
   job = params.read_job_params(params_file)
+  job['num_genomes'] = job.get('num_genomes', 1)
+  if not isinstance(job['num_targets'], list):
+    job['num_targets'] = [job['num_targets']]
 
   # load data
   data_ops, handle, train_dataseqs, test_dataseqs = make_data_ops(
@@ -91,10 +94,6 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
   with tf.Session() as sess:
     train_writer = tf.summary.FileWriter(FLAGS.logdir + '/train',
                                          sess.graph) if FLAGS.logdir else None
-
-    # start queue runners
-    # coord = tf.train.Coordinator()
-    # tf.train.start_queue_runners(coord=coord)
 
     # generate handles
     for gi in range(job['num_genomes']):
@@ -278,15 +277,16 @@ def metrics_update(epoch, steps, train_losses, valid_losses, valid_accs, time_st
   print(' Time: %s%s' % (time_str, best_str))
 
   # print genome-specific updates
-  for gi in range(num_genomes):
-    if not np.isnan(valid_losses[gi]):
-      print(' Genome:%d,                    Train loss: %7.5f,' % (gi, train_losses[gi]), end='')
-      print(' Valid loss: %7.5f,' % valid_losses[gi], end='')
-      if FLAGS.r2:
-        print(' Valid R2: %7.5f,' % valid_r2s[gi], end='')
-      if FLAGS.r:
-        print(' Valid R: %7.5f,' % valid_rs[gi], end='')
-      print('')
+  if num_genomes > 1:
+    for gi in range(num_genomes):
+      if not np.isnan(valid_losses[gi]):
+        print(' Genome:%d,                    Train loss: %7.5f,' % (gi, train_losses[gi]), end='')
+        print(' Valid loss: %7.5f,' % valid_losses[gi], end='')
+        if FLAGS.r2:
+          print(' Valid R2: %7.5f,' % valid_r2s[gi], end='')
+        if FLAGS.r:
+          print(' Valid R: %7.5f,' % valid_rs[gi], end='')
+        print('')
   sys.stdout.flush()
 
   # delete predictions and targets

@@ -159,6 +159,7 @@ def main():
 
       if options.genome_index is None:
         example = tf.train.Example(features=tf.train.Features(feature={
+            'genome': _int_feature(0),
             'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
             'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
       else:

@@ -169,7 +169,7 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
 
   hp.add_hparam('architecture', job.get('architecture', 'cnn'))
 
-  if hp.architecture in ['dres', 'dilated_residual']:
+  if hp.architecture in ['dres', 'dilated_residual','dense']:
     add_hparams_dres(hp, job)
   else:
     add_hparams_cnn(hp, job)
@@ -254,7 +254,6 @@ def add_hparams_cnn(params, job):
       else:
         params.cnn_dropout.append(job['non_dilated_cnn_dropout'])
 
-
 def add_hparams_dres(params, job):
   """Add CNN hyper-parameters for a dilated residual network."""
 
@@ -290,6 +289,8 @@ def add_cnn_params(params):
   """Define CNN params list."""
   if params.architecture in ['dres', 'dilated_residual']:
     add_cnn_params_dres(params)
+  elif params.architecture in ['dense']:
+    add_cnn_params_dense(params)
   else:
     add_cnn_params_cnn(params)
 
@@ -309,6 +310,85 @@ def add_cnn_params_cnn(params):
         skip_layers=params.cnn_skip[ci],
         dilation=params.cnn_dilation[ci])
     params.cnn_params.append(cp)
+
+
+
+def add_cnn_params_dense(params):
+  """Dense resnet parameter mode.
+
+  Consists of four phases:
+   (1) DNA - Initial layer to interact directly with DNA sequence.
+   (2) Reduce - Convolution blocks to reduce the sequence length.
+   (3) Dense Dilate - Densely connected dilated convolutions to
+                      propagate information across the sequence.
+   (4) Final - Final convolution before transforming to predictions.
+
+   Returns:
+     [ConvParams]
+  """
+
+  params.cnn_params = []
+
+  ###################################
+  # DNA
+
+  reduce_width = 1
+
+  cp = ConvParams(
+      filters=params.conv_dna_filters,
+      filter_size=params.conv_dna_filter_size,
+      stride=params.conv_dna_stride,
+      pool=params.conv_dna_pool,
+      dropout=params.conv_dna_dropout)
+  params.cnn_params.append(cp)
+
+  reduce_width *= (cp.pool*cp.stride)
+  current_filters = cp.filters
+
+  ###################################
+  # reduce
+
+  while reduce_width < params.conv_reduce_width_max:
+    current_filters = current_filters*params.conv_reduce_filters_mult
+
+    cp = ConvParams(
+        filters=int(np.round(current_filters)),
+        filter_size=params.conv_reduce_filter_size,
+        stride=params.conv_reduce_stride,
+        pool=params.conv_reduce_pool,
+        dropout=params.conv_reduce_dropout)
+    params.cnn_params.append(cp)
+
+    reduce_width *= cp.pool*cp.stride
+
+  current_filters = int(np.round(current_filters))
+
+  ###################################
+  # dilated residual
+
+  current_dilation = 1
+  while current_dilation <= params.conv_dilate_rate_max:
+    # dilate
+    cp = ConvParams(
+        filters=params.conv_dilate_filters,
+        filter_size=3,
+        dense=True,
+        dilation=current_dilation,
+        dropout=params.conv_dilate_dropout)
+    params.cnn_params.append(cp)
+
+    current_dilation *= params.conv_dilate_rate_mult
+    current_dilation = int(np.round(current_dilation))
+
+  ###################################
+  # final
+
+  cp = ConvParams(
+      filters=params.conv_final_filters,
+      dropout=params.conv_final_dropout)
+  params.cnn_params.append(cp)
+
+  params.cnn_layers = len(params.cnn_params)
 
 
 def add_cnn_params_dres(params):
@@ -347,7 +427,6 @@ def add_cnn_params_dres(params):
   # reduce
 
   while reduce_width < params.conv_reduce_width_max:
-    # current_filters = int(current_filters*params.conv_reduce_filters_mult)
     current_filters = current_filters*params.conv_reduce_filters_mult
 
     cp = ConvParams(

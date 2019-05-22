@@ -188,9 +188,9 @@ def main():
   snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(job['seq_length']),
                                             tf.Dimension(4)])}
 
-  dataset = tf.data.Dataset().from_generator(snp_gen,
-                                             output_types=snp_types,
-                                             output_shapes=snp_shapes)
+  dataset = tf.data.Dataset.from_generator(snp_gen,
+                                           output_types=snp_types,
+                                           output_shapes=snp_shapes)
   dataset = dataset.batch(job['batch_size'])
   dataset = dataset.prefetch(2*job['batch_size'])
   if not options.cpu:

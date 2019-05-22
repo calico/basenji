@@ -325,9 +325,9 @@ def satmut_data_ops(seqs_dna, mut_start, mut_end, batch_size):
                                             tf.Dimension(4)])}
 
   # create dataset
-  dataset = tf.data.Dataset().from_generator(seqs_gen,
-                                             output_types=seqs_types,
-                                             output_shapes=seqs_shapes)
+  dataset = tf.data.Dataset.from_generator(seqs_gen,
+                                           output_types=seqs_types,
+                                           output_shapes=seqs_shapes)
   dataset = dataset.batch(batch_size)
   dataset = dataset.prefetch(2*batch_size)
 

@@ -200,6 +200,12 @@ def main():
   random.shuffle(valid_mseqs)
   random.shuffle(test_mseqs)
 
+  # down-sample
+  if options.sample_pct < 1.0:
+    train_mseqs = random.sample(train_mseqs, int(options.sample_pct*len(train_mseqs)))
+    valid_mseqs = random.sample(valid_mseqs, int(options.sample_pct*len(valid_mseqs)))
+    test_mseqs = random.sample(test_mseqs, int(options.sample_pct*len(test_mseqs)))
+
   # merge
   mseqs = train_mseqs + valid_mseqs + test_mseqs
 
@@ -220,10 +226,6 @@ def main():
     # write to file
     unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
     np.save(unmap_npy, mseqs_unmap)
-
-    # down-sample
-  if options.sample_pct < 1.0:
-    mseqs = random.sample(mseqs, int(options.sample_pct*len(contigs)))
 
   # write sequences to BED
   seqs_bed_file = '%s/sequences.bed' % options.out_dir

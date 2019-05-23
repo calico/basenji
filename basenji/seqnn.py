@@ -172,7 +172,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
-    self.genome_ph = tf.placeholder(tf.uint8, shape=(None, 1), name='genome')
+    self.genome_ph = tf.placeholder(tf.int32, shape=(None, 1), name='genome')
 
     self.inputs_ph = tf.placeholder(
         tf.float32,

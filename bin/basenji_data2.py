@@ -180,10 +180,6 @@ def main():
   if options.break_t is not None:
     contigs = break_large_contigs(contigs, options.break_t)
 
-  # down-sample
-  if options.sample_pct < 1.0:
-    contigs = random.sample(contigs, int(options.sample_pct*len(contigs)))
-
   # print contigs to BED file
   for gi in range(num_genomes):
     contigs_i = [ctg for ctg in contigs if ctg.genome == gi]
@@ -222,6 +218,12 @@ def main():
   random.shuffle(train_mseqs)
   random.shuffle(valid_mseqs)
   random.shuffle(test_mseqs)
+
+  # down-sample
+  if options.sample_pct < 1.0:
+    train_mseqs = random.sample(train_mseqs, int(options.sample_pct*len(train_mseqs)))
+    valid_mseqs = random.sample(valid_mseqs, int(options.sample_pct*len(valid_mseqs)))
+    test_mseqs = random.sample(test_mseqs, int(options.sample_pct*len(test_mseqs)))
 
   # merge
   mseqs = train_mseqs + valid_mseqs + test_mseqs

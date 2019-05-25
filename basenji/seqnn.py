@@ -26,7 +26,7 @@ except ImportError:
   pass
 
 from basenji import augmentation
-from basenji import layers
+from basenji import blocks
 from basenji import params
 from basenji import seqnn_util
 from basenji import tfrecord_batcher
@@ -250,9 +250,20 @@ class SeqNN(seqnn_util.SeqNNModel):
     seqs_repr = inputs
     for layer_index in range(self.hp.cnn_layers):
       with tf.variable_scope('cnn%d' % layer_index, reuse=tf.AUTO_REUSE):
-        # convolution block
-        args_for_block = self._make_conv_block_args(layer_index, layer_reprs)
-        seqs_repr = layers.conv_block(seqs_repr=seqs_repr, **args_for_block)
+        skip_inputs = layer_reprs[-self.hp.cnn_params[layer_index].skip_layers] if self.hp.cnn_params[layer_index].skip_layers > 0 else None
+        seqs_repr = blocks.conv_pool(
+          seqs_repr,
+          filters=self.hp.cnn_params[layer_index].filters,
+          kernel_size=self.hp.cnn_params[layer_index].filter_size,
+          activation=self.hp.nonlinearity,
+          strides=self.hp.cnn_params[layer_index].stride,
+          l2_weight=self.hp.cnn_l2_scale,
+          momentum=self.hp.batch_norm_momentum,
+          dropout=self.hp.cnn_params[layer_index].dropout,
+          pool_size=self.hp.cnn_params[layer_index].pool,
+          skip_inputs=skip_inputs,
+          concat=self.hp.cnn_params[layer_index].concat,
+          is_training=self.is_training)
 
         # save representation
         layer_reprs.append(seqs_repr)

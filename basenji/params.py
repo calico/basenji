@@ -308,7 +308,7 @@ def add_cnn_params_cnn(params):
         stride=params.cnn_stride[ci],
         pool=params.cnn_pool[ci],
         dropout=params.cnn_dropout[ci],
-        dense=params.cnn_dense[ci],
+        concat=params.cnn_dense[ci],
         skip_layers=params.cnn_skip[ci],
         dilation=params.cnn_dilation[ci])
     params.cnn_params.append(cp)
@@ -374,7 +374,7 @@ def add_cnn_params_dense(params):
     cp = ConvParams(
         filters=params.conv_dilate_filters,
         filter_size=3,
-        dense=True,
+        concat=True,
         dilation=current_dilation,
         dropout=params.conv_dilate_dropout)
     params.cnn_params.append(cp)
@@ -480,7 +480,7 @@ def add_cnn_params_dres(params):
 class ConvParams(
     collections.namedtuple('ConvParams',
                            ['filters', 'filter_size', 'stride', 'pool',
-                            'dilation', 'dropout', 'skip_layers', 'dense'])):
+                            'dilation', 'dropout', 'skip_layers', 'concat'])):
   """Convolution block parameters.
 
   Args:
@@ -491,10 +491,10 @@ class ConvParams(
     dilation: convolution dilation rate.
     dropout: dropout rate.
     skip_layers: add block result to preceding layer.
-    dense: concat block result to preceding layer.
+    concat: concat block result to preceding layer.
   """
   def __new__(cls, filters=1, filter_size=1, stride=1, pool=1,
-              dilation=1, dropout=0, skip_layers=0, dense=False):
+              dilation=1, dropout=0, skip_layers=0, concat=False):
     return super(ConvParams, cls).__new__(cls, filters, filter_size,
                                           stride, pool, dilation,
-                                          dropout, skip_layers, dense)
+                                          dropout, skip_layers, concat)

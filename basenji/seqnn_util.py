@@ -1039,8 +1039,10 @@ class SeqNNModel(object):
     while data_available and (test_batches is None or batch_num < test_batches):
       try:
         # make predictions
-        run_ops = [self.targets_eval, self.preds_eval_loss,
-                   self.loss_eval, self.loss_eval_targets]
+        # run_ops = [self.targets_eval, self.preds_eval_loss,
+        #            self.loss_eval, self.loss_eval_targets]
+        run_ops = [self.targets_train, self.preds_train_loss,
+                   self.loss_train, self.loss_train_targets]
         run_returns = sess.run(run_ops, feed_dict=fd)
         targets_batch, preds_batch, loss_batch, target_losses_batch = run_returns
         batch_size, _, num_targets = preds_batch.shape

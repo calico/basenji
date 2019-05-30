@@ -2,6 +2,8 @@
 
 import tensorflow as tf
 
+from basenji import layers
+
 def conv_pool(inputs, filters=128, activation='relu', kernel_size=1,
               strides=1, dilation_rate=1, l2_weight=0, momentum=0.99,
               renorm=False, renorm_momentum=0.99, dropout=0, pool_size=1,
@@ -30,9 +32,9 @@ def conv_pool(inputs, filters=128, activation='relu', kernel_size=1,
 
   # activation
   if activation == 'relu':
-    current = tf.keras.activations.relu(current)
+    current = tf.keras.layers.ReLU()(current)
   elif activation == 'gelu':
-    current = tf.keras.activations.sigmoid(1.702 * current) * current
+    current = layers.GELU()(current)
   else:
     print('Unrecognized activation "%s"' % activation, file=sys.stderr)
     exit(1)
@@ -55,11 +57,11 @@ def conv_pool(inputs, filters=128, activation='relu', kernel_size=1,
     renorm=renorm,
     renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
     renorm_momentum=renorm_momentum,
-    fused=True)(current, is_training)
+    fused=True)(current, training=is_training)
 
   # dropout
   if dropout > 0:
-    current = tf.keras.layers.Dropout(rate=dropout)(current, is_training)
+    current = tf.keras.layers.Dropout(rate=dropout)(current, training=is_training)
 
    # skip
   if skip_inputs is not None:

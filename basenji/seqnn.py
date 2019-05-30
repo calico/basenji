@@ -27,23 +27,132 @@ except ImportError:
 
 from basenji import augmentation
 from basenji import blocks
+from basenji import layers
 from basenji import params
 from basenji import seqnn_util
 from basenji import tfrecord_batcher
 
 class SeqNN(seqnn_util.SeqNNModel):
 
-  def __init__(self):
+  def __init__(self, job):
     self.global_step = tf.train.get_or_create_global_step()
-    self.hparams_set = False
+    self.hp = params.make_hparams(job)
+    self.build_model()
+
+  def build_model(self, save_reprs=False):
+    ###################################################
+    # inputs
+    ###################################################
+    self.is_training = tf.placeholder(tf.bool, name='is_training')
+    input_dna = tf.keras.Input(shape=(self.hp.seq_length, 4), name='dna')
+    input_reverse = tf.keras.Input(batch_shape=(None,), dtype='bool', name='reverse')
+    self.inputs = [input_dna, input_reverse]
+
+    current = input_dna
+
+    ###################################################
+    # convolutions
+    ###################################################
+    layer_reprs = [current]
+    for li in range(self.hp.cnn_layers):
+      with tf.variable_scope('layer%d' % li):
+        skip_inputs = layer_reprs[-self.hp.cnn_params[li].skip_layers] if self.hp.cnn_params[li].skip_layers > 0 else None
+
+        # build convolution block
+        current = blocks.conv_pool(
+          current,
+          filters=self.hp.cnn_params[li].filters,
+          kernel_size=self.hp.cnn_params[li].filter_size,
+          activation=self.hp.nonlinearity,
+          strides=self.hp.cnn_params[li].stride,
+          l2_weight=self.hp.cnn_l2_scale,
+          momentum=self.hp.batch_norm_momentum,
+          dropout=self.hp.cnn_params[li].dropout,
+          pool_size=self.hp.cnn_params[li].pool,
+          skip_inputs=skip_inputs,
+          concat=self.hp.cnn_params[li].concat,
+          is_training=self.is_training)
+
+        # save representation
+        layer_reprs.append(current)
+
+    if save_reprs:
+      self.layer_reprs = layer_reprs
+
+    # final activation
+    if self.hp.nonlinearity == 'relu':
+      current = tf.keras.layers.ReLU()(current)
+    elif self.hp.nonlinearity == 'gelu':
+      current = layers.GELU()(current)
+    else:
+      print('Unrecognized activation "%s"' % self.hp.nonlinearity, file=sys.stderr)
+      exit(1)
+
+    ###################################################
+    # slice out side buffer
+    ###################################################
+
+    # update batch buffer to reflect pooling
+    seq_length = current.shape[1].value
+    pool_preds = self.hp.seq_length // seq_length
+    assert self.hp.batch_buffer % pool_preds == 0, (
+        'batch_buffer %d not divisible'
+        ' by the CNN pooling %d') % (self.hp.batch_buffer, pool_preds)
+    batch_buffer_pool = self.hp.batch_buffer // pool_preds
+
+    # Cropping1D?
+
+    # slice out buffer
+    seq_length = current.shape[1]
+    current = layers.SliceCenter(
+      left=batch_buffer_pool,
+      right=seq_length-batch_buffer_pool)(current)
+    seq_length = current.shape[1]
+
+    ###################################################
+    # final layer
+    ###################################################
+    with tf.variable_scope('final'):
+      current = tf.keras.layers.Dense(
+        units=self.hp.sum_targets,
+        activation=None,
+        use_bias=True,
+        kernel_initializer='he_normal',
+        kernel_regularizer=tf.keras.regularizers.l1(self.hp.final_l1_scale)
+        )(current)
+
+    # transform for reverse complement
+    current = layers.SwitchReverse()([current, input_reverse])
+
+    ###################################################
+    # link
+    ###################################################
+    # float 32 exponential clip max
+    exp_max = 50
+
+    # choose link
+    if self.hp.link == 'softplus':
+      current = layers.Softplus(exp_max)(current)
+
+    else:
+      print('Unknown link function %s' % self.hp.link, file=sys.stderr)
+      exit(1)
+
+    # clip
+    if self.hp.target_clip is not None:
+      current = layers.Clip(0, self.hp.target_clip)(current)
+
+    ###################################################
+    # compile model
+    ###################################################
+    self.model = tf.keras.Model(self.inputs, current, name='seqnn')
+
 
   def build_feed(self, job, augment_rc=False, augment_shifts=[0],
                  ensemble_rc=False, ensemble_shifts=[0],
                  embed_penultimate=False, target_subset=None):
     """Build training ops that depend on placeholders."""
 
-    self.hp = params.make_hparams(job)
-    self.hparams_set = True
     data_ops = self.make_placeholders()
 
     self.build_from_data_ops(job, data_ops,
@@ -59,8 +168,6 @@ class SeqNN(seqnn_util.SeqNNModel):
                      embed_penultimate=False, target_subset=None):
     """Build SAD predict ops that depend on placeholders."""
 
-    self.hp = params.make_hparams(job)
-    self.hparams_set = True
     data_ops = self.make_placeholders()
 
     self.build_sad(job, data_ops,
@@ -69,67 +176,61 @@ class SeqNN(seqnn_util.SeqNNModel):
                    embed_penultimate=embed_penultimate,
                    target_subset=target_subset)
 
-  def build_from_data_ops(self, job, data_ops,
+  def build_from_data_ops(self, data_ops,
                           augment_rc=False, augment_shifts=[0],
                           ensemble_rc=False, ensemble_shifts=[0],
                           embed_penultimate=False, target_subset=None):
     """Build training ops from input data ops."""
 
-    if not self.hparams_set:
-      self.hp = params.make_hparams(job)
-      self.hparams_set = True
-
-    # training conditional
-    self.is_training = tf.placeholder(tf.bool, name='is_training')
-
     ##################################################
     # training
 
     # training data_ops w/ stochastic augmentation
-    data_ops_train = augmentation.augment_stochastic(
-        data_ops, augment_rc, augment_shifts)
+    # data_ops_train = augmentation.augment_stochastic(
+    #     data_ops, augment_rc, augment_shifts)
 
     # compute train representation
-    self.preds_train = self.build_predict(data_ops_train['sequence'],
-                                          None, embed_penultimate, target_subset,
-                                          save_reprs=True)
+    self.preds_train = self.model([data_ops['sequence'],
+                                   tf.constant(False)])
     self.target_length = self.preds_train.shape[1].value
 
     # training losses
     if not embed_penultimate:
-      loss_returns = self.build_loss(self.preds_train, data_ops_train['label'],
+      loss_returns = self.build_loss(self.preds_train, data_ops['label'],
                                      data_ops.get('genome',None), target_subset)
-      self.loss_train, self.loss_train_targets, self.targets_train = loss_returns[:3]
+      self.loss_train, self.loss_train_targets, self.targets_train, self.preds_train_loss = loss_returns[:4]
 
       # optimizer
       self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
       self.build_optimizer(self.loss_train)
-
-      # allegedly correct, but outperformed by skipping
-      # with tf.control_dependencies(self.update_ops):
-      #   self.build_optimizer(self.loss_train)
 
 
     ##################################################
     # eval
 
     # eval data ops w/ deterministic augmentation
-    data_ops_eval = augmentation.augment_deterministic_set(
-        data_ops, ensemble_rc, ensemble_shifts)
-    data_seq_eval = tf.stack([do['sequence'] for do in data_ops_eval])
-    data_rev_eval = tf.stack([do['reverse_preds'] for do in data_ops_eval])
+    # data_ops_eval = augmentation.augment_deterministic_set(
+    #     data_ops, ensemble_rc, ensemble_shifts)
+    # data_seq_eval = tf.stack([do['sequence'] for do in data_ops_eval])
+    # data_rev_eval = tf.stack([do['reverse_preds'] for do in data_ops_eval])
 
     # compute eval representation
-    map_elems_eval = (data_seq_eval, data_rev_eval)
-    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
-    self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
-    self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
+    # map_elems_eval = (data_seq_eval, data_rev_eval)
+    # build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
+    # self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
+    # self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
+
+    # self.preds_ensemble = [self.model([do['sequence'], do['reverse_preds']]) for do in data_ops_eval]
+    # self.preds_eval = tf.keras.layers.average(self.preds_ensemble)
+
+    # self.preds_eval = self.model([data_ops['sequence'], tf.constant(False)])
 
     # eval loss and metrics
-    if not embed_penultimate:
-      loss_returns = self.build_loss(self.preds_eval, data_ops['label'],
-                                     data_ops.get('genome', None), target_subset)
-      self.loss_eval, self.loss_eval_targets, self.targets_eval, self.preds_eval_loss = loss_returns
+    # if not embed_penultimate:
+    #   # loss_returns = self.build_loss(self.preds_eval, data_ops['label'],
+    #   loss_returns = self.build_loss(self.preds_eval, data_ops['label'],
+    #                                  data_ops.get('genome', None), target_subset)
+    #   self.loss_eval, self.loss_eval_targets, self.targets_eval, self.preds_eval_loss = loss_returns
 
     # update # targets
     if target_subset is not None:
@@ -144,9 +245,6 @@ class SeqNN(seqnn_util.SeqNNModel):
                 ensemble_rc=False, ensemble_shifts=[0],
                 embed_penultimate=False, target_subset=None):
     """Build SAD predict ops."""
-    if not self.hparams_set:
-      self.hp = params.make_hparams(job)
-      self.hparams_set = True
 
     # training conditional
     self.is_training = tf.placeholder(tf.bool, name='is_training')
@@ -563,120 +661,6 @@ class SeqNN(seqnn_util.SeqNNModel):
       exit(1)
 
     return fd
-
-
-  def train_epoch_h5_manual(self,
-                  sess,
-                  batcher,
-                  fwdrc=True,
-                  shift=0,
-                  sum_writer=None,
-                  epoch_batches=None,
-                  no_steps=False):
-    """Execute one training epoch, using HDF5 data
-       and manual augmentation."""
-
-    # initialize training loss
-    train_loss = []
-    batch_sizes = []
-    global_step = 0
-
-    # setup feed dict
-    fd = self.set_mode('train')
-
-    # get first batch
-    Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
-
-    batch_num = 0
-    while Xb is not None and (epoch_batches is None or batch_num < epoch_batches):
-      # update feed dict
-      fd[self.inputs_ph] = Xb
-      fd[self.targets_ph] = Yb
-
-      if no_steps:
-        run_returns = sess.run([self.merged_summary, self.loss_train] + \
-                                self.update_ops, feed_dict=fd)
-        summary, loss_batch = run_returns[:2]
-      else:
-        run_returns = sess.run(
-          [self.merged_summary, self.loss_train, self.global_step, self.step_op] + self.update_ops,
-          feed_dict=fd)
-        summary, loss_batch, global_step = run_returns[:3]
-
-      # add summary
-      if sum_writer is not None:
-        sum_writer.add_summary(summary, global_step)
-
-      # accumulate loss
-      train_loss.append(loss_batch)
-      batch_sizes.append(Xb.shape[0])
-
-      # next batch
-      Xb, Yb, NAb, Nb = batcher.next(fwdrc, shift)
-      batch_num += 1
-
-    # reset training batcher if epoch considered all of the data
-    if epoch_batches is None:
-      batcher.reset()
-
-    avg_loss = np.average(train_loss, weights=batch_sizes)
-
-    return avg_loss, global_step
-
-  def train_epoch_h5(self,
-                     sess,
-                     batcher,
-                     sum_writer=None,
-                     epoch_batches=None,
-                     no_steps=False):
-    """Execute one training epoch using HDF5 data,
-       and compute-graph augmentation"""
-
-    # initialize training loss
-    train_loss = []
-    batch_sizes = []
-    global_step = 0
-
-    # setup feed dict
-    fd = self.set_mode('train')
-
-    # get first batch
-    Xb, Yb, NAb, Nb = batcher.next()
-
-    batch_num = 0
-    while Xb is not None and (epoch_batches is None or batch_num < epoch_batches):
-      # update feed dict
-      fd[self.inputs_ph] = Xb
-      fd[self.targets_ph] = Yb
-
-      if no_steps:
-        run_returns = sess.run([self.merged_summary, self.loss_train] + \
-                                self.update_ops, feed_dict=fd)
-        summary, loss_batch = run_returns[:2]
-      else:
-        run_ops = [self.merged_summary, self.loss_train, self.global_step, self.step_op]
-        run_ops += self.update_ops
-        summary, loss_batch, global_step = sess.run(run_ops, feed_dict=fd)[:3]
-
-      # add summary
-      if sum_writer is not None:
-        sum_writer.add_summary(summary, global_step)
-
-      # accumulate loss
-      train_loss.append(loss_batch)
-      batch_sizes.append(Nb)
-
-      # next batch
-      Xb, Yb, NAb, Nb = batcher.next()
-      batch_num += 1
-
-    # reset training batcher if epoch considered all of the data
-    if epoch_batches is None:
-      batcher.reset()
-
-    avg_loss = np.average(train_loss, weights=batch_sizes)
-
-    return avg_loss, global_step
 
 
   def train_epoch_tfr(self, sess, sum_writer=None, epoch_batches=None):

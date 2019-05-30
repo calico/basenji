@@ -70,8 +70,8 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       job, train_files, test_files)
 
   # initialize model
-  model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops,
+  model = seqnn.SeqNN(job)
+  model.build_from_data_ops(data_ops,
                             FLAGS.augment_rc, augment_shifts,
                             FLAGS.ensemble_rc, ensemble_shifts)
 

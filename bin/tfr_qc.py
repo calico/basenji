@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from basenji import tfrecord_batcher
 
 '''
@@ -114,6 +117,7 @@ def file_to_records(filename):
 
 def parse_proto(example_protos):
   features = {
+    'genome': tf.FixedLenFeature([1], tf.int64),
     'sequence': tf.FixedLenFeature([], tf.string),
     'target': tf.FixedLenFeature([], tf.string)
   }

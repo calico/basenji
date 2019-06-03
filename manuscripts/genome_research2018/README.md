@@ -1,6 +1,6 @@
 ## Manuscript model and data
 
-[Sequential regulatory activity predictions with deep convolutional neural networks. bioRxiv 6/2017.](https://www.biorxiv.org/content/early/2018/01/08/161851)
+[Sequential regulatory activity predictions with deep convolutional neural networks. Genome Research 3/2018.](https://genome.cshlp.org/content/28/5/739)
 
 *params.txt* - Model hyper-parameters
 

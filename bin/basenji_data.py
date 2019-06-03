@@ -214,6 +214,10 @@ def main():
   # mappability
   ################################################################
   if options.umap_bed is not None:
+    if shutil.which('bedtools') is None:
+      print('Install Bedtools to annotate unmappable sites', file=sys.stderr)
+      exit(1)
+
     # annotate unmappable positions
     mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
                                  options.seq_length, options.pool_width)

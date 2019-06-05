@@ -51,13 +51,13 @@ def conv_pool(inputs, filters=128, activation='relu', kernel_size=1,
     kernel_regularizer=tf.keras.regularizers.l2(l2_weight))(current)
 
   # batch norm
-  current = tf.keras.layers.BatchNormalization(
-    momentum=momentum,
-    gamma_initializer=('ones' if skip_inputs is None else 'zeros'),
-    renorm=renorm,
-    renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
-    renorm_momentum=renorm_momentum,
-    fused=True)(current, training=is_training)
+  # current = tf.keras.layers.BatchNormalization(
+  #   momentum=momentum,
+  #   gamma_initializer=('ones' if skip_inputs is None else 'zeros'),
+  #   renorm=renorm,
+  #   renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
+  #   renorm_momentum=renorm_momentum,
+  #   fused=True)(current, training=is_training)
 
   # dropout
   if dropout > 0:

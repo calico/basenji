@@ -25,7 +25,9 @@ import time
 from absl import app, flags
 import numpy as np
 import tensorflow as tf
-tf.enable_eager_execution()
+
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
 
 from basenji import dataset
 from basenji import params
@@ -74,16 +76,39 @@ def main(_):
   eval_data = dataset.SeqDataset(FLAGS.eval_data, job['batch_size'], job['seq_length'],
     job['seq_end_ignore'], job['target_length'], tf.estimator.ModeKeys.EVAL)
 
-  # initialize model
-  seqnn_model = seqnn.SeqNN(job, FLAGS.log_dir)
 
-  # initialize trainer
-  seqnn_trainer = trainer.SeqNNTrainer(job, train_data, eval_data)
+  ########################################
+  # one GPU
+
+  # # initialize model
+  # seqnn_model = seqnn.SeqNN(job)
+
+  # # initialize trainer
+  # seqnn_trainer = trainer.Trainer(job, train_data, eval_data)
+
+  # # compile model
+  # seqnn_trainer.compile(seqnn_model.model)
+
+  # # train model
+  # seqnn_trainer.fit(seqnn_model.model)
+
+  ########################################
+  # two GPU
+
+  mirrored_strategy = tf.distribute.MirroredStrategy()
+  with mirrored_strategy.scope():
+
+    # initialize model
+    seqnn_model = seqnn.SeqNN(job)
+
+    # initialize trainer
+    seqnn_trainer = trainer.Trainer(job, train_data, eval_data)
+
+    # compile model
+    seqnn_trainer.compile(seqnn_model.model, None)
 
   # train model
-  # model.fit(train_data, eval_data,
-  #   FLAGS.train_epochs, FLAGS.train_epoch_batches)
-  seqnn_model.train(seqnn_trainer)
+  seqnn_trainer.fit(seqnn_model.model)
 
 if __name__ == '__main__':
   app.run(main)

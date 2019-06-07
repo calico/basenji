@@ -84,27 +84,27 @@ class SeqDataset:
       """Parse TFRecord protobuf."""
 
       features = {
-        TFR_GENOME: tf.FixedLenFeature([1], tf.int64),
-        TFR_INPUT: tf.FixedLenFeature([], tf.string),
-        TFR_OUTPUT: tf.FixedLenFeature([], tf.string)
+        TFR_GENOME: tf.io.FixedLenFeature([1], tf.int64),
+        TFR_INPUT: tf.io.FixedLenFeature([], tf.string),
+        TFR_OUTPUT: tf.io.FixedLenFeature([], tf.string)
       }
-      parsed_features = tf.parse_example(example_protos, features=features)
+      parsed_features = tf.io.parse_single_example(example_protos, features=features)
 
       genome = parsed_features[TFR_GENOME]
 
-      sequence = tf.decode_raw(parsed_features[TFR_INPUT], tf.uint8)
+      sequence = tf.io.decode_raw(parsed_features[TFR_INPUT], tf.uint8)
       if not raw:
-        sequence = tf.reshape(sequence, [-1, self.seq_length, self.seq_depth])
+        sequence = tf.reshape(sequence, [self.seq_length, self.seq_depth])
         sequence = tf.cast(sequence, tf.float32)
 
-      targets = tf.decode_raw(parsed_features[TFR_OUTPUT], tf.float16)
+      targets = tf.io.decode_raw(parsed_features[TFR_OUTPUT], tf.float16)
       if not raw:
-        targets = tf.reshape(targets, [-1, self.target_length, self.num_targets])
+        targets = tf.reshape(targets, [self.target_length, self.num_targets])
 
         target_pool = self.seq_length // self.target_length
         slice_left = self.seq_end_ignore // target_pool
         slice_right = self.target_length - slice_left
-        targets = targets[:, slice_left:slice_right, :]
+        targets = targets[slice_left:slice_right, :]
 
         targets = tf.cast(targets, tf.float32)
 
@@ -130,10 +130,10 @@ class SeqDataset:
       dataset = dataset.repeat()
 
       # interleave files
-      dataset = dataset.apply(
-          tf.data.experimental.parallel_interleave(
-              map_func=file_to_records, sloppy=True,
-              cycle_length=NUM_FILES_TO_PARALLEL_INTERLEAVE))
+      dataset = dataset.interleave(
+        map_func=file_to_records,
+        cycle_length=NUM_FILES_TO_PARALLEL_INTERLEAVE,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
       # shuffle
       shuffle_buffer_size = NUM_FILES_TO_PARALLEL_INTERLEAVE * SHUFFLE_BUFFER_DEPTH_PER_FILE
@@ -144,12 +144,12 @@ class SeqDataset:
       # flat mix files
       dataset = dataset.flat_map(file_to_records)
 
-    # batch
-    dataset = dataset.batch(self.batch_size)
-
     # helper for training on single genomes in a multiple genome mode
     if self.num_seqs > 0:
       dataset = dataset.map(self.generate_parser())
+
+    # batch
+    dataset = dataset.batch(self.batch_size)
 
     # hold on
     self.dataset = dataset
@@ -162,8 +162,8 @@ class SeqDataset:
     # read TF Records
     dataset = tf.data.Dataset.list_files(self.tfr_pattern)
     dataset = dataset.flat_map(file_to_records)
-    dataset = dataset.batch(1)
     dataset = dataset.map(self.generate_parser(raw=True))
+    dataset = dataset.batch(1)
 
     self.num_seqs = 0
     for (seq_raw, genome), targets_raw in dataset:

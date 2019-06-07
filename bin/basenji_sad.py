@@ -262,10 +262,6 @@ def main():
   # initialize saver
   saver = tf.train.Saver()
   with tf.Session() as sess:
-    # coordinator
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
-
     # load variables into session
     saver.restore(sess, model_file)
 

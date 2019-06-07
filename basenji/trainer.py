@@ -1,10 +1,27 @@
+# Copyright 2017 Calico LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =========================================================================
 """SeqNN trainer"""
 
+from absl import flags
 import tensorflow as tf
 
 from basenji import layers
 
-class SeqNNTrainer:
+FLAGS = flags.FLAGS
+
+class Trainer:
   def __init__(self, params, train_data, eval_data):
     self.params = params
     self.train_data = train_data
@@ -20,6 +37,27 @@ class SeqNNTrainer:
     self.train_epoch_batches = train_data.batches_per_epoch()
     self.eval_epoch_batches = eval_data.batches_per_epoch()
     self.train_epochs = self.params.get('train_epochs', 1000)
+
+  def compile(self, model):
+    model.compile(loss='poisson',
+                  optimizer=self.optimizer,
+                  metrics=[tf.keras.metrics.mean_absolute_error])
+
+  def fit(self, model):
+    callbacks = [
+      tf.keras.callbacks.EarlyStopping(patience=self.patience, monitor='val_loss', verbose=1),
+      tf.keras.callbacks.TensorBoard(FLAGS.log_dir)
+    ]
+    # tf.keras.callbacks.ModelCheckpoint('%s/model_check.tf'%FLAGS.log_dir, period=2),
+    # tf.keras.callbacks.ModelCheckpoint('%s/model_best.tf'%FLAGS.log_dir, save_best_only=True, monitor='val_loss', verbose=1),
+
+    model.fit(
+      self.train_data.dataset,
+      epochs=self.train_epochs,
+      steps_per_epoch=self.train_epoch_batches,
+      callbacks=callbacks,
+      validation_data=self.eval_data.dataset,
+      validation_steps=self.eval_epoch_batches)
 
 
   def make_optimizer(self):

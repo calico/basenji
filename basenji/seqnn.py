@@ -32,15 +32,14 @@ from basenji import params
 
 class SeqNN():
 
-  def __init__(self, job, log_dir):
+  def __init__(self, job):
     self.hp = params.make_hparams(job)
-    self.log_dir = log_dir
     self.build_model()
 
 
   def build_model(self, save_reprs=False):
     self.sequence = tf.keras.Input(shape=(self.hp.seq_length, 4), name='sequence')
-    self.genome = tf.keras.Input(shape=(None,), name='genome')
+    self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = self.sequence
 
     ###################################################
@@ -79,6 +78,10 @@ class SeqNN():
     else:
       print('Unrecognized activation "%s"' % self.hp.nonlinearity, file=sys.stderr)
       exit(1)
+
+    # TEMP to include in the graph for model saving
+    # genome_repeat = tf.keras.layers.RepeatVector(1024)(tf.cast(self.genome, tf.float32))
+    # current = tf.keras.layers.Add()([current, genome_repeat])
 
     ###################################################
     # slice out side buffer
@@ -141,40 +144,3 @@ class SeqNN():
     ###################################################
     self.model = tf.keras.Model(inputs=[self.sequence,self.genome], outputs=self.preds)
     print(self.model.summary())
-
-
-  def train(self, trainer):
-    self.model.compile(loss='poisson',
-                       optimizer=trainer.optimizer,
-                       metrics=[tf.keras.metrics.mean_absolute_error])
-
-    callbacks = [
-      tf.keras.callbacks.EarlyStopping(patience=trainer.patience, monitor='val_loss'),
-      tf.keras.callbacks.TensorBoard(log_dir=self.log_dir)
-    ]
-
-    self.model.fit(
-      trainer.train_data.dataset,
-      epochs=trainer.train_epochs,
-      steps_per_epoch=trainer.train_epoch_batches,
-      callbacks=callbacks,
-      validation_data=trainer.eval_data.dataset,
-      validation_steps=trainer.eval_epoch_batches)
-
-
-  # def fit(self, train_data, eval_data, train_epochs, train_epoch_batches=None):
-  #   callbacks = [
-  #     tf.keras.callbacks.EarlyStopping(patience=20, monitor='val_loss'),
-  #     tf.keras.callbacks.TensorBoard(log_dir=self.log_dir)
-  #   ]
-
-  #   if train_epoch_batches is None:
-  #     train_epoch_batches = train_data.batches_per_epoch()
-
-  #   self.model.fit(
-  #     train_data.dataset,
-  #     epochs=train_epochs,
-  #     steps_per_epoch=train_epoch_batches,
-  #     callbacks=callbacks,
-  #     validation_data=eval_data.dataset,
-  #     validation_steps=eval_data.batches_per_epoch())

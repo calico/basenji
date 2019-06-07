@@ -149,13 +149,19 @@ def collect_h5(out_dir, num_procs):
   final_h5_file = '%s/%s' % (out_dir, h5_file)
   final_h5_open = h5py.File(final_h5_file, 'w')
 
+  # keep dict for string values
+  final_strings = {}
+
   job0_h5_file = '%s/job0/%s' % (out_dir, h5_file)
   job0_h5_open = h5py.File(job0_h5_file, 'r')
   for key in job0_h5_open.keys():
     key_shape = list(job0_h5_open[key].shape)
     key_shape[0] = num_seqs
     key_shape = tuple(key_shape)
-    final_h5_open.create_dataset(key, shape=key_shape, dtype=job0_h5_open[key].dtype)
+    if job0_h5_open[key].dtype.char == 'S':
+      final_strings[key] = []
+    else:
+      final_h5_open.create_dataset(key, shape=key_shape, dtype=job0_h5_open[key].dtype)
 
   # set values
   si = 0
@@ -167,10 +173,18 @@ def collect_h5(out_dir, num_procs):
     # append to final
     for key in job_h5_open.keys():
         job_seqs = job_h5_open[key].shape[0]
-        final_h5_open[key][si:si+job_seqs] = job_h5_open[key]
+        if job_h5_open[key].dtype.char == 'S':
+          final_strings[key] += list(job_h5_open[key])
+        else:
+          final_h5_open[key][si:si+job_seqs] = job_h5_open[key]
 
     job_h5_open.close()
     si += job_seqs
+
+  # create final string datasets
+  for key in final_strings:
+    final_h5_open.create_dataset(key,
+      data=np.array(final_strings[key], dtype='S'))
 
   final_h5_open.close()
 

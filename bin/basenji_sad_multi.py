@@ -199,6 +199,9 @@ def collect_h5(file_name, out_dir, num_procs):
   final_h5_file = '%s/%s' % (out_dir, file_name)
   final_h5_open = h5py.File(final_h5_file, 'w')
 
+  # keep dict for string values
+  final_strings = {}
+
   job0_h5_file = '%s/job0/%s' % (out_dir, file_name)
   job0_h5_open = h5py.File(job0_h5_file, 'r')
   for key in job0_h5_open.keys():
@@ -210,7 +213,10 @@ def collect_h5(file_name, out_dir, num_procs):
       values = np.zeros(job0_h5_open[key].shape)
       final_h5_open.create_dataset(key, data=values)
 
-    elif key == 'snp':
+    elif job0_h5_open[key].dtype.char == 'S':
+        final_strings[key] = []
+
+    elif job0_h5_open[key].ndim == 1:
       final_h5_open.create_dataset(key, shape=(num_variants,), dtype=job0_h5_open[key].dtype)
 
     else:
@@ -239,11 +245,19 @@ def collect_h5(file_name, out_dir, num_procs):
         final_h5_open[key][:] = u_k1 + (x_k - u_k1) / (pi+1)
 
       else:
-        job_variants = job_h5_open[key].shape[0]
-        final_h5_open[key][vi:vi+job_variants] = job_h5_open[key]
+        if job_h5_open[key].dtype.char == 'S':
+          final_strings[key] += list(job_h5_open[key])
+        else:
+          job_variants = job_h5_open[key].shape[0]
+          final_h5_open[key][vi:vi+job_variants] = job_h5_open[key]
 
     vi += job_variants
     job_h5_open.close()
+
+  # create final string datasets
+  for key in final_strings:
+    final_h5_open.create_dataset(key,
+      data=np.array(final_strings[key], dtype='S'))
 
   final_h5_open.close()
 

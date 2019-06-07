@@ -36,6 +36,8 @@ import basenji.seqnn as seqnn
 import basenji.vcf as bvcf
 from basenji.stream import PredStream
 
+from basenji_sad import initialize_output_h5
+
 '''
 basenji_sad_ref.py
 
@@ -335,44 +337,6 @@ def cluster_snps(snps, seq_len, center_pct):
       cluster_pos0 = snp.pos
 
   return snp_clusters
-
-
-def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
-  """Initialize an output HDF5 file for SAD stats."""
-
-  num_targets = len(target_ids)
-  num_snps = len(snps)
-
-  sad_out = h5py.File('%s/sad.h5' % out_dir, 'w')
-
-  # write SNPs
-  snp_ids = np.array([snp.rsid for snp in snps], 'S')
-  sad_out.create_dataset('snp', data=snp_ids)
-
-  # write SNP chr
-  snp_chr = np.array([snp.chr for snp in snps], 'S')
-  sad_out.create_dataset('chr', data=snp_chr)
-
-  # write SNP pos
-  snp_pos = np.array([snp.pos for snp in snps], dtype='uint32')
-  sad_out.create_dataset('pos', data=snp_pos)
-
-  # write SNP reference allele
-  snp_refs = np.array([snp.ref_allele for snp in snps], 'S')
-  sad_out.create_dataset('ref', data=snp_refs)
-
-  # write targets
-  sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))
-  sad_out.create_dataset('target_labels', data=np.array(target_labels, 'S'))
-
-  # initialize SAD stats
-  for sad_stat in sad_stats:
-    sad_out.create_dataset(sad_stat,
-        shape=(num_snps, num_targets),
-        dtype='float16',
-        compression=None)
-
-  return sad_out
 
 
 class SNPCluster:

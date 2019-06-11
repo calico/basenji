@@ -62,9 +62,6 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option('--h5', dest='out_h5',
-      default=False, action='store_true',
-      help='Output stats to sad.h5 [Default: %default]')
   parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -95,6 +92,9 @@ def main():
   parser.add_option('--ti', dest='track_indexes',
       default=None, type='str',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option('--txt', dest='out_txt',
+    default=False, action='store_true',
+    help='Output stats to text table [Default: %default]')
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
@@ -229,15 +229,11 @@ def main():
   #################################################################
   # setup output
 
-  if options.out_h5:
-    sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
-                                   snps, target_ids, target_labels)
-
-  elif options.out_zarr:
+  if options.out_zarr:
     sad_out = initialize_output_zarr(options.out_dir, options.sad_stats,
                                      snps, target_ids, target_labels)
 
-  else:
+  elif options.out_txt:
     header_cols = ('rsid', 'ref', 'alt',
                   'ref_pred', 'alt_pred', 'sad', 'sar', 'geo_sad',
                   'ref_lpred', 'alt_lpred', 'lsad', 'lsar',
@@ -251,6 +247,10 @@ def main():
       sad_out = open('%s/sad_table.txt' % options.out_dir, 'w')
       print(' '.join(header_cols), file=sad_out)
 
+  else:
+    sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
+                                   snps, target_ids, target_labels)
+
 
   #################################################################
   # process
@@ -262,10 +262,6 @@ def main():
   # initialize saver
   saver = tf.train.Saver()
   with tf.Session() as sess:
-    # coordinator
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
-
     # load variables into session
     saver.restore(sess, model_file)
 
@@ -299,7 +295,7 @@ def main():
   ###################################################
   # compute SAD distributions across variants
 
-  if options.out_h5 or options.out_zarr:
+  if not options.out_txt:
     # define percentiles
     d_fine = 0.001
     d_coarse = 0.01

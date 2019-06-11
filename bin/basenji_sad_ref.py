@@ -36,6 +36,8 @@ import basenji.seqnn as seqnn
 import basenji.vcf as bvcf
 from basenji.stream import PredStream
 
+from basenji_sad import initialize_output_h5
+
 '''
 basenji_sad_ref.py
 
@@ -59,9 +61,6 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option('--h5', dest='out_h5',
-      default=False, action='store_true',
-      help='Output stats to sad.h5 [Default: %default]')
   parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -95,9 +94,6 @@ def main():
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
-  # parser.add_option('-z', dest='out_zarr',
-  #     default=False, action='store_true',
-  #     help='Output stats to sad.zarr [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -162,7 +158,7 @@ def main():
   # load SNPs
 
   # read sorted SNPs from VCF
-  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=True,
+  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=False,
                        validate_ref_fasta=options.genome_fasta)
 
   # filter for worker SNPs
@@ -192,9 +188,9 @@ def main():
   snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(job['seq_length']),
                                             tf.Dimension(4)])}
 
-  dataset = tf.data.Dataset().from_generator(snp_gen,
-                                             output_types=snp_types,
-                                             output_shapes=snp_shapes)
+  dataset = tf.data.Dataset.from_generator(snp_gen,
+                                          output_types=snp_types,
+                                          output_shapes=snp_shapes)
   dataset = dataset.batch(job['batch_size'])
   dataset = dataset.prefetch(2*job['batch_size'])
   # dataset = dataset.apply(tf.contrib.data.prefetch_to_device('/device:GPU:0'))
@@ -249,10 +245,6 @@ def main():
   # initialize saver
   saver = tf.train.Saver()
   with tf.Session() as sess:
-    # coordinator
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
-
     # load variables into session
     saver.restore(sess, model_file)
 
@@ -335,44 +327,6 @@ def cluster_snps(snps, seq_len, center_pct):
       cluster_pos0 = snp.pos
 
   return snp_clusters
-
-
-def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
-  """Initialize an output HDF5 file for SAD stats."""
-
-  num_targets = len(target_ids)
-  num_snps = len(snps)
-
-  sad_out = h5py.File('%s/sad.h5' % out_dir, 'w')
-
-  # write SNPs
-  snp_ids = np.array([snp.rsid for snp in snps], 'S')
-  sad_out.create_dataset('snp', data=snp_ids)
-
-  # write SNP chr
-  snp_chr = np.array([snp.chr for snp in snps], 'S')
-  sad_out.create_dataset('chr', data=snp_chr)
-
-  # write SNP pos
-  snp_pos = np.array([snp.pos for snp in snps], dtype='uint32')
-  sad_out.create_dataset('pos', data=snp_pos)
-
-  # write SNP reference allele
-  snp_refs = np.array([snp.ref_allele for snp in snps], 'S')
-  sad_out.create_dataset('ref', data=snp_refs)
-
-  # write targets
-  sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))
-  sad_out.create_dataset('target_labels', data=np.array(target_labels, 'S'))
-
-  # initialize SAD stats
-  for sad_stat in sad_stats:
-    sad_out.create_dataset(sad_stat,
-        shape=(num_snps, num_targets),
-        dtype='float16',
-        compression=None)
-
-  return sad_out
 
 
 class SNPCluster:

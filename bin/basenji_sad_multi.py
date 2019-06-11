@@ -55,9 +55,6 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option('--h5', dest='out_h5',
-      default=False, action='store_true',
-      help='Output stats to sad.h5 [Default: %default]')
   parser.add_option('--local',dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -85,6 +82,9 @@ def main():
   parser.add_option('--ti', dest='track_indexes',
       default=None, type='str',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option('--txt', dest='out_txt',
+    default=False, action='store_true',
+    help='Output stats to text table [Default: %default]')
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
@@ -140,7 +140,7 @@ def main():
       if options.cpu:
         cmd = ''
       else:
-        cmd = 'source activate tf1.12-gpu;'
+        cmd = 'source activate tf1.13-gpu;'
 
       cmd += ' basenji_sad.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
@@ -163,14 +163,14 @@ def main():
   #######################################################
   # collect output
 
-  if options.out_h5:
-    collect_h5('sad.h5', options.out_dir, options.processes)
+  if options.out_txt:
+    collect_table('sad_table.txt', options.out_dir, options.processes)
 
   elif options.out_zarr:
     collect_zarr('sad.zarr', options.out_dir, options.processes)
 
   else:
-    collect_table('sad_table.txt', options.out_dir, options.processes)
+    collect_h5('sad.h5', options.out_dir, options.processes)
 
   # for pi in range(options.processes):
   #     shutil.rmtree('%s/job%d' % (options.out_dir,pi))
@@ -199,6 +199,9 @@ def collect_h5(file_name, out_dir, num_procs):
   final_h5_file = '%s/%s' % (out_dir, file_name)
   final_h5_open = h5py.File(final_h5_file, 'w')
 
+  # keep dict for string values
+  final_strings = {}
+
   job0_h5_file = '%s/job0/%s' % (out_dir, file_name)
   job0_h5_open = h5py.File(job0_h5_file, 'r')
   for key in job0_h5_open.keys():
@@ -210,7 +213,10 @@ def collect_h5(file_name, out_dir, num_procs):
       values = np.zeros(job0_h5_open[key].shape)
       final_h5_open.create_dataset(key, data=values)
 
-    elif key == 'snp':
+    elif job0_h5_open[key].dtype.char == 'S':
+        final_strings[key] = []
+
+    elif job0_h5_open[key].ndim == 1:
       final_h5_open.create_dataset(key, shape=(num_variants,), dtype=job0_h5_open[key].dtype)
 
     else:
@@ -239,11 +245,19 @@ def collect_h5(file_name, out_dir, num_procs):
         final_h5_open[key][:] = u_k1 + (x_k - u_k1) / (pi+1)
 
       else:
-        job_variants = job_h5_open[key].shape[0]
-        final_h5_open[key][vi:vi+job_variants] = job_h5_open[key]
+        if job_h5_open[key].dtype.char == 'S':
+          final_strings[key] += list(job_h5_open[key])
+        else:
+          job_variants = job_h5_open[key].shape[0]
+          final_h5_open[key][vi:vi+job_variants] = job_h5_open[key]
 
     vi += job_variants
     job_h5_open.close()
+
+  # create final string datasets
+  for key in final_strings:
+    final_h5_open.create_dataset(key,
+      data=np.array(final_strings[key], dtype='S'))
 
   final_h5_open.close()
 
@@ -283,14 +297,14 @@ def collect_zarr(file_name, out_dir, num_procs):
 def job_completed(options, pi):
   """Check whether a specific job has generated its
      output file."""
-  if options.out_h5:
-    out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
+  if options.out_txt:
+    out_file = '%s/job%d/sad_table.txt' % (options.out_dir, pi)
   elif options.out_zarr:
     out_file = '%s/job%d/sad.zarr' % (options.out_dir, pi)
   elif options.csv:
     out_file = '%s/job%d/sad_table.csv' % (options.out_dir, pi)
   else:
-    out_file = '%s/job%d/sad_table.txt' % (options.out_dir, pi)
+    out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
   return os.path.isfile(out_file) or os.path.isdir(out_file)
 
 

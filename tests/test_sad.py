@@ -9,8 +9,8 @@ import unittest
 
 import h5py
 import pysam
-
 import numpy as np
+from sklearn.metrics import explained_variance_score
 
 from basenji import params
 import basenji.dna_io as dna_io
@@ -26,30 +26,85 @@ class TestSAD(unittest.TestCase):
     cls.vcf_file = 'data/regulatory_validated.vcf'
 
   def test_sad(self):
-    cmd = 'basenji_sad.py --h5 -o sad/test2 --rc --shifts "0,1" %s %s %s' % \
-        (self.params_file, self.model_file, self.vcf_file)
+    if os.path.isdir('sad/test'):
+      shutil.rmtree('sad/test')
+
+    sad_opts = '--rc --shifts "0,21" -o sad/test'
+
+    cmd = 'basenji_sad.py %s %s %s %s' % \
+        (sad_opts, self.params_file, self.model_file, self.vcf_file)
     subprocess.call(cmd, shell=True)
 
     saved_h5 = h5py.File('sad/saved/sad.h5', 'r')
     saved_sad = saved_h5['SAD'][:]
+    saved_h5.close()
 
-    this_h5 = h5py.File('sad/test2/sad.h5', 'r')
+    this_h5 = h5py.File('sad/test/sad.h5', 'r')
     this_sad = this_h5['SAD'][:]
+    this_h5.close()
 
     np.testing.assert_allclose(this_sad, saved_sad, atol=1e-3, rtol=1e-3)
 
+    shutil.rmtree('sad/test')
+
+
   def test_usad(self):
-    cmd = 'basenji_sad.py --h5 -o sad/utest --rc --shifts "0,1" -u %s %s %s' % \
-        (self.params_file, self.model_file, self.vcf_file)
+    if os.path.isdir('sad/utest'):
+      shutil.rmtree('sad/utest')
+
+    sad_opts = '-u --rc --shifts "0,21" -o sad/utest'
+
+    cmd = 'basenji_sad.py %s %s %s %s' % \
+        (sad_opts, self.params_file, self.model_file, self.vcf_file)
     subprocess.call(cmd, shell=True)
 
-    saved_h5 = h5py.File('sad/usaved/sad.h5', 'r')
+    saved_h5 = h5py.File('sad/saved/usad.h5', 'r')
     saved_sad = saved_h5['SAD'][:]
+    saved_h5.close()
 
     this_h5 = h5py.File('sad/utest/sad.h5', 'r')
     this_sad = this_h5['SAD'][:]
+    this_h5.close()
 
     np.testing.assert_allclose(this_sad, saved_sad, atol=1e-3, rtol=1e-3)
+
+    shutil.rmtree('sad/utest')
+
+  def test_multi(self):
+    if os.path.isdir('sad/testm'):
+      shutil.rmtree('sad/testm')
+
+    sad_opts = '--rc --shifts "0,21"'
+    sad_opts += ' -o sad/testm -q k80 -p 4'
+
+    cmd = 'basenji_sad_multi.py %s %s %s %s' % \
+        (sad_opts, self.params_file, self.model_file, self.vcf_file)
+    subprocess.call(cmd, shell=True)
+
+    saved_h5 = h5py.File('sad/saved/sad.h5', 'r')
+    this_h5 = h5py.File('sad/testm/sad.h5', 'r')
+
+    saved_keys = sorted(saved_h5.keys())
+    this_keys = sorted(this_h5.keys())
+    assert(len(saved_keys) == len(this_keys))
+    assert(saved_keys == this_keys)
+
+    for key in saved_h5:
+      if key[-4:] != '_pct':
+        saved_value = saved_h5[key][:]
+        this_value = this_h5[key][:]
+
+        if saved_value.dtype.char == 'S':
+          np.testing.assert_array_equal(saved_value, this_value)
+        else:
+          np.testing.assert_allclose(saved_value, this_value, atol=1e-1, rtol=5e-2)
+          r2 = explained_variance_score(saved_value.flatten(), this_value.flatten())
+          assert(r2 > 0.999)
+
+    saved_h5.close()
+    this_h5.close()
+
+    shutil.rmtree('sad/testm')
 
 
 class TestSadRef(unittest.TestCase):
@@ -63,15 +118,52 @@ class TestSadRef(unittest.TestCase):
     cls.params = params.read_job_params(cls.params_file, require=['seq_length','num_targets'])
 
   def test_run(self):
-    sad_opts = '-o sad_ref'
+    if os.path.isdir('sad/testr'):
+      shutil.rmtree('sad/testr')
 
+    sad_opts = '-o sad/testr --rc --shifts "0,21"'
     cmd = 'basenji_sad_ref.py %s %s %s %s' % \
         (sad_opts, self.params_file, self.model_file, self.vcf_file)
     return_code = subprocess.call(cmd, shell=True)
     self.assertEqual(return_code, 0)
 
-    if os.path.isdir('sad_ref'):
-      shutil.rmtree('sad_ref')
+    shutil.rmtree('sad/testr')
+
+  def test_multi(self):
+    if os.path.isdir('sad/testrm'):
+      shutil.rmtree('sad/testrm')
+
+    sad_opts = '--rc --shifts "0,21"'
+    sad_opts += ' -o sad/testrm -q k80 -p 4'
+    cmd = 'basenji_sad_ref_multi.py %s %s %s %s' % \
+        (sad_opts, self.params_file, self.model_file, self.vcf_file)
+    subprocess.call(cmd, shell=True)
+
+    saved_h5 = h5py.File('sad/saved/sadr.h5', 'r')
+    this_h5 = h5py.File('sad/testrm/sad.h5', 'r')
+
+    saved_keys = sorted(saved_h5.keys())
+    this_keys = sorted(this_h5.keys())
+    assert(len(saved_keys) == len(this_keys))
+    assert(saved_keys == this_keys)
+
+    for key in saved_h5:
+      if key[-4:] != '_pct':
+        saved_value = saved_h5[key][:]
+        this_value = this_h5[key][:]
+
+        if saved_value.dtype.char == 'S':
+          assert((saved_value == this_value).all())
+          np.testing.assert_array_equal(saved_value, this_value)
+        else:
+          np.testing.assert_allclose(saved_value, this_value, atol=2e-1, rtol=2e-1)
+          r2 = explained_variance_score(saved_value.flatten(), this_value.flatten())
+          assert(r2 > 0.999)
+
+    saved_h5.close()
+    this_h5.close()
+
+    shutil.rmtree('sad/testrm')
 
   def test_misref(self):
     sad_opts = '-o sad_ref'

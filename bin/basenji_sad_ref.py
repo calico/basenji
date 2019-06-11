@@ -61,9 +61,6 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option('--h5', dest='out_h5',
-      default=False, action='store_true',
-      help='Output stats to sad.h5 [Default: %default]')
   parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -97,9 +94,6 @@ def main():
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
-  # parser.add_option('-z', dest='out_zarr',
-  #     default=False, action='store_true',
-  #     help='Output stats to sad.zarr [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:

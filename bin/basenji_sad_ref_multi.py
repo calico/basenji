@@ -57,9 +57,6 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
-  parser.add_option('--h5', dest='out_h5',
-      default=False, action='store_true',
-      help='Output stats to sad.h5 [Default: %default]')
   parser.add_option('--local',dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -90,9 +87,6 @@ def main():
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
-  parser.add_option('-z', dest='out_zarr',
-      default=False, action='store_true',
-      help='Output stats to sad.zarr [Default: %default]')
 
   # multi
   parser.add_option('--name', dest='name',
@@ -159,70 +153,19 @@ def main():
   #######################################################
   # collect output
 
-  if options.out_h5:
-    collect_h5('sad.h5', options.out_dir, options.processes)
-
-  elif options.out_zarr:
-    collect_zarr('sad.zarr', options.out_dir, options.processes)
-
-  else:
-    collect_table('sad_table.txt', options.out_dir, options.processes)
+  collect_h5('sad.h5', options.out_dir, options.processes)
 
   # for pi in range(options.processes):
   #     shutil.rmtree('%s/job%d' % (options.out_dir,pi))
 
 
-def collect_table(file_name, out_dir, num_procs):
-  os.rename('%s/job0/%s' % (out_dir, file_name), '%s/%s' % (out_dir, file_name))
-  for pi in range(1, num_procs):
-    subprocess.call(
-        'tail -n +2 %s/job%d/%s >> %s/%s' % (out_dir, pi, file_name, out_dir,
-                                             file_name),
-        shell=True)
-
-def collect_zarr(file_name, out_dir, num_procs):
-  final_zarr_file = '%s/%s' % (out_dir, file_name)
-
-  # seed w/ job0
-  job_zarr_file = '%s/job0/%s' % (out_dir, file_name)
-  shutil.copytree(job_zarr_file, final_zarr_file)
-
-  # open final
-  final_zarr_open = zarr.open_group(final_zarr_file)
-
-  for pi in range(1, num_procs):
-    # open job
-    job_zarr_file = '%s/job%d/%s' % (out_dir, pi, file_name)
-    job_zarr_open = zarr.open_group(job_zarr_file, 'r')
-
-    # append to final
-    for key in final_zarr_open.keys():
-      if key in ['percentiles', 'target_ids', 'target_labels']:
-        # once is enough
-        pass
-
-      elif key[-4:] == '_pct':
-        # average
-        u_k1 = np.array(final_zarr_open[key])
-        x_k = np.array(job_zarr_open[key])
-        final_zarr_open[key] = u_k1 + (x_k - u_k1) / (pi+1)
-
-      else:
-        # append
-        final_zarr_open[key].append(job_zarr_open[key])
-
-
 def job_completed(options, pi):
   """Check whether a specific job has generated its
      output file."""
-  if options.out_h5:
-    out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
-  elif options.out_zarr:
+  if options.out_zarr:
     out_file = '%s/job%d/sad.zarr' % (options.out_dir, pi)
-  elif options.csv:
-    out_file = '%s/job%d/sad_table.csv' % (options.out_dir, pi)
   else:
-    out_file = '%s/job%d/sad_table.txt' % (options.out_dir, pi)
+    out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
   return os.path.isfile(out_file) or os.path.isdir(out_file)
 
 

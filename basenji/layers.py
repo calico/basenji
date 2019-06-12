@@ -50,6 +50,18 @@ class SwitchReverse(tf.keras.layers.Layer):
                                    x)
 
 
+def activate(current, activation):
+  if activation == 'relu':
+    current = tf.keras.layers.ReLU()(current)
+  elif activation == 'gelu':
+    current = layers.GELU()(current)
+  else:
+    print('Unrecognized activation "%s"' % activation, file=sys.stderr)
+    exit(1)
+
+  return current
+
+
 def conv_block(seqs_repr, conv_params, is_training,
                batch_norm, batch_norm_momentum,
                batch_renorm, batch_renorm_momentum,

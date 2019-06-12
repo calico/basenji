@@ -32,89 +32,93 @@ from basenji import params
 
 class SeqNN():
 
-  def __init__(self, job):
-    self.hp = params.make_hparams(job)
+  def __init__(self, params):
+    for key, value in params.items():
+      self.__setattr__(key, value)
     self.build_model()
 
+  def build_block(self, current, block_params):
+    """Construct a SeqNN block.
+
+    Args:
+
+    Returns:
+      current
+    """
+    block_args = {}
+
+    # set global defaults
+    global_vars = ['activation', 'batch_norm', 'l2_scale', 'l1_scale']
+    for gv in global_vars:
+      gv_value = getattr(self, gv, False)
+      if gv_value:
+        block_args[gv] = gv_value
+
+    # extract name
+    block_name = block_params['name']
+    del block_params['name']
+
+    # set remaining params
+    block_args.update(block_params)
+
+    # switch for block
+    if block_name[0].islower():
+      block_func = blocks.name_func[block_name]
+      current = block_func(current, **block_args)
+    else:
+      block_func = blocks.keras_func[block_name]
+      current = block_func(**block_args)(current)
+
+    return current
 
   def build_model(self, save_reprs=False):
-    self.sequence = tf.keras.Input(shape=(self.hp.seq_length, 4), name='sequence')
+    ###################################################
+    # inputs
+    ###################################################
+    self.sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
     self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = self.sequence
 
     ###################################################
-    # convolutions
+    # build convolution blocks
     ###################################################
-    layer_reprs = [current]
-    for li in range(self.hp.cnn_layers):
-      with tf.variable_scope('layer%d' % li):
-        skip_inputs = layer_reprs[-self.hp.cnn_params[li].skip_layers] if self.hp.cnn_params[li].skip_layers > 0 else None
-
-        # build convolution block
-        current = blocks.conv_pool(
-          current,
-          filters=self.hp.cnn_params[li].filters,
-          kernel_size=self.hp.cnn_params[li].filter_size,
-          activation=self.hp.nonlinearity,
-          strides=self.hp.cnn_params[li].stride,
-          l2_weight=self.hp.cnn_l2_scale,
-          momentum=self.hp.batch_norm_momentum,
-          dropout=self.hp.cnn_params[li].dropout,
-          pool_size=self.hp.cnn_params[li].pool,
-          skip_inputs=skip_inputs,
-          concat=self.hp.cnn_params[li].concat)
-
-        # save representation
-        layer_reprs.append(current)
-
-    if save_reprs:
-      self.layer_reprs = layer_reprs
+    for bi, block_params in enumerate(self.blocks):
+      current = self.build_block(current, block_params)
 
     # final activation
-    if self.hp.nonlinearity == 'relu':
-      current = tf.keras.layers.ReLU()(current)
-    elif self.hp.nonlinearity == 'gelu':
-      current = layers.GELU()(current)
-    else:
-      print('Unrecognized activation "%s"' % self.hp.nonlinearity, file=sys.stderr)
-      exit(1)
+    current = layers.activate(current, self.activation)
 
     # TEMP to include in the graph for model saving
     # genome_repeat = tf.keras.layers.RepeatVector(1024)(tf.cast(self.genome, tf.float32))
     # current = tf.keras.layers.Add()([current, genome_repeat])
 
     ###################################################
-    # slice out side buffer
+    # slice center (replace w/ Cropping1D?)
     ###################################################
-
-    # update batch buffer to reflect pooling
-    seq_length = current.shape[1].value
-    pool_preds = self.hp.seq_length // seq_length
-    assert self.hp.seq_end_ignore % pool_preds == 0, (
-        'seq_end_ignore %d not divisible'
-        ' by the CNN pooling %d') % (self.hp.seq_end_ignore, pool_preds)
-    seq_end_ignore_pool = self.hp.seq_end_ignore // pool_preds
-
-    # Cropping1D?
-
-    # slice out buffer
-    seq_length = current.shape[1]
-    current = layers.SliceCenter(
-      left=seq_end_ignore_pool,
-      right=seq_length-seq_end_ignore_pool)(current)
-    seq_length = current.shape[1]
+    current_length = current.shape[1]
+    target_diff = self.target_length - current_length
+    target_diff2 = target_diff // 2
+    if target_diff2 < 0:
+      print('Model over-pools to %d for target_length %d.' % \
+        (current_length, self.target_length), file=sys.stderr)
+      exit(1)
+    elif target_diff2 > 0:
+      current = layers.SliceCenter(
+        left=target_diff2,
+        right=current_length-target_diff2)(current)
 
     ###################################################
     # final layer
     ###################################################
-    with tf.variable_scope('final'):
-      current = tf.keras.layers.Dense(
-        units=self.hp.sum_targets,
-        activation=None,
-        use_bias=True,
-        kernel_initializer='he_normal',
-        kernel_regularizer=tf.keras.regularizers.l1(self.hp.final_l1_scale)
-        )(current)
+    self.sum_targets = np.sum(self.num_targets)
+
+    current = tf.keras.layers.Dense(
+      units=self.sum_targets,
+      activation=None,
+      use_bias=True,
+      kernel_initializer='he_normal',
+      kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
+      )(current)
 
     # transform for reverse complement
     # current = layers.SwitchReverse()([current, input_reverse])
@@ -126,16 +130,7 @@ class SeqNN():
     exp_max = 50
 
     # choose link
-    if self.hp.link == 'softplus':
-      current = layers.Softplus(exp_max)(current)
-
-    else:
-      print('Unknown link function %s' % self.hp.link, file=sys.stderr)
-      exit(1)
-
-    # clip
-    if self.hp.target_clip is not None:
-      current = layers.Clip(0, self.hp.target_clip)(current)
+    current = layers.Softplus(exp_max)(current)
 
     self.preds = current
 

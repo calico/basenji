@@ -15,6 +15,7 @@
 # =========================================================================
 from __future__ import print_function
 
+import json
 import os
 import pdb
 from queue import Queue
@@ -30,14 +31,13 @@ if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
 
 from basenji import dataset
-from basenji import params
 from basenji import seqnn
 from basenji import trainer
 
 ################################################################################
 
 # parameters and data
-flags.DEFINE_string('params', '', 'File containing parameter config')
+flags.DEFINE_string('params', '', 'Parameter JSON')
 flags.DEFINE_string('train_data', '', 'train tfrecord file')
 flags.DEFINE_string('eval_data', '', 'test tfrecord file')
 
@@ -50,7 +50,6 @@ flags.DEFINE_integer('ensemble_mc', 0, 'Ensemble monte carlo samples.')
 
 # training modes
 flags.DEFINE_string('restart', None, 'Restart training the model')
-flags.DEFINE_integer('early_stop', 25, 'Stop training if validation loss stagnates.')
 
 # eval options
 flags.DEFINE_boolean('metrics_thread', False, 'Evaluate validation metrics in a separate thread.')
@@ -64,51 +63,60 @@ FLAGS = flags.FLAGS
 ################################################################################
 
 def main(_):
-  # read parameters
-  job = params.read_job_params(FLAGS.params)
-  job['num_genomes'] = job.get('num_genomes', 1)
-  if not isinstance(job['num_targets'], list):
-    job['num_targets'] = [job['num_targets']]
+  # I could write some additional code around this to check for common
+  # problems, such as with num_targets.
+  with open(FLAGS.params) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
 
   # load data
-  train_data = dataset.SeqDataset(FLAGS.train_data, job['batch_size'], job['seq_length'],
-    job['seq_end_ignore'], job['target_length'], tf.estimator.ModeKeys.TRAIN)
-  eval_data = dataset.SeqDataset(FLAGS.eval_data, job['batch_size'], job['seq_length'],
-    job['seq_end_ignore'], job['target_length'], tf.estimator.ModeKeys.EVAL)
+  train_data = dataset.SeqDataset(FLAGS.train_data,
+    params_train['batch_size'],
+    params_model['seq_length'],
+    params_model['target_length'],
+    tf.estimator.ModeKeys.TRAIN)
+  eval_data = dataset.SeqDataset(FLAGS.eval_data,
+    params_train['batch_size'],
+    params_model['seq_length'],
+    params_model['target_length'],
+    tf.estimator.ModeKeys.EVAL)
 
 
-  ########################################
-  # one GPU
-
-  # # initialize model
-  # seqnn_model = seqnn.SeqNN(job)
-
-  # # initialize trainer
-  # seqnn_trainer = trainer.Trainer(job, train_data, eval_data)
-
-  # # compile model
-  # seqnn_trainer.compile(seqnn_model.model)
-
-  # # train model
-  # seqnn_trainer.fit(seqnn_model.model)
-
-  ########################################
-  # two GPU
-
-  mirrored_strategy = tf.distribute.MirroredStrategy()
-  with mirrored_strategy.scope():
+  if params_train.get('num_gpu',1) == 1:
+    ########################################
+    # one GPU
 
     # initialize model
-    seqnn_model = seqnn.SeqNN(job)
+    seqnn_model = seqnn.SeqNN(params_model)
 
     # initialize trainer
-    seqnn_trainer = trainer.Trainer(job, train_data, eval_data)
+    seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
 
     # compile model
-    seqnn_trainer.compile(seqnn_model.model, None)
+    seqnn_trainer.compile(seqnn_model.model)
 
-  # train model
-  seqnn_trainer.fit(seqnn_model.model)
+    # train model
+    seqnn_trainer.fit(seqnn_model.model)
+
+  else:
+    ########################################
+    # two GPU
+
+    mirrored_strategy = tf.distribute.MirroredStrategy()
+    with mirrored_strategy.scope():
+
+      # initialize model
+      seqnn_model = seqnn.SeqNN(params_model)
+
+      # initialize trainer
+      seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
+
+      # compile model
+      seqnn_trainer.compile(seqnn_model.model, None)
+
+    # train model
+    seqnn_trainer.fit(seqnn_model.model)
 
 if __name__ == '__main__':
   app.run(main)

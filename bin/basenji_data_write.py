@@ -37,150 +37,199 @@ Write TF Records for batches of model sequences.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <fasta_file> <seqs_bed_file> <seqs_cov_dir> <tfr_file>'
-  parser = OptionParser(usage)
-  parser.add_option('-g', dest='genome_index',
-      default=None, type='int', help='Genome index')
-  parser.add_option('-s', dest='start_i',
-      default=0, type='int',
-      help='Sequence start index [Default: %default]')
-  parser.add_option('-e', dest='end_i',
-      default=None, type='int',
-      help='Sequence end index [Default: %default]')
-  parser.add_option('--te', dest='target_extend',
-      default=None, type='int', help='Extend targets vector [Default: %default]')
-  parser.add_option('--ts', dest='target_start',
-      default=0, type='int', help='Write targets into vector starting at index [Default: %default')
-  parser.add_option('-u', dest='umap_npy',
-      help='Unmappable array numpy file')
-  parser.add_option('--umap_set', dest='umap_set',
-      default=None, type='float',
-      help='Sequence distribution value to set unmappable positions to, eg 0.25.')
-  (options, args) = parser.parse_args()
+    usage = (
+        "usage: %prog [options] <fasta_file> <seqs_bed_file> <seqs_cov_dir> <tfr_file>"
+    )
+    parser = OptionParser(usage)
+    parser.add_option(
+        "-g", dest="genome_index", default=None, type="int", help="Genome index"
+    )
+    parser.add_option(
+        "-s",
+        dest="start_i",
+        default=0,
+        type="int",
+        help="Sequence start index [Default: %default]",
+    )
+    parser.add_option(
+        "-e",
+        dest="end_i",
+        default=None,
+        type="int",
+        help="Sequence end index [Default: %default]",
+    )
+    parser.add_option(
+        "--te",
+        dest="target_extend",
+        default=None,
+        type="int",
+        help="Extend targets vector [Default: %default]",
+    )
+    parser.add_option(
+        "--ts",
+        dest="target_start",
+        default=0,
+        type="int",
+        help="Write targets into vector starting at index [Default: %default",
+    )
+    parser.add_option("-u", dest="umap_npy", help="Unmappable array numpy file")
+    parser.add_option(
+        "--umap_set",
+        dest="umap_set",
+        default=None,
+        type="float",
+        help="Sequence distribution value to set unmappable positions to, eg 0.25.",
+    )
+    (options, args) = parser.parse_args()
 
-  if len(args) != 4:
-    parser.error('Must provide input arguments.')
-  else:
-    fasta_file = args[0]
-    seqs_bed_file = args[1]
-    seqs_cov_dir = args[2]
-    tfr_file = args[3]
-
-  ################################################################
-  # read model sequences
-
-  model_seqs = []
-  for line in open(seqs_bed_file):
-    a = line.split()
-    model_seqs.append(ModelSeq(a[0],int(a[1]),int(a[2]),None))
-
-  if options.end_i is None:
-    options.end_i = len(model_seqs)
-
-  num_seqs = options.end_i - options.start_i
-
-  ################################################################
-  # determine sequence coverage files
-
-  seqs_cov_files = []
-  ti = 0
-  if options.genome_index is None:
-    seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
-  else:
-    seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
-  while os.path.isfile(seqs_cov_file):
-    seqs_cov_files.append(seqs_cov_file)
-    ti += 1
-    if options.genome_index is None:
-      seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
+    if len(args) != 4:
+        parser.error("Must provide input arguments.")
     else:
-      seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
+        fasta_file = args[0]
+        seqs_bed_file = args[1]
+        seqs_cov_dir = args[2]
+        tfr_file = args[3]
 
-  if len(seqs_cov_files) == 0:
-    print('Sequence coverage files not found, e.g. %s' % seqs_cov_file, file=sys.stderr)
-    exit(1)
+    ################################################################
+    # read model sequences
 
-  seq_pool_len = h5py.File(seqs_cov_files[0], 'r')['seqs_cov'].shape[1]
-  num_targets = len(seqs_cov_files)
+    model_seqs = []
+    for line in open(seqs_bed_file):
+        a = line.split()
+        model_seqs.append(ModelSeq(a[0], int(a[1]), int(a[2]), None))
 
-  ################################################################
-  # read targets
+    if options.end_i is None:
+        options.end_i = len(model_seqs)
 
-  # extend targets
-  num_targets_tfr = num_targets
-  if options.target_extend is not None:
-    assert(options.target_extend >= num_targets_tfr)
-    num_targets_tfr = options.target_extend
+    num_seqs = options.end_i - options.start_i
 
-  # initialize targets
-  targets = np.zeros((num_seqs, seq_pool_len, num_targets_tfr), dtype='float16')
+    ################################################################
+    # determine sequence coverage files
 
-  # read each target
-  for ti in range(num_targets):
-    seqs_cov_open = h5py.File(seqs_cov_files[ti], 'r')
-    tii = options.target_start + ti
-    targets[:,:,tii] = seqs_cov_open['seqs_cov'][options.start_i:options.end_i,:]
-    seqs_cov_open.close()
+    seqs_cov_files = []
+    ti = 0
+    if options.genome_index is None:
+        seqs_cov_file = "%s/%d.h5" % (seqs_cov_dir, ti)
+    else:
+        seqs_cov_file = "%s/%d-%d.h5" % (seqs_cov_dir, options.genome_index, ti)
+    while os.path.isfile(seqs_cov_file):
+        seqs_cov_files.append(seqs_cov_file)
+        ti += 1
+        if options.genome_index is None:
+            seqs_cov_file = "%s/%d.h5" % (seqs_cov_dir, ti)
+        else:
+            seqs_cov_file = "%s/%d-%d.h5" % (seqs_cov_dir, options.genome_index, ti)
 
-  ################################################################
-  # modify unmappable
+    if len(seqs_cov_files) == 0:
+        print(
+            "Sequence coverage files not found, e.g. %s" % seqs_cov_file,
+            file=sys.stderr,
+        )
+        exit(1)
 
-  if options.umap_npy is not None and options.umap_set is not None:
-    unmap_mask = np.load(options.umap_npy)
+    seq_pool_len = h5py.File(seqs_cov_files[0], "r")["seqs_cov"].shape[1]
+    num_targets = len(seqs_cov_files)
 
-    for si in range(num_seqs):
-      msi = options.start_i + si
+    ################################################################
+    # read targets
 
-      # determine unmappable null value
-      seq_target_null = np.percentile(targets[si], q=[100*options.umap_set], axis=0)[0]
+    # extend targets
+    num_targets_tfr = num_targets
+    if options.target_extend is not None:
+        assert options.target_extend >= num_targets_tfr
+        num_targets_tfr = options.target_extend
 
-      # set unmappable positions to null
-      targets[si,unmap_mask[msi,:],:] = np.minimum(targets[si,unmap_mask[msi,:],:], seq_target_null)
+    # initialize targets
+    targets = np.zeros((num_seqs, seq_pool_len, num_targets_tfr), dtype="float16")
 
-  ################################################################
-  # write TFRecords
+    # read each target
+    for ti in range(num_targets):
+        seqs_cov_open = h5py.File(seqs_cov_files[ti], "r")
+        tii = options.target_start + ti
+        targets[:, :, tii] = seqs_cov_open["seqs_cov"][
+            options.start_i : options.end_i, :
+        ]
+        seqs_cov_open.close()
 
-  # open FASTA
-  fasta_open = pysam.Fastafile(fasta_file)
+    ################################################################
+    # modify unmappable
 
-  # define options
-  tf_opts = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.ZLIB)
+    if options.umap_npy is not None and options.umap_set is not None:
+        unmap_mask = np.load(options.umap_npy)
 
-  with tf.python_io.TFRecordWriter(tfr_file, tf_opts) as writer:
-    for si in range(num_seqs):
-      msi = options.start_i + si
-      mseq = model_seqs[msi]
+        for si in range(num_seqs):
+            msi = options.start_i + si
 
-      # read FASTA
-      seq_dna = fasta_open.fetch(mseq.chr, mseq.start, mseq.end)
+            # determine unmappable null value
+            seq_target_null = np.percentile(
+                targets[si], q=[100 * options.umap_set], axis=0
+            )[0]
 
-      # one hot code
-      seq_1hot = dna_1hot(seq_dna)
+            # set unmappable positions to null
+            targets[si, unmap_mask[msi, :], :] = np.minimum(
+                targets[si, unmap_mask[msi, :], :], seq_target_null
+            )
 
-      if options.genome_index is None:
-        example = tf.train.Example(features=tf.train.Features(feature={
-            'genome': _int_feature(0),
-            'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-            'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
-      else:
-        example = tf.train.Example(features=tf.train.Features(feature={
-            'genome': _int_feature(options.genome_index),
-            'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-            'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
+    ################################################################
+    # write TFRecords
 
-      writer.write(example.SerializeToString())
+    # open FASTA
+    fasta_open = pysam.Fastafile(fasta_file)
 
-    fasta_open.close()
+    # define options
+    tf_opts = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.ZLIB)
+
+    with tf.python_io.TFRecordWriter(tfr_file, tf_opts) as writer:
+        for si in range(num_seqs):
+            msi = options.start_i + si
+            mseq = model_seqs[msi]
+
+            # read FASTA
+            seq_dna = fasta_open.fetch(mseq.chr, mseq.start, mseq.end)
+
+            # one hot code
+            seq_1hot = dna_1hot(seq_dna)
+
+            if options.genome_index is None:
+                example = tf.train.Example(
+                    features=tf.train.Features(
+                        feature={
+                            "genome": _int_feature(0),
+                            "sequence": _bytes_feature(seq_1hot.flatten().tostring()),
+                            "target": _bytes_feature(
+                                targets[si, :, :].flatten().tostring()
+                            ),
+                        }
+                    )
+                )
+            else:
+                example = tf.train.Example(
+                    features=tf.train.Features(
+                        feature={
+                            "genome": _int_feature(options.genome_index),
+                            "sequence": _bytes_feature(seq_1hot.flatten().tostring()),
+                            "target": _bytes_feature(
+                                targets[si, :, :].flatten().tostring()
+                            ),
+                        }
+                    )
+                )
+
+            writer.write(example.SerializeToString())
+
+        fasta_open.close()
 
 
 def _bytes_feature(value):
-  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
 
 def _int_feature(value):
-  return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
 
 ################################################################################
 # __main__
 ################################################################################
-if __name__ == '__main__':
-  main()
+if __name__ == "__main__":
+    main()

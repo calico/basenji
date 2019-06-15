@@ -11,63 +11,72 @@ from scipy.stats import cauchy
 
 from basenji.emerald import EmeraldVCF
 
-'''
+"""
 sad5.py
 
 Interfaces to normalized and population-adjusted SAD scores.
-'''
+"""
+
 
 class SAD5:
-    def __init__(self, sad_h5_file, sad_key='SAD',
-                 compute_norm=True, recompute_norm=False):
+    def __init__(
+        self, sad_h5_file, sad_key="SAD", compute_norm=True, recompute_norm=False
+    ):
         self.sad_h5_file = sad_h5_file
-        self.sad_h5_open = h5py.File(self.sad_h5_file, 'r')
+        self.sad_h5_open = h5py.File(self.sad_h5_file, "r")
 
         self.sad_matrix = self.sad_h5_open[sad_key]
         self.num_snps, self.num_targets = self.sad_matrix.shape
 
-        self.target_ids = np.array([tl.decode('UTF-8') for tl in self.sad_h5_open['target_ids']])
-        self.target_labels = np.array([tl.decode('UTF-8') for tl in self.sad_h5_open['target_labels']])
+        self.target_ids = np.array(
+            [tl.decode("UTF-8") for tl in self.sad_h5_open["target_ids"]]
+        )
+        self.target_labels = np.array(
+            [tl.decode("UTF-8") for tl in self.sad_h5_open["target_labels"]]
+        )
 
         # read SAD percentile indexes into memory
-        self.pct_sad = np.array(self.sad_h5_open['SAD_pct'])
+        self.pct_sad = np.array(self.sad_h5_open["SAD_pct"])
 
         # read percentiles
-        self.percentiles = np.around(self.sad_h5_open['percentiles'], 3)
+        self.percentiles = np.around(self.sad_h5_open["percentiles"], 3)
         self.percentiles = np.append(self.percentiles, self.percentiles[-1])
 
         if compute_norm:
             # fit, if not present
-            if recompute_norm or not 'target_cauchy_fit_loc' in self.sad_h5_open:
+            if recompute_norm or not "target_cauchy_fit_loc" in self.sad_h5_open:
                 self.fit_cauchy()
 
             # make target-specific fit cauchy's
-            target_cauchy_fit_params = zip(self.sad_h5_open['target_cauchy_fit_loc'],
-                                           self.sad_h5_open['target_cauchy_fit_scale'])
+            target_cauchy_fit_params = zip(
+                self.sad_h5_open["target_cauchy_fit_loc"],
+                self.sad_h5_open["target_cauchy_fit_scale"],
+            )
             self.target_cauchy_fit = [cauchy(*cp) for cp in target_cauchy_fit_params]
 
             # choose normalizing values, if not present
-            if recompute_norm or not 'target_cauchy_norm_loc' in self.sad_h5_open:
+            if recompute_norm or not "target_cauchy_norm_loc" in self.sad_h5_open:
                 self.norm_cauchy()
 
             # make target-specific normalizing cauchy's
-            target_cauchy_norm_params = zip(self.sad_h5_open['target_cauchy_norm_loc'],
-                                            self.sad_h5_open['target_cauchy_norm_scale'])
+            target_cauchy_norm_params = zip(
+                self.sad_h5_open["target_cauchy_norm_loc"],
+                self.sad_h5_open["target_cauchy_norm_scale"],
+            )
             self.target_cauchy_norm = [cauchy(*cp) for cp in target_cauchy_norm_params]
-
 
     def __getitem__(self, si_ti):
         """Return normalized scores for the given SNP and target indexes."""
 
         cdf_buf = 1e-5
         if isinstance(si_ti, slice):
-            print('SAD5 slice is not implemented.', file=sys.stderr)
+            print("SAD5 slice is not implemented.", file=sys.stderr)
             exit(1)
 
         # single target
         elif isinstance(si_ti, tuple):
             si, ti = si_ti
-            sad_st = self.sad_matrix[si,ti].astype('float32')
+            sad_st = self.sad_matrix[si, ti].astype("float32")
             sad_st_q = self.target_cauchy_fit[ti].cdf(sad_st)
             if sad_st_q > 0.5:
                 sad_st_q -= cdf_buf
@@ -75,39 +84,40 @@ class SAD5:
                 sad_st_q += cdf_buf
             sad_norm = self.target_cauchy_norm[ti].ppf(sad_st_q)
 
-        elif isinstance(si_ti, (list,np.ndarray)):
+        elif isinstance(si_ti, (list, np.ndarray)):
             si = si_ti
-            sad_s = self.sad_matrix[si,:].astype('float32')
+            sad_s = self.sad_matrix[si, :].astype("float32")
             sad_norm = np.zeros(sad_s.shape)
             for ti in range(self.num_targets):
-                sad_s_q = self.target_cauchy_fit[ti].cdf(sad_s[:,ti])
-                sad_s_q = np.where(sad_s_q > 0.5, sad_s_q-cdf_buf, sad_s_q+cdf_buf)
-                sad_norm[:,ti] = self.target_cauchy_norm[ti].ppf(sad_s_q)
+                sad_s_q = self.target_cauchy_fit[ti].cdf(sad_s[:, ti])
+                sad_s_q = np.where(sad_s_q > 0.5, sad_s_q - cdf_buf, sad_s_q + cdf_buf)
+                sad_norm[:, ti] = self.target_cauchy_norm[ti].ppf(sad_s_q)
 
         # single SNP, multiple targets
         else:
             si = si_ti
-            sad_s = self.sad_matrix[si,:].astype('float32')
+            sad_s = self.sad_matrix[si, :].astype("float32")
             sad_norm = np.zeros(sad_s.shape)
             for ti in range(self.num_targets):
                 sad_s_q = self.target_cauchy_fit[ti].cdf(sad_s[ti])
-                sad_s_q = np.where(sad_s_q > 0.5, sad_s_q-cdf_buf, sad_s_q+cdf_buf)
+                sad_s_q = np.where(sad_s_q > 0.5, sad_s_q - cdf_buf, sad_s_q + cdf_buf)
                 sad_norm[ti] = self.target_cauchy_norm[ti].ppf(sad_s_q)
 
         return sad_norm
-
 
     def fit_cauchy(self, sample=131072):
         """Fit target-specific Cauchy distributions, and save to HDF5"""
 
         # sample SNPs
         if sample < self.num_snps:
-            ri = sorted(np.random.choice(np.arange(self.num_snps), size=sample, replace=False))
+            ri = sorted(
+                np.random.choice(np.arange(self.num_snps), size=sample, replace=False)
+            )
         else:
             ri = np.arange(self.num_snps)
 
         # read SNPs
-        sad = self.sad_matrix[ri,:].astype('float32')
+        sad = self.sad_matrix[ri, :].astype("float32")
 
         # initialize fit parameters
         target_cauchy_fit_loc = np.zeros(self.num_targets)
@@ -115,38 +125,41 @@ class SAD5:
 
         # fit parameters
         for ti in range(self.num_targets):
-            print(' Fitting t%d' % ti, flush=True)
-            cp = cauchy.fit(sad[:,ti])
+            print(" Fitting t%d" % ti, flush=True)
+            cp = cauchy.fit(sad[:, ti])
             target_cauchy_fit_loc[ti] = cp[0]
             target_cauchy_fit_scale[ti] = cp[1]
 
         # write to HDF5
         self.sad_h5_open.close()
-        self.sad_h5_open = h5py.File(self.sad_h5_file, 'r+')
-        self.sad_h5_open.create_dataset('target_cauchy_fit_loc', data=target_cauchy_fit_loc)
-        self.sad_h5_open.create_dataset('target_cauchy_fit_scale', data=target_cauchy_fit_scale)
+        self.sad_h5_open = h5py.File(self.sad_h5_file, "r+")
+        self.sad_h5_open.create_dataset(
+            "target_cauchy_fit_loc", data=target_cauchy_fit_loc
+        )
+        self.sad_h5_open.create_dataset(
+            "target_cauchy_fit_scale", data=target_cauchy_fit_scale
+        )
         self.sad_h5_open.close()
-        self.sad_h5_open = h5py.File(self.sad_h5_file, 'r')
+        self.sad_h5_open = h5py.File(self.sad_h5_file, "r")
 
-
-    def norm_cauchy(self, target_sets=['CAGE']):
+    def norm_cauchy(self, target_sets=["CAGE"]):
         """Compute normalizing Cauchy distribution parameters within
             target sets, and save to HDF5."""
 
         # read fits
-        if not 'target_cauchy_fit_loc' in self.sad_h5_open:
+        if not "target_cauchy_fit_loc" in self.sad_h5_open:
             raise Something
-        target_cauchy_fit_loc = self.sad_h5_open['target_cauchy_fit_loc'][:]
-        target_cauchy_fit_scale = self.sad_h5_open['target_cauchy_fit_scale'][:]
+        target_cauchy_fit_loc = self.sad_h5_open["target_cauchy_fit_loc"][:]
+        target_cauchy_fit_scale = self.sad_h5_open["target_cauchy_fit_scale"][:]
 
         # initialize target hash
-        target_hash = {'-':[]}
+        target_hash = {"-": []}
         for ts in target_sets:
             target_hash[ts] = []
 
         # hash targets by set
         for ti, target_label in enumerate(self.target_labels):
-            target_label_set = '-'
+            target_label_set = "-"
             for ts in target_sets:
                 if target_label.startswith(ts):
                     target_label_set = ts
@@ -168,14 +181,18 @@ class SAD5:
 
         # write to HDF5
         self.sad_h5_open.close()
-        self.sad_h5_open = h5py.File(self.sad_h5_file, 'r+')
-        self.sad_h5_open.create_dataset('target_cauchy_norm_loc', data=target_cauchy_norm_loc)
-        self.sad_h5_open.create_dataset('target_cauchy_norm_scale', data=target_cauchy_norm_scale)
+        self.sad_h5_open = h5py.File(self.sad_h5_file, "r+")
+        self.sad_h5_open.create_dataset(
+            "target_cauchy_norm_loc", data=target_cauchy_norm_loc
+        )
+        self.sad_h5_open.create_dataset(
+            "target_cauchy_norm_scale", data=target_cauchy_norm_scale
+        )
         self.sad_h5_open.close()
-        self.sad_h5_open = h5py.File(self.sad_h5_file, 'r')
+        self.sad_h5_open = h5py.File(self.sad_h5_file, "r")
 
     def pos(self, snp_i):
-        return self.sad_h5_open['pos'][snp_i]
+        return self.sad_h5_open["pos"][snp_i]
 
     def sad_pct(self, sad):
         # compute percentile indexes
@@ -187,12 +204,11 @@ class SAD5:
         return self.percentiles[sadq]
 
     def snps(self):
-        return np.array(self.sad_h5_open['snp'])
+        return np.array(self.sad_h5_open["snp"])
 
 
 class ChrSAD5:
-    def __init__(self, sad_h5_path, population='EUR', index_chr=False,
-                 **sad5_kw_args):
+    def __init__(self, sad_h5_path, population="EUR", index_chr=False, **sad5_kw_args):
         self.index_chr = index_chr
         self.sad_h5_path = sad_h5_path
 
@@ -201,27 +217,25 @@ class ChrSAD5:
         self.target_info()
         self.index_snps()
 
-
     def fit_cauchy(self, sample=131072):
         """Fit target-specific Cauchy distributions, and save to HDF5"""
 
         # sample SNPs
-        sample_snps = random.sample(list(self.snp_indexes.values()),
-                                   sample)
+        sample_snps = random.sample(list(self.snp_indexes.values()), sample)
 
         # sort by chr
         chr_sample_snps = {}
         for ci, si in sample_snps:
-            chr_sample_snps.setdefault(ci,[]).append(si)
+            chr_sample_snps.setdefault(ci, []).append(si)
         for ci in chr_sample_snps:
             chr_sample_snps[ci] = sorted(chr_sample_snps[ci])
 
         # read SNPs
         sad = []
         for ci, csnps in chr_sample_snps.items():
-            print('Reading %s' % ci, flush=True)
+            print("Reading %s" % ci, flush=True)
             sad.append(self.chr_sad5[ci].sad_matrix[csnps])
-        sad = np.concatenate(sad).astype('float32')
+        sad = np.concatenate(sad).astype("float32")
 
         # initialize fit parameters
         self.target_cauchy_fit_loc = np.zeros(self.num_targets)
@@ -229,25 +243,26 @@ class ChrSAD5:
 
         # fit parameters
         for ti in range(self.num_targets):
-            print(' Fitting t%d' % ti, flush=True)
-            cp = cauchy.fit(sad[:,ti])
+            print(" Fitting t%d" % ti, flush=True)
+            cp = cauchy.fit(sad[:, ti])
             self.target_cauchy_fit_loc[ti] = cp[0]
             self.target_cauchy_fit_scale[ti] = cp[1]
 
         # write to HDF5
         for chrm, sad5 in self.chr_sad5.items():
             sad5.sad_h5_open.close()
-            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, 'r+')
-            if 'target_cauchy_fit_loc' in sad5.sad_h5_open:
-                del sad5.sad_h5_open['target_cauchy_fit_loc']
-                del sad5.sad_h5_open['target_cauchy_fit_scale']
-            sad5.sad_h5_open.create_dataset('target_cauchy_fit_loc',
-                                            data=self.target_cauchy_fit_loc)
-            sad5.sad_h5_open.create_dataset('target_cauchy_fit_scale',
-                                            data=self.target_cauchy_fit_scale)
+            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, "r+")
+            if "target_cauchy_fit_loc" in sad5.sad_h5_open:
+                del sad5.sad_h5_open["target_cauchy_fit_loc"]
+                del sad5.sad_h5_open["target_cauchy_fit_scale"]
+            sad5.sad_h5_open.create_dataset(
+                "target_cauchy_fit_loc", data=self.target_cauchy_fit_loc
+            )
+            sad5.sad_h5_open.create_dataset(
+                "target_cauchy_fit_scale", data=self.target_cauchy_fit_scale
+            )
             sad5.sad_h5_open.close()
-            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, 'r')
-
+            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, "r")
 
     def index_snps(self):
         """Hash RSID's to HDF5 index."""
@@ -258,28 +273,27 @@ class ChrSAD5:
             # hash SNP ids to indexes
             snps = self.chr_sad5[ci].snps()
             for i, snp_id in enumerate(snps):
-                snp_id = snp_id.decode('UTF-8')
+                snp_id = snp_id.decode("UTF-8")
                 if self.index_chr:
-                    self.snp_indexes[snp_id] = (ci,i)
+                    self.snp_indexes[snp_id] = (ci, i)
                 else:
                     self.snp_indexes[snp_id] = i
 
             # clean up
             del snps
 
-
-    def norm_cauchy(self, target_sets=['CAGE']):
+    def norm_cauchy(self, target_sets=["CAGE"]):
         """Compute normalizing Cauchy distribution parameters within
             target sets, and save to HDF5."""
 
         # initialize target hash
-        target_hash = {'-':[]}
+        target_hash = {"-": []}
         for ts in target_sets:
             target_hash[ts] = []
 
         # hash targets by set
         for ti, target_label in enumerate(self.target_labels):
-            target_label_set = '-'
+            target_label_set = "-"
             for ts in target_sets:
                 if target_label.startswith(ts):
                     target_label_set = ts
@@ -293,7 +307,9 @@ class ChrSAD5:
         for ts, target_set_indexes in target_hash.items():
             # compute medians
             target_set_loc = np.median(self.target_cauchy_fit_loc[target_set_indexes])
-            target_set_scale = np.median(self.target_cauchy_fit_scale[target_set_indexes])
+            target_set_scale = np.median(
+                self.target_cauchy_fit_scale[target_set_indexes]
+            )
 
             # save
             self.target_cauchy_norm_loc[target_set_indexes] = target_set_loc
@@ -302,29 +318,30 @@ class ChrSAD5:
         # write to HDF5
         for chrm, sad5 in self.chr_sad5.items():
             sad5.sad_h5_open.close()
-            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, 'r+')
-            if 'target_cauchy_norm_loc' in sad5.sad_h5_open:
-                del sad5.sad_h5_open['target_cauchy_norm_loc']
-                del sad5.sad_h5_open['target_cauchy_norm_scale']
-            sad5.sad_h5_open.create_dataset('target_cauchy_norm_loc',
-                                            data=self.target_cauchy_norm_loc)
-            sad5.sad_h5_open.create_dataset('target_cauchy_norm_scale',
-                                            data=self.target_cauchy_norm_scale)
+            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, "r+")
+            if "target_cauchy_norm_loc" in sad5.sad_h5_open:
+                del sad5.sad_h5_open["target_cauchy_norm_loc"]
+                del sad5.sad_h5_open["target_cauchy_norm_scale"]
+            sad5.sad_h5_open.create_dataset(
+                "target_cauchy_norm_loc", data=self.target_cauchy_norm_loc
+            )
+            sad5.sad_h5_open.create_dataset(
+                "target_cauchy_norm_scale", data=self.target_cauchy_norm_scale
+            )
             sad5.sad_h5_open.close()
-            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, 'r')
-
+            sad5.sad_h5_open = h5py.File(sad5.sad_h5_file, "r")
 
     def open_chr_sad5(self, **sad5_kw_args):
         self.chr_sad5 = {}
-        for sad_h5_file in glob.glob('%s/*/sad.h5' % self.sad_h5_path):
+        for sad_h5_file in glob.glob("%s/*/sad.h5" % self.sad_h5_path):
             sad5 = SAD5(sad_h5_file, **sad5_kw_args)
-            chrm = sad_h5_file.split('/')[-2]
-            if chrm.startswith('chr'):
+            chrm = sad_h5_file.split("/")[-2]
+            if chrm.startswith("chr"):
                 chrm = chrm[3:]
             self.chr_sad5[chrm] = sad5
 
     def retrieve_snp(self, snp_id, chrm, pos, ld_t=0.1):
-        if chrm.startswith('chr'):
+        if chrm.startswith("chr"):
             chrm = chrm[3:]
 
         if snp_id in self.snp_indexes:
@@ -334,7 +351,7 @@ class ChrSAD5:
             ld_df = self.emerald_vcf.query_ld(snp_id, chrm, pos, ld_t=ld_t)
 
             # retrieve scores for LD snps
-            ld_snp_indexes = np.zeros(ld_df.shape[0], dtype='uint32')
+            ld_snp_indexes = np.zeros(ld_df.shape[0], dtype="uint32")
             for si, ld_snp_id in enumerate(ld_df.snp):
                 if self.index_chr:
                     _, ld_snp_i = self.snp_indexes[ld_snp_id]
@@ -344,27 +361,31 @@ class ChrSAD5:
             snps_scores = self.chr_sad5[chrm][ld_snp_indexes]
 
             # (1xN)(NxT) = (1xT)
-            ld_r1 = np.reshape(ld_df.r.values, (1,-1))
+            ld_r1 = np.reshape(ld_df.r.values, (1, -1))
             snp_ldscores = np.squeeze(np.matmul(ld_r1, snps_scores))
 
             return snp_ldscores, ld_df, snps_scores
 
         else:
-            print('WARNING: %s not found in reference panel.' % snp_id)
+            print("WARNING: %s not found in reference panel." % snp_id)
             return [], [], None
 
     def set_population(self, population):
-        self.pop_vcf_stem = '%s/popgen/1000G/phase3/%s/1000G.%s.QC' % (os.environ['HG19'], population.lower(), population.upper())
-        if glob.glob('%s*' % self.pop_vcf_stem):
+        self.pop_vcf_stem = "%s/popgen/1000G/phase3/%s/1000G.%s.QC" % (
+            os.environ["HG19"],
+            population.lower(),
+            population.upper(),
+        )
+        if glob.glob("%s*" % self.pop_vcf_stem):
             self.emerald_vcf = EmeraldVCF(self.pop_vcf_stem)
         else:
-            raise ValueError('Population %s not found' % population)
+            raise ValueError("Population %s not found" % population)
 
     def snp_chr_index(self, snp_id):
         if not self.index_chr:
-            raise RuntimeError('SNPs not indexed to retrieve chromosome')
+            raise RuntimeError("SNPs not indexed to retrieve chromosome")
         else:
-            return self.snp_indexes.get(snp_id, (None,None))
+            return self.snp_indexes.get(snp_id, (None, None))
 
     def snp_index(self, snp_id):
         if self.index_chr:

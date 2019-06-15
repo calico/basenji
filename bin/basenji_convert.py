@@ -36,54 +36,54 @@ occur again, but I'm committing the script to keep an example around of how to d
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <in_model_tf> <out_model_tf>'
-  parser = OptionParser(usage)
-  (options, args) = parser.parse_args()
+    usage = "usage: %prog [options] <params_file> <in_model_tf> <out_model_tf>"
+    parser = OptionParser(usage)
+    (options, args) = parser.parse_args()
 
-  if len(args) != 3:
-    parser.error('Must provide parameters file and input and out model stems.')
-  else:
-    params_file = args[0]
-    in_model_tf = args[1]
-    out_model_tf = args[2]
-
-  # read parameters
-  job = params.read_job_params(params_file)
-  model = seqnn.SeqNN()
-  model.build(job)
-
-  # transform variables names
-  restore_dict = {}
-  for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
-    # names have ":0" suffix that Saver dislikes.
-    v_key = v.name.split(':')[0]
-
-    if v_key == 'global_step':
-      pass
-    elif v_key.startswith('final'):
-      # conv1d to dense
-      v_key = v_key.replace('dense', 'conv1d')
-      restore_dict[v_key] = v
+    if len(args) != 3:
+        parser.error("Must provide parameters file and input and out model stems.")
     else:
-      restore_dict[v_key] = v
+        params_file = args[0]
+        in_model_tf = args[1]
+        out_model_tf = args[2]
 
-  # initialize savers (reshape is critical for conv1d -> dense)
-  saver_read = tf.train.Saver(restore_dict, reshape=True)
-  saver_write = tf.train.Saver()
+    # read parameters
+    job = params.read_job_params(params_file)
+    model = seqnn.SeqNN()
+    model.build(job)
 
-  with tf.Session() as sess:
-    # initialize variables
-    sess.run(tf.global_variables_initializer())
+    # transform variables names
+    restore_dict = {}
+    for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
+        # names have ":0" suffix that Saver dislikes.
+        v_key = v.name.split(":")[0]
 
-    # load variables into session
-    saver_read.restore(sess, in_model_tf)
+        if v_key == "global_step":
+            pass
+        elif v_key.startswith("final"):
+            # conv1d to dense
+            v_key = v_key.replace("dense", "conv1d")
+            restore_dict[v_key] = v
+        else:
+            restore_dict[v_key] = v
 
-    # re-save w/ new names
-    saver_write.save(sess, out_model_tf)
+    # initialize savers (reshape is critical for conv1d -> dense)
+    saver_read = tf.train.Saver(restore_dict, reshape=True)
+    saver_write = tf.train.Saver()
+
+    with tf.Session() as sess:
+        # initialize variables
+        sess.run(tf.global_variables_initializer())
+
+        # load variables into session
+        saver_read.restore(sess, in_model_tf)
+
+        # re-save w/ new names
+        saver_write.save(sess, out_model_tf)
 
 
 ################################################################################
 # __main__
 ################################################################################
-if __name__ == '__main__':
-  main()
+if __name__ == "__main__":
+    main()

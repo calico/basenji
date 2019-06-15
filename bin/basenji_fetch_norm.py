@@ -13,25 +13,29 @@ import h5py
 
 from basenji.sad5 import ChrSAD5
 
-'''
+"""
 basenji_fetch_norm.py
 
 Fit Cauchy distribution parameters across chromosomes.
-'''
+"""
 
 ################################################################################
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <sad_h5_path> <vcf_file>'
+    usage = "usage: %prog [options] <sad_h5_path> <vcf_file>"
     parser = OptionParser(usage)
-    parser.add_option('-s', dest='sample',
-            default=131072, type='int',
-            help='Sampled SNPs to fit distribution [Default: %default]')
-    (options,args) = parser.parse_args()
+    parser.add_option(
+        "-s",
+        dest="sample",
+        default=131072,
+        type="int",
+        help="Sampled SNPs to fit distribution [Default: %default]",
+    )
+    (options, args) = parser.parse_args()
 
     if len(args) != 1:
-        parser.error('Must provide SAD HDF5 path.')
+        parser.error("Must provide SAD HDF5 path.")
     else:
         sad_h5_path = args[0]
 
@@ -44,8 +48,9 @@ def main():
     # normalize
     csad5.norm_cauchy()
 
+
 ################################################################################
 # __main__
 ################################################################################
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

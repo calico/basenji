@@ -91,8 +91,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute train representation
     self.preds_train = self.build_predict(data_ops_train['sequence'],
-                                          None, embed_penultimate, target_subset,
-                                          save_reprs=True)
+                                          None, embed_penultimate, None,
+                                          target_subset, save_reprs=True)
     self.target_length = self.preds_train.shape[1].value
 
     # training losses
@@ -121,7 +121,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
-    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
+    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, None, target_subset)
     self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
@@ -142,7 +142,8 @@ class SeqNN(seqnn_util.SeqNNModel):
 
   def build_sad(self, job, data_ops,
                 ensemble_rc=False, ensemble_shifts=[0],
-                embed_penultimate=False, target_subset=None):
+                embed_penultimate=False, embed_layer=None,
+                target_subset=None):
     """Build SAD predict ops."""
     if not self.hparams_set:
       self.hp = params.make_hparams(job)
@@ -159,7 +160,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # compute eval representation
     map_elems_eval = (data_seq_eval, data_rev_eval)
-    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, target_subset)
+    build_rep = lambda do: self.build_predict(do[0], do[1], embed_penultimate, embed_layer, target_subset)
     self.preds_ensemble = tf.map_fn(build_rep, map_elems_eval, dtype=tf.float32, back_prop=False)
     self.preds_eval = tf.reduce_mean(self.preds_ensemble, axis=0)
 
@@ -169,6 +170,7 @@ class SeqNN(seqnn_util.SeqNNModel):
 
     # helper variables
     self.preds_length = self.preds_eval.shape[1].value
+    self.preds_depth = self.preds_eval.shape[-1].value
 
   def make_placeholders(self):
     """Allocates placeholders to be used in place of input data ops."""
@@ -220,7 +222,7 @@ class SeqNN(seqnn_util.SeqNNModel):
         'name': 'conv-%d' % layer_index
     }
 
-  def build_predict(self, inputs, reverse_preds=None, embed_penultimate=False, target_subset=None, save_reprs=False):
+  def build_predict(self, inputs, reverse_preds=None, embed_penultimate=False, embed_layer=None, target_subset=None, save_reprs=False):
     """Construct per-location real-valued predictions."""
     assert inputs is not None
     print('Targets pooled by %d to length %d' %
@@ -335,8 +337,15 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     # link function
     ###################################################
-    if embed_penultimate:
+    if embed_layer is not None:
+      predictions = layer_reprs[embed_layer]
+      predictions = tf.cond(reverse_preds,
+                            lambda: tf.reverse(predictions, axis=[1]),
+                            lambda: predictions)
+
+    elif embed_penultimate:
       predictions = final_repr
+
     else:
       # work-around for specifying my own predictions
       # self.preds_adhoc = tf.placeholder(

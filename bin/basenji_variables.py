@@ -36,28 +36,28 @@ Print a model's variables, typically for debugging purposes.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file>'
-  parser = OptionParser(usage)
-  (options, args) = parser.parse_args()
+    usage = "usage: %prog [options] <params_file>"
+    parser = OptionParser(usage)
+    (options, args) = parser.parse_args()
 
-  if len(args) != 1:
-    parser.error('Must provide parameters file.')
-  else:
-    params_file = args[0]
+    if len(args) != 1:
+        parser.error("Must provide parameters file.")
+    else:
+        params_file = args[0]
 
-  #######################################################
-  # model parameters and placeholders
+    #######################################################
+    # model parameters and placeholders
 
-  job = params.read_job_params(params_file)
-  model = seqnn.SeqNN()
-  model.build(job)
+    job = params.read_job_params(params_file)
+    model = seqnn.SeqNN()
+    model.build(job)
 
-  for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
-    print(v.name, v.shape)
+    for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
+        print(v.name, v.shape)
 
 
 ################################################################################
 # __main__
 ################################################################################
-if __name__ == '__main__':
-  main()
+if __name__ == "__main__":
+    main()

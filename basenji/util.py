@@ -29,11 +29,11 @@ def exec_par(cmds, max_proc=None, verbose=False):
     else:
         while finished + running < total:
             # launch jobs up to max
-            while running < max_proc and finished+running < total:
+            while running < max_proc and finished + running < total:
                 if verbose:
-                    print(cmds[finished+running], file=sys.stderr)
-                p.append(subprocess.Popen(cmds[finished+running], shell=True))
-                #print 'Running %d' % p[running].pid
+                    print(cmds[finished + running], file=sys.stderr)
+                p.append(subprocess.Popen(cmds[finished + running], shell=True))
+                # print 'Running %d' % p[running].pid
                 running += 1
 
             # are any jobs finished

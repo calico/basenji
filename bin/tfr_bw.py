@@ -10,39 +10,52 @@ import tensorflow as tf
 from basenji.dna_io import hot1_dna
 from basenji.tfrecord_batcher import order_tfrecords
 
-'''
+"""
 tfr_bw.py
 
 Generate BigWig tracks from TFRecords.
 Experimental!
-'''
+"""
 
 ################################################################################
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] <tfr_dir> <out_bw>'
+    usage = "usage: %prog [options] <tfr_dir> <out_bw>"
     parser = OptionParser(usage)
-    parser.add_option('-f', dest='fasta_file',
-            default='%s/assembly/ucsc/hg38.fa' % os.environ['HG38'])
-    parser.add_option('-g', dest='genome_file',
-            default='%s/assembly/ucsc/hg38.human.genome' % os.environ['HG38'])
-    parser.add_option('-l', dest='target_length',
-            default=1024, type='int',
-            help='TFRecord target length [Default: %default]')
-    parser.add_option('-s', dest='data_split', default='train')
-    parser.add_option('-t', dest='target_i',
-            default=0, type='int', help='Target index [Default: %default]')
-    (options,args) = parser.parse_args()
+    parser.add_option(
+        "-f", dest="fasta_file", default="%s/assembly/ucsc/hg38.fa" % os.environ["HG38"]
+    )
+    parser.add_option(
+        "-g",
+        dest="genome_file",
+        default="%s/assembly/ucsc/hg38.human.genome" % os.environ["HG38"],
+    )
+    parser.add_option(
+        "-l",
+        dest="target_length",
+        default=1024,
+        type="int",
+        help="TFRecord target length [Default: %default]",
+    )
+    parser.add_option("-s", dest="data_split", default="train")
+    parser.add_option(
+        "-t",
+        dest="target_i",
+        default=0,
+        type="int",
+        help="Target index [Default: %default]",
+    )
+    (options, args) = parser.parse_args()
 
     if len(args) != 2:
-        parser.error('Must provide TF Records directory and output BigWig')
+        parser.error("Must provide TF Records directory and output BigWig")
     else:
         tfr_dir = args[0]
         out_bw_file = args[1]
 
     # initialize output BigWig
-    out_bw_open = pyBigWig.open(out_bw_file, 'w')
+    out_bw_open = pyBigWig.open(out_bw_file, "w")
 
     # construct header
     header = []
@@ -56,54 +69,58 @@ def main():
     # initialize chr dictionary
     chr_values = {}
     for chrm, clen in header:
-        chr_values[chrm] = np.zeros(clen, dtype='float16')
+        chr_values[chrm] = np.zeros(clen, dtype="float16")
 
     # open sequences BED
-    seq_bed_open = open('%s/../sequences0.bed' % tfr_dir)
+    seq_bed_open = open("%s/../sequences0.bed" % tfr_dir)
 
     # open FASTA
     fasta_open = pysam.Fastafile(options.fasta_file)
 
     # initialize one shot iterator
     # next_op = make_next_op('%s/%s-0-0.tfr' % (tfr_dir, options.data_split))
-    next_op = make_next_op('%s/%s-0-*.tfr' % (tfr_dir, options.data_split))
+    next_op = make_next_op("%s/%s-0-*.tfr" % (tfr_dir, options.data_split))
 
     # read sequence values
     with tf.Session() as sess:
-      next_datum = sess.run(next_op)
-      while next_datum:
-        # read sequence
-        seq_bed_line = seq_bed_open.readline()
-        a = seq_bed_line.rstrip().split('\t')
-        while a[-1] != options.data_split:
+        next_datum = sess.run(next_op)
+        while next_datum:
+            # read sequence
             seq_bed_line = seq_bed_open.readline()
-            a = seq_bed_line.rstrip().split('\t')
-        chrm = a[0]
-        start = int(a[1])
-        end = int(a[2])
-        target_pool = (end - start) // options.target_length
+            a = seq_bed_line.rstrip().split("\t")
+            while a[-1] != options.data_split:
+                seq_bed_line = seq_bed_open.readline()
+                a = seq_bed_line.rstrip().split("\t")
+            chrm = a[0]
+            start = int(a[1])
+            end = int(a[2])
+            target_pool = (end - start) // options.target_length
 
-        # check sequence
-        seq_1hot = next_datum['sequence'].reshape((-1,4))
-        seq_1hot_dna = hot1_dna(seq_1hot)
-        seq_fasta = fasta_open.fetch(chrm, start, end).upper()
-        if seq_1hot_dna != seq_fasta:
-            seq_diff = [seq_1hot_dna[i] != seq_fasta[i] for i in range(len(seq_fasta))]
-            seq_diff = np.array(seq_match, dtype='bool')
-            print('WARNING: %s:%d-%d differs by %d nts (%.4f)' % \
-                    (chrm, start, end, seq_match.sum(), seq_match.mean()))
+            # check sequence
+            seq_1hot = next_datum["sequence"].reshape((-1, 4))
+            seq_1hot_dna = hot1_dna(seq_1hot)
+            seq_fasta = fasta_open.fetch(chrm, start, end).upper()
+            if seq_1hot_dna != seq_fasta:
+                seq_diff = [
+                    seq_1hot_dna[i] != seq_fasta[i] for i in range(len(seq_fasta))
+                ]
+                seq_diff = np.array(seq_match, dtype="bool")
+                print(
+                    "WARNING: %s:%d-%d differs by %d nts (%.4f)"
+                    % (chrm, start, end, seq_match.sum(), seq_match.mean())
+                )
 
-        # read targets
-        targets = next_datum['target'].reshape(options.target_length, -1)
-        targets_ti = targets[:,options.target_i]
+            # read targets
+            targets = next_datum["target"].reshape(options.target_length, -1)
+            targets_ti = targets[:, options.target_i]
 
-        # set values
-        chr_values[chrm][start:end] = np.repeat(targets_ti, target_pool)
+            # set values
+            chr_values[chrm][start:end] = np.repeat(targets_ti, target_pool)
 
-        try:
-          next_datum = sess.run(next_op)
-        except tf.errors.OutOfRangeError:
-          next_datum = False
+            try:
+                next_datum = sess.run(next_op)
+            except tf.errors.OutOfRangeError:
+                next_datum = False
 
     fasta_open.close()
 
@@ -123,11 +140,12 @@ def make_next_op(tfr_pattern):
     if tfr_files:
         dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
     else:
-        print('Cannot order TFRecords %s' % tfr_pattern, file=sys.stderr)
+        print("Cannot order TFRecords %s" % tfr_pattern, file=sys.stderr)
         dataset = tf.data.Dataset.list_files(tfr_pattern)
 
     def file_to_records(filename):
-        return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
+        return tf.data.TFRecordDataset(filename, compression_type="ZLIB")
+
     dataset = dataset.flat_map(file_to_records)
 
     dataset = dataset.batch(1)
@@ -137,7 +155,7 @@ def make_next_op(tfr_pattern):
     try:
         next_op = iterator.get_next()
     except tf.errors.OutOfRangeError:
-        print('TFRecord pattern %s is empty' % self.tfr_pattern, file=sys.stderr)
+        print("TFRecord pattern %s is empty" % self.tfr_pattern, file=sys.stderr)
         exit(1)
 
     return next_op
@@ -145,18 +163,19 @@ def make_next_op(tfr_pattern):
 
 def parse_proto(example_protos):
     features = {
-        'genome': tf.FixedLenFeature([1], tf.int64),
-        'sequence': tf.FixedLenFeature([], tf.string),
-        'target': tf.FixedLenFeature([], tf.string)
+        "genome": tf.FixedLenFeature([1], tf.int64),
+        "sequence": tf.FixedLenFeature([], tf.string),
+        "target": tf.FixedLenFeature([], tf.string),
     }
     parsed_features = tf.parse_example(example_protos, features=features)
-    genome = parsed_features['genome']
-    seq = tf.decode_raw(parsed_features['sequence'], tf.uint8)
-    targets = tf.decode_raw(parsed_features['target'], tf.float16)
-    return {'genome': genome, 'sequence': seq, 'target': targets}
+    genome = parsed_features["genome"]
+    seq = tf.decode_raw(parsed_features["sequence"], tf.uint8)
+    targets = tf.decode_raw(parsed_features["target"], tf.float16)
+    return {"genome": genome, "sequence": seq, "target": targets}
+
 
 ################################################################################
 # __main__
 ################################################################################
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

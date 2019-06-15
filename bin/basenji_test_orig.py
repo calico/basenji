@@ -24,14 +24,20 @@ import time
 import h5py
 import joblib
 import matplotlib
-matplotlib.use('PDF')
+
+matplotlib.use("PDF")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pyBigWig
 from scipy.stats import spearmanr, poisson
 import seaborn as sns
-from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve, average_precision_score
+from sklearn.metrics import (
+    roc_auc_score,
+    roc_curve,
+    precision_recall_curve,
+    average_precision_score,
+)
 import tensorflow as tf
 
 from basenji import batcher
@@ -55,529 +61,563 @@ Notes
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <model_file> <test_hdf5_file>'
-  parser = OptionParser(usage)
-  parser.add_option(
-      '--ai',
-      dest='accuracy_indexes',
-      help=
-      'Comma-separated list of target indexes to make accuracy plots comparing true versus predicted values'
-  )
-  parser.add_option(
-      '--clip',
-      dest='target_clip',
-      default=None,
-      type='float',
-      help='Clip targets and predictions to a maximum value [Default: %default]'
-  )
-  parser.add_option(
-      '-d',
-      dest='down_sample',
-      default=1,
-      type='int',
-      help=
-      'Down sample test computation by taking uniformly spaced positions [Default: %default]'
-  )
-  parser.add_option(
-      '-g',
-      dest='genome_file',
-      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
-      help='Chromosome length information [Default: %default]')
-  parser.add_option(
-      '--mc',
-      dest='mc_n',
-      default=0,
-      type='int',
-      help='Monte carlo test iterations [Default: %default]')
-  parser.add_option(
-      '--peak','--peaks',
-      dest='peaks',
-      default=False,
-      action='store_true',
-      help='Compute expensive peak accuracy [Default: %default]')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
-      default='test_out',
-      help='Output directory for test statistics [Default: %default]')
-  parser.add_option(
-      '--rc',
-      dest='rc',
-      default=False,
-      action='store_true',
-      help=
-      'Average the fwd and rc predictions [Default: %default]')
-  parser.add_option(
-      '-s',
-      dest='scent_file',
-      help='Dimension reduction model file')
-  parser.add_option(
-      '--sample',
-      dest='sample_pct',
-      default=1,
-      type='float',
-      help='Sample percentage')
-  parser.add_option(
-      '--save',
-      dest='save',
-      default=False,
-      action='store_true')
-  parser.add_option(
-      '--shifts',
-      dest='shifts',
-      default='0',
-      help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option(
-      '-t',
-      dest='track_bed',
-      help='BED file describing regions so we can output BigWig tracks')
-  parser.add_option(
-      '--ti',
-      dest='track_indexes',
-      help='Comma-separated list of target indexes to output BigWig tracks')
-  parser.add_option(
-      '--train',
-      dest='train',
-      default=False,
-      action='store_true',
-      help='Process the training set [Default: %default]')
-  parser.add_option(
-      '-v',
-      dest='valid',
-      default=False,
-      action='store_true',
-      help='Process the validation set [Default: %default]')
-  parser.add_option(
-      '-w',
-      dest='pool_width',
-      default=1,
-      type='int',
-      help=
-      'Max pool width for regressing nt predictions to predict peak calls [Default: %default]'
-  )
-  (options, args) = parser.parse_args()
+    usage = "usage: %prog [options] <params_file> <model_file> <test_hdf5_file>"
+    parser = OptionParser(usage)
+    parser.add_option(
+        "--ai",
+        dest="accuracy_indexes",
+        help="Comma-separated list of target indexes to make accuracy plots comparing true versus predicted values",
+    )
+    parser.add_option(
+        "--clip",
+        dest="target_clip",
+        default=None,
+        type="float",
+        help="Clip targets and predictions to a maximum value [Default: %default]",
+    )
+    parser.add_option(
+        "-d",
+        dest="down_sample",
+        default=1,
+        type="int",
+        help="Down sample test computation by taking uniformly spaced positions [Default: %default]",
+    )
+    parser.add_option(
+        "-g",
+        dest="genome_file",
+        default="%s/data/human.hg19.genome" % os.environ["BASENJIDIR"],
+        help="Chromosome length information [Default: %default]",
+    )
+    parser.add_option(
+        "--mc",
+        dest="mc_n",
+        default=0,
+        type="int",
+        help="Monte carlo test iterations [Default: %default]",
+    )
+    parser.add_option(
+        "--peak",
+        "--peaks",
+        dest="peaks",
+        default=False,
+        action="store_true",
+        help="Compute expensive peak accuracy [Default: %default]",
+    )
+    parser.add_option(
+        "-o",
+        dest="out_dir",
+        default="test_out",
+        help="Output directory for test statistics [Default: %default]",
+    )
+    parser.add_option(
+        "--rc",
+        dest="rc",
+        default=False,
+        action="store_true",
+        help="Average the fwd and rc predictions [Default: %default]",
+    )
+    parser.add_option("-s", dest="scent_file", help="Dimension reduction model file")
+    parser.add_option(
+        "--sample", dest="sample_pct", default=1, type="float", help="Sample percentage"
+    )
+    parser.add_option("--save", dest="save", default=False, action="store_true")
+    parser.add_option(
+        "--shifts",
+        dest="shifts",
+        default="0",
+        help="Ensemble prediction shifts [Default: %default]",
+    )
+    parser.add_option(
+        "-t",
+        dest="track_bed",
+        help="BED file describing regions so we can output BigWig tracks",
+    )
+    parser.add_option(
+        "--ti",
+        dest="track_indexes",
+        help="Comma-separated list of target indexes to output BigWig tracks",
+    )
+    parser.add_option(
+        "--train",
+        dest="train",
+        default=False,
+        action="store_true",
+        help="Process the training set [Default: %default]",
+    )
+    parser.add_option(
+        "-v",
+        dest="valid",
+        default=False,
+        action="store_true",
+        help="Process the validation set [Default: %default]",
+    )
+    parser.add_option(
+        "-w",
+        dest="pool_width",
+        default=1,
+        type="int",
+        help="Max pool width for regressing nt predictions to predict peak calls [Default: %default]",
+    )
+    (options, args) = parser.parse_args()
 
-  if len(args) != 3:
-    parser.error('Must provide parameters, model, and test data HDF5')
-  else:
-    params_file = args[0]
-    model_file = args[1]
-    test_hdf5_file = args[2]
+    if len(args) != 3:
+        parser.error("Must provide parameters, model, and test data HDF5")
+    else:
+        params_file = args[0]
+        model_file = args[1]
+        test_hdf5_file = args[2]
 
-  if not os.path.isdir(options.out_dir):
-    os.mkdir(options.out_dir)
+    if not os.path.isdir(options.out_dir):
+        os.mkdir(options.out_dir)
 
-  options.shifts = [int(shift) for shift in options.shifts.split(',')]
+    options.shifts = [int(shift) for shift in options.shifts.split(",")]
 
-  #######################################################
-  # load data
-  #######################################################
-  data_open = h5py.File(test_hdf5_file)
+    #######################################################
+    # load data
+    #######################################################
+    data_open = h5py.File(test_hdf5_file)
 
-  if options.train:
-    test_seqs = data_open['train_in']
-    test_targets = data_open['train_out']
-    if 'train_na' in data_open:
-      test_na = data_open['train_na']
+    if options.train:
+        test_seqs = data_open["train_in"]
+        test_targets = data_open["train_out"]
+        if "train_na" in data_open:
+            test_na = data_open["train_na"]
 
-  elif options.valid:
-    test_seqs = data_open['valid_in']
-    test_targets = data_open['valid_out']
-    test_na = None
-    if 'valid_na' in data_open:
-      test_na = data_open['valid_na']
+    elif options.valid:
+        test_seqs = data_open["valid_in"]
+        test_targets = data_open["valid_out"]
+        test_na = None
+        if "valid_na" in data_open:
+            test_na = data_open["valid_na"]
 
-  else:
-    test_seqs = data_open['test_in']
-    test_targets = data_open['test_out']
-    test_na = None
-    if 'test_na' in data_open:
-      test_na = data_open['test_na']
+    else:
+        test_seqs = data_open["test_in"]
+        test_targets = data_open["test_out"]
+        test_na = None
+        if "test_na" in data_open:
+            test_na = data_open["test_na"]
 
-  if options.sample_pct < 1:
-    sample_n = int(test_seqs.shape[0]*options.sample_pct)
-    print('Sampling %d sequences' % sample_n)
-    sample_indexes = sorted(np.random.choice(np.arange(test_seqs.shape[0]),
-                                             size=sample_n, replace=False))
-    test_seqs = test_seqs[sample_indexes]
-    test_targets = test_targets[sample_indexes]
-    if test_na is not None:
-      test_na = test_na[sample_indexes]
+    if options.sample_pct < 1:
+        sample_n = int(test_seqs.shape[0] * options.sample_pct)
+        print("Sampling %d sequences" % sample_n)
+        sample_indexes = sorted(
+            np.random.choice(
+                np.arange(test_seqs.shape[0]), size=sample_n, replace=False
+            )
+        )
+        test_seqs = test_seqs[sample_indexes]
+        test_targets = test_targets[sample_indexes]
+        if test_na is not None:
+            test_na = test_na[sample_indexes]
 
-  target_labels = [tl.decode('UTF-8') for tl in data_open['target_labels']]
+    target_labels = [tl.decode("UTF-8") for tl in data_open["target_labels"]]
 
-  #######################################################
-  # model parameters and placeholders
+    #######################################################
+    # model parameters and placeholders
 
-  job = params.read_job_params(params_file)
-  job['seq_length'] = test_seqs.shape[1]
-  job['seq_depth'] = test_seqs.shape[2]
-  job['num_targets'] = test_targets.shape[2]
-  job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
+    job = params.read_job_params(params_file)
+    job["seq_length"] = test_seqs.shape[1]
+    job["seq_depth"] = test_seqs.shape[2]
+    job["num_targets"] = test_targets.shape[2]
+    job["target_pool"] = int(np.array(data_open.get("pool_width", 1)))
 
-  t0 = time.time()
-  dr = seqnn.SeqNN()
-  dr.build_feed(job)
-  print('Model building time %ds' % (time.time() - t0))
-
-  # adjust for fourier
-  job['fourier'] = 'train_out_imag' in data_open
-  if job['fourier']:
-    test_targets_imag = data_open['test_out_imag']
-    if options.valid:
-      test_targets_imag = data_open['valid_out_imag']
-
-  # adjust for factors
-  if options.scent_file is not None:
     t0 = time.time()
-    test_targets_full = data_open['test_out_full']
-    model = joblib.load(options.scent_file)
+    dr = seqnn.SeqNN()
+    dr.build_feed(job)
+    print("Model building time %ds" % (time.time() - t0))
 
-  #######################################################
-  # test
+    # adjust for fourier
+    job["fourier"] = "train_out_imag" in data_open
+    if job["fourier"]:
+        test_targets_imag = data_open["test_out_imag"]
+        if options.valid:
+            test_targets_imag = data_open["valid_out_imag"]
 
-  # initialize batcher
-  if job['fourier']:
-    batcher_test = batcher.BatcherF(test_seqs, test_targets,
-                                    test_targets_imag, test_na,
-                                    dr.hp.batch_size, dr.hp.target_pool)
-  else:
-    batcher_test = batcher.Batcher(test_seqs, test_targets, test_na,
-                                   dr.hp.batch_size, dr.hp.target_pool)
-
-  # initialize saver
-  saver = tf.train.Saver()
-
-  with tf.Session() as sess:
-    # load variables into session
-    saver.restore(sess, model_file)
-
-    # test
-    t0 = time.time()
-    test_acc = dr.test_h5_manual(sess, batcher_test, rc=options.rc,
-                                 shifts=options.shifts, mc_n=options.mc_n)
-
-    if options.save:
-      np.save('%s/preds.npy' % options.out_dir, test_acc.preds)
-      np.save('%s/targets.npy' % options.out_dir, test_acc.targets)
-
-    test_preds = test_acc.preds
-    print('SeqNN test: %ds' % (time.time() - t0))
-
-    # compute stats
-    t0 = time.time()
-    test_r2 = test_acc.r2(clip=options.target_clip)
-    # test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
-    test_pcor = test_acc.pearsonr(clip=options.target_clip)
-    test_log_pcor = test_acc.pearsonr(log=True, clip=options.target_clip)
-    #test_scor = test_acc.spearmanr()  # too slow; mostly driven by low values
-    print('Compute stats: %ds' % (time.time()-t0))
-
-    # print
-    print('Test Loss:         %7.5f' % test_acc.loss)
-    print('Test R2:           %7.5f' % test_r2.mean())
-    # print('Test log R2:       %7.5f' % test_log_r2.mean())
-    print('Test PearsonR:     %7.5f' % test_pcor.mean())
-    print('Test log PearsonR: %7.5f' % test_log_pcor.mean())
-    # print('Test SpearmanR:    %7.5f' % test_scor.mean())
-
-    acc_out = open('%s/acc.txt' % options.out_dir, 'w')
-    for ti in range(len(test_r2)):
-      print(
-        '%4d  %7.5f  %.5f  %.5f  %.5f  %s' %
-        (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti],
-          test_log_pcor[ti], target_labels[ti]), file=acc_out)
-    acc_out.close()
-
-    # print normalization factors
-    target_means = test_preds.mean(axis=(0,1), dtype='float64')
-    target_means_median = np.median(target_means)
-    target_means /= target_means_median
-    norm_out = open('%s/normalization.txt' % options.out_dir, 'w')
-    print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
-    norm_out.close()
-
-    # clean up
-    del test_acc
-
-    # if test targets are reconstructed, measure versus the truth
+    # adjust for factors
     if options.scent_file is not None:
-      compute_full_accuracy(dr, model, test_preds, test_targets_full,
-                            options.out_dir, options.down_sample)
+        t0 = time.time()
+        test_targets_full = data_open["test_out_full"]
+        model = joblib.load(options.scent_file)
 
-  #######################################################
-  # peak call accuracy
+    #######################################################
+    # test
 
-  if options.peaks:
-    # sample every few bins to decrease correlations
-    ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
-    ds_indexes_targets = ds_indexes_preds + (dr.hp.batch_buffer // dr.hp.target_pool)
+    # initialize batcher
+    if job["fourier"]:
+        batcher_test = batcher.BatcherF(
+            test_seqs,
+            test_targets,
+            test_targets_imag,
+            test_na,
+            dr.hp.batch_size,
+            dr.hp.target_pool,
+        )
+    else:
+        batcher_test = batcher.Batcher(
+            test_seqs, test_targets, test_na, dr.hp.batch_size, dr.hp.target_pool
+        )
 
-    aurocs = []
-    auprcs = []
+    # initialize saver
+    saver = tf.train.Saver()
 
-    peaks_out = open('%s/peaks.txt' % options.out_dir, 'w')
-    for ti in range(test_targets.shape[2]):
-      if options.scent_file is not None:
-        test_targets_ti = test_targets_full[:, :, ti]
-      else:
-        test_targets_ti = test_targets[:, :, ti]
+    with tf.Session() as sess:
+        # load variables into session
+        saver.restore(sess, model_file)
 
-      # subset and flatten
-      test_targets_ti_flat = test_targets_ti[:, ds_indexes_targets].flatten(
-      ).astype('float32')
-      test_preds_ti_flat = test_preds[:, ds_indexes_preds, ti].flatten().astype(
-          'float32')
+        # test
+        t0 = time.time()
+        test_acc = dr.test_h5_manual(
+            sess, batcher_test, rc=options.rc, shifts=options.shifts, mc_n=options.mc_n
+        )
 
-      # call peaks
-      test_targets_ti_lambda = np.mean(test_targets_ti_flat)
-      test_targets_pvals = 1 - poisson.cdf(
-          np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda)
-      test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
-      test_targets_peaks = test_targets_qvals < 0.01
+        if options.save:
+            np.save("%s/preds.npy" % options.out_dir, test_acc.preds)
+            np.save("%s/targets.npy" % options.out_dir, test_acc.targets)
 
-      if test_targets_peaks.sum() == 0:
-        aurocs.append(0.5)
-        auprcs.append(0)
+        test_preds = test_acc.preds
+        print("SeqNN test: %ds" % (time.time() - t0))
 
-      else:
-        # compute prediction accuracy
-        aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
-        auprcs.append(
-            average_precision_score(test_targets_peaks, test_preds_ti_flat))
+        # compute stats
+        t0 = time.time()
+        test_r2 = test_acc.r2(clip=options.target_clip)
+        # test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
+        test_pcor = test_acc.pearsonr(clip=options.target_clip)
+        test_log_pcor = test_acc.pearsonr(log=True, clip=options.target_clip)
+        # test_scor = test_acc.spearmanr()  # too slow; mostly driven by low values
+        print("Compute stats: %ds" % (time.time() - t0))
 
-      print('%4d  %6d  %.5f  %.5f' % (ti, test_targets_peaks.sum(),
-                                      aurocs[-1], auprcs[-1]),
-                                      file=peaks_out)
+        # print
+        print("Test Loss:         %7.5f" % test_acc.loss)
+        print("Test R2:           %7.5f" % test_r2.mean())
+        # print('Test log R2:       %7.5f' % test_log_r2.mean())
+        print("Test PearsonR:     %7.5f" % test_pcor.mean())
+        print("Test log PearsonR: %7.5f" % test_log_pcor.mean())
+        # print('Test SpearmanR:    %7.5f' % test_scor.mean())
 
-    peaks_out.close()
+        acc_out = open("%s/acc.txt" % options.out_dir, "w")
+        for ti in range(len(test_r2)):
+            print(
+                "%4d  %7.5f  %.5f  %.5f  %.5f  %s"
+                % (
+                    ti,
+                    test_acc.target_losses[ti],
+                    test_r2[ti],
+                    test_pcor[ti],
+                    test_log_pcor[ti],
+                    target_labels[ti],
+                ),
+                file=acc_out,
+            )
+        acc_out.close()
 
-    print('Test AUROC:     %7.5f' % np.mean(aurocs))
-    print('Test AUPRC:     %7.5f' % np.mean(auprcs))
+        # print normalization factors
+        target_means = test_preds.mean(axis=(0, 1), dtype="float64")
+        target_means_median = np.median(target_means)
+        target_means /= target_means_median
+        norm_out = open("%s/normalization.txt" % options.out_dir, "w")
+        print("\n".join([str(tu) for tu in target_means]), file=norm_out)
+        norm_out.close()
 
-  #######################################################
-  # BigWig tracks
+        # clean up
+        del test_acc
 
-  # NOTE: THESE ASSUME THERE WAS NO DOWN-SAMPLING ABOVE
+        # if test targets are reconstructed, measure versus the truth
+        if options.scent_file is not None:
+            compute_full_accuracy(
+                dr,
+                model,
+                test_preds,
+                test_targets_full,
+                options.out_dir,
+                options.down_sample,
+            )
 
-  # print bigwig tracks for visualization
-  if options.track_bed:
-    if options.genome_file is None:
-      parser.error('Must provide genome file in order to print valid BigWigs')
+    #######################################################
+    # peak call accuracy
 
-    if not os.path.isdir('%s/tracks' % options.out_dir):
-      os.mkdir('%s/tracks' % options.out_dir)
+    if options.peaks:
+        # sample every few bins to decrease correlations
+        ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
+        ds_indexes_targets = ds_indexes_preds + (
+            dr.hp.batch_buffer // dr.hp.target_pool
+        )
 
-    track_indexes = range(test_preds.shape[2])
-    if options.track_indexes:
-      track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
+        aurocs = []
+        auprcs = []
 
-    bed_set = 'test'
-    if options.valid:
-      bed_set = 'valid'
+        peaks_out = open("%s/peaks.txt" % options.out_dir, "w")
+        for ti in range(test_targets.shape[2]):
+            if options.scent_file is not None:
+                test_targets_ti = test_targets_full[:, :, ti]
+            else:
+                test_targets_ti = test_targets[:, :, ti]
 
-    for ti in track_indexes:
-      if options.scent_file is not None:
-        test_targets_ti = test_targets_full[:, :, ti]
-      else:
-        test_targets_ti = test_targets[:, :, ti]
+            # subset and flatten
+            test_targets_ti_flat = (
+                test_targets_ti[:, ds_indexes_targets].flatten().astype("float32")
+            )
+            test_preds_ti_flat = (
+                test_preds[:, ds_indexes_preds, ti].flatten().astype("float32")
+            )
 
-      # make true targets bigwig
-      bw_file = '%s/tracks/t%d_true.bw' % (options.out_dir, ti)
-      bigwig_write(
-          bw_file,
-          test_targets_ti,
-          options.track_bed,
-          options.genome_file,
-          bed_set=bed_set)
+            # call peaks
+            test_targets_ti_lambda = np.mean(test_targets_ti_flat)
+            test_targets_pvals = 1 - poisson.cdf(
+                np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda
+            )
+            test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
+            test_targets_peaks = test_targets_qvals < 0.01
 
-      # make predictions bigwig
-      bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)
-      bigwig_write(
-          bw_file,
-          test_preds[:, :, ti],
-          options.track_bed,
-          options.genome_file,
-          dr.hp.batch_buffer,
-          bed_set=bed_set)
+            if test_targets_peaks.sum() == 0:
+                aurocs.append(0.5)
+                auprcs.append(0)
 
-    # make NA bigwig
-    # bw_file = '%s/tracks/na.bw' % options.out_dir
-    # bigwig_write(
-    #     bw_file,
-    #     test_na,
-    #     options.track_bed,
-    #     options.genome_file,
-    #     bed_set=bed_set)
+            else:
+                # compute prediction accuracy
+                aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
+                auprcs.append(
+                    average_precision_score(test_targets_peaks, test_preds_ti_flat)
+                )
 
-  #######################################################
-  # accuracy plots
+            print(
+                "%4d  %6d  %.5f  %.5f"
+                % (ti, test_targets_peaks.sum(), aurocs[-1], auprcs[-1]),
+                file=peaks_out,
+            )
 
-  if options.accuracy_indexes is not None:
-    accuracy_indexes = [int(ti) for ti in options.accuracy_indexes.split(',')]
+        peaks_out.close()
 
-    if not os.path.isdir('%s/scatter' % options.out_dir):
-      os.mkdir('%s/scatter' % options.out_dir)
+        print("Test AUROC:     %7.5f" % np.mean(aurocs))
+        print("Test AUPRC:     %7.5f" % np.mean(auprcs))
 
-    if not os.path.isdir('%s/violin' % options.out_dir):
-      os.mkdir('%s/violin' % options.out_dir)
+    #######################################################
+    # BigWig tracks
 
-    if not os.path.isdir('%s/roc' % options.out_dir):
-      os.mkdir('%s/roc' % options.out_dir)
+    # NOTE: THESE ASSUME THERE WAS NO DOWN-SAMPLING ABOVE
 
-    if not os.path.isdir('%s/pr' % options.out_dir):
-      os.mkdir('%s/pr' % options.out_dir)
+    # print bigwig tracks for visualization
+    if options.track_bed:
+        if options.genome_file is None:
+            parser.error("Must provide genome file in order to print valid BigWigs")
 
-    for ti in accuracy_indexes:
-      if options.scent_file is not None:
-        test_targets_ti = test_targets_full[:, :, ti]
-      else:
-        test_targets_ti = test_targets[:, :, ti]
+        if not os.path.isdir("%s/tracks" % options.out_dir):
+            os.mkdir("%s/tracks" % options.out_dir)
 
-      ############################################
-      # scatter
+        track_indexes = range(test_preds.shape[2])
+        if options.track_indexes:
+            track_indexes = [int(ti) for ti in options.track_indexes.split(",")]
 
-      # sample every few bins (adjust to plot the # points I want)
-      ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
-      ds_indexes_targets = ds_indexes_preds + (
-          dr.hp.batch_buffer // dr.hp.target_pool)
+        bed_set = "test"
+        if options.valid:
+            bed_set = "valid"
 
-      # subset and flatten
-      test_targets_ti_flat = test_targets_ti[:, ds_indexes_targets].flatten(
-      ).astype('float32')
-      test_preds_ti_flat = test_preds[:, ds_indexes_preds, ti].flatten().astype(
-          'float32')
+        for ti in track_indexes:
+            if options.scent_file is not None:
+                test_targets_ti = test_targets_full[:, :, ti]
+            else:
+                test_targets_ti = test_targets[:, :, ti]
 
-      # take log2
-      test_targets_ti_log = np.log2(test_targets_ti_flat + 1)
-      test_preds_ti_log = np.log2(test_preds_ti_flat + 1)
+            # make true targets bigwig
+            bw_file = "%s/tracks/t%d_true.bw" % (options.out_dir, ti)
+            bigwig_write(
+                bw_file,
+                test_targets_ti,
+                options.track_bed,
+                options.genome_file,
+                bed_set=bed_set,
+            )
 
-      # plot log2
-      sns.set(font_scale=1.2, style='ticks')
-      out_pdf = '%s/scatter/t%d.pdf' % (options.out_dir, ti)
-      plots.regplot(
-          test_targets_ti_log,
-          test_preds_ti_log,
-          out_pdf,
-          poly_order=1,
-          alpha=0.3,
-          sample=500,
-          figsize=(6, 6),
-          x_label='log2 Experiment',
-          y_label='log2 Prediction',
-          table=True)
+            # make predictions bigwig
+            bw_file = "%s/tracks/t%d_preds.bw" % (options.out_dir, ti)
+            bigwig_write(
+                bw_file,
+                test_preds[:, :, ti],
+                options.track_bed,
+                options.genome_file,
+                dr.hp.batch_buffer,
+                bed_set=bed_set,
+            )
 
-      ############################################
-      # violin
+        # make NA bigwig
+        # bw_file = '%s/tracks/na.bw' % options.out_dir
+        # bigwig_write(
+        #     bw_file,
+        #     test_na,
+        #     options.track_bed,
+        #     options.genome_file,
+        #     bed_set=bed_set)
 
-      # call peaks
-      test_targets_ti_lambda = np.mean(test_targets_ti_flat)
-      test_targets_pvals = 1 - poisson.cdf(
-          np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda)
-      test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
-      test_targets_peaks = test_targets_qvals < 0.01
-      test_targets_peaks_str = np.where(test_targets_peaks, 'Peak',
-                                        'Background')
+    #######################################################
+    # accuracy plots
 
-      # violin plot
-      sns.set(font_scale=1.3, style='ticks')
-      plt.figure()
-      df = pd.DataFrame({
-          'log2 Prediction': np.log2(test_preds_ti_flat + 1),
-          'Experimental coverage status': test_targets_peaks_str
-      })
-      ax = sns.violinplot(
-          x='Experimental coverage status', y='log2 Prediction', data=df)
-      ax.grid(True, linestyle=':')
-      plt.savefig('%s/violin/t%d.pdf' % (options.out_dir, ti))
-      plt.close()
+    if options.accuracy_indexes is not None:
+        accuracy_indexes = [int(ti) for ti in options.accuracy_indexes.split(",")]
 
-      # ROC
-      plt.figure()
-      fpr, tpr, _ = roc_curve(test_targets_peaks, test_preds_ti_flat)
-      auroc = roc_auc_score(test_targets_peaks, test_preds_ti_flat)
-      plt.plot(
-          [0, 1], [0, 1], c='black', linewidth=1, linestyle='--', alpha=0.7)
-      plt.plot(fpr, tpr, c='black')
-      ax = plt.gca()
-      ax.set_xlabel('False positive rate')
-      ax.set_ylabel('True positive rate')
-      ax.text(
-          0.99, 0.02, 'AUROC %.3f' % auroc,
-          horizontalalignment='right')  # , fontsize=14)
-      ax.grid(True, linestyle=':')
-      plt.savefig('%s/roc/t%d.pdf' % (options.out_dir, ti))
-      plt.close()
+        if not os.path.isdir("%s/scatter" % options.out_dir):
+            os.mkdir("%s/scatter" % options.out_dir)
 
-      # PR
-      plt.figure()
-      prec, recall, _ = precision_recall_curve(test_targets_peaks,
-                                               test_preds_ti_flat)
-      auprc = average_precision_score(test_targets_peaks, test_preds_ti_flat)
-      plt.axhline(
-          y=test_targets_peaks.mean(),
-          c='black',
-          linewidth=1,
-          linestyle='--',
-          alpha=0.7)
-      plt.plot(recall, prec, c='black')
-      ax = plt.gca()
-      ax.set_xlabel('Recall')
-      ax.set_ylabel('Precision')
-      ax.text(
-          0.99, 0.95, 'AUPRC %.3f' % auprc,
-          horizontalalignment='right')  # , fontsize=14)
-      ax.grid(True, linestyle=':')
-      plt.savefig('%s/pr/t%d.pdf' % (options.out_dir, ti))
-      plt.close()
+        if not os.path.isdir("%s/violin" % options.out_dir):
+            os.mkdir("%s/violin" % options.out_dir)
 
-  data_open.close()
+        if not os.path.isdir("%s/roc" % options.out_dir):
+            os.mkdir("%s/roc" % options.out_dir)
+
+        if not os.path.isdir("%s/pr" % options.out_dir):
+            os.mkdir("%s/pr" % options.out_dir)
+
+        for ti in accuracy_indexes:
+            if options.scent_file is not None:
+                test_targets_ti = test_targets_full[:, :, ti]
+            else:
+                test_targets_ti = test_targets[:, :, ti]
+
+            ############################################
+            # scatter
+
+            # sample every few bins (adjust to plot the # points I want)
+            ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
+            ds_indexes_targets = ds_indexes_preds + (
+                dr.hp.batch_buffer // dr.hp.target_pool
+            )
+
+            # subset and flatten
+            test_targets_ti_flat = (
+                test_targets_ti[:, ds_indexes_targets].flatten().astype("float32")
+            )
+            test_preds_ti_flat = (
+                test_preds[:, ds_indexes_preds, ti].flatten().astype("float32")
+            )
+
+            # take log2
+            test_targets_ti_log = np.log2(test_targets_ti_flat + 1)
+            test_preds_ti_log = np.log2(test_preds_ti_flat + 1)
+
+            # plot log2
+            sns.set(font_scale=1.2, style="ticks")
+            out_pdf = "%s/scatter/t%d.pdf" % (options.out_dir, ti)
+            plots.regplot(
+                test_targets_ti_log,
+                test_preds_ti_log,
+                out_pdf,
+                poly_order=1,
+                alpha=0.3,
+                sample=500,
+                figsize=(6, 6),
+                x_label="log2 Experiment",
+                y_label="log2 Prediction",
+                table=True,
+            )
+
+            ############################################
+            # violin
+
+            # call peaks
+            test_targets_ti_lambda = np.mean(test_targets_ti_flat)
+            test_targets_pvals = 1 - poisson.cdf(
+                np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda
+            )
+            test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
+            test_targets_peaks = test_targets_qvals < 0.01
+            test_targets_peaks_str = np.where(test_targets_peaks, "Peak", "Background")
+
+            # violin plot
+            sns.set(font_scale=1.3, style="ticks")
+            plt.figure()
+            df = pd.DataFrame(
+                {
+                    "log2 Prediction": np.log2(test_preds_ti_flat + 1),
+                    "Experimental coverage status": test_targets_peaks_str,
+                }
+            )
+            ax = sns.violinplot(
+                x="Experimental coverage status", y="log2 Prediction", data=df
+            )
+            ax.grid(True, linestyle=":")
+            plt.savefig("%s/violin/t%d.pdf" % (options.out_dir, ti))
+            plt.close()
+
+            # ROC
+            plt.figure()
+            fpr, tpr, _ = roc_curve(test_targets_peaks, test_preds_ti_flat)
+            auroc = roc_auc_score(test_targets_peaks, test_preds_ti_flat)
+            plt.plot([0, 1], [0, 1], c="black", linewidth=1, linestyle="--", alpha=0.7)
+            plt.plot(fpr, tpr, c="black")
+            ax = plt.gca()
+            ax.set_xlabel("False positive rate")
+            ax.set_ylabel("True positive rate")
+            ax.text(
+                0.99, 0.02, "AUROC %.3f" % auroc, horizontalalignment="right"
+            )  # , fontsize=14)
+            ax.grid(True, linestyle=":")
+            plt.savefig("%s/roc/t%d.pdf" % (options.out_dir, ti))
+            plt.close()
+
+            # PR
+            plt.figure()
+            prec, recall, _ = precision_recall_curve(
+                test_targets_peaks, test_preds_ti_flat
+            )
+            auprc = average_precision_score(test_targets_peaks, test_preds_ti_flat)
+            plt.axhline(
+                y=test_targets_peaks.mean(),
+                c="black",
+                linewidth=1,
+                linestyle="--",
+                alpha=0.7,
+            )
+            plt.plot(recall, prec, c="black")
+            ax = plt.gca()
+            ax.set_xlabel("Recall")
+            ax.set_ylabel("Precision")
+            ax.text(
+                0.99, 0.95, "AUPRC %.3f" % auprc, horizontalalignment="right"
+            )  # , fontsize=14)
+            ax.grid(True, linestyle=":")
+            plt.savefig("%s/pr/t%d.pdf" % (options.out_dir, ti))
+            plt.close()
+
+    data_open.close()
 
 
 def ben_hoch(p_values):
-  """ Convert the given p-values to q-values using Benjamini-Hochberg FDR. """
-  m = len(p_values)
+    """ Convert the given p-values to q-values using Benjamini-Hochberg FDR. """
+    m = len(p_values)
 
-  # attach original indexes to p-values
-  p_k = [(p_values[k], k) for k in range(m)]
+    # attach original indexes to p-values
+    p_k = [(p_values[k], k) for k in range(m)]
 
-  # sort by p-value
-  p_k.sort()
+    # sort by p-value
+    p_k.sort()
 
-  # compute q-value and attach original index to front
-  k_q = [(p_k[i][1], p_k[i][0] * m // (i + 1)) for i in range(m)]
+    # compute q-value and attach original index to front
+    k_q = [(p_k[i][1], p_k[i][0] * m // (i + 1)) for i in range(m)]
 
-  # re-sort by original index
-  k_q.sort()
+    # re-sort by original index
+    k_q.sort()
 
-  # drop original indexes
-  q_values = [k_q[k][1] for k in range(m)]
+    # drop original indexes
+    q_values = [k_q[k][1] for k in range(m)]
 
-  return q_values
+    return q_values
 
 
 def bigwig_open(bw_file, genome_file):
-  """ Open the bigwig file for writing and write the header. """
+    """ Open the bigwig file for writing and write the header. """
 
-  bw_out = pyBigWig.open(bw_file, 'w')
+    bw_out = pyBigWig.open(bw_file, "w")
 
-  chrom_sizes = []
-  for line in open(genome_file):
-    a = line.split()
-    chrom_sizes.append((a[0], int(a[1])))
+    chrom_sizes = []
+    for line in open(genome_file):
+        a = line.split()
+        chrom_sizes.append((a[0], int(a[1])))
 
-  bw_out.addHeader(chrom_sizes)
+    bw_out.addHeader(chrom_sizes)
 
-  return bw_out
+    return bw_out
 
 
-def bigwig_write(bw_file,
-                 signal_ti,
-                 track_bed,
-                 genome_file,
-                 buffer=0,
-                 bed_set='test'):
-  """ Write a signal track to a BigWig file over the regions
+def bigwig_write(bw_file, signal_ti, track_bed, genome_file, buffer=0, bed_set="test"):
+    """ Write a signal track to a BigWig file over the regions
          specified by track_bed.
 
     Args
@@ -588,114 +628,120 @@ def bigwig_write(bw_file,
      buffer:      Length skipped on each side of the region.
     """
 
-  bw_out = bigwig_open(bw_file, genome_file)
+    bw_out = bigwig_open(bw_file, genome_file)
 
-  si = 0
-  bw_hash = {}
+    si = 0
+    bw_hash = {}
 
-  # set entries
-  for line in open(track_bed):
-    a = line.split()
-    if a[3] == bed_set:
-      chrom = a[0]
-      start = int(a[1])
-      end = int(a[2])
+    # set entries
+    for line in open(track_bed):
+        a = line.split()
+        if a[3] == bed_set:
+            chrom = a[0]
+            start = int(a[1])
+            end = int(a[2])
 
-      preds_pool = (end - start - 2 * buffer) // signal_ti.shape[1]
+            preds_pool = (end - start - 2 * buffer) // signal_ti.shape[1]
 
-      bw_start = start + buffer
-      for li in range(signal_ti.shape[1]):
-        bw_end = bw_start + preds_pool
-        bw_hash.setdefault((chrom,bw_start,bw_end),[]).append(signal_ti[si,li])
-        bw_start = bw_end
+            bw_start = start + buffer
+            for li in range(signal_ti.shape[1]):
+                bw_end = bw_start + preds_pool
+                bw_hash.setdefault((chrom, bw_start, bw_end), []).append(
+                    signal_ti[si, li]
+                )
+                bw_start = bw_end
 
-      si += 1
+            si += 1
 
-  # average duplicates
-  bw_entries = []
-  for bw_key in bw_hash:
-    bw_signal = np.mean(bw_hash[bw_key])
-    bwe = tuple(list(bw_key)+[bw_signal])
-    bw_entries.append(bwe)
+    # average duplicates
+    bw_entries = []
+    for bw_key in bw_hash:
+        bw_signal = np.mean(bw_hash[bw_key])
+        bwe = tuple(list(bw_key) + [bw_signal])
+        bw_entries.append(bwe)
 
-  # sort entries
-  bw_entries.sort()
+    # sort entries
+    bw_entries.sort()
 
-  # add entries
-  for line in open(genome_file):
-    chrom = line.split()[0]
+    # add entries
+    for line in open(genome_file):
+        chrom = line.split()[0]
 
-    bw_entries_chroms = [be[0] for be in bw_entries if be[0] == chrom]
-    bw_entries_starts = [be[1] for be in bw_entries if be[0] == chrom]
-    bw_entries_ends = [be[2] for be in bw_entries if be[0] == chrom]
-    bw_entries_values = [float(be[3]) for be in bw_entries if be[0] == chrom]
+        bw_entries_chroms = [be[0] for be in bw_entries if be[0] == chrom]
+        bw_entries_starts = [be[1] for be in bw_entries if be[0] == chrom]
+        bw_entries_ends = [be[2] for be in bw_entries if be[0] == chrom]
+        bw_entries_values = [float(be[3]) for be in bw_entries if be[0] == chrom]
 
-    if len(bw_entries_chroms) > 0:
-      bw_out.addEntries(
-          bw_entries_chroms,
-          bw_entries_starts,
-          ends=bw_entries_ends,
-          values=bw_entries_values)
+        if len(bw_entries_chroms) > 0:
+            bw_out.addEntries(
+                bw_entries_chroms,
+                bw_entries_starts,
+                ends=bw_entries_ends,
+                values=bw_entries_values,
+            )
 
-  bw_out.close()
+    bw_out.close()
 
 
-def compute_full_accuracy(dr, model, test_preds, test_targets_full, out_dir,
-                          down_sample):
-  """ Compute accuracy on the saved full target set, as opposed to a
+def compute_full_accuracy(
+    dr, model, test_preds, test_targets_full, out_dir, down_sample
+):
+    """ Compute accuracy on the saved full target set, as opposed to a
          reconstructed version via dim reduction and/or fourier. """
 
-  full_targets = test_targets_full.shape[2]
+    full_targets = test_targets_full.shape[2]
 
-  # determine non-buffer region
-  buf_start = dr.hp.batch_buffer // dr.hp.target_pool
-  buf_end = (dr.seq_length - dr.hp.batch_buffer) // dr.hp.target_pool
-  buf_len = buf_end - buf_start
+    # determine non-buffer region
+    buf_start = dr.hp.batch_buffer // dr.hp.target_pool
+    buf_end = (dr.seq_length - dr.hp.batch_buffer) // dr.hp.target_pool
+    buf_len = buf_end - buf_start
 
-  # uniformly sample indexes
-  ds_indexes = np.arange(0, buf_len, options.down_sample)
+    # uniformly sample indexes
+    ds_indexes = np.arange(0, buf_len, options.down_sample)
 
-  # filter down full test targets
-  test_targets_full_ds = test_targets_full[:, buf_start + ds_indexes, :]
-  test_na_ds = test_na[:, buf_start + ds_indexes]
+    # filter down full test targets
+    test_targets_full_ds = test_targets_full[:, buf_start + ds_indexes, :]
+    test_na_ds = test_na[:, buf_start + ds_indexes]
 
-  # inverse transform in length batches
-  t0 = time.time()
-  test_preds_full = np.zeros(
-      (test_preds.shape[0], test_preds.shape[1], full_targets), dtype='float16')
-  for li in range(test_preds.shape[1]):
-    test_preds_full[:, li, :] = model.inverse_transform(test_preds[:, li, :])
-  print('PCA transform: %ds' % (time.time() - t0))
+    # inverse transform in length batches
+    t0 = time.time()
+    test_preds_full = np.zeros(
+        (test_preds.shape[0], test_preds.shape[1], full_targets), dtype="float16"
+    )
+    for li in range(test_preds.shape[1]):
+        test_preds_full[:, li, :] = model.inverse_transform(test_preds[:, li, :])
+    print("PCA transform: %ds" % (time.time() - t0))
 
-  print(test_preds_full.shape)
-  print(test_targets_full_ds.shape)
+    print(test_preds_full.shape)
+    print(test_targets_full_ds.shape)
 
-  # compute R2 by target
-  t0 = time.time()
-  test_r2_full = np.zeros(full_targets)
-  for ti in range(full_targets):
-    # flatten
-    # preds_ti = test_preds_full[:,:,ti].flatten()
-    # targets_ti = test_targets_full_ds[:,:,ti].flatten()
-    preds_ti = test_preds_full[np.logical_not(test_na_ds), ti]
-    targets_ti = test_targets_full_ds[np.logical_not(test_na_ds), ti]
+    # compute R2 by target
+    t0 = time.time()
+    test_r2_full = np.zeros(full_targets)
+    for ti in range(full_targets):
+        # flatten
+        # preds_ti = test_preds_full[:,:,ti].flatten()
+        # targets_ti = test_targets_full_ds[:,:,ti].flatten()
+        preds_ti = test_preds_full[np.logical_not(test_na_ds), ti]
+        targets_ti = test_targets_full_ds[np.logical_not(test_na_ds), ti]
 
-    # compute R2
-    tmean = targets_ti.mean(dtype='float64')
-    tvar = (targets_ti - tmean).var(dtype='float64')
-    pvar = (targets_ti - preds_ti).var(dtype='float64')
-    test_r2_full[ti] = 1.0 - pvar / tvar
-  print('Compute full R2: %d' % (time.time() - t0))
+        # compute R2
+        tmean = targets_ti.mean(dtype="float64")
+        tvar = (targets_ti - tmean).var(dtype="float64")
+        pvar = (targets_ti - preds_ti).var(dtype="float64")
+        test_r2_full[ti] = 1.0 - pvar / tvar
+    print("Compute full R2: %d" % (time.time() - t0))
 
-  print('Test full R2: %7.5f' % test_r2_full.mean())
+    print("Test full R2: %7.5f" % test_r2_full.mean())
 
-  acc_out = open('%s/acc_full.txt' % out_dir, 'w')
-  for ti in range(len(test_r2_full)):
-    print('%4d  %.4f' % (ti, test_r2_full[ti]), file=acc_out)
-  acc_out.close()
+    acc_out = open("%s/acc_full.txt" % out_dir, "w")
+    for ti in range(len(test_r2_full)):
+        print("%4d  %.4f" % (ti, test_r2_full[ti]), file=acc_out)
+    acc_out.close()
+
 
 ################################################################################
 # __main__
 ################################################################################
-if __name__ == '__main__':
-  main()
+if __name__ == "__main__":
+    main()

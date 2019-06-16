@@ -109,10 +109,9 @@ def main():
   parser.add_option('-v', dest='valid_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for validation [Default: %default]')
-  (options, args) = parser.parse_args()
   parser.add_option('--snap-stride', dest='snap_stride',
-      default=None, type='str',
-      help='snap stride to multiple for binned targets')
+      default=None, type='int',
+      help='snap stride to multiple for binned targets in bp')
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -497,9 +496,9 @@ def contig_sequences(contigs, seq_length, stride, snap, label=None):
       # record sequence
       mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
       # update
-        seq_start += stride_bp
-        seq_end += stride_bp
-        
+      seq_start += stride_bp
+      seq_end += stride_bp
+      
   return mseqs
 
 

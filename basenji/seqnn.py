@@ -118,8 +118,8 @@ class SeqNN():
       activation=None,
       use_bias=True,
       kernel_initializer='he_normal',
-      kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
       )(current)
+      # kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
 
     # transform for reverse complement
     # current = layers.SwitchReverse()([current, input_reverse])

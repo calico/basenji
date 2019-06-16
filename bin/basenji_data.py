@@ -111,7 +111,7 @@ def main():
       help='Proportion of the data for validation [Default: %default]')
   parser.add_option('--snap-stride', dest='snap_stride',
       default=None, type='int',
-      help='snap stride to multiple for binned targets in bp')
+      help='snap stride to multiple for binned targets in bp, if not None seq_length must be a multiple of snap_stride')
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -488,6 +488,8 @@ def contig_sequences(contigs, seq_length, stride, snap, label=None):
       stride_bp = int(stride*seq_length)
       seq_end = seq_start + seq_length
     else:
+      if np.mod(seq_length,snap_stride) !=0: 
+        raise ValueError('seq_length must be a multiple of snap_stride')
       seq_start =  int( np.ceil(ctg.start/snap)*snap)
       stride_bp =  int( np.ceil((stride*seq_length)/snap)*snap)
       seq_end   =  int( ((seq_start + seq_length)//snap) *snap)

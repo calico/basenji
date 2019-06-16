@@ -143,7 +143,7 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
   hp.add_hparam('adam_beta2', job.get('adam_beta2', 0.999))
   hp.add_hparam('adam_eps', job.get('adam_eps', 1e-8))
 
-  hp.add_hparam('grad_clip', job.get('grad_clip', 1.0))
+  hp.add_hparam('grad_clip', job.get('grad_clip', None))
 
   hp.add_hparam('cnn_l2_scale', job.get('cnn_l2_scale', 0.))
   hp.add_hparam('final_l1_scale', job.get('final_l1_scale', 0.))

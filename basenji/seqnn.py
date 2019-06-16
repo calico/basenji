@@ -48,7 +48,8 @@ class SeqNN():
     block_args = {}
 
     # set global defaults
-    global_vars = ['activation', 'batch_norm', 'l2_scale', 'l1_scale']
+    global_vars = ['activation', 'batch_norm', 'bn_momentum',
+      'l2_scale', 'l1_scale']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
       if gv_value:

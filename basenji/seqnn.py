@@ -33,9 +33,15 @@ from basenji import params
 class SeqNN():
 
   def __init__(self, params):
+    self.set_defaults()
     for key, value in params.items():
       self.__setattr__(key, value)
     self.build_model()
+
+  def set_defaults(self):
+    # only necessary for my bespoke parameters
+    # others are best defaulted closer to the source
+    self.augment_rc = False
 
   def build_block(self, current, block_params):
     """Construct a SeqNN block.
@@ -80,6 +86,11 @@ class SeqNN():
     self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = self.sequence
 
+    # reverse complement augmentation
+    if self.augment_rc:
+      current, reverse_bool = tf.keras.layers.Lambda(
+        augmentation.stochastic_rc)(current)
+
     ###################################################
     # build convolution blocks
     ###################################################
@@ -121,8 +132,12 @@ class SeqNN():
       )(current)
       # kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
 
-    # transform for reverse complement
-    # current = layers.SwitchReverse()([current, input_reverse])
+    if self.augment_rc:
+      # transform for reverse complement
+      current = layers.SwitchReverse()([current, reverse_bool])
+      # current = tf.keras.layers.Lambda(
+      #   augmentation.reverse_preds)((current, reverse_bool))
+
 
     ###################################################
     # link

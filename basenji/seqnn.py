@@ -42,6 +42,7 @@ class SeqNN():
     # only necessary for my bespoke parameters
     # others are best defaulted closer to the source
     self.augment_rc = False
+    self.augment_shift = 0
 
   def build_block(self, current, block_params):
     """Construct a SeqNN block.
@@ -86,10 +87,13 @@ class SeqNN():
     self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = self.sequence
 
-    # reverse complement augmentation
     if self.augment_rc:
-      current, reverse_bool = tf.keras.layers.Lambda(
-        augmentation.stochastic_rc)(current)
+      # reverse complement augmentation
+      # current, reverse_bool = tf.keras.layers.Lambda(
+      #   augmentation.stochastic_rc)(current)
+      current, reverse_bool = layers.StochasticReverseComplement()(current)
+
+    current = layers.StochasticShift(self.augment_shift)(current)
 
     ###################################################
     # build convolution blocks
@@ -133,11 +137,8 @@ class SeqNN():
       # kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
 
     if self.augment_rc:
-      # transform for reverse complement
+      # transform back from reverse complement
       current = layers.SwitchReverse()([current, reverse_bool])
-      # current = tf.keras.layers.Lambda(
-      #   augmentation.reverse_preds)((current, reverse_bool))
-
 
     ###################################################
     # link

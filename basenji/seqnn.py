@@ -271,23 +271,10 @@ class SeqNN(seqnn_util.SeqNNModel):
       print('Unrecognized nonlinearity "%s"' % self.hp.nonlinearity, file=sys.stderr)
       exit(1)
 
-    ###################################################
     # slice out side buffer
-    ###################################################
-
-    # update batch buffer to reflect pooling
-    seq_length = seqs_repr.shape[1].value
-    pool_preds = self.hp.seq_length // seq_length
-    assert self.hp.batch_buffer % pool_preds == 0, (
-        'batch_buffer %d not divisible'
-        ' by the CNN pooling %d') % (self.hp.batch_buffer, pool_preds)
-    batch_buffer_pool = self.hp.batch_buffer // pool_preds
-
-    # slice out buffer
+    seqs_repr = self.center_slice(seqs_repr)
     seq_length = seqs_repr.shape[1]
-    seqs_repr = seqs_repr[:, batch_buffer_pool:
-                          seq_length - batch_buffer_pool, :]
-    seq_length = seqs_repr.shape[1]
+
 
     ###################################################
     # final layer
@@ -339,6 +326,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     ###################################################
     if embed_layer is not None:
       predictions = layer_reprs[embed_layer]
+      predictions = self.center_slice(predictions)
       predictions = tf.cond(reverse_preds,
                             lambda: tf.reverse(predictions, axis=[1]),
                             lambda: predictions)
@@ -774,6 +762,25 @@ class SeqNN(seqnn_util.SeqNNModel):
         train_losses[gi] = np.nan
 
     return train_losses, global_step
+
+  def center_slice(self, seqs_repr):
+    """ Slice center region of the sequence, as determined by
+        the original sequence legnth and batch buffer. """
+
+    # determine buffer region for this sequence length
+    seq_length = seqs_repr.shape[1].value
+    pool_preds = self.hp.seq_length // seq_length
+    assert self.hp.batch_buffer % pool_preds == 0, (
+      'batch_buffer %d not divisible'
+      ' by the CNN pooling %d') % (self.hp.batch_buffer, pool_preds)
+    batch_buffer_pool = self.hp.batch_buffer // pool_preds
+
+    # slice out buffer
+    seq_length = seqs_repr.shape[1]
+    seqs_repr = seqs_repr[:, batch_buffer_pool:
+                          seq_length - batch_buffer_pool, :]
+
+    return seqs_repr
 
 
 def sample_genome(datasets):

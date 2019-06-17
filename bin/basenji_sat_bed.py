@@ -303,7 +303,7 @@ def satmut_data_ops(seqs_dna, mut_start, mut_end, batch_size):
   def seqs_gen():
     for seq_dna in seqs_dna:
       # 1 hot code DNA
-      seq_1hot = dna_io.dna_1hot(seq_dna)
+      seq_1hot = dna_io.dna_1hot(seq_dna, n_random)
       yield {'sequence':seq_1hot}
 
       # for mutation positions

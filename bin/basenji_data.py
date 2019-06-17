@@ -120,14 +120,20 @@ def main():
   random.seed(options.seed)
   np.random.seed(options.seed)
 
+  # transform proportion strides to base pairs
+  if options.stride_train <= 1:
+    print('stride_train %.f'%options.stride_train, end='')
+    options.stride_train = options.stride_train*options.seq_length
+    print(' converted to %f' % options.stride_train)
+  options.stride_train = int(np.round(options.stride_train))
+  if options.stride_test <= 1:
+    print('stride_test %.f'%options.stride_test, end='')
+    options.stride_test = options.stride_test*options.seq_length
+    print(' converted to %f' % options.stride_test)
+  options.stride_test = int(np.round(options.stride_test))
+
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
-
-  if options.stride_train <= 0 or options.stride_train > 1:
-    parser.error('Train stride =%f must be in [0,1]' % options.stride_train)
-
-  if options.stride_test <= 0 or options.stride_test > 1:
-    parser.error('Test stride =%f must be in [0,1]' % options.stride_test)
 
   ################################################################
   # define genomic contigs
@@ -191,9 +197,12 @@ def main():
   # define model sequences
   ################################################################
   # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, label='test')
+  train_mseqs = contig_sequences(train_contigs, options.seq_length,
+                                 options.stride_train, label='train')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length,
+                                 options.stride_test, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length,
+                                options.stride_test, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -487,8 +496,8 @@ def contig_sequences(contigs, seq_length, stride, label=None):
       mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
 
       # update
-      seq_start += int(stride*seq_length)
-      seq_end += int(stride*seq_length)
+      seq_start += stride
+      seq_end += stride
 
   return mseqs
 

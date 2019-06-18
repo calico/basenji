@@ -53,9 +53,8 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default=None,
       help='Chromosome length information [Default: %default]')
-  # parser.add_option('-l', dest='mid_len',
-  #     default=256, type='int',
-  #     help='Length of center sequence to sum predictions for [Default: %default]')
+  parser.add_option('-l', dest='embed_layer',
+      default=None, type='int', help='Embed sequences using the specified layer index.')
   parser.add_option('-o', dest='out_dir',
       default='pred_out',
       help='Output directory [Default: %default]')
@@ -68,6 +67,9 @@ def main():
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
+  parser.add_option('-s', dest='sum_windows',
+      default=None, type='int',
+      help='Sum predictions in center windows [Default: %default]')
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
@@ -154,6 +156,7 @@ def main():
   model = seqnn.SeqNN()
   model.build_sad(job, data_ops, ensemble_rc=options.rc,
                   ensemble_shifts=options.shifts,
+                  embed_layer=options.embed_layer,
                   target_subset=target_subset)
 
   #################################################################
@@ -163,7 +166,10 @@ def main():
   if os.path.isfile(out_h5_file):
     os.remove(out_h5_file)
   out_h5 = h5py.File(out_h5_file, 'w')
-  out_h5.create_dataset('preds', shape=(num_seqs, num_targets), dtype='float16')
+  if options.sum_windows is None:
+    out_h5.create_dataset('preds', shape=(num_seqs, model.preds_length, model.preds_depth), dtype='float16')
+  else:
+    out_h5.create_dataset('preds', shape=(num_seqs, model.preds_depth), dtype='float16')
 
   # store sequence coordinates
   seqs_chr, seqs_start, _ = zip(*seqs_coords)
@@ -174,15 +180,21 @@ def main():
   out_h5.create_dataset('start', data=seqs_start)
   out_h5.create_dataset('end', data=seqs_end)
 
-  if model.preds_length % 2 == 0:
-    # sum center two
-    mid_start = model.preds_length//2 - 1
-    mid_end = mid_start + 2
-  else:
-    # take center one
-    mid_start = model.preds_length//2
-    mid_end = mid_start + 1
+  if options.sum_windows is not None:
+    if model.preds_length % 2 == 0:
+      # even sequence wants even windows
+      if options.sum_windows % 2 == 1:
+        options.sum_windows += 1
+        print('WARNING: Increasing sum_windows to %d for symmetry' % options.sum_windows)
+    else:
+      # odd sequence wants odd windows
+      if options.sum_windows % 2 == 0:
+        options.sum_windows += 1
+        print('WARNING: Increasing sum_windows to %d for symmetry.' % options.sum_windows)
 
+    side_sum = options.sum_windows // 2
+    mid_start = model.preds_length//2 - side_sum
+    mid_end = mid_start + options.sum_windows
 
   #################################################################
   # predict scores, write output
@@ -191,10 +203,6 @@ def main():
   saver = tf.train.Saver()
 
   with tf.Session() as sess:
-    # coordinator
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
-
     # load variables into session
     saver.restore(sess, model_file)
 
@@ -207,11 +215,16 @@ def main():
       # predict
       preds_full = preds_stream[si]
 
-      # slice middle and summarize
-      preds = preds_full[mid_start:mid_end,:].sum(axis=0)
+      if options.sum_windows is not None:
+        # slice middle and summarize
+        preds_sum = preds_full[mid_start:mid_end,:].sum(axis=0)
 
-      # write
-      out_h5['preds'][si] = preds
+        # write
+        out_h5['preds'][si] = preds_sum
+
+      else:
+        # write
+        out_h5['preds'][si] = preds_full
 
       # write bigwig
       for ti in options.bigwig_indexes:

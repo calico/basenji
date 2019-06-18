@@ -51,11 +51,16 @@ def main():
   parser.add_option('-g', dest='genome_file',
       default=None,
       help='Chromosome length information [Default: %default]')
+  parser.add_option('-l', dest='embed_layer',
+      default=None, type='int', help='Embed sequences using the specified layer index.')
   parser.add_option('-o', dest='out_dir',
       default='pred_out', help='Output directory [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
+  parser.add_option('-s', dest='sum_windows',
+      default=None, type='int',
+      help='Sum predictions in center windows [Default: %default]')
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
@@ -105,7 +110,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.12-gpu;'
+      cmd += ' conda activate tf1.13-gpu;'
       cmd += ' basenji_predict_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
       name = 'pred_p%d' % pi

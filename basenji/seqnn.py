@@ -20,15 +20,9 @@ import time
 
 import numpy as np
 import tensorflow as tf
-try:
-  import tensorflow_probability as tfp
-except ImportError:
-  pass
 
-from basenji import augmentation
 from basenji import blocks
 from basenji import layers
-from basenji import params
 
 class SeqNN():
 
@@ -73,6 +67,7 @@ class SeqNN():
     if block_name[0].islower():
       block_func = blocks.name_func[block_name]
       current = block_func(current, **block_args)
+
     else:
       block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
@@ -87,12 +82,9 @@ class SeqNN():
     self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = self.sequence
 
+    # augmentation
     if self.augment_rc:
-      # reverse complement augmentation
-      # current, reverse_bool = tf.keras.layers.Lambda(
-      #   augmentation.stochastic_rc)(current)
       current, reverse_bool = layers.StochasticReverseComplement()(current)
-
     current = layers.StochasticShift(self.augment_shift)(current)
 
     ###################################################

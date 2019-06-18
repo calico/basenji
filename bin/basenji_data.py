@@ -80,6 +80,9 @@ def main():
   parser.add_option('-r', dest='seqs_per_tfr',
       default=256, type='int',
       help='Sequences per TFRecord file [Default: %default]')
+  parser.add_option('--restart', dest='restart',
+      default=False, action='store_true',
+      help='Skip already read HDF5 coverage values. [Default: %default]')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -270,7 +273,7 @@ def main():
     if 'scale' in targets_df.columns:
       scale_ti = targets_df['scale'].iloc[ti]
 
-    if os.path.isfile(seqs_cov_file):
+    if options.restart and os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'

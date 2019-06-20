@@ -112,9 +112,9 @@ def main():
   parser.add_option('-v', dest='valid_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for validation [Default: %default]')
-  parser.add_option('--snap-stride', dest='snap_stride',
+  parser.add_option('--snap', dest='snap',
       default=None, type='int',
-      help='snap stride to multiple for binned targets in bp, if not None seq_length must be a multiple of snap_stride')
+      help='snap stride to multiple for binned targets in bp, if not None seq_length must be a multiple of snap')
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -203,12 +203,9 @@ def main():
   # define model sequences
   ################################################################
   # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap_stride, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap_stride, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap_stride, label='test')
-                                 options.stride_test, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length,
-                                options.stride_test, label='test')
+  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -501,7 +498,7 @@ def contig_sequences(contigs, seq_length, stride, snap, label=None):
         raise ValueError('seq_length must be a multiple of snap')
       seq_start =  int( np.ceil(ctg.start/snap)*snap)
       seq_end   =  int( ((seq_start + seq_length)//snap) *snap)
-      stride = int( np.ceil(stride/snap)*snap)
+      stride    =  int( np.ceil(stride/snap)*snap)
     while seq_end < ctg.end:
       # record sequence
       mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))

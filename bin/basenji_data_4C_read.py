@@ -70,6 +70,7 @@ def main():
     seqs_bed_file = args[1]
     seqs_4C_file = args[2]
 
+
   # read model sequences
   model_seqs = []
   for line in open(seqs_bed_file):
@@ -125,8 +126,8 @@ def main():
       if mseq.chr in black_chr_trees:
         for black_interval in black_chr_trees[mseq.chr][mseq.start:mseq.end]:
           # adjust for sequence indexes
-          black_seq_start = (black_interval.begin - mseq.start)//pool_width
-          black_seq_end =   int(  np.ceil( (black_interval.end - mseq.start)/pool_width ) )
+          black_seq_start = (black_interval.begin - mseq.start)// options.pool_width
+          black_seq_end =   int(  np.ceil( (black_interval.end - mseq.start)/ options.pool_width ) )
           seq_hic_raw[:,black_seq_start:black_seq_end] = np.nan
           seq_hic_raw[black_seq_start:black_seq_end,:] = np.nan
      

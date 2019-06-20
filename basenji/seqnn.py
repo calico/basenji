@@ -20,22 +20,23 @@ import time
 
 import numpy as np
 import tensorflow as tf
-try:
-  import tensorflow_probability as tfp
-except ImportError:
-  pass
 
-from basenji import augmentation
 from basenji import blocks
 from basenji import layers
-from basenji import params
 
 class SeqNN():
 
   def __init__(self, params):
+    self.set_defaults()
     for key, value in params.items():
       self.__setattr__(key, value)
     self.build_model()
+
+  def set_defaults(self):
+    # only necessary for my bespoke parameters
+    # others are best defaulted closer to the source
+    self.augment_rc = False
+    self.augment_shift = 0
 
   def build_block(self, current, block_params):
     """Construct a SeqNN block.
@@ -48,7 +49,8 @@ class SeqNN():
     block_args = {}
 
     # set global defaults
-    global_vars = ['activation', 'batch_norm', 'l2_scale', 'l1_scale']
+    global_vars = ['activation', 'batch_norm', 'bn_momentum',
+      'l2_scale', 'l1_scale']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
       if gv_value:
@@ -65,6 +67,7 @@ class SeqNN():
     if block_name[0].islower():
       block_func = blocks.name_func[block_name]
       current = block_func(current, **block_args)
+
     else:
       block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
@@ -78,6 +81,11 @@ class SeqNN():
     self.sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
     self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = self.sequence
+
+    # augmentation
+    if self.augment_rc:
+      current, reverse_bool = layers.StochasticReverseComplement()(current)
+    current = layers.StochasticShift(self.augment_shift)(current)
 
     ###################################################
     # build convolution blocks
@@ -117,11 +125,12 @@ class SeqNN():
       activation=None,
       use_bias=True,
       kernel_initializer='he_normal',
-      kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
       )(current)
+      # kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
 
-    # transform for reverse complement
-    # current = layers.SwitchReverse()([current, input_reverse])
+    if self.augment_rc:
+      # transform back from reverse complement
+      current = layers.SwitchReverse()([current, reverse_bool])
 
     ###################################################
     # link

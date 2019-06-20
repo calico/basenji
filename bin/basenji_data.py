@@ -80,6 +80,9 @@ def main():
   parser.add_option('-r', dest='seqs_per_tfr',
       default=256, type='int',
       help='Sequences per TFRecord file [Default: %default]')
+  parser.add_option('--restart', dest='restart',
+      default=False, action='store_true',
+      help='Skip already read HDF5 coverage values. [Default: %default]')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -123,14 +126,20 @@ def main():
   random.seed(options.seed)
   np.random.seed(options.seed)
 
+  # transform proportion strides to base pairs
+  if options.stride_train <= 1:
+    print('stride_train %.f'%options.stride_train, end='')
+    options.stride_train = options.stride_train*options.seq_length
+    print(' converted to %f' % options.stride_train)
+  options.stride_train = int(np.round(options.stride_train))
+  if options.stride_test <= 1:
+    print('stride_test %.f'%options.stride_test, end='')
+    options.stride_test = options.stride_test*options.seq_length
+    print(' converted to %f' % options.stride_test)
+  options.stride_test = int(np.round(options.stride_test))
+
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
-
-  if options.stride_train <= 0 or options.stride_train > 1:
-    parser.error('Train stride =%f must be in [0,1]' % options.stride_train)
-
-  if options.stride_test <= 0 or options.stride_test > 1:
-    parser.error('Test stride =%f must be in [0,1]' % options.stride_test)
 
   ################################################################
   # define genomic contigs
@@ -197,6 +206,9 @@ def main():
   train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap_stride, label='train')
   valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap_stride, label='valid')
   test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap_stride, label='test')
+                                 options.stride_test, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length,
+                                options.stride_test, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -250,8 +262,7 @@ def main():
     os.mkdir(seqs_cov_dir)
 
   read_jobs = []
-  print(targets_df)
-  print(targets_df['file'])
+
   for ti in range(targets_df.shape[0]):
     genome_cov_file = targets_df['file'].iloc[ti]
     seqs_cov_stem = '%s/%d' % (seqs_cov_dir, ti)
@@ -265,7 +276,7 @@ def main():
     if 'scale' in targets_df.columns:
       scale_ti = targets_df['scale'].iloc[ti]
 
-    if os.path.isfile(seqs_cov_file):
+    if options.restart and os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
@@ -482,24 +493,22 @@ def contig_sequences(contigs, seq_length, stride, snap, label=None):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
   for ctg in contigs:
-
     if snap==None:
       seq_start = ctg.start
-      stride_bp = int(stride*seq_length)
       seq_end = seq_start + seq_length
     else:
-      if np.mod(seq_length,snap_stride) !=0: 
-        raise ValueError('seq_length must be a multiple of snap_stride')
+      if np.mod(seq_length,snap) !=0: 
+        raise ValueError('seq_length must be a multiple of snap')
       seq_start =  int( np.ceil(ctg.start/snap)*snap)
-      stride_bp =  int( np.ceil((stride*seq_length)/snap)*snap)
       seq_end   =  int( ((seq_start + seq_length)//snap) *snap)
-
+      stride = int( np.ceil(stride/snap)*snap)
     while seq_end < ctg.end:
       # record sequence
       mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
+
       # update
-      seq_start += stride_bp
-      seq_end += stride_bp
+      seq_start += stride
+      seq_end += stride
       
   return mseqs
 

@@ -5,7 +5,7 @@ import tensorflow as tf
 
 from basenji import layers
 
-def conv_block(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='zeros'):
+def conv_block(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
   """Construct a single convolution block.
 
   Args:
@@ -213,14 +213,14 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, rep
       filters=filters,
       kernel_size=kernel_size,
       dilation_rate=int(np.round(dilation_rate)),
-      bn_gamma='zeros',
+      bn_gamma='ones',
       **kwargs)
 
     # return
     current = conv_block(current,
       filters=rep_input.shape[-1],
       dropout=dropout,
-      bn_gamma='ones',
+      bn_gamma='zeros',
       **kwargs)
 
     # residual add

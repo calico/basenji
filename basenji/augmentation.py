@@ -16,6 +16,22 @@ import tensorflow as tf
 
 from basenji import ops
 
+def stochastic_rc(seq_1hot):
+  """Stochastically reverse complement a one hot encoded DNA sequence."""
+  rcseq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
+  rcseq_1hot = tf.reverse(rcseq_1hot, axis=[1])
+  reverse_bool = tf.random_uniform(shape=[]) > 0.5
+  seq_1hot_aug = tf.cond(reverse_bool, lambda: rcseq_1hot, lambda: seq_1hot)
+  return seq_1hot_aug, reverse_bool
+
+def reverse_preds(rp_tuple):
+    (preds, reverse_bool) = rp_tuple
+    preds_rev = tf.reverse(preds, axis=[1])
+    preds_match = tf.cond(reverse_bool, lambda: preds, lambda: preds_rev)
+    return preds_match
+
+################################################################################
+
 def shift_sequence(seq, shift_amount, pad_value=0.25):
   """Shift a sequence left or right by shift_amount.
 

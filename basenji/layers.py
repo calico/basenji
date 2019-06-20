@@ -39,6 +39,21 @@ class Softplus(tf.keras.layers.Layer):
     x = tf.clip_by_value(x, -self.exp_max, 10000)
     return tf.keras.activations.softplus(x)
 
+############################################################
+# Augmentation
+############################################################
+
+class StochasticReverseComplement(tf.keras.layers.Layer):
+  def __init__(self):
+    super(StochasticReverseComplement, self).__init__()
+  def call(self, seq_1hot):
+    """Stochastically reverse complement a one hot encoded DNA sequence."""
+    rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
+    rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])
+    reverse_bool = tf.random_uniform(shape=[]) > 0.5
+    src_seq_1hot = tf.cond(reverse_bool, lambda: rc_seq_1hot, lambda: seq_1hot)
+    return src_seq_1hot, reverse_bool
+
 class SwitchReverse(tf.keras.layers.Layer):
   def __init__(self):
     super(SwitchReverse, self).__init__()
@@ -49,6 +64,54 @@ class SwitchReverse(tf.keras.layers.Layer):
                                    tf.reverse(x, axis=[1]),
                                    x)
 
+class StochasticShift(tf.keras.layers.Layer):
+  def __init__(self, shift_max=0, pad='uniform'):
+    super(StochasticShift, self).__init__()
+    self.augment_shifts = tf.range(-shift_max, shift_max+1)
+    self.pad = pad
+
+  def call(self, seq_1hot):
+    """Stochastically shift a one hot encoded DNA sequence."""
+    shift_i = tf.random_uniform(shape=[], minval=0,
+      maxval=len(self.augment_shifts), dtype=tf.int64)
+    shift = tf.gather(self.augment_shifts, shift_i)
+
+    sseq_1hot = tf.cond(tf.not_equal(shift, 0),
+                        lambda: shift_sequence(seq_1hot, shift),
+                        lambda: seq_1hot)
+
+    return sseq_1hot
+
+def shift_sequence(seq, shift, pad_value=0.25):
+  """Shift a sequence left or right by shift_amount.
+
+  Args:
+  seq: [batch_size, seq_length, seq_depth] sequence
+  shift: signed shift value (tf.int32 or int)
+  pad_value: value to fill the padding (primitive or scalar tf.Tensor)
+  """
+  if seq.shape.ndims != 3:
+      raise ValueError('input sequence should be rank 3')
+  input_shape = seq.shape
+
+  pad = pad_value * tf.ones_like(seq[:, 0:tf.abs(shift), :])
+
+  def _shift_right(_seq):
+    # shift is positive
+    sliced_seq = _seq[:, :-shift:, :]
+    return tf.concat([pad, sliced_seq], axis=1)
+
+  def _shift_left(_seq):
+    # shift is negative
+    sliced_seq = _seq[:, -shift:, :]
+    return tf.concat([sliced_seq, pad], axis=1)
+
+  sseq = tf.cond(tf.greater(shift, 0),
+                 lambda: _shift_right(seq),
+                 lambda: _shift_left(seq))
+  sseq.set_shape(input_shape)
+
+  return sseq
 
 def activate(current, activation):
   if activation == 'relu':
@@ -60,100 +123,3 @@ def activate(current, activation):
     exit(1)
 
   return current
-
-
-def conv_block(seqs_repr, conv_params, is_training,
-               batch_norm, batch_norm_momentum,
-               batch_renorm, batch_renorm_momentum,
-               nonlinearity, l2_scale, layer_reprs, name=''):
-  """Construct a single (dilated) CNN block.
-
-  Args:
-    seqs_repr:    [batchsize, length, num_channels] input sequence
-    conv_params:  convolution parameters
-    is_training:  whether is a training graph or not
-    batch_norm:   whether to use batchnorm
-    bn_momentum:  batch norm momentum
-    batch_renorm: whether to use batch renormalization in batchnorm
-    nonlinearity: relu/gelu/etc
-    l2_scale:     L2 weight regularization scale
-    name:         optional name for the block
-
-  Returns:
-    updated representation for the sequence
-  """
-  # nonlinearity
-  if nonlinearity == 'relu':
-      seqs_repr_next = tf.nn.relu(seqs_repr)
-      tf.logging.info('ReLU')
-  elif nonlinearity == 'gelu':
-      seqs_repr_next = tf.nn.sigmoid(1.702 * seqs_repr) * seqs_repr
-      tf.logging.info('GELU')
-  else:
-      print('Unrecognized nonlinearity "%s"' % nonlinearity, file=sys.stderr)
-      exit(1)
-
-  # Convolution
-  seqs_repr_next = tf.layers.conv1d(
-      seqs_repr_next,
-      filters=conv_params.filters,
-      kernel_size=[conv_params.filter_size],
-      strides=conv_params.stride,
-      padding='same',
-      dilation_rate=[conv_params.dilation],
-      use_bias=False,
-      kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
-      kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
-  tf.logging.info('Convolution w/ %d %dx%d filters strided %d, dilated %d' %
-                  (conv_params.filters, seqs_repr.shape[2],
-                   conv_params.filter_size, conv_params.stride,
-                   conv_params.dilation))
-
-  # Batch norm
-  if batch_norm:
-    if conv_params.skip_layers > 0:
-      gamma_init = tf.zeros_initializer()
-    else:
-      gamma_init = tf.ones_initializer()
-
-    seqs_repr_next = tf.layers.batch_normalization(
-        seqs_repr_next,
-        momentum=batch_norm_momentum,
-        training=is_training,
-        gamma_initializer=gamma_init,
-        renorm=batch_renorm,
-        renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
-        renorm_momentum=batch_renorm_momentum,
-        fused=True)
-    tf.logging.info('Batch normalization')
-
-  # Dropout
-  if conv_params.dropout > 0:
-    seqs_repr_next = tf.layers.dropout(
-        inputs=seqs_repr_next,
-        rate=conv_params.dropout,
-        training=is_training)
-    tf.logging.info('Dropout w/ probability %.3f' % conv_params.dropout)
-
-  # Skip
-  if conv_params.skip_layers > 0:
-    if conv_params.skip_layers > len(layer_reprs):
-      raise ValueError('Skip connection reaches back too far.')
-
-    # Add
-    seqs_repr_next += layer_reprs[-conv_params.skip_layers]
-
-  # Dense
-  elif conv_params.dense:
-    seqs_repr_next = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
-
-  # Pool
-  if conv_params.pool > 1:
-    seqs_repr_next = tf.layers.max_pooling1d(
-        inputs=seqs_repr_next,
-        pool_size=conv_params.pool,
-        strides=conv_params.pool,
-        padding='same')
-    tf.logging.info('Max pool %d' % conv_params.pool)
-
-  return seqs_repr_next

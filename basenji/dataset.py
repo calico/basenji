@@ -109,7 +109,8 @@ class SeqDataset:
 
         targets = tf.cast(targets, tf.float32)
 
-      return (sequence, genome), targets
+      # return (sequence, genome), targets
+      return sequence, targets
 
     return parse_proto
 
@@ -167,7 +168,8 @@ class SeqDataset:
     dataset = dataset.batch(1)
 
     self.num_seqs = 0
-    for (seq_raw, genome), targets_raw in dataset:
+    # for (seq_raw, genome), targets_raw in dataset:
+    for seq_raw, targets_raw in dataset:
       # infer seq_depth
       seq_1hot = seq_raw.numpy().reshape((self.seq_length,-1))
       if self.seq_depth is None:

@@ -79,7 +79,7 @@ class SeqNN():
     # inputs
     ###################################################
     self.sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
-    self.genome = tf.keras.Input(shape=(1,), name='genome')
+    # self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = self.sequence
 
     # augmentation
@@ -146,5 +146,6 @@ class SeqNN():
     ###################################################
     # compile model
     ###################################################
-    self.model = tf.keras.Model(inputs=[self.sequence,self.genome], outputs=self.preds)
+    # self.model = tf.keras.Model(inputs=[self.sequence,self.genome], outputs=self.preds)
+    self.model = tf.keras.Model(inputs=self.sequence, outputs=self.preds)
     print(self.model.summary())

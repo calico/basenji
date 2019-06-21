@@ -18,6 +18,7 @@ from absl import flags
 import tensorflow as tf
 
 from basenji import layers
+from basenji import metrics
 
 FLAGS = flags.FLAGS
 
@@ -39,17 +40,17 @@ class Trainer:
     self.train_epochs = self.params.get('train_epochs', 1000)
 
   def compile(self, model):
+    num_targets = model.output_shape[-1]
     model.compile(loss='poisson',
                   optimizer=self.optimizer,
-                  metrics=[tf.keras.metrics.mean_absolute_error])
+                  metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
 
   def fit(self, model):
     callbacks = [
-      tf.keras.callbacks.EarlyStopping(patience=self.patience, monitor='val_loss', verbose=1),
-      tf.keras.callbacks.TensorBoard(FLAGS.log_dir)
-    ]
-    # tf.keras.callbacks.ModelCheckpoint('%s/model_check.tf'%FLAGS.log_dir, period=2),
-    # tf.keras.callbacks.ModelCheckpoint('%s/model_best.tf'%FLAGS.log_dir, save_best_only=True, monitor='val_loss', verbose=1),
+      EarlyStoppingBest(patience=self.patience, monitor='val_loss', verbose=1),
+      tf.keras.callbacks.TensorBoard(FLAGS.log_dir),
+      tf.keras.callbacks.ModelCheckpoint('%s/model_check.tf'%FLAGS.log_dir, period=2),
+      tf.keras.callbacks.ModelCheckpoint('%s/model_best.tf'%FLAGS.log_dir, save_best_only=True, monitor='val_loss', verbose=1)]
 
     model.fit(
       self.train_data.dataset,
@@ -88,3 +89,30 @@ class Trainer:
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)
       exit(1)
+
+
+class EarlyStoppingBest(tf.keras.callbacks.EarlyStopping):
+  """Adds printing "best" in verbose mode."""
+  def __init__(self, **kwargs):
+    super(EarlyStoppingBest, self).__init__(**kwargs)
+
+  def on_epoch_end(self, epoch, logs=None):
+    current = self.get_monitor_value(logs)
+    if current is None:
+      return
+    if self.monitor_op(current - self.min_delta, self.best):
+      if self.verbose > 0:
+        print(' - best!', end='')
+      self.best = current
+      self.wait = 0
+      if self.restore_best_weights:
+        self.best_weights = self.model.get_weights()
+    else:
+      self.wait += 1
+      if self.wait >= self.patience:
+        self.stopped_epoch = epoch
+        self.model.stop_training = True
+        if self.restore_best_weights:
+          if self.verbose > 0:
+            print('Restoring model weights from the end of the best epoch.')
+          self.model.set_weights(self.best_weights)

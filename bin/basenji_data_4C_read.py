@@ -87,7 +87,7 @@ def main():
 
   # initialize sequences coverage file
   seqs_4C_open = h5py.File(seqs_4C_file, 'w')
-  seqs_4C_open.create_dataset('seqs_4C', shape=(num_seqs, seq_len_pool), dtype='float16')
+  seqs_4C_open.create_dataset('seqs_cov', shape=(num_seqs, seq_len_pool), dtype='float16')
 
   # open genome coverage file
   genome_hic_cool = cooler.Cooler(genome_hic_file)
@@ -154,13 +154,13 @@ def main():
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
-      seq_hic_obsexp = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
+      seq_hic = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
 
 
     seq_4C = np.nanmean( seq_hic[len(seq_hic)//2-1:len(seq_hic)//2+1,:],axis=0)
 
     # write
-    seqs_4C_open['seqs_4C'][si,:] = seq_4C.astype('float16')
+    seqs_4C_open['seqs_cov'][si,:] = seq_4C.astype('float16')
 
 
   # close sequences coverage file

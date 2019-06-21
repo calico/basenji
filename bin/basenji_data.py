@@ -138,6 +138,13 @@ def main():
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
 
+  if options.snap != None:
+    if np.mod(options.seq_length, options.snap) !=0: 
+      raise ValueError('seq_length must be a multiple of snap')
+    if np.mod(options.stride_test, options.snap) !=0 or  np.mod(options.stride_train, options.snap) !=0: 
+      raise ValueError('stride lengths must be a multiple of snap')
+
+
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
@@ -494,15 +501,11 @@ def contig_sequences(contigs, seq_length, stride, snap, label=None):
       seq_start = ctg.start
       seq_end = seq_start + seq_length
     else:
-      if np.mod(seq_length,snap) !=0: 
-        raise ValueError('seq_length must be a multiple of snap')
       seq_start =  int( np.ceil(ctg.start/snap)*snap)
       seq_end   =  int( ((seq_start + seq_length)//snap) *snap)
-      stride    =  int( np.ceil(stride/snap)*snap)
     while seq_end < ctg.end:
       # record sequence
       mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
-
       # update
       seq_start += stride
       seq_end += stride

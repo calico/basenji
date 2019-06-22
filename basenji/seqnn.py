@@ -23,6 +23,7 @@ import tensorflow as tf
 
 from basenji import blocks
 from basenji import layers
+from basenji import metrics
 
 class SeqNN():
 
@@ -31,6 +32,7 @@ class SeqNN():
     for key, value in params.items():
       self.__setattr__(key, value)
     self.build_model()
+    self.ensemble = None
 
   def set_defaults(self):
     # only necessary for my bespoke parameters
@@ -78,9 +80,9 @@ class SeqNN():
     ###################################################
     # inputs
     ###################################################
-    self.sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+    sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
     # self.genome = tf.keras.Input(shape=(1,), name='genome')
-    current = self.sequence
+    current = sequence
 
     # augmentation
     if self.augment_rc:
@@ -146,6 +148,65 @@ class SeqNN():
     ###################################################
     # compile model
     ###################################################
-    # self.model = tf.keras.Model(inputs=[self.sequence,self.genome], outputs=self.preds)
-    self.model = tf.keras.Model(inputs=self.sequence, outputs=self.preds)
+    # self.model = tf.keras.Model(inputs=[sequence,self.genome], outputs=self.preds)
+    self.model = tf.keras.Model(inputs=sequence, outputs=self.preds)
     print(self.model.summary())
+
+
+  def build_ensemble(self, ensemble_rc=False, ensemble_shifts=[0]):
+    """ Build ensemble of models computing on augmented input sequences. """
+    if ensemble_rc or len(ensemble_shifts) > 1:
+      # sequence input
+      sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+      sequences = [sequence]
+
+      if len(ensemble_shifts) > 1:
+        # generate shifted sequences
+        sequences = layers.EnsembleShift(ensemble_shifts)(sequences)
+
+      if ensemble_rc:
+        # generate reverse complements and indicators
+        sequences_rev = layers.EnsembleReverseComplement()(sequences)
+      else:
+        sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
+
+      # predict each sequence
+      preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+
+      # create layer
+      preds_avg = tf.keras.layers.Average()(preds)
+
+      # create meta model
+      self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
+
+
+  def evaluate(self, seq_data):
+    """ Evaluate model on SeqDataset. """
+    # choose ensemble if built
+    if self.ensemble is None:
+      model = self.model
+    else:
+      model = self.ensemble
+
+    # compile with dense metrics
+    num_targets = self.model.output_shape[-1]
+    model.compile(loss='poisson',
+                  optimizer=tf.keras.optimizers.SGD(),
+                  metrics=[metrics.PearsonR(num_targets, summarize=False),
+                           metrics.R2(num_targets, summarize=False)])
+
+    # evaluate
+    return model.evaluate(seq_data.dataset)
+
+
+  def predict(self, seq_data):
+    """ Predict targets for SeqDataset. """
+    if self.ensemble is None:
+      return self.model.predict(seq_data.dataset)
+    else:
+      return self.ensemble(seq_data.dataset)
+
+
+  def restore(self, model_file):
+    """ Restore weights from saved model. """
+    self.model.load_weights(model_file)

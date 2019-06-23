@@ -38,10 +38,9 @@ flags.DEFINE_string('eval_data', '', 'test tfrecord file')
 
 # ensembling/augmentation
 flags.DEFINE_boolean('augment_rc', False, 'Augment training with reverse complement.')
-flags.DEFINE_boolean('ensemble_rc', False, 'Ensemble prediction with reverse complement.')
+# flags.DEFINE_boolean('ensemble_rc', False, 'Ensemble prediction with reverse complement.')
 flags.DEFINE_string('augment_shifts', '0', 'Augment training with shifted sequences.')
-flags.DEFINE_string('ensemble_shifts', '0', 'Ensemble prediction with shifted sequences.')
-flags.DEFINE_integer('ensemble_mc', 0, 'Ensemble monte carlo samples.')
+# flags.DEFINE_string('ensemble_shifts', '0', 'Ensemble prediction with shifted sequences.')
 
 # training modes
 flags.DEFINE_string('restart', None, 'Restart training the model')
@@ -90,7 +89,6 @@ def main(_):
     params_model['seq_length'],
     params_model['target_length'],
     tf.estimator.ModeKeys.EVAL)
-
 
   if params_train.get('num_gpu',1) == 1:
     ########################################

@@ -27,6 +27,7 @@ class Trainer:
     self.params = params
     self.train_data = train_data
     self.eval_data = eval_data
+    self.compiled = False
 
     # optimizer
     self.make_optimizer()
@@ -44,13 +45,17 @@ class Trainer:
     model.compile(loss='poisson',
                   optimizer=self.optimizer,
                   metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
+    self.compiled = True
 
   def fit(self, model):
+    if not self.compiled:
+      self.compile(model)
+
     callbacks = [
       EarlyStoppingBest(patience=self.patience, monitor='val_loss', verbose=1),
       tf.keras.callbacks.TensorBoard(FLAGS.log_dir),
-      tf.keras.callbacks.ModelCheckpoint('%s/model_check.tf'%FLAGS.log_dir, period=2),
-      tf.keras.callbacks.ModelCheckpoint('%s/model_best.tf'%FLAGS.log_dir, save_best_only=True, monitor='val_loss', verbose=1)]
+      tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%FLAGS.log_dir, period=2),
+      tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%FLAGS.log_dir, save_best_only=True, monitor='val_loss', verbose=1)]
 
     model.fit(
       self.train_data.dataset,

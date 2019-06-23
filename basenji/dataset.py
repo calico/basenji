@@ -196,3 +196,36 @@ class SeqDataset:
     else:
       self.num_targets_nonzero = None
       print('%s has %d sequences with 0 targets' % (self.tfr_pattern, self.num_seqs), flush=True)
+
+
+  def numpy(self, return_inputs=True, return_outputs=True):
+    """ Convert TFR inputs and/or outputs to numpy arrays."""
+
+    # read TF Records
+    dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+    dataset = dataset.flat_map(file_to_records)
+    dataset = dataset.map(self.generate_parser())
+    dataset = dataset.batch(1)
+
+    # initialize inputs and outputs
+    seqs_1hot = []
+    targets = []
+
+    # collect inputs and outputs
+    for seq1_1hot, targets1 in dataset:
+      if return_inputs:
+        seqs_1hot.append(seq1_1hot)
+      if return_outputs:
+        targets.append(targets1)
+
+    # make arrays
+    seqs_1hot = np.array(seqs_1hot)
+    targets = np.array(targets)
+
+    # return
+    if return_inputs and return_outputs:
+      return seqs_1hot, targets
+    elif return_inputs:
+      return seqs_1hot
+    else:
+      return targets

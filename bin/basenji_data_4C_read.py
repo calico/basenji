@@ -29,7 +29,8 @@ from basenji_data import ModelSeq
 # hic imports
 import astropy.convolution as astroconv
 import cooler
-from cooltools.lib.numutils import observed_over_expected
+from cooltools.lib.numutils import observed_over_expected, adaptive_coarsegrain, interpolate_bad_singletons
+
 
 
 """
@@ -111,16 +112,9 @@ def main():
       #print('mseq_str:', mseq_str)
       
       seq_hic_raw = genome_hic_cool.matrix(balance=True).fetch(mseq_str)
-      
-      # interpolate
-      seq_hic_raw = interpolateNearest(seq_hic_raw)
-      # todo: offer a complete interpolation after the blacklist or after the generation of the 4C profile if obs/exp not used
-
-      # find minimum nonzero value
-      seq_hic_min = np.min(seq_hic_raw[seq_hic_raw > 0])
-      seq_hic_raw += seq_hic_min
-      # todo: pass an option to add a certain pseudocount value, 
-      # todo: or pass adaptive_coarsegrain(ar, countar, cutoff=1, max_levels=8) https://github.com/mirnylab/cooltools/blob/master/cooltools/lib/numutils.py
+      seq_hic_nan = np.isnan(seq_hic_raw)
+      if np.sum(  seq_hic_nan[len(seq_hic_nan)//2-1:len(seq_hic_nan)//2+1, len(seq_hic_nan)//2-2:len(seq_hic_nan)//2+2 ]) > 4:
+        print("WARNING: %s lots of zeros, check that umap_midpoint is correct %s. " % (genome_hic_file, mseq_str))
 
       # set blacklist to NaNs
       if mseq.chr in black_chr_trees:
@@ -130,23 +124,30 @@ def main():
           black_seq_end =   int(  np.ceil( (black_interval.end - mseq.start)/ options.pool_width ) )
           seq_hic_raw[:,black_seq_start:black_seq_end] = np.nan
           seq_hic_raw[black_seq_start:black_seq_end,:] = np.nan
-     
-      # todo: pass an option to save raw values to TFR instead of obs/exp
-      # if not obsexp, interpolate blacklist & NaNs (aka local baseline for a distant-dependent signal)
+        seq_hic_nan = np.isnan(seq_hic_raw)
 
-      # todo: raise a warning if there are a ton of interpolated nans, and maybe print possibly bad regions to some file?
-      # todo: maybe print discrepancy between # HiC nans and the passed blacklist
+      seq_hic_smoothed =  adaptive_coarsegrain(seq_hic_raw, genome_hic_cool.matrix(balance=False).fetch(mseq_str),  cutoff=.5, max_levels=8)
+
+      # interpolate
+      seq_hic_interpolated =  interpolate_bad_singletons(seq_hic_smoothed, mask=(~seq_hic_nan),
+                                               fillDiagonal=True, returnMask=False, secondPass=True,verbose=False)
+      seq_hic_nan = np.isnan(seq_hic_interpolated)
       
+      #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
+      #seq_hic_min = np.min(seq_hic_raw[seq_hic_raw > 0])
+      #seq_hic_raw += seq_hic_min
+
+      # todo: pass an option to save raw values to TFR instead of obs/exp
+      # todo: offer a complete interpolation of the 4C profile if obs/exp not used
+
       # compute observed/expected
-      seq_hic_nan = np.isnan(seq_hic_raw)
       seq_hic_obsexp = observed_over_expected(seq_hic_raw, ~seq_hic_nan)[0]
+      # todo: allow passing a global expected rather than computing locally
 
       # log
       seq_hic_obsexp = np.log(seq_hic_obsexp)
-
-      # set nan to 0=
+      # set nan to 0
       seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
- 
       # todo: make clip an option for obs/exp 4C, but not otherwise
       seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
      
@@ -155,35 +156,16 @@ def main():
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
       seq_hic = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
-
-
+    
     seq_4C = np.nanmean( seq_hic[len(seq_hic)//2-1:len(seq_hic)//2+1,:],axis=0)
-
+    
     # write
     seqs_4C_open['seqs_cov'][si,:] = seq_4C.astype('float16')
-
-
+    
+    
   # close sequences coverage file
   seqs_4C_open.close()
 
-
-def interpolateNearest(mat):
-  badBins = np.sum(np.isnan(mat),axis=0)==len(mat)
-  singletons =(((np.sum(np.isnan(mat),axis=0)==len(mat)) * smooth(np.sum(np.isnan(mat),axis=0)!=len(mat),3  )) )  > 1/3
-  locs = np.zeros(np.shape(mat)); locs[singletons,:]=1; locs[:,singletons] = 1
-  bb_minus_single = (badBins.astype('int8')-singletons.astype('int8')).astype('bool')
-  locs[bb_minus_single,:]=0; locs[:,bb_minus_single] = 0
-  locs = np.nonzero(locs)#np.isnan(mat))
-  interpvals = np.zeros(np.shape(mat))
-  for loc in zip(locs[0], locs[1]):
-    i,j = loc
-    if loc[0] > loc[1]:
-      if loc[0]>0 and loc[1] > 0 and loc[0] < len(mat)-2 and loc[1]< len(mat)-2:
-        interpvals[i,j] = np.nanmean(  [mat[i-1,j-1],mat[i+1,j+1]])
-  interpvals = interpvals+interpvals.T
-  mat2 = np.copy(mat)
-  mat2[np.nonzero(interpvals)] = interpvals[np.nonzero(interpvals)]
-  return mat2
 
 def smooth(y, box_pts):
   box = np.ones(box_pts)/box_pts

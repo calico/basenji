@@ -100,6 +100,8 @@ def main():
       help='Proportion of the data for testing [Default: %default]')
   parser.add_option('-u', dest='umap_bed',
       help='Unmappable regions in BED format')
+  parser.add_option('--umap_midpoints', dest='umap_midpoints',
+      help='Regions with midpoints to exclude in BED format. Used for 4C.')
   parser.add_option('--umap_t', dest='umap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
@@ -210,8 +212,8 @@ def main():
   ################################################################
   # stride sequences across contig
   train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap, label='test')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test,  options.snap, label='valid')
+  test_mseqs  = contig_sequences(test_contigs,  options.seq_length, options.stride_test,  options.snap, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -231,11 +233,12 @@ def main():
   ################################################################
   # mappability
   ################################################################
-  if options.umap_bed is not None:
+  if (options.umap_bed is not None) or (options.umap_midpoints is not None):
     if shutil.which('bedtools') is None:
       print('Install Bedtools to annotate unmappable sites', file=sys.stderr)
       exit(1)
 
+  if options.umap_bed is not None:
     # annotate unmappable positions
     mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
                                  options.seq_length, options.pool_width)
@@ -247,6 +250,22 @@ def main():
 
     # write to file
     unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
+    np.save(unmap_npy, mseqs_unmap)
+
+  if options.umap_midpoints is not None:
+    # annotate unmappable midpoints for 4C
+    mseqs_unmap = annotate_unmap(mseqs, options.umap_midpoints,
+                                 options.seq_length, options.pool_width)
+
+    # filter unmappable
+    seqmid =  mseqs_unmap.shape[1]//2  #int( options.seq_length / options.pool_width /2)
+    mseqs_map_mask = (np.sum(mseqs_unmap[:,seqmid-1:seqmid+1],axis=1) == 0)
+
+    mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
+    mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
+
+    # write to file
+    unmap_npy = '%s/mseqs_unmap_midpoints.npy' % options.out_dir
     np.save(unmap_npy, mseqs_unmap)
 
   # write sequences to BED
@@ -442,7 +461,6 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
     assert(seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end].sum() == pool_seq_unmap_end-pool_seq_unmap_start)
 
   return seqs_unmap
-
 
 ################################################################################
 def break_large_contigs(contigs, break_t, verbose=False):

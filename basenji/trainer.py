@@ -42,7 +42,9 @@ class Trainer:
 
   def compile(self, model):
     num_targets = model.output_shape[-1]
-    model.compile(loss='poisson',
+    loss = self.params.get('loss', 'poisson')
+    print('training loss:', loss)
+    model.compile(loss=loss,
                   optimizer=self.optimizer,
                   metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
     self.compiled = True

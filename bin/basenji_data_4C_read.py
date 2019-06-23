@@ -141,7 +141,7 @@ def main():
       # todo: offer a complete interpolation of the 4C profile if obs/exp not used
 
       # compute observed/expected
-      seq_hic_obsexp = observed_over_expected(seq_hic_raw, ~seq_hic_nan)[0]
+      seq_hic_obsexp = observed_over_expected(seq_hic_interpolated, ~seq_hic_nan)[0]
       # todo: allow passing a global expected rather than computing locally
 
       # log

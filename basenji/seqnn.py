@@ -127,6 +127,7 @@ class SeqNN():
       activation=None,
       use_bias=True,
       kernel_initializer='he_normal',
+      bias_initializer='zeros'
       )(current)
       # kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
 
@@ -137,11 +138,15 @@ class SeqNN():
     ###################################################
     # link
     ###################################################
-    # float 32 exponential clip max
-    exp_max = 50
 
     # choose link
-    current = layers.Softplus(exp_max)(current)
+    link = getattr(self,'link', None)
+    if (link is None) or (link is 'softplus'):
+      # float 32 exponential clip max
+      exp_max = 50
+      current = layers.Softplus(exp_max)(current)
+    elif link is 'identity' or 'linear':
+      current = current  #tf.identity(current, name='preds') led to a strange JSON error
 
     self.preds = current
 
@@ -190,7 +195,9 @@ class SeqNN():
 
     # compile with dense metrics
     num_targets = self.model.output_shape[-1]
-    model.compile(loss='poisson',
+    loss = getattr(self,'loss','poisson')
+    print('eval loss:', loss)
+    model.compile(loss= loss,
                   optimizer=tf.keras.optimizers.SGD(),
                   metrics=[metrics.PearsonR(num_targets, summarize=False),
                            metrics.R2(num_targets, summarize=False)])

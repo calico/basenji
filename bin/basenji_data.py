@@ -298,7 +298,7 @@ def main():
       cmd += ' %s' % seqs_cov_file
 
       if options.run_local:
-        cmd += ' &> %s.err' % seqs_cov_stem
+        #cmd += ' &> %s.err' % seqs_cov_stem ## breaks on ubuntu, comment to fix
         read_jobs.append(cmd)
       else:
         j = slurm.Job(cmd,

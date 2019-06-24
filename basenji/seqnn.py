@@ -184,7 +184,7 @@ class SeqNN():
       self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
 
 
-  def evaluate(self, seq_data, head_i=0):
+  def evaluate(self, seq_data, head_i=0, loss='poisson'):
     """ Evaluate model on SeqDataset. """
     # choose model
     if self.ensemble is None:
@@ -194,7 +194,7 @@ class SeqNN():
 
     # compile with dense metrics
     num_targets = self.model.output_shape[-1]
-    model.compile(loss='poisson',
+    model.compile(loss,
                   optimizer=tf.keras.optimizers.SGD(),
                   metrics=[metrics.PearsonR(num_targets, summarize=False),
                            metrics.R2(num_targets, summarize=False)])

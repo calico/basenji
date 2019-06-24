@@ -27,8 +27,6 @@ from absl import app, flags
 import numpy as np
 
 
-
-
 ################################################################################
 
 # parameters and data

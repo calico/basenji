@@ -117,6 +117,11 @@ def main():
   parser.add_option('--snap', dest='snap',
       default=None, type='int',
       help='snap stride to multiple for binned targets in bp, if not None seq_length must be a multiple of snap')
+  parser.add_option('--as_obsexp',dest='as_obsexp',action="store_true", default=False, 
+      help='save targets as obsexp profiles')
+  #parser.add_option("-v", action="store_true", dest="verbose", default=True)
+
+
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -311,6 +316,8 @@ def main():
       cmd += ' -s %f' % scale_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
+      if options.as_obsexp:
+        cmd += ' --as_obsexp'  
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file

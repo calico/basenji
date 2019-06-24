@@ -25,14 +25,9 @@ import time
 
 from absl import app, flags
 import numpy as np
-import tensorflow as tf
 
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
 
-from basenji import dataset
-from basenji import seqnn
-from basenji import trainer
+
 
 ################################################################################
 
@@ -68,6 +63,20 @@ def main(_):
     params = json.load(params_open)
   params_model = params['model']
   params_train = params['train']
+
+  if params_train.get('use_gpu',1) == False:
+    os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
+    print("  ")
+    print(" training on CPU ")
+    print("  ")
+
+  import tensorflow as tf
+  if tf.__version__[0] == '1':
+    tf.compat.v1.enable_eager_execution()
+  from basenji import dataset
+  from basenji import seqnn
+  from basenji import trainer
+
 
   # load data
   train_data = dataset.SeqDataset(FLAGS.train_data,

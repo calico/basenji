@@ -82,79 +82,14 @@ def conv_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
   return current
 
 
-def conv_original(inputs, filters=128, activation='relu', kernel_size=1,
-              strides=1, dilation_rate=1, l2_weight=0, momentum=0.99,
-              renorm=False, renorm_momentum=0.99, dropout=0, pool_size=1,
-              skip_inputs=None, concat=False, is_training=None):
-  """Construct a single (dilated) CNN block.
-
-  Args:
-    inputs:        [batchsize, length, num_channels] input sequence
-    filters:       Conv1D filters
-    kernel_size:   Conv1D kernel_size
-    activation:    relu/gelu/etc
-    strides:       Conv1D strides
-    dilation_rate: Conv1D dilation_rate
-    l2_weight:
-    momentum:
-    renorm_momentum:
-    skip_inputs:
-    is_training:  boolean variable for train/test
-
-  Returns:
-    output sequence
-  """
-
-  # flow through variable current
-  current = inputs
-
-  # activation
-  if activation == 'relu':
-    current = tf.keras.layers.ReLU()(current)
-  elif activation == 'gelu':
-    current = layers.GELU()(current)
-  else:
-    print('Unrecognized activation "%s"' % activation, file=sys.stderr)
-    exit(1)
-
-  # convolution
-  current = tf.keras.layers.Conv1D(
-    filters=filters,
-    kernel_size=kernel_size,
-    strides=strides,
-    padding='same',
-    dilation_rate=dilation_rate,
-    use_bias=False,
+def dense(inputs, units, activation='softplus', l2_scale=0, l1_scale=0, **kwargs):
+  current = tf.keras.layers.Dense(
+    units=units,
+    activation=activation,
+    use_bias=True,
     kernel_initializer='he_normal',
-    kernel_regularizer=tf.keras.regularizers.l2(l2_weight))(current)
-
-  # batch norm
-  # current = tf.keras.layers.BatchNormalization(
-  #   momentum=momentum,
-  #   gamma_initializer=('ones' if skip_inputs is None else 'zeros'),
-  #   renorm=renorm,
-  #   renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
-  #   renorm_momentum=renorm_momentum,
-  #   fused=True)(current, training=is_training)
-
-  # dropout
-  if dropout > 0:
-    current = tf.keras.layers.Dropout(rate=dropout)(current, training=is_training)
-
-   # skip
-  if skip_inputs is not None:
-    current = tf.keras.layers.Add()([skip_inputs,current])
-
-  # concat
-  elif concat:
-    current = tf.keras.layers.Concatenate()([inputs,current])
-
-  # Pool
-  if pool_size > 1:
-    current = tf.keras.layers.MaxPool1D(
-      pool_size=pool_size,
-      padding='same')(current)
-
+    kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
+    )(inputs)
   return current
 
 
@@ -235,10 +170,12 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, rep
 name_func = {
   'conv_block': conv_block,
   'conv_tower': conv_tower,
+  'dense': dense,
   'dilated_residual': dilated_residual,
-  'dilated_dense': dilated_dense,
+  'dilated_dense': dilated_dense
 }
 
 keras_func = {
-  'Conv1D': tf.keras.layers.Conv1D
+  'Conv1D': tf.keras.layers.Conv1D,
+  'Dense': tf.keras.layers.Dense
 }

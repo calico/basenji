@@ -92,7 +92,7 @@ class SeqNN():
     ###################################################
     # build convolution blocks
     ###################################################
-    for bi, block_params in enumerate(self.blocks):
+    for bi, block_params in enumerate(self.trunk):
       current = self.build_block(current, block_params)
 
     # final activation
@@ -117,39 +117,43 @@ class SeqNN():
         left=target_diff2,
         right=current_length-target_diff2)(current)
 
-    ###################################################
-    # final layer
-    ###################################################
-    self.sum_targets = np.sum(self.num_targets)
-
-    current = tf.keras.layers.Dense(
-      units=self.sum_targets,
-      activation=None,
-      use_bias=True,
-      kernel_initializer='he_normal',
-      )(current)
-      # kernel_regularizer=tf.keras.regularizers.l1(self.pred_l1_scale)
-
-    if self.augment_rc:
-      # transform back from reverse complement
-      current = layers.SwitchReverse()([current, reverse_bool])
+    self.trunk_output = current
 
     ###################################################
-    # link
+    # heads
     ###################################################
-    # float 32 exponential clip max
-    exp_max = 50
 
-    # choose link
-    current = layers.Softplus(exp_max)(current)
+    if not isinstance(self.head, list):
+        self.head = [self.head]
 
-    self.preds = current
+    self.head_output = []
+
+    for hi, head in enumerate(self.head):
+        if not isinstance(head, list):
+            head = [head]
+
+        # reset to trunk output
+        current = self.trunk_output
+
+        # build blocks
+        for bi, block_params in enumerate(head):
+            current = self.build_block(current, block_params)
+
+        if self.augment_rc:
+          # transform back from reverse complement
+          current = layers.SwitchReverse()([current, reverse_bool])
+
+        # save head output
+        self.head_output.append(current)
 
     ###################################################
-    # compile model
+    # compile model(s)
     ###################################################
-    # self.model = tf.keras.Model(inputs=[sequence,self.genome], outputs=self.preds)
-    self.model = tf.keras.Model(inputs=sequence, outputs=self.preds)
+    # self.model = tf.keras.Model(inputs=sequence, outputs=self.preds)
+    self.models = []
+    for ho in self.head_output:
+        self.models.append(tf.keras.Model(inputs=sequence, outputs=ho))
+    self.model = self.models[0]
     print(self.model.summary())
 
 
@@ -180,11 +184,11 @@ class SeqNN():
       self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
 
 
-  def evaluate(self, seq_data):
+  def evaluate(self, seq_data, head_i=0):
     """ Evaluate model on SeqDataset. """
-    # choose ensemble if built
+    # choose model
     if self.ensemble is None:
-      model = self.model
+      model = self.models[head_i]
     else:
       model = self.ensemble
 
@@ -199,12 +203,15 @@ class SeqNN():
     return model.evaluate(seq_data.dataset)
 
 
-  def predict(self, seq_data):
+  def predict(self, seq_data, head_i=0):
     """ Predict targets for SeqDataset. """
+    # choose model
     if self.ensemble is None:
-      return self.model.predict(seq_data.dataset)
+      model = self.models[head_i]
     else:
-      return self.ensemble(seq_data.dataset)
+      model = self.ensemble
+
+    return model.predict(seq_data.dataset)
 
 
   def restore(self, model_file):

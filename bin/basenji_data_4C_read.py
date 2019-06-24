@@ -29,8 +29,8 @@ from basenji_data import ModelSeq
 # hic imports
 import astropy.convolution as astroconv
 import cooler
-from cooltools.lib.numutils import observed_over_expected, adaptive_coarsegrain, interpolate_bad_singletons
-
+from cooltools.lib.numutils import observed_over_expected, adaptive_coarsegrain, interpolate_bad_singletons, set_diag
+import pandas as pd
 
 
 """
@@ -62,6 +62,10 @@ def main():
   parser.add_option('-w',dest='pool_width',
       default=1, type='int',
       help='Average pooling width [Default: %default]')
+  parser.add_option('--as_obsexp',dest='as_obsexp',
+      default=True, type='bool',
+      help='save targets as obsexp profiles')
+
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -128,7 +132,7 @@ def main():
 
       seq_hic_smoothed =  adaptive_coarsegrain(seq_hic_raw, genome_hic_cool.matrix(balance=False).fetch(mseq_str),  cutoff=.5, max_levels=8)
 
-      # interpolate
+      # interpolate single missing bins
       seq_hic_interpolated =  interpolate_bad_singletons(seq_hic_smoothed, mask=(~seq_hic_nan),
                                                fillDiagonal=True, returnMask=False, secondPass=True,verbose=False)
       seq_hic_nan = np.isnan(seq_hic_interpolated)
@@ -137,35 +141,43 @@ def main():
       #seq_hic_min = np.min(seq_hic_raw[seq_hic_raw > 0])
       #seq_hic_raw += seq_hic_min
 
-      # todo: pass an option to save raw values to TFR instead of obs/exp
-      # todo: offer a complete interpolation of the 4C profile if obs/exp not used
 
-      # compute observed/expected
-      seq_hic_obsexp = observed_over_expected(seq_hic_interpolated, ~seq_hic_nan)[0]
-      # todo: allow passing a global expected rather than computing locally
+      if options.as_obsexp == True:
+        # compute observed/expected
+        seq_hic_obsexp = observed_over_expected(seq_hic_interpolated, ~seq_hic_nan)[0]
+        # todo: allow passing a global expected rather than computing locally
 
-      # log
-      seq_hic_obsexp = np.log(seq_hic_obsexp)
-      # set nan to 0
-      seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
-      # todo: make clip an option for obs/exp 4C, but not otherwise
-      seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
-     
-      seq_hic = seq_hic_obsexp.copy()
+        # log
+        seq_hic_obsexp = np.log(seq_hic_obsexp)
+
+        # set nan to 0
+        seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
+
+        # todo: make clip an option for obs/exp 4C, but not otherwise
+        seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
+
+        seq_4C = np.nanmean( seq_hic_obsexp[len(seq_hic_obsexp)//2-1:len(seq_hic_obsexp)//2+1,:],axis=0)
+      
+      else:
+        # save fully-interpolated observed values
+        setval = np.nanmedian(np.diag(seq_hic_interp,2))
+        for i in [-1,0,1]: set_diag(seq_hic_interpolated,setval,i)
+
+        # take the mean
+        seq_4C = np.nanmean( seq_hic_interpolated[len(seq_hic_interpolated)//2-1:len(seq_hic_interpolated)//2+1,:],axis=0)
+        
+        # linearly interpolate missing bins 
+        seq_4C = pd.DataFrame(seq_4C*10).interpolate().values.ravel()
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
-      seq_hic = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
-    
-    seq_4C = np.nanmean( seq_hic[len(seq_hic)//2-1:len(seq_hic)//2+1,:],axis=0)
+      seq_4C = np.zeros((seq_len_pool,), dtype='float16')
     
     # write
     seqs_4C_open['seqs_cov'][si,:] = seq_4C.astype('float16')
     
-    
   # close sequences coverage file
   seqs_4C_open.close()
-
 
 def smooth(y, box_pts):
   box = np.ones(box_pts)/box_pts

@@ -119,7 +119,7 @@ def make_hparams(job, num_worker_replicas=None, num_ps_replicas=None):
 
   hp.add_hparam('batch_size', job.get('batch_size', 64))
   hp.add_hparam('seq_length', job.get('seq_length', 1024))
-  hp.add_hparam('batch_buffer', job.get('batch_buffer', 64))
+  hp.add_hparam('batch_buffer', job.get('batch_buffer', 0))
 
   hp.add_hparam('batch_norm', bool(job.get('batch_norm', True)))
   hp.add_hparam('batch_renorm', bool(job.get('batch_renorm', False)))

@@ -45,22 +45,25 @@ def main():
   # basenji_predict_bed.py options
   parser.add_option('-b', dest='bigwig_indexes',
       default=None, help='Comma-separated list of target indexes to write BigWigs')
+  parser.add_option('-e', dest='embed_layer',
+      default=None, type='int', help='Embed sequences using the specified layer index.')
   parser.add_option('-f', dest='genome_fasta',
       default=None,
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genome_file',
       default=None,
       help='Chromosome length information [Default: %default]')
-  parser.add_option('-l', dest='embed_layer',
-      default=None, type='int', help='Embed sequences using the specified layer index.')
+  parser.add_option('-l', dest='site_length',
+      default=None, type='int',
+      help='Prediction site length. [Default: params.seq_length]')
   parser.add_option('-o', dest='out_dir',
       default='pred_out', help='Output directory [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
-  parser.add_option('-s', dest='sum_windows',
-      default=None, type='int',
-      help='Sum predictions in center windows [Default: %default]')
+  parser.add_option('-s', dest='sum',
+      default=False, action='store_true',
+      help='Sum site predictions [Default: %default]')
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')

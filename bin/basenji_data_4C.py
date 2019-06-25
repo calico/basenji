@@ -274,6 +274,7 @@ def main():
     np.save(unmap_npy, mseqs_unmap)
 
   # write sequences to BED
+  print('writing sequences to BED')
   seqs_bed_file = '%s/sequences.bed' % options.out_dir
   write_seqs_bed(seqs_bed_file, mseqs, True)
 
@@ -338,6 +339,7 @@ def main():
   else:
     slurm.multi_run(read_jobs, options.processes, verbose=True,
                     launch_sleep=1, update_sleep=5)
+
 
   ################################################################
   # write TF Records

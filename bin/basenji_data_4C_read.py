@@ -132,8 +132,6 @@ def main():
         seq_hic_nan = np.isnan(seq_hic_raw)
 
       seq_hic_smoothed =  adaptive_coarsegrain(seq_hic_raw, genome_hic_cool.matrix(balance=False).fetch(mseq_str),  cutoff=.5, max_levels=8)
-
-
       
       #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
       #seq_hic_min = np.min(seq_hic_raw[seq_hic_raw > 0])
@@ -172,7 +170,7 @@ def main():
         seq_hic_interpolated = np.clip(seq_hic_interpolated, 0, clipval)
 
         # take the mean, rescale
-        seq_4C = 100*np.nanmean( seq_hic_interpolated[len(seq_hic_interpolated)//2-1:len(seq_hic_interpolated)//2+1,:],axis=0)
+        seq_4C = 10000*np.nanmean( seq_hic_interpolated[len(seq_hic_interpolated)//2-1:len(seq_hic_interpolated)//2+1,:],axis=0)
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))

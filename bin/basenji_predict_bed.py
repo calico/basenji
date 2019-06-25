@@ -47,14 +47,17 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-b', dest='bigwig_indexes',
       default=None, help='Comma-separated list of target indexes to write BigWigs')
+  parser.add_option('-e', dest='embed_layer',
+      default=None, type='int', help='Embed sequences using the specified layer index.')
   parser.add_option('-f', dest='genome_fasta',
       default=None,
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genome_file',
       default=None,
       help='Chromosome length information [Default: %default]')
-  parser.add_option('-l', dest='embed_layer',
-      default=None, type='int', help='Embed sequences using the specified layer index.')
+  parser.add_option('-l', dest='site_length',
+      default=None, type='int',
+      help='Prediction site length. [Default: params.seq_length]')
   parser.add_option('-o', dest='out_dir',
       default='pred_out',
       help='Output directory [Default: %default]')
@@ -67,9 +70,9 @@ def main():
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
-  parser.add_option('-s', dest='sum_windows',
-      default=None, type='int',
-      help='Sum predictions in center windows [Default: %default]')
+  parser.add_option('-s', dest='sum',
+      default=False, action='store_true',
+      help='Sum site predictions [Default: %default]')
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
@@ -121,6 +124,10 @@ def main():
 
   job = params.read_job_params(params_file, require=['num_targets','seq_length'])
 
+  if job.get('batch_buffer',0) > 0:
+    print('Turn off batch_buffer.', file=sys.stderr)
+    exit(1)
+
   num_targets = np.sum(job['num_targets'])
   if options.targets_file is None:
     target_subset = None
@@ -132,22 +139,30 @@ def main():
     else:
       num_targets = len(target_subset)
 
+  if options.site_length is None:
+    options.site_length = params['seq_length']
+
+
   #################################################################
   # sequence dataset
 
-  # read sequences from BED
-  seqs_dna, seqs_coords = bed_seqs(bed_file, options.genome_fasta, job['seq_length'])
+  # construct model sequences
+  model_seqs_dna, model_seqs_coords = make_bed_data(bed_file, options.genome_fasta, job['seq_length'])
+
+  # construct site coordinates
+  site_seqs_coords = read_bed(bed_file, options.site_length)
 
   # filter for worker SNPs
   if options.processes is not None:
-    worker_bounds = np.linspace(0, len(seqs_dna), options.processes+1, dtype='int')
-    seqs_dna = seqs_dna[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
-    seqs_coords = seqs_coords[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+    worker_bounds = np.linspace(0, len(model_seqs_dna), options.processes+1, dtype='int')
+    model_seqs_dna = model_seqs_dna[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+    model_seqs_coords = model_seqs_coords[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+    site_seqs_coords = site_seqs_coords[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
 
-  num_seqs = len(seqs_dna)
+  num_seqs = len(model_seqs_dna)
 
   # make data ops
-  data_ops = seq_data_ops(seqs_dna, job['batch_size'])
+  data_ops = seq_data_ops(model_seqs_dna, job['batch_size'])
 
   #################################################################
   # setup model
@@ -162,39 +177,42 @@ def main():
   #################################################################
   # setup output
 
+  # determine site boundaries in predictions space
+  assert(job['seq_length'] % model.preds_length == 0)
+  preds_window = job['seq_length'] // model.preds_length
+
+  assert(model.preds_length % 2 == 0)
+  preds_mid = model.preds_length // 2
+
+  assert(options.site_length % preds_window == 0)
+  site_preds_length = options.site_length // preds_window
+
+  assert(site_preds_length % 2 == 0)
+  site_preds_start = preds_mid - site_preds_length//2
+  site_preds_end = site_preds_start + site_preds_length
+
+
+  # initialize HDF5
   out_h5_file = '%s/predict.h5' % options.out_dir
   if os.path.isfile(out_h5_file):
     os.remove(out_h5_file)
   out_h5 = h5py.File(out_h5_file, 'w')
-  if options.sum_windows is None:
-    out_h5.create_dataset('preds', shape=(num_seqs, model.preds_length, model.preds_depth), dtype='float16')
-  else:
+
+  # create predictions
+  if options.sum:
     out_h5.create_dataset('preds', shape=(num_seqs, model.preds_depth), dtype='float16')
+  else:
+    out_h5.create_dataset('preds', shape=(num_seqs, site_preds_length, model.preds_depth), dtype='float16')
 
-  # store sequence coordinates
-  seqs_chr, seqs_start, _ = zip(*seqs_coords)
-  seqs_chr = np.array(seqs_chr, dtype='S')
-  seqs_start = np.array(seqs_start)
-  seqs_end = seqs_start + job['seq_length']
-  out_h5.create_dataset('chrom', data=seqs_chr)
-  out_h5.create_dataset('start', data=seqs_start)
-  out_h5.create_dataset('end', data=seqs_end)
+  # store site coordinates
+  site_seqs_chr, site_seqs_start, site_seqs_end = zip(*site_seqs_coords)
+  site_seqs_chr = np.array(site_seqs_chr, dtype='S')
+  site_seqs_start = np.array(site_seqs_start)
+  site_seqs_end = np.array(site_seqs_end)
+  out_h5.create_dataset('chrom', data=site_seqs_chr)
+  out_h5.create_dataset('start', data=site_seqs_start)
+  out_h5.create_dataset('end', data=site_seqs_end)
 
-  if options.sum_windows is not None:
-    if model.preds_length % 2 == 0:
-      # even sequence wants even windows
-      if options.sum_windows % 2 == 1:
-        options.sum_windows += 1
-        print('WARNING: Increasing sum_windows to %d for symmetry' % options.sum_windows)
-    else:
-      # odd sequence wants odd windows
-      if options.sum_windows % 2 == 0:
-        options.sum_windows += 1
-        print('WARNING: Increasing sum_windows to %d for symmetry.' % options.sum_windows)
-
-    side_sum = options.sum_windows // 2
-    mid_start = model.preds_length//2 - side_sum
-    mid_end = mid_start + options.sum_windows
 
   #################################################################
   # predict scores, write output
@@ -215,21 +233,19 @@ def main():
       # predict
       preds_full = preds_stream[si]
 
-      if options.sum_windows is not None:
-        # slice middle and summarize
-        preds_sum = preds_full[mid_start:mid_end,:].sum(axis=0)
+      # slice site
+      preds_site = preds_full[site_preds_start:site_preds_end,:]
 
-        # write
-        out_h5['preds'][si] = preds_sum
-
+      # write
+      if options.sum:
+        out_h5['preds'][si] = preds_site.sum(axis=0)
       else:
-        # write
-        out_h5['preds'][si] = preds_full
+        out_h5['preds'][si] = preds_site
 
       # write bigwig
       for ti in options.bigwig_indexes:
         bw_file = '%s/s%d_t%d.bw' % (bigwig_dir, si, ti)
-        bigwig_write(preds_full[:,ti], seqs_coords[si], bw_file,
+        bigwig_write(preds_full[:,ti], model_seqs_coords[si], bw_file,
                      options.genome_file, model.hp.batch_buffer)
 
   # close output HDF5
@@ -291,7 +307,7 @@ def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_buffer=0):
 
   bw_out.close()
 
-def bed_seqs(bed_file, fasta_file, seq_len):
+def make_bed_data(bed_file, fasta_file, seq_len):
   """Extract and extend BED sequences to seq_len."""
   fasta_open = pysam.Fastafile(fasta_file)
 
@@ -337,6 +353,26 @@ def bed_seqs(bed_file, fasta_file, seq_len):
   fasta_open.close()
 
   return seqs_dna, seqs_coords
+
+
+def read_bed(bed_file, seq_len):
+  seqs_coords = []
+
+  for line in open(bed_file):
+    a = line.split()
+    chrm = a[0]
+    start = int(float(a[1]))
+    end = int(float(a[2]))
+
+    # determine sequence limits
+    mid = (start + end) // 2
+    seq_start = mid - seq_len//2
+    seq_end = seq_start + seq_len
+
+    # save
+    seqs_coords.append((chrm,seq_start,seq_end))
+
+  return seqs_coords
 
 
 def seq_data_ops(seqs_dna, batch_size):

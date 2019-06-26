@@ -167,12 +167,38 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, rep
   return current
 
 
+
+
+
+class ConcatPosition(tf.keras.layers.Layer):
+  ''' concatenate the distance to the center to a (batch size, sequence length, features) tensor
+    via a (batch_size, sequence length, 1) tensor
+   '''
+  def __init__(self):
+    super(ConcatPosition, self).__init__()
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    batch_size, seq_len, output_dim = input_shape[0], input_shape[1], 1
+    seq_len_float = tf.dtypes.cast(seq_len,dtype=tf.float32)
+    positional_input = tf.math.abs( tf.range(-seq_len_float/2+.5,seq_len_float/2) )
+    positional_input = tf.expand_dims(positional_input,axis=0)
+    positional_input = tf.expand_dims(positional_input,axis=-1)
+    positional_input = tf.tile(positional_input, [batch_size,1, 1]   )
+    positional_input = tf.dtypes.cast(positional_input,dtype=tf.float32)
+    return tf.concat([positional_input ,  inputs], axis=-1)#-1 ) 
+
+def positional_encoding(inputs,  **kwargs):
+  current = ConcatPosition()(inputs)
+  return current
+
+
 name_func = {
   'conv_block': conv_block,
   'conv_tower': conv_tower,
   'dense': dense,
   'dilated_residual': dilated_residual,
-  'dilated_dense': dilated_dense
+  'dilated_dense': dilated_dense,
+  'positional_encoding': positional_encoding
 }
 
 keras_func = {

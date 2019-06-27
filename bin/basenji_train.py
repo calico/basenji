@@ -73,7 +73,7 @@ def main(_):
   import shutil
   if not os.path.isdir(FLAGS.log_dir):
     os.mkdir(FLAGS.log_dir)
-  shutil.copy(FLAGS.params,FLAGS.log_dir)
+  shutil.copy(FLAGS.params,'params.json')
 
   import tensorflow as tf
   if tf.__version__[0] == '1':

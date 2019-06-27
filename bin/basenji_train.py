@@ -26,13 +26,7 @@ import time
 from absl import app, flags
 import numpy as np
 
-import tensorflow as tf
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
 
-from basenji import dataset
-from basenji import seqnn
-from basenji import trainer
 
 ################################################################################
 
@@ -74,6 +68,22 @@ def main(_):
     print("  ")
     print(" training on CPU ")
     print("  ")
+    #need to blind to CPUs before tf is imported
+
+  import shutil
+  if not os.path.isdir(FLAGS.log_dir):
+    os.mkdir(FLAGS.log_dir)
+  shutil.copy(FLAGS.params,FLAGS.log_dir)
+
+  import tensorflow as tf
+  if tf.__version__[0] == '1':
+    tf.compat.v1.enable_eager_execution()
+  print('tf version:',tf.__version__)
+
+  from basenji import dataset
+  from basenji import seqnn
+  from basenji import trainer
+
 
   # load data
   train_data = dataset.SeqDataset(FLAGS.train_data,
@@ -96,6 +106,7 @@ def main(_):
 
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
+    print('saving model to:', FLAGS.log_dir+'/'+FLAGS.params.split('/')[-1] )
 
     # compile model
     seqnn_trainer.compile(seqnn_model.model)

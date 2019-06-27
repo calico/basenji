@@ -170,7 +170,7 @@ def main():
         seq_hic_interpolated = np.clip(seq_hic_interpolated, 0, clipval)
 
         # take the mean, rescale
-        seq_4C = 10000*np.nanmean( seq_hic_interpolated[len(seq_hic_interpolated)//2-1:len(seq_hic_interpolated)//2+1,:],axis=0)
+        seq_4C = 100000*np.nanmean( seq_hic_interpolated[len(seq_hic_interpolated)//2-1:len(seq_hic_interpolated)//2+1,:],axis=0)
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))

@@ -168,7 +168,7 @@ def activate(current, activation):
   elif activation == 'gelu':
     current = layers.GELU()(current)
   elif activation == 'sigmoid':
-    current = tf.keras.activations.sigmoid()(current)
+    current = tf.keras.layers.Activation('sigmoid')(current)
   else:
     print('Unrecognized activation "%s"' % activation, file=sys.stderr)
     exit(1)

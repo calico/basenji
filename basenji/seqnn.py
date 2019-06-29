@@ -20,6 +20,8 @@ import time
 
 import numpy as np
 import tensorflow as tf
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
 
 from basenji import blocks
 from basenji import layers
@@ -33,6 +35,7 @@ class SeqNN():
       self.__setattr__(key, value)
     self.build_model()
     self.ensemble = None
+    self.embed = None
 
   def set_defaults(self):
     # only necessary for my bespoke parameters
@@ -157,6 +160,16 @@ class SeqNN():
     print(self.model.summary())
 
 
+  def build_embed(self, conv_layer_i):
+    if conv_layer_i == -1:
+      self.embed = tf.keras.Model(inputs=self.model.inputs,
+                                  outputs=self.model.inputs)
+    else:
+      conv_layer = self.get_bn_layer(conv_layer_i)
+      self.embed = tf.keras.Model(inputs=self.model.inputs,
+                                  outputs=conv_layer.output)
+
+
   def build_ensemble(self, ensemble_rc=False, ensemble_shifts=[0]):
     """ Build ensemble of models computing on augmented input sequences. """
     if ensemble_rc or len(ensemble_shifts) > 1:
@@ -202,16 +215,40 @@ class SeqNN():
     # evaluate
     return model.evaluate(seq_data.dataset)
 
+  def get_bn_layer(self, bn_layer_i):
+    """ Return specified batch normalization layer. """
+    bn_layers = [layer for layer in self.model.layers if layer.name.startswith('batch_normalization')]
+    return bn_layers[bn_layer_i]
 
-  def predict(self, seq_data, head_i=0):
+  def get_conv_layer(self, conv_layer_i):
+    """ Return specified convolution layer. """
+    conv_layers = [layer for layer in self.model.layers if layer.name.startswith('conv')]
+    return conv_layers[conv_layer_i]
+
+
+  def get_conv_weights(self, conv_layer_i):
+    """ Return kernel weights for specified convolution layer. """
+    conv_layer = self.get_conv_layer(conv_layer_i)
+    weights = conv_layer.weights[0].numpy()
+    weights = np.transpose(weights, [2,1,0])
+    return weights
+
+
+  def predict(self, seq_data, head_i=0, **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
-    if self.ensemble is None:
-      model = self.models[head_i]
-    else:
+    if self.embed is not None:
+      model = self.embed
+    elif self.ensemble is not None:
       model = self.ensemble
+    else:
+      model = self.models[head_i]
 
-    return model.predict(seq_data.dataset)
+    dataset = getattr(seq_data, 'dataset', None)
+    if dataset is None:
+      dataset = seq_data
+
+    return model.predict(dataset, **kwargs)
 
 
   def restore(self, model_file):

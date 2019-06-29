@@ -17,7 +17,9 @@ from __future__ import print_function
 
 from optparse import OptionParser
 
+import json
 import os
+import pdb
 import pickle
 import sys
 
@@ -28,10 +30,12 @@ import pysam
 import pyBigWig
 import tensorflow as tf
 
-import basenji.dna_io as dna_io
-from basenji import params
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
+
+from basenji import dna_io
 from basenji import seqnn
-from basenji.stream import PredStream
+from basenji import stream
 
 '''
 basenji_predict_bed.py
@@ -122,12 +126,11 @@ def main():
   #################################################################
   # read parameters and collet target information
 
-  job = params.read_job_params(params_file, require=['num_targets','seq_length'])
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
 
-  if job.get('batch_buffer',0) > 0:
-    print('Turn off batch_buffer.', file=sys.stderr)
-    exit(1)
-
+  """
   num_targets = np.sum(job['num_targets'])
   if options.targets_file is None:
     target_subset = None
@@ -138,16 +141,17 @@ def main():
       target_subset = None
     else:
       num_targets = len(target_subset)
+  """
 
   if options.site_length is None:
-    options.site_length = params['seq_length']
+    options.site_length = params_model['seq_length']
 
 
   #################################################################
   # sequence dataset
 
   # construct model sequences
-  model_seqs_dna, model_seqs_coords = make_bed_data(bed_file, options.genome_fasta, job['seq_length'])
+  model_seqs_dna, model_seqs_coords = make_bed_data(bed_file, options.genome_fasta, params_model['seq_length'])
 
   # construct site coordinates
   site_seqs_coords = read_bed(bed_file, options.site_length)
@@ -161,28 +165,33 @@ def main():
 
   num_seqs = len(model_seqs_dna)
 
-  # make data ops
-  data_ops = seq_data_ops(model_seqs_dna, job['batch_size'])
-
   #################################################################
   # setup model
 
-  # build model
-  model = seqnn.SeqNN()
-  model.build_sad(job, data_ops, ensemble_rc=options.rc,
-                  ensemble_shifts=options.shifts,
-                  embed_layer=options.embed_layer,
-                  target_subset=target_subset)
+  # initialize model
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  if options.embed_layer is not None:
+    seqnn_model.build_embed(options.embed_layer)
+    preds_length = seqnn_model.embed.output.shape[1]
+    preds_depth = seqnn_model.embed.output.shape[2]
+  else:
+    preds_length = seqnn_model.model.output.shape[1]
+    preds_depth = seqnn_model.model.output.shape[2]
+
+  # target_subset?
 
   #################################################################
   # setup output
 
   # determine site boundaries in predictions space
-  assert(job['seq_length'] % model.preds_length == 0)
-  preds_window = job['seq_length'] // model.preds_length
+  assert(params_model['seq_length'] % preds_length == 0)
+  preds_window = params_model['seq_length'] // preds_length
 
-  assert(model.preds_length % 2 == 0)
-  preds_mid = model.preds_length // 2
+  assert(preds_length % 2 == 0)
+  preds_mid = preds_length // 2
 
   assert(options.site_length % preds_window == 0)
   site_preds_length = options.site_length // preds_window
@@ -190,7 +199,6 @@ def main():
   assert(site_preds_length % 2 == 0)
   site_preds_start = preds_mid - site_preds_length//2
   site_preds_end = site_preds_start + site_preds_length
-
 
   # initialize HDF5
   out_h5_file = '%s/predict.h5' % options.out_dir
@@ -200,9 +208,9 @@ def main():
 
   # create predictions
   if options.sum:
-    out_h5.create_dataset('preds', shape=(num_seqs, model.preds_depth), dtype='float16')
+    out_h5.create_dataset('preds', shape=(num_seqs, preds_depth), dtype='float16')
   else:
-    out_h5.create_dataset('preds', shape=(num_seqs, site_preds_length, model.preds_depth), dtype='float16')
+    out_h5.create_dataset('preds', shape=(num_seqs, site_preds_length, preds_depth), dtype='float16')
 
   # store site coordinates
   site_seqs_chr, site_seqs_start, site_seqs_end = zip(*site_seqs_coords)
@@ -217,36 +225,26 @@ def main():
   #################################################################
   # predict scores, write output
 
-  # initialize saver
-  saver = tf.train.Saver()
+  # predict
+  preds_stream = stream.PredStream(seqnn_model, model_seqs_dna, params['train']['batch_size'])
 
-  with tf.Session() as sess:
-    # load variables into session
-    saver.restore(sess, model_file)
+  for si in range(num_seqs):
+    preds_seq = preds_stream[si]
 
-    # initialize predictions stream
-    preds_stream = PredStream(sess, model, 64)
+    # slice site
+    preds_site = preds_seq[site_preds_start:site_preds_end,:]
 
-    for si in range(num_seqs):
-      print('Predicting %d' % si, flush=True)
+    # write
+    if options.sum:
+      out_h5['preds'][si] = preds_site.sum(axis=0)
+    else:
+      out_h5['preds'][si] = preds_site
 
-      # predict
-      preds_full = preds_stream[si]
-
-      # slice site
-      preds_site = preds_full[site_preds_start:site_preds_end,:]
-
-      # write
-      if options.sum:
-        out_h5['preds'][si] = preds_site.sum(axis=0)
-      else:
-        out_h5['preds'][si] = preds_site
-
-      # write bigwig
-      for ti in options.bigwig_indexes:
-        bw_file = '%s/s%d_t%d.bw' % (bigwig_dir, si, ti)
-        bigwig_write(preds_full[:,ti], model_seqs_coords[si], bw_file,
-                     options.genome_file, model.hp.batch_buffer)
+    # write bigwig
+    for ti in options.bigwig_indexes:
+      bw_file = '%s/s%d_t%d.bw' % (bigwig_dir, si, ti)
+      bigwig_write(preds_seq[:,ti], model_seqs_coords[si], bw_file,
+                   options.genome_file, model.hp.batch_buffer)
 
   # close output HDF5
   out_h5.close()
@@ -306,6 +304,7 @@ def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_buffer=0):
           values=[float(s) for s in signal])
 
   bw_out.close()
+
 
 def make_bed_data(bed_file, fasta_file, seq_len):
   """Extract and extend BED sequences to seq_len."""
@@ -373,36 +372,6 @@ def read_bed(bed_file, seq_len):
     seqs_coords.append((chrm,seq_start,seq_end))
 
   return seqs_coords
-
-
-def seq_data_ops(seqs_dna, batch_size):
-  """Construct 1 hot encoded DNA sequences for tf.data."""
-
-  # make sequence generator
-  def seqs_gen():
-    for seq_dna in seqs_dna:
-      # 1 hot code DNA
-      seq_1hot = dna_io.dna_1hot(seq_dna)
-      yield {'sequence':seq_1hot}
-
-  # auxiliary info
-  seq_len = len(seqs_dna[0])
-  seqs_types = {'sequence': tf.float32}
-  seqs_shapes = {'sequence': tf.TensorShape([tf.Dimension(seq_len),
-                                            tf.Dimension(4)])}
-
-  # create dataset
-  dataset = tf.data.Dataset.from_generator(seqs_gen,
-                                           output_types=seqs_types,
-                                           output_shapes=seqs_shapes)
-  dataset = dataset.batch(batch_size)
-  dataset = dataset.prefetch(2*batch_size)
-
-  # make iterator ops
-  iterator = dataset.make_one_shot_iterator()
-  data_ops = iterator.get_next()
-
-  return data_ops
 
 
 ################################################################################

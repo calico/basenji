@@ -166,7 +166,7 @@ def activate(current, activation):
   if activation == 'relu':
     current = tf.keras.layers.ReLU()(current)
   elif activation == 'gelu':
-    current = layers.GELU()(current)
+    current = GELU()(current)
   else:
     print('Unrecognized activation "%s"' % activation, file=sys.stderr)
     exit(1)

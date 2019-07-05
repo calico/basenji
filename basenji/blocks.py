@@ -83,6 +83,7 @@ def conv_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 
 
 def dense(inputs, units, activation='softplus', l2_scale=0, l1_scale=0, **kwargs):
+  print('dense activation:',activation)
   current = tf.keras.layers.Dense(
     units=units,
     activation=activation,
@@ -174,21 +175,39 @@ class ConcatPosition(tf.keras.layers.Layer):
   ''' concatenate the distance to the center to a (batch size, sequence length, features) tensor
     via a (batch_size, sequence length, 1) tensor
    '''
-  def __init__(self):
+  def __init__(self, transform='abs', power=1):
     super(ConcatPosition, self).__init__()
+    self.transform = transform
+    self.power = power
   def call(self,inputs):
     input_shape = tf.shape(inputs)
     batch_size, seq_len, output_dim = input_shape[0], input_shape[1], 1
     seq_len_float = tf.dtypes.cast(seq_len,dtype=tf.float32)
-    positional_input = tf.math.abs( tf.range(-seq_len_float/2+.5,seq_len_float/2) )
+
+    print('pos_enc with: ', self.transform)
+    import time
+    time.sleep(.5)
+    if self.transform == 'abs':
+      positional_input = tf.math.abs( tf.range(-seq_len_float/2+.5,seq_len_float/2) )
+    elif self.transform == 'none':
+      positional_input = tf.range(-seq_len_float/2+.5,seq_len_float/2) 
+    elif self.transform == 'reversed':
+      positional_input = tf.range(-seq_len_float/2+.5,seq_len_float/2) [::-1]
+    else:
+      raise ValueError('unknown transform')
+
+    print('power with: ', self.power)
+    time.sleep(.5)
+    if self.power != 1:
+      positional_input = tf.pow(positional_input, self.power)
     positional_input = tf.expand_dims(positional_input,axis=0)
     positional_input = tf.expand_dims(positional_input,axis=-1)
     positional_input = tf.tile(positional_input, [batch_size,1, 1]   )
     positional_input = tf.dtypes.cast(positional_input,dtype=tf.float32)
     return tf.concat([positional_input ,  inputs], axis=-1)#-1 ) 
 
-def positional_encoding(inputs,  **kwargs):
-  current = ConcatPosition()(inputs)
+def positional_encoding(inputs, transform='abs', power=1,  **kwargs):
+  current = ConcatPosition(transform, power)(inputs)
   return current
 
 

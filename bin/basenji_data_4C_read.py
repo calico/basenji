@@ -131,7 +131,17 @@ def main():
           seq_hic_raw[black_seq_start:black_seq_end,:] = np.nan
         seq_hic_nan = np.isnan(seq_hic_raw)
 
-      seq_hic_smoothed =  adaptive_coarsegrain(seq_hic_raw, genome_hic_cool.matrix(balance=False).fetch(mseq_str),  cutoff=.5, max_levels=8)
+      # clip first diagonals and high values
+      clipval = np.nanmedian(np.diag(seq_hic_raw,2))
+      for i in [-1,0,1]: set_diag(seq_hic_raw,clipval,i)
+      seq_hic_raw = np.clip(seq_hic_raw, 0, seq_hic_raw)
+      seq_hic_raw[seq_hic_nan] = np.nan
+
+      # adaptively coarsegrain based on raw counts
+      seq_hic_smoothed =  adaptive_coarsegrain(
+                              seq_hic_raw,  
+                              genome_hic_cool.matrix(balance=False).fetch(mseq_str),  
+                              cutoff= 2, max_levels=8)
       
       #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
       #seq_hic_min = np.min(seq_hic_raw[seq_hic_raw > 0])
@@ -154,7 +164,7 @@ def main():
         # set nan to 0
         seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
 
-        # todo: make clip an option for obs/exp 4C, but not otherwise
+        # todo: make obsexp_clip an option for obs/exp 4C
         seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
 
         # take the mean
@@ -164,13 +174,11 @@ def main():
         # interpolate all missing bins
         seq_hic_interpolated =  interp_nan(seq_hic_smoothed)
 
-        # clip first diagonals and high values
-        clipval = np.nanmedian(np.diag(seq_hic_interpolated,2))
-        for i in [-1,0,1]: set_diag(seq_hic_interpolated,clipval,i)
-        seq_hic_interpolated = np.clip(seq_hic_interpolated, 0, clipval)
-
         # take the mean, rescale
         seq_4C = 100000*np.nanmean( seq_hic_interpolated[len(seq_hic_interpolated)//2-1:len(seq_hic_interpolated)//2+1,:],axis=0)
+
+        # smooth. todo allow passing the options.
+        seq_4C = smooth(seq_4C, 11, window='blackman')
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
@@ -182,8 +190,15 @@ def main():
   # close sequences coverage file
   seqs_4C_open.close()
 
-def smooth(y, box_pts):
-  box = np.ones(box_pts)/box_pts
+def smooth(y, box_pts, window='flat'):
+  # https://scipy-cookbook.readthedocs.io/items/SignalSmooth.html
+  if window is 'flat':
+    box = np.ones(box_pts)
+  elif window is 'blackman':
+    box =  np.blackman(box_pts)
+  else:
+    raise ValueError('unknown window')
+  box /= np.sum(box)
   y_smooth = astroconv.convolve(y, box, boundary='extend') # also: None, fill, wrap, extend
   return y_smooth
 

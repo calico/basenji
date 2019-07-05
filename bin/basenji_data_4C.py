@@ -380,7 +380,7 @@ def main():
       cmd += ' %s.tfr' % tfr_stem
 
       if options.run_local:
-        cmd += ' &> %s.err' % tfr_stem
+        #cmd += ' &> %s.err' % tfr_stem
         write_jobs.append(cmd)
       else:
         j = slurm.Job(cmd,

@@ -73,7 +73,8 @@ def main(_):
   import shutil
   if not os.path.isdir(FLAGS.log_dir):
     os.mkdir(FLAGS.log_dir)
-  shutil.copy(FLAGS.params,'params.json')
+  shutil.copy(FLAGS.params,FLAGS.log_dir+'/params.json')
+  print('saving model to:', FLAGS.log_dir+'/params.json')
 
   import tensorflow as tf
   if tf.__version__[0] == '1':
@@ -106,7 +107,6 @@ def main(_):
 
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
-    print('saving model to:', FLAGS.log_dir+'/'+FLAGS.params.split('/')[-1] )
 
     # compile model
     seqnn_trainer.compile(seqnn_model.model)

@@ -222,8 +222,8 @@ name_func = {
   'dense': dense,
   'dilated_residual': dilated_residual,
   'dilated_dense': dilated_dense,
-  'positional_encoding': positional_encoding
-  'average_pooling': positional_encoding
+  'positional_encoding': positional_encoding,
+  'average_pooling': average_pooling
 }
 
 keras_func = {

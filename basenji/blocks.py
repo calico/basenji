@@ -210,6 +210,11 @@ def positional_encoding(inputs, transform='abs', power=1,  **kwargs):
   current = ConcatPosition(transform, power)(inputs)
   return current
 
+def average_pooling(inputs, pool_size=2,**kwargs):
+    current = tf.keras.layers.AveragePooling1D(
+      pool_size=pool_size,
+      padding='same')(inputs)
+    return current
 
 name_func = {
   'conv_block': conv_block,
@@ -218,6 +223,7 @@ name_func = {
   'dilated_residual': dilated_residual,
   'dilated_dense': dilated_dense,
   'positional_encoding': positional_encoding
+  'average_pooling': positional_encoding
 }
 
 keras_func = {

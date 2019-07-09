@@ -83,7 +83,7 @@ def conv_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 
 
 def dense(inputs, units, activation='softplus', l2_scale=0, l1_scale=0, **kwargs):
-  print('dense activation:',activation)
+  print('dense, activation:',activation)
   current = tf.keras.layers.Dense(
     units=units,
     activation=activation,
@@ -204,7 +204,8 @@ class ConcatPosition(tf.keras.layers.Layer):
     positional_input = tf.expand_dims(positional_input,axis=-1)
     positional_input = tf.tile(positional_input, [batch_size,1, 1]   )
     positional_input = tf.dtypes.cast(positional_input,dtype=tf.float32)
-    return tf.concat([positional_input ,  inputs], axis=-1)#-1 ) 
+    return tf.concat([positional_input ,  inputs], axis=-1) # the real thing 
+    
 
 def positional_encoding(inputs, transform='abs', power=1,  **kwargs):
   current = ConcatPosition(transform, power)(inputs)
@@ -216,6 +217,112 @@ def average_pooling(inputs, pool_size=2,**kwargs):
       padding='same')(inputs)
     return current
 
+
+class ConcatTo2D(tf.keras.layers.Layer):
+  def __init__(self):
+    super(ConcatTo2D, self).__init__()
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape # input_shape[0], input_shape[1], input_shape[2]
+    seq_len = seq_len.value
+    batch_size  = batch_size.value
+    output_dim = output_dim.value
+    matrix_repr1 = tf.tile(inputs, [1, seq_len,1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis= -1)
+    return current 
+
+def concat_2D(inputs, **kwargs):
+  current = ConcatTo2D()(inputs)
+  return current
+
+
+class ConcatDist2D(tf.keras.layers.Layer):
+  ''' concatenate the pairwise distance to a (batch size, sequence length, sequence length, features) tensor
+  '''
+  def __init__(self):
+    super(ConcatDist2D, self).__init__()
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    batch_size, seq_len = input_shape[0], input_shape[1] #.value
+    print('making 2D pos_enc of distances')
+
+    ## concat 2D distance ##
+    pos = tf.expand_dims(tf.range(0, seq_len), axis=-1)
+    matrix_repr1 = tf.tile(pos, [1,seq_len])
+    matrix_repr2 = tf.transpose(matrix_repr1, [1,0])
+    dist  = tf.math.abs( tf.math.subtract(matrix_repr1, matrix_repr2) )
+    dist = tf.dtypes.cast(dist,tf.float32)
+    dist = tf.expand_dims(dist,axis=-1)
+    dist = tf.expand_dims(dist,axis=0)
+    dist = tf.tile(dist, [ batch_size , 1 , 1 , 1])
+    return tf.concat([inputs, dist],axis=-1)
+
+def positional_encoding_2D(inputs,   **kwargs):
+  current = ConcatDist2D()(inputs)
+  return current
+
+class upperTriu2D(tf.keras.layers.Layer):
+  ''' squish to upper triangular 
+  '''
+  def __init__(self):
+    super(upperTriu2D, self).__init__()
+  def call(self,inputs):
+    batch_size, seq_len, output_dim = inputs.shape[0].value, inputs.shape[1].value, inputs.shape[-1].value 
+    triu_tup = np.triu_indices(seq_len ,2)
+    triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
+    unroll_repr = tf.reshape(inputs, [-1, seq_len**2, output_dim])
+    return tf.gather(unroll_repr, triu_index, axis=1)
+
+def upper_triu_2D(inputs,   **kwargs):
+  current = upperTriu2D()(inputs)
+  return current
+
+#mask_a = tf.matrix_band_part(ones, 0, -1) # Upper triangular matrix of 0s and 1s
+#mask_b = tf.matrix_band_part(ones, 0, 0)  # Diagonal matrix of 0s and 1s
+#mask = tf.cast(mask_a - mask_b, dtype=tf.bool) # Make a bool mask
+
+#upper_triangular_flat = tf.boolean_mask(A, mask)
+
+
+#def concat_2D(inputs, **kwargs):
+#  assert len(inputs.shape)==3
+#  print('concat to 2D')
+#  repr_length = inputs.shape[2].value
+#  seq_length  = inputs.shape[1].value
+#  matrix_repr1 = tf.tile(inputs, [1,seq_length,1])
+#  matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_length, seq_length, repr_length])
+#  matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+#  current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
+#  print('uppertriu')
+#  seq_len = current.shape[1].value
+#  num_channels = current.shape[-1].value
+#  # determine upper lar indexes
+#  triu_tup = np.triu_indices(seq_len,2)
+#  triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
+#  # unroll matrix
+#  unroll_repr = tf.reshape(current, [-1, seq_len**2, num_channels])
+#  # slice upper triangular
+#  return tf.gather(unroll_repr, triu_index, axis=1)
+
+### extra good stuff ###
+# run (1,1) convolution back to latest repr_length
+#  matrix_repr = tf.layers.conv2d(
+#      matrix_repr,
+#      filters=repr_length,
+#      kernel_size=(1,1),
+#      padding='same',
+#      use_bias=False,
+#      kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
+#      kernel_regularizer=tf.contrib.layers.l2_regularizer(self.hp.cnn_l2_scale))
+
+  # enforce symmetry
+#  matrix_repr = (matrix_repr + tf.transpose(matrix_repr, [0,2,1,3])) / 2
+#  layer_reprs.append(matrix_repr)
+
+
 name_func = {
   'conv_block': conv_block,
   'conv_tower': conv_tower,
@@ -223,7 +330,10 @@ name_func = {
   'dilated_residual': dilated_residual,
   'dilated_dense': dilated_dense,
   'positional_encoding': positional_encoding,
-  'average_pooling': average_pooling
+  'average_pooling': average_pooling,
+  'concat_2D':concat_2D,
+  'positional_encoding_2D':positional_encoding_2D,
+  'upper_triu_2D': upper_triu_2D
 }
 
 keras_func = {

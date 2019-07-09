@@ -64,6 +64,7 @@ class SeqNN():
 
     # set remaining params
     block_args.update(block_params)
+    print('block_args',block_args)
 
     # switch for block
     if block_name[0].islower():
@@ -71,6 +72,8 @@ class SeqNN():
       current = block_func(current, **block_args)
 
     else:
+      block_args= {} # keras layers don't necessarily understand global vars
+      block_args.update(block_params)
       block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
 
@@ -105,17 +108,27 @@ class SeqNN():
     ###################################################
     # slice center (replace w/ Cropping1D?)
     ###################################################
-    current_length = current.shape[1]
-    target_diff = self.target_length - current_length
-    target_diff2 = target_diff // 2
-    if target_diff2 < 0:
-      print('Model over-pools to %d for target_length %d.' % \
-        (current_length, self.target_length), file=sys.stderr)
-      exit(1)
-    elif target_diff2 > 0:
-      current = layers.SliceCenter(
-        left=target_diff2,
-        right=current_length-target_diff2)(current)
+
+    slicegf = False
+    if slicegf:
+      current_length = current.shape[1]
+      target_diff = self.target_length - current_length
+      target_diff2 = target_diff // 2
+      if target_diff2 < 0:
+        print('Model over-pools to %d for target_length %d.' % \
+          (current_length, self.target_length), file=sys.stderr)
+        exit(1)
+      elif target_diff2 > 0:
+        current = layers.SliceCenter(
+          left=target_diff2,
+          right=current_length-target_diff2)(current)
+
+
+    if self.augment_rc:
+      print('self.augment_rc')
+      # transform back from reverse complement
+      current = layers.SwitchReverse()([current, reverse_bool]) ### needs to change for hic
+
 
     self.trunk_output = current
 
@@ -129,19 +142,21 @@ class SeqNN():
     self.head_output = []
 
     for hi, head in enumerate(self.head):
+
         if not isinstance(head, list):
             head = [head]
+            print('head is not a list')
 
         # reset to trunk output
         current = self.trunk_output
 
         # build blocks
+        #print(enumerate(head))
+        print('building head')
         for bi, block_params in enumerate(head):
+            print(current)
             current = self.build_block(current, block_params)
 
-        if self.augment_rc:
-          # transform back from reverse complement
-          current = layers.SwitchReverse()([current, reverse_bool])
 
         # save head output
         self.head_output.append(current)
@@ -158,6 +173,7 @@ class SeqNN():
 
 
   def build_ensemble(self, ensemble_rc=False, ensemble_shifts=[0]):
+    print('build ensemble')
     """ Build ensemble of models computing on augmented input sequences. """
     if ensemble_rc or len(ensemble_shifts) > 1:
       # sequence input
@@ -191,7 +207,7 @@ class SeqNN():
       model = self.models[head_i]
     else:
       model = self.ensemble
-
+      print('model = self.ensemble')
     # compile with dense metrics
     num_targets = self.model.output_shape[-1]
     model.compile(loss='poisson',

@@ -168,9 +168,6 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, rep
   return current
 
 
-
-
-
 class ConcatPosition(tf.keras.layers.Layer):
   ''' concatenate the distance to the center to a (batch size, sequence length, features) tensor
     via a (batch_size, sequence length, 1) tensor
@@ -280,47 +277,94 @@ def upper_triu_2D(inputs,   **kwargs):
   current = upperTriu2D()(inputs)
   return current
 
-#mask_a = tf.matrix_band_part(ones, 0, -1) # Upper triangular matrix of 0s and 1s
-#mask_b = tf.matrix_band_part(ones, 0, 0)  # Diagonal matrix of 0s and 1s
-#mask = tf.cast(mask_a - mask_b, dtype=tf.bool) # Make a bool mask
 
-#upper_triangular_flat = tf.boolean_mask(A, mask)
+def conv_block_2D(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
+  """Construct a single 2D convolution block.   """
+
+  # flow through variable current
+  current = inputs
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # convolution
+  current = tf.keras.layers.Conv2D(
+    filters=filters,
+    kernel_size=kernel_size,
+    strides=strides,
+    padding='same',
+    use_bias=False,
+    dilation_rate=dilation_rate,
+    kernel_initializer='he_normal',
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # batch norm
+  if batch_norm:
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum,
+      gamma_initializer=bn_gamma,
+      fused=True)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # Pool
+  if pool_size > 1:
+    current = tf.keras.layers.MaxPool2D(
+      pool_size=pool_size,
+      padding='same')(current)
+
+  return current
 
 
-#def concat_2D(inputs, **kwargs):
-#  assert len(inputs.shape)==3
-#  print('concat to 2D')
-#  repr_length = inputs.shape[2].value
-#  seq_length  = inputs.shape[1].value
-#  matrix_repr1 = tf.tile(inputs, [1,seq_length,1])
-#  matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_length, seq_length, repr_length])
-#  matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
-#  current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
-#  print('uppertriu')
-#  seq_len = current.shape[1].value
-#  num_channels = current.shape[-1].value
-#  # determine upper lar indexes
-#  triu_tup = np.triu_indices(seq_len,2)
-#  triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
-#  # unroll matrix
-#  unroll_repr = tf.reshape(current, [-1, seq_len**2, num_channels])
-#  # slice upper triangular
-#  return tf.gather(unroll_repr, triu_index, axis=1)
+class symmetrize2D(tf.keras.layers.Layer):
+  ''' symmetrize 
+  '''
+  def __init__(self):
+    super(symmetrize2D, self).__init__()
+  def call(self,inputs):
+    return (inputs + tf.transpose(inputs,[0,2,1,3])) / 2
 
-### extra good stuff ###
-# run (1,1) convolution back to latest repr_length
-#  matrix_repr = tf.layers.conv2d(
-#      matrix_repr,
-#      filters=repr_length,
-#      kernel_size=(1,1),
-#      padding='same',
-#      use_bias=False,
-#      kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
-#      kernel_regularizer=tf.contrib.layers.l2_regularizer(self.hp.cnn_l2_scale))
 
-  # enforce symmetry
-#  matrix_repr = (matrix_repr + tf.transpose(matrix_repr, [0,2,1,3])) / 2
-#  layer_reprs.append(matrix_repr)
+def symmetric_dilated_residual_2D(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, repeat=1, **kwargs):
+  """Construct a residual dilated convolution block.
+  """
+
+  # flow through variable current
+  current = inputs
+
+  # initialize dilation rate
+  dilation_rate = 1.0
+
+  for ri in range(repeat):
+    rep_input = current
+
+    # dilate
+    current = conv_block_2D(current,
+      filters=filters,
+      kernel_size=kernel_size,
+      dilation_rate=int(np.round(dilation_rate)),
+      bn_gamma='ones',
+      **kwargs)
+
+    # return
+    current = conv_block_2D(current,
+      filters=rep_input.shape[-1],
+      dropout=dropout,
+      bn_gamma='zeros',
+      **kwargs)
+
+    # residual add
+    current = tf.keras.layers.Add()([rep_input,current])
+
+    # enforce symmetry
+    current = symmetrize2D()(current)
+
+    # update dilation rate
+    dilation_rate *= rate_mult
+
+  return current
 
 
 name_func = {
@@ -333,7 +377,9 @@ name_func = {
   'average_pooling': average_pooling,
   'concat_2D':concat_2D,
   'positional_encoding_2D':positional_encoding_2D,
-  'upper_triu_2D': upper_triu_2D
+  'upper_triu_2D': upper_triu_2D,
+  'conv_block_2D':conv_block_2D,
+  'symmetric_dilated_residual_2D':symmetric_dilated_residual_2D
 }
 
 keras_func = {

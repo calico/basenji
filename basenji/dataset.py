@@ -83,14 +83,18 @@ class SeqDataset:
     def parse_proto(example_protos):
       """Parse TFRecord protobuf."""
 
+      # features = {
+      #   TFR_GENOME: tf.io.FixedLenFeature([1], tf.int64),
+      #   TFR_INPUT: tf.io.FixedLenFeature([], tf.string),
+      #   TFR_OUTPUT: tf.io.FixedLenFeature([], tf.string)
+      # }
       features = {
-        TFR_GENOME: tf.io.FixedLenFeature([1], tf.int64),
         TFR_INPUT: tf.io.FixedLenFeature([], tf.string),
         TFR_OUTPUT: tf.io.FixedLenFeature([], tf.string)
       }
       parsed_features = tf.io.parse_single_example(example_protos, features=features)
 
-      genome = parsed_features[TFR_GENOME]
+      # genome = parsed_features[TFR_GENOME]
 
       sequence = tf.io.decode_raw(parsed_features[TFR_INPUT], tf.uint8)
       if not raw:

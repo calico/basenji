@@ -167,12 +167,22 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, rep
   return current
 
 
+def slice_center(inputs, center=1, **kwargs):
+  crop_len = inputs.shape[1].value - center
+  crop_start = crop_len // 2
+  crop_end = crop_len - crop_start
+  current = inputs
+  current = tf.keras.layers.Cropping1D((crop_start,crop_end))(current)
+  return current
+
+
 name_func = {
   'conv_block': conv_block,
   'conv_tower': conv_tower,
   'dense': dense,
   'dilated_residual': dilated_residual,
-  'dilated_dense': dilated_dense
+  'dilated_dense': dilated_dense,
+  'slice_center': slice_center
 }
 
 keras_func = {

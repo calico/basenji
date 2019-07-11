@@ -48,7 +48,8 @@ flags.DEFINE_string('augment_shifts', '0', 'Augment training with shifted sequen
 # flags.DEFINE_string('ensemble_shifts', '0', 'Ensemble prediction with shifted sequences.')
 
 # training modes
-flags.DEFINE_string('restart', None, 'Restart training the model')
+flags.DEFINE_string('restore', None, 'Restore model and continue training.')
+flags.DEFINE_boolean('trunk', False, 'Restore model as trunk only.')
 
 # eval options
 flags.DEFINE_boolean('metrics_thread', False, 'Evaluate validation metrics in a separate thread.')
@@ -94,6 +95,10 @@ def main(_):
     # initialize model
     seqnn_model = seqnn.SeqNN(params_model)
 
+    # restore
+    if FLAGS.restore:
+      seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
+
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
 
@@ -112,6 +117,10 @@ def main(_):
 
       # initialize model
       seqnn_model = seqnn.SeqNN(params_model)
+
+      # restore
+      if FLAGS.restore:
+        seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
 
       # initialize trainer
       seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)

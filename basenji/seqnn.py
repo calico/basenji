@@ -18,6 +18,7 @@ import pdb
 import sys
 import time
 
+from natsort import natsorted
 import numpy as np
 import tensorflow as tf
 if tf.__version__[0] == '1':
@@ -108,6 +109,7 @@ class SeqNN():
     ###################################################
     # slice center (replace w/ Cropping1D?)
     ###################################################
+    """
     current_length = current.shape[1]
     target_diff = self.target_length - current_length
     target_diff2 = target_diff // 2
@@ -119,35 +121,36 @@ class SeqNN():
       current = layers.SliceCenter(
         left=target_diff2,
         right=current_length-target_diff2)(current)
+    """
 
-    self.trunk_output = current
+    trunk_output = current
+    self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
 
     ###################################################
     # heads
     ###################################################
 
-    if not isinstance(self.head, list):
-        self.head = [self.head]
+    head_keys = natsorted([v for v in vars(self) if v.startswith('head')])
+    self.heads = [getattr(self, hk) for hk in head_keys]
 
     self.head_output = []
+    for hi, head in enumerate(self.heads):
+      if not isinstance(head, list):
+          head = [head]
 
-    for hi, head in enumerate(self.head):
-        if not isinstance(head, list):
-            head = [head]
+      # reset to trunk output
+      current = trunk_output
 
-        # reset to trunk output
-        current = self.trunk_output
+      # build blocks
+      for bi, block_params in enumerate(head):
+          current = self.build_block(current, block_params)
 
-        # build blocks
-        for bi, block_params in enumerate(head):
-            current = self.build_block(current, block_params)
+      if self.augment_rc:
+        # transform back from reverse complement
+        current = layers.SwitchReverse()([current, reverse_bool])
 
-        if self.augment_rc:
-          # transform back from reverse complement
-          current = layers.SwitchReverse()([current, reverse_bool])
-
-        # save head output
-        self.head_output.append(current)
+      # save head output
+      self.head_output.append(current)
 
     ###################################################
     # compile model(s)
@@ -188,7 +191,7 @@ class SeqNN():
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
       # predict each sequence
-      preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+      preds = [layers.SwitchReverse(o)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)
@@ -251,6 +254,16 @@ class SeqNN():
     return model.predict(dataset, **kwargs)
 
 
-  def restore(self, model_file):
+  def restore(self, model_file, trunk=False):
     """ Restore weights from saved model. """
-    self.model.load_weights(model_file)
+    if trunk:
+      self.model_trunk.load_weights(model_file)
+    else:
+      self.model.load_weights(model_file)
+
+
+  def save(self, model_file, trunk=False):
+    if trunk:
+      self.model_trunk.save(model_file)
+    else:
+      self.model.save(model_file)

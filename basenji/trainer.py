@@ -54,7 +54,7 @@ class Trainer:
     callbacks = [
       tf.keras.callbacks.EarlyStopping(patience=self.patience, monitor='val_loss', verbose=1),
       tf.keras.callbacks.TensorBoard(FLAGS.log_dir),
-      tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%FLAGS.log_dir, period=2),
+      tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%FLAGS.log_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%FLAGS.log_dir, save_best_only=True, monitor='val_loss', verbose=1)]
 
     model.fit(

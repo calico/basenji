@@ -18,8 +18,11 @@ import pdb
 import sys
 import time
 
+from natsort import natsorted
 import numpy as np
 import tensorflow as tf
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
 
 from basenji import blocks
 from basenji import layers
@@ -33,6 +36,7 @@ class SeqNN():
       self.__setattr__(key, value)
     self.build_model()
     self.ensemble = None
+    self.embed = None
 
   def set_defaults(self):
     # only necessary for my bespoke parameters
@@ -64,7 +68,6 @@ class SeqNN():
 
     # set remaining params
     block_args.update(block_params)
-    print('block_args',block_args)
 
     # switch for block
     if block_name[0].islower():
@@ -72,8 +75,6 @@ class SeqNN():
       current = block_func(current, **block_args)
 
     else:
-      block_args= {} # keras layers don't necessarily understand global vars
-      block_args.update(block_params)
       block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
 
@@ -108,58 +109,48 @@ class SeqNN():
     ###################################################
     # slice center (replace w/ Cropping1D?)
     ###################################################
+    """
+    current_length = current.shape[1]
+    target_diff = self.target_length - current_length
+    target_diff2 = target_diff // 2
+    if target_diff2 < 0:
+      print('Model over-pools to %d for target_length %d.' % \
+        (current_length, self.target_length), file=sys.stderr)
+      exit(1)
+    elif target_diff2 > 0:
+      current = layers.SliceCenter(
+        left=target_diff2,
+        right=current_length-target_diff2)(current)
+    """
 
-    slicegf = False
-    if slicegf:
-      current_length = current.shape[1]
-      target_diff = self.target_length - current_length
-      target_diff2 = target_diff // 2
-      if target_diff2 < 0:
-        print('Model over-pools to %d for target_length %d.' % \
-          (current_length, self.target_length), file=sys.stderr)
-        exit(1)
-      elif target_diff2 > 0:
-        current = layers.SliceCenter(
-          left=target_diff2,
-          right=current_length-target_diff2)(current)
-
-
-    if self.augment_rc:
-      print('self.augment_rc')
-      # transform back from reverse complement
-      current = layers.SwitchReverse()([current, reverse_bool]) ### needs to change for hic
-
-
-    self.trunk_output = current
+    trunk_output = current
+    self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
 
     ###################################################
     # heads
     ###################################################
 
-    if not isinstance(self.head, list):
-        self.head = [self.head]
+    head_keys = natsorted([v for v in vars(self) if v.startswith('head')])
+    self.heads = [getattr(self, hk) for hk in head_keys]
 
     self.head_output = []
+    for hi, head in enumerate(self.heads):
+      if not isinstance(head, list):
+          head = [head]
 
-    for hi, head in enumerate(self.head):
+      # reset to trunk output
+      current = trunk_output
 
-        if not isinstance(head, list):
-            head = [head]
-            print('head is not a list')
+      # build blocks
+      for bi, block_params in enumerate(head):
+          current = self.build_block(current, block_params)
 
-        # reset to trunk output
-        current = self.trunk_output
+      if self.augment_rc:
+        # transform back from reverse complement
+        current = layers.SwitchReverse()([current, reverse_bool])
 
-        # build blocks
-        #print(enumerate(head))
-        print('building head')
-        for bi, block_params in enumerate(head):
-            print(current)
-            current = self.build_block(current, block_params)
-
-
-        # save head output
-        self.head_output.append(current)
+      # save head output
+      self.head_output.append(current)
 
     ###################################################
     # compile model(s)
@@ -172,8 +163,17 @@ class SeqNN():
     print(self.model.summary())
 
 
+  def build_embed(self, conv_layer_i):
+    if conv_layer_i == -1:
+      self.embed = tf.keras.Model(inputs=self.model.inputs,
+                                  outputs=self.model.inputs)
+    else:
+      conv_layer = self.get_bn_layer(conv_layer_i)
+      self.embed = tf.keras.Model(inputs=self.model.inputs,
+                                  outputs=conv_layer.output)
+
+
   def build_ensemble(self, ensemble_rc=False, ensemble_shifts=[0]):
-    print('build ensemble')
     """ Build ensemble of models computing on augmented input sequences. """
     if ensemble_rc or len(ensemble_shifts) > 1:
       # sequence input
@@ -191,7 +191,7 @@ class SeqNN():
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
       # predict each sequence
-      preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+      preds = [layers.SwitchReverse(o)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)
@@ -200,17 +200,17 @@ class SeqNN():
       self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
 
 
-  def evaluate(self, seq_data, head_i=0):
+  def evaluate(self, seq_data, head_i=0, loss='poisson'):
     """ Evaluate model on SeqDataset. """
     # choose model
     if self.ensemble is None:
       model = self.models[head_i]
     else:
       model = self.ensemble
-      print('model = self.ensemble')
+
     # compile with dense metrics
     num_targets = self.model.output_shape[-1]
-    model.compile(loss='poisson',
+    model.compile(loss,
                   optimizer=tf.keras.optimizers.SGD(),
                   metrics=[metrics.PearsonR(num_targets, summarize=False),
                            metrics.R2(num_targets, summarize=False)])
@@ -218,18 +218,52 @@ class SeqNN():
     # evaluate
     return model.evaluate(seq_data.dataset)
 
+  def get_bn_layer(self, bn_layer_i):
+    """ Return specified batch normalization layer. """
+    bn_layers = [layer for layer in self.model.layers if layer.name.startswith('batch_normalization')]
+    return bn_layers[bn_layer_i]
 
-  def predict(self, seq_data, head_i=0):
+  def get_conv_layer(self, conv_layer_i):
+    """ Return specified convolution layer. """
+    conv_layers = [layer for layer in self.model.layers if layer.name.startswith('conv')]
+    return conv_layers[conv_layer_i]
+
+
+  def get_conv_weights(self, conv_layer_i):
+    """ Return kernel weights for specified convolution layer. """
+    conv_layer = self.get_conv_layer(conv_layer_i)
+    weights = conv_layer.weights[0].numpy()
+    weights = np.transpose(weights, [2,1,0])
+    return weights
+
+
+  def predict(self, seq_data, head_i=0, **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
-    if self.ensemble is None:
-      model = self.models[head_i]
-    else:
+    if self.embed is not None:
+      model = self.embed
+    elif self.ensemble is not None:
       model = self.ensemble
+    else:
+      model = self.models[head_i]
 
-    return model.predict(seq_data.dataset)
+    dataset = getattr(seq_data, 'dataset', None)
+    if dataset is None:
+      dataset = seq_data
+
+    return model.predict(dataset, **kwargs)
 
 
-  def restore(self, model_file):
+  def restore(self, model_file, trunk=False):
     """ Restore weights from saved model. """
-    self.model.load_weights(model_file)
+    if trunk:
+      self.model_trunk.load_weights(model_file)
+    else:
+      self.model.load_weights(model_file)
+
+
+  def save(self, model_file, trunk=False):
+    if trunk:
+      self.model_trunk.save(model_file)
+    else:
+      self.model.save(model_file)

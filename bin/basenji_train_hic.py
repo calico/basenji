@@ -42,7 +42,9 @@ flags.DEFINE_string('augment_shifts', '0', 'Augment training with shifted sequen
 # flags.DEFINE_string('ensemble_shifts', '0', 'Ensemble prediction with shifted sequences.')
 
 # training modes
-flags.DEFINE_string('restart', None, 'Restart training the model')
+flags.DEFINE_string('restore', None, 'Restore model and continue training.')
+flags.DEFINE_boolean('trunk', False, 'Restore model as trunk only.')
+flags.DEFINE_boolean('freeze_trunk',False,'Freeze layers in the trunk')
 
 # eval options
 flags.DEFINE_boolean('metrics_thread', False, 'Evaluate validation metrics in a separate thread.')
@@ -116,6 +118,13 @@ def main(_):
     # initialize model
     seqnn_model = seqnn.SeqNN(params_model)
 
+    # restore
+    if FLAGS.restore:
+      seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
+      print('restored weights')
+      if FLAGS.freeze_trunk:
+          seqnn_model.model_trunk.trainable = False
+
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
 
@@ -128,7 +137,8 @@ def main(_):
   else:
     ########################################
     # two GPU
-
+    print('need to update multigpu')
+    '''
     mirrored_strategy = tf.distribute.MirroredStrategy()
     with mirrored_strategy.scope():
 
@@ -143,6 +153,6 @@ def main(_):
 
     # train model
     seqnn_trainer.fit(seqnn_model.model)
-
+    '''
 if __name__ == '__main__':
   app.run(main)

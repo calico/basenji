@@ -123,7 +123,8 @@ def main(_):
       seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
       print('restored weights')
       if FLAGS.freeze_trunk:
-          seqnn_model.model_trunk.trainable = False
+        seqnn_model.model_trunk.trainable = False
+        print('frozen trunk')
 
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)

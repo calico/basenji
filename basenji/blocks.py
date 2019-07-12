@@ -366,6 +366,14 @@ def symmetric_dilated_residual_2D(inputs, filters, kernel_size=3, rate_mult=2, d
 
   return current
 
+def bidirectional_LSTM(inputs, units, **kwargs):
+  #current = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units, return_sequences = True))(inputs)
+  current = tf.keras.layers.Bidirectional(tf.keras.layers.CuDNNLSTM(units, return_sequences = True))(inputs)
+  return current
+
+
+
+
 
 name_func = {
   'conv_block': conv_block,
@@ -379,7 +387,8 @@ name_func = {
   'positional_encoding_2D':positional_encoding_2D,
   'upper_triu_2D': upper_triu_2D,
   'conv_block_2D':conv_block_2D,
-  'symmetric_dilated_residual_2D':symmetric_dilated_residual_2D
+  'symmetric_dilated_residual_2D':symmetric_dilated_residual_2D,
+  'bidirectional_LSTM':bidirectional_LSTM
 }
 
 keras_func = {

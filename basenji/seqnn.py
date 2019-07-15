@@ -128,6 +128,11 @@ class SeqNN():
     self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
     print('done with trunk')
 
+    if self.augment_rc: ### needs to be earlier for hic
+      # transform back from reverse complement
+      current = layers.SwitchReverse()([current, reverse_bool])
+
+
     ###################################################
     # heads
     ###################################################
@@ -146,10 +151,6 @@ class SeqNN():
       # build blocks
       for bi, block_params in enumerate(head):
           current = self.build_block(current, block_params)
-
-      if self.augment_rc:
-        # transform back from reverse complement
-        current = layers.SwitchReverse()([current, reverse_bool])
 
       # save head output
       self.head_output.append(current)
@@ -192,7 +193,7 @@ class SeqNN():
       else:
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
-      # predict each sequence
+      # predict each sequence ### todo: this probably needs to change for hic
       preds = [layers.SwitchReverse(o)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer

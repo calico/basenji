@@ -63,6 +63,7 @@ class SeqNN():
         block_args[gv] = gv_value
 
     # extract name
+    print(block_params)
     block_name = block_params['name']
     del block_params['name']
 
@@ -125,6 +126,7 @@ class SeqNN():
 
     trunk_output = current
     self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
+    print('done with trunk')
 
     ###################################################
     # heads

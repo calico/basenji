@@ -124,13 +124,13 @@ class SeqNN():
         right=current_length-target_diff2)(current)
     """
 
-    trunk_output = current
-    self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
-    print('done with trunk')
-
     if self.augment_rc: ### needs to be earlier for hic
       # transform back from reverse complement
       current = layers.SwitchReverse()([current, reverse_bool])
+
+    trunk_output = current
+    self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
+    print('done with trunk')
 
 
     ###################################################

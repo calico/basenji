@@ -326,6 +326,8 @@ class symmetrize2D(tf.keras.layers.Layer):
   def call(self,inputs):
     return (inputs + tf.transpose(inputs,[0,2,1,3])) / 2
 
+def symmetrize_2D(inputs,**kwargs):
+  return symmetrize2D()(inputs)
 
 def symmetric_dilated_residual_2D(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, repeat=1, **kwargs):
   """Construct a residual dilated convolution block.
@@ -388,7 +390,8 @@ name_func = {
   'upper_triu_2D': upper_triu_2D,
   'conv_block_2D':conv_block_2D,
   'symmetric_dilated_residual_2D':symmetric_dilated_residual_2D,
-  'bidirectional_LSTM':bidirectional_LSTM
+  'bidirectional_LSTM':bidirectional_LSTM,
+  'symmetrize_2D':symmetrize_2D
 }
 
 keras_func = {

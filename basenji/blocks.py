@@ -82,13 +82,16 @@ def conv_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
   return current
 
 
-def dense(inputs, units, activation='softplus', l2_scale=0, l1_scale=0, **kwargs):
+def dense(inputs, units, activation='softplus', kernel_initializer='he_normal', l2_scale=0, l1_scale=0, **kwargs):
+
   print('dense, activation:',activation)
+  print('l1_l2',l1_scale,l2_scale)
+  print('kernel_initializer:',kernel_initializer)
   current = tf.keras.layers.Dense(
     units=units,
     activation=activation,
     use_bias=True,
-    kernel_initializer='he_normal',
+    kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
     )(inputs)
   return current
@@ -280,7 +283,7 @@ def upper_triu_2D(inputs,   **kwargs):
 
 def conv_block_2D(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
   """Construct a single 2D convolution block.   """
-
+  print('conv2D: l2_scale',l2_scale)
   # flow through variable current
   current = inputs
 
@@ -368,9 +371,11 @@ def symmetric_dilated_residual_2D(inputs, filters, kernel_size=3, rate_mult=2, d
 
   return current
 
-def bidirectional_LSTM(inputs, units, **kwargs):
-  #current = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units, return_sequences = True))(inputs)
-  current = tf.keras.layers.Bidirectional(tf.keras.layers.CuDNNLSTM(units, return_sequences = True))(inputs)
+def bidirectional_LSTM(inputs, units, useGPU=True, **kwargs):
+  if useGPU:
+    current = tf.keras.layers.Bidirectional(tf.keras.layers.CuDNNLSTM(units, return_sequences = True))(inputs)
+  else:
+    current = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units, return_sequences = True))(inputs)
   return current
 
 

@@ -52,7 +52,8 @@ def main():
   parser.add_option('-b', dest='bigwig_indexes',
       default=None, help='Comma-separated list of target indexes to write BigWigs')
   parser.add_option('-e', dest='embed_layer',
-      default=None, type='int', help='Embed sequences using the specified layer index.')
+      default=None, type='int',
+      help='Embed sequences using the specified layer index.')
   parser.add_option('-f', dest='genome_fasta',
       default=None,
       help='Genome FASTA for sequences [Default: %default]')

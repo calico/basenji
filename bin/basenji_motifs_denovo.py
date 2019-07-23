@@ -2,24 +2,28 @@
 from optparse import OptionParser
 import collections
 import json
+import multiprocessing
 import os
 import pdb
 import random
 import subprocess
+import time
 
 import h5py
 import igraph
 import leidenalg
 from natsort import natsorted
-import nimfa
+# import nimfa
 import nmslib
 import numpy as np
 import pysam
+from ristretto import nmf
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 from basenji import seqnn
+from basenji import dna_io
 
 '''
 basenji_motifs_denovo.py
@@ -38,11 +42,18 @@ def main():
         help='Align seqlets [Default: %default]')
     parser.add_option('-b', dest='background_fasta',
         default=None, help='Homer background FASTA.')
+    parser.add_option('-d', dest='meme_db',
+        default='%s/data/motifs/Homo_sapiens.meme' % os.environ['BASSETDIR'],
+        help='MEME database used to annotate motifs')
+    parser.add_option('-e', dest='embed_layer',
+        default=None, type='int',
+        help='Embed sequences using the specified layer index.')
     parser.add_option('-f', dest='genome_fasta',
         default=None,
         help='Genome FASTA for sequences [Default: %default]')
-    parser.add_option('-l', dest='embed_layer',
-        default=None, type='int', help='Embed sequences using the specified layer index.')
+    parser.add_option('-l', dest='site_length',
+      default=None, type='int',
+      help='Prediction site length. [Default: params.seq_length]')
     parser.add_option('-o', dest='out_dir',
         default='motifs_out',
         help='Output directory [Default: %default]')
@@ -54,6 +65,9 @@ def main():
     parser.add_option('-s', dest='seqlet_length',
         default=20, type='int',
         help='Seqlet length to extract for motif analysis [Default: %default]')
+    parser.add_option('-t', dest='threads',
+        default=1, type='int',
+        help='Number of threads [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) == 3:
@@ -71,8 +85,9 @@ def main():
 
     if options.predict_h5_file is None:
         cmd = 'basenji_predict_bed.py'
+        cmd += ' -e %d' % options.embed_layer
         cmd += ' -f %s' % options.genome_fasta
-        cmd += ' -l %d' % options.embed_layer
+        cmd += ' -l %d' % options.site_length
         cmd += ' -o %s' % options.out_dir
         subprocess.call(cmd, shell=True)
         options.predict_h5_file = '%s/predict.h5' % options.out_dir
@@ -103,6 +118,10 @@ def main():
     seqlet_dna = [fasta_open.fetch(sint.chr, sint.start, sint.end) for sint in seqlet_intervals]
     fasta_open.close()
 
+    # construct negative seqlets for motif analysis
+    negatives_fasta_file = '%s/seqlets_neg.fa' % options.out_dir
+    make_negative_fasta(seqlet_intervals, seqlet_dna, negatives_fasta_file)
+
     # remove uninformative filters
     seqlet_acts, feature_mask = filter_features(seqlet_acts, return_mask=True)
 
@@ -117,22 +136,25 @@ def main():
     # read weights
     kernel_weights = seqnn_model.get_conv_weights(options.embed_layer)
 
+    feature_args = []
+
     sfi = 0
     for fi in range(len(feature_mask)):
-        print('feature %d' % fi)
+        # print('feature %d' % fi)
         if feature_mask[fi]:
-            # plot kernel
-            plot_kernel(kernel_weights[fi], '%s/f%d_weights.pdf' % (features_out_dir, fi))
-
-            # plot logo
-            plot_logo(seqlet_acts[:,sfi], seqlet_dna,
-                      '%s/f%d' % (features_out_dir,fi), options.align_seqlets)
-
-            # homer
-            # run_homer(seqlet_acts[:,sfi], seqlet_dna,
-            #           '%s/f%d' % (features_out_dir,fi), options.background_fasta)
-
+            fa = (seqlet_acts[:,sfi], seqlet_dna, kernel_weights[fi],
+                 '%s/f%d' % (features_out_dir,fi), negatives_fasta_file,
+                  options.align_seqlets, options.meme_db)
+            feature_args.append(fa)
             sfi += 1
+
+    if options.threads == 1:
+        for fa in feature_args:
+            process_feature(*fa)
+    else:
+        mp = multiprocessing.Pool(options.threads)
+        mp.starmap(process_feature, feature_args)
+
 
     ################################################################
     # factorized
@@ -141,26 +163,26 @@ def main():
     if not os.path.isdir(factors_out_dir):
         os.mkdir(factors_out_dir)
 
-    num_factors = seqlet_acts.shape[1]
-    seqlet_nmf = nimfa.Nmf(seqlet_acts, rank=num_factors)()
+    num_factors = seqlet_acts.shape[1] // 2
+    t0 = time.time()
+    print('Computing NMF...', end='')
+    # seqlet_nmf = nimfa.Nmf(seqlet_acts, rank=num_factors)()
+    seqlet_W, seqlet_H = nmf.compute_rnmf(seqlet_acts, rank=num_factors)
+    print('done in %ds' % (time.time()-t0))
 
+
+    factor_args = []
     for fi in range(num_factors):
-        print('factor %d' % fi)
+        fa = (seqlet_H[fi,:], seqlet_W[:,fi], seqlet_dna, feature_mask,
+              '%s/f%d' % (factors_out_dir,fi), negatives_fasta_file,
+              options.align_seqlets, options.meme_db)
+        factor_args.append(fa)
 
-        seqlet_basis_fi = seqlet_nmf.basis()[:,fi]
-
-        # write coef vector
-        write_factor(seqlet_nmf.coef()[fi,:], feature_mask,
-                     '%s/f%d_coef.txt' % (factors_out_dir,fi))
-
-        # plot logo
-        plot_logo(seqlet_basis_fi, seqlet_dna,
-                  '%s/f%d' % (factors_out_dir,fi), options.align_seqlets)
-
-        # homer
-        # run_homer(seqlet_basis_fi, seqlet_dna,
-        #           '%s/f%d' % (features_out_dir,fi), options.background_fasta)
-
+    if options.threads == 1:
+        for fa in factor_args:
+            process_factor(*fa)
+    else:
+        mp.starmap(process_factor, factor_args)
 
 
     ################################################################
@@ -186,6 +208,58 @@ def cluster_leiden(seq_nn, resolution=2):
         categories=natsorted(np.unique(membership).astype('U')))
 
     return clusters
+
+
+def end_align_fasta(seqlets_fasta, msa_fasta, gaps=2, pwm_iter=1, epochs=2):
+    """Align seqlets in a FASTA file, allowing only end gaps."""
+
+    # read seqlet DNA
+    seqs_1hot = []
+    for line in open(seqlets_fasta):
+        if line[0] != '>':
+            seqlet_dna = line.rstrip()
+            seqlet_1hot = dna_io.dna_1hot(seqlet_dna)
+            seqs_1hot.append(seqlet_1hot)
+    seqs_1hot = np.array(seqs_1hot)
+    num_seqs, width, depth = seqs_1hot.shape
+
+    # extend with blanks for shifts
+    num_nan = num_seqs*depth
+    gap_col = np.array([np.nan]*num_nan).reshape((num_seqs,1,depth))
+    msa_1hot = np.concatenate([gap_col, seqs_1hot, gap_col], axis=1)
+
+    # gaps != 2 not implemented
+    assert(gaps == 2)
+
+    for ei in range(epochs):
+        for si in range(num_seqs):
+            if si % pwm_iter == 0:
+                pwm = (msa_1hot[:,gaps:-gaps,:] + .1).mean(axis=0)
+
+            # extract sequence
+            seq_1hot = seqs_1hot[si]
+
+            # score gap positions
+            gap_scores = []
+            for gi in range(gaps+1):
+                g1 = gaps - gi
+                g2 = g1 + pwm.shape[0]
+                gap_1hot = seq_1hot[g1:g2]
+                gscore = np.log(pwm[gap_1hot]).sum()
+                gap_scores.append(gscore)
+
+            # find best
+            gi = np.argmax(gap_scores)
+            gj = width + gaps - (gaps - gi)
+
+            # set msa
+            msa_1hot[si] = np.nan
+            msa_1hot[si,gi:gj,:] = seq_1hot
+
+    # write to FASTA
+    write_msa(msa_1hot, msa_fasta)
+
+    return msa_1hot
 
 
 def extend_intervals(seqlet_intervals, seqlet_length):
@@ -268,6 +342,22 @@ def make_feature_fasta(seqlet_feature, seqlet_dna, feature_fasta_file, max_pct=0
     feature_fasta_out.close()
 
 
+def make_negative_fasta(seqlet_intervals, seqlet_dna, negatives_fasta_file, max_seqs=16384):
+    """Write sampled seqlets as motif negatives."""
+
+    num_seqs = len(seqlet_intervals)
+    if num_seqs <= max_seqs:
+        sample_i = np.arange(num_seqs)
+    else:
+        sample_i = np.random.choice(num_seqs, max_seqs)
+
+    negatives_fasta_out = open(negatives_fasta_file, 'w')
+    for si in sample_i:
+        sint = seqlet_intervals[si]
+        print('>%s:%d-%d\n%s' % (sint.chr, sint.start, sint.end, seqlet_dna[si]), file=negatives_fasta_out)
+    negatives_fasta_out.close()
+
+
 def nearest_neighbors(X, neighbors=16, threads=1):
     # initialize HNSW index on Cosine Similarity
     nn_index = nmslib.init(method='hnsw', space='cosinesimil')
@@ -294,22 +384,22 @@ def nearest_neighbors(X, neighbors=16, threads=1):
 
 def plot_kernel(kernel_weights, out_pdf):
     depth, width = kernel_weights.shape
-    fig_width = 2 + np.log2(width)
+    fig_width = 2 + 1.5*np.log2(width)
 
     # normalize
     kernel_weights -= kernel_weights.mean(axis=0)
 
     # plot
-    sns.set(font_scale=2)
+    sns.set(font_scale=1.5)
     plt.figure(figsize=(fig_width, depth))
     sns.heatmap(kernel_weights, cmap='PRGn', linewidths=0.2, center=0)
     ax = plt.gca()
-    ax.set_xticklabels(range(1,depth+1))
+    ax.set_xticklabels(range(1,width+1))
 
     if depth == 4:
         ax.set_yticklabels('ACGT', rotation='horizontal')
     else:
-        ax.set_yticklabels(range(width), rotation='horizontal')
+        ax.set_yticklabels(range(1,depth+1), rotation='horizontal')
 
     plt.savefig(out_pdf)
     plt.close()
@@ -323,8 +413,12 @@ def plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets=False):
     if align_seqlets:
         # write and run multiple sequence alignment
         feature_afasta_file = '%s_msa.fa' % out_prefix
-        muscle_cmd = 'muscle -diags -maxiters 2 -in %s -out %s' % (feature_fasta_file, feature_afasta_file)
-        subprocess.call(muscle_cmd, shell=True)
+
+        # align
+        end_align_fasta(feature_fasta_file, feature_afasta_file)
+        # muscle_cmd = 'muscle -diags -maxiters 2 -in %s -out %s' % (feature_fasta_file, feature_afasta_file)
+        # subprocess.call(muscle_cmd, shell=True)
+
     else:
         feature_afasta_file = feature_fasta_file
 
@@ -337,6 +431,40 @@ def plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets=False):
     weblogo_eps = '%s_logo.eps' % out_prefix
     weblogo_cmd = 'weblogo %s < %s > %s' % (weblogo_opts, feature_afasta_file, weblogo_eps)
     subprocess.call(weblogo_cmd, shell=True)
+
+
+def process_feature(seqlet_acts, seqlet_dna, kernel_weights, out_prefix, background_fasta, align_seqlets=False, meme_db=None):
+    """Perform all analyses on one feature."""
+    print(out_prefix)
+
+    # plot kernel weights
+    plot_kernel(kernel_weights, '%s_weights.pdf' % out_prefix)
+
+    # plot logo
+    plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets)
+
+    # homer
+    run_homer(seqlet_acts, seqlet_dna, out_prefix, background_fasta)
+
+    # meme
+    run_dreme(seqlet_acts, seqlet_dna, out_prefix, background_fasta, meme_db)
+
+
+def process_factor(seqlet_H, seqlet_W, seqlet_dna, feature_mask, out_prefix, background_fasta, align_seqlets=False, meme_db=None):
+    """Perform all analyses on one factor."""
+    print(out_prefix)
+
+    # write coef vector
+    write_factor(seqlet_H, feature_mask, '%s_coef.txt' % out_prefix)
+
+    # plot logo
+    plot_logo(seqlet_W, seqlet_dna, out_prefix, align_seqlets)
+
+    # homer
+    run_homer(seqlet_W, seqlet_dna, out_prefix, background_fasta)
+
+    # meme
+    run_dreme(seqlet_W, seqlet_dna, out_prefix, background_fasta, meme_db)
 
 
 def read_preds(predict_h5_file, range_step=1, verbose=True):
@@ -392,17 +520,50 @@ def read_preds(predict_h5_file, range_step=1, verbose=True):
 
     return seqlet_reprs, seqlet_intervals
 
+
+def run_dreme(seqlet_acts, seqlet_dna, out_prefix, background_fasta, meme_db):
+    # make feature fasta
+    feature_fasta = '%s_dna.fa' % out_prefix
+    make_feature_fasta(seqlet_acts, seqlet_dna, feature_fasta)
+
+    # run dreme
+    dreme_opts = '-norc -e 0.0001 -m 4'
+    dreme_dir = '%s_dreme' % out_prefix
+    dreme_cmd = 'dreme %s -p %s -n %s -oc %s' % \
+            (dreme_opts, feature_fasta, background_fasta, dreme_dir)
+
+    dreme_std = open('%s_dreme.txt' % out_prefix, 'w')
+    subprocess.call(dreme_cmd, stdout=dreme_std, stderr=dreme_std, shell=True)
+    dreme_std.close()
+
+    # run tomtom
+    if meme_db is not None:
+        meme_file = '%s/dreme.txt' % dreme_dir
+        tomtom_opts = '-dist pearson -thresh 0.1'
+        tomtom_dir = '%s/tomtom' % dreme_dir
+        tomtom_cmd = 'tomtom %s -oc %s %s %s' % \
+            (tomtom_opts, tomtom_dir, meme_file, meme_db)
+
+        tomtom_std = open('%s/tomtom.txt' % dreme_dir, 'w')
+        subprocess.call(tomtom_cmd, stdout=tomtom_std, stderr=tomtom_std, shell=True)
+        tomtom_std.close()
+
+
 def run_homer(seqlet_acts, seqlet_dna, out_prefix, background_fasta):
     # make feature fasta
     feature_fasta_file = '%s_dna.fa' % out_prefix
     make_feature_fasta(seqlet_acts, seqlet_dna, feature_fasta_file)
 
-    homer_opts = '-norevopp -noknown -chopify -noweight -bits'
+    homer_opts = '-S 16 -e .02 -minlp -50'
+    homer_opts += ' -norevopp -noknown -chopify -noweight -bits -basic'
 
-    feature_homer_dir = '%s_homer' % out_prefix
-    cmd = 'findMotifs.pl %s fasta %s -fasta %s %s' % \
-            (feature_fasta_file, feature_homer_dir, background_fasta, homer_opts)
-    subprocess.call(homer_cmd, shell=True)
+    homer_dir = '%s_homer' % out_prefix
+    homer_cmd = 'findMotifs.pl %s fasta %s -fasta %s %s' % \
+            (feature_fasta_file, homer_dir, background_fasta, homer_opts)
+
+    homer_std = open('%s_homer.txt' % out_prefix, 'w')
+    subprocess.call(homer_cmd, stdout=homer_std, stderr=homer_std, shell=True)
+    homer_std.close()
 
 
 def write_factor(factor_coef, feature_mask, out_file):
@@ -415,6 +576,29 @@ def write_factor(factor_coef, feature_mask, out_file):
             sfi += 1
     out_open.close()
 
+
+def write_msa(msa_1hot, fasta_file):
+    """Write a multiple sequence alignment, stored as a numpy
+    array with NaN for gaps, to FASTA."""
+    fasta_open = open(fasta_file, 'w')
+
+    num_seqs, width, depth = msa_1hot.shape
+    for si in range(num_seqs):
+        mseq = []
+        for wi in range(width):
+            if np.isnan(msa_1hot[si,wi,0]):
+                mseq.append('-')
+            elif msa_1hot[si,wi,0]:
+                mseq.append('A')
+            elif msa_1hot[si,wi,1]:
+                mseq.append('C')
+            elif msa_1hot[si,wi,2]:
+                mseq.append('G')
+            else:
+                mseq.append('T')
+        print('>%d\n%s' % (si, ''.join(mseq)), file=fasta_open)
+
+    fasta_open.close()
 
 Interval = collections.namedtuple('Interval', ['chr', 'start', 'end'])
 

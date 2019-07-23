@@ -210,8 +210,8 @@ class SeqNN():
 
     # compile with dense metrics
     num_targets = self.model.output_shape[-1]
-    model.compile(loss,
-                  optimizer=tf.keras.optimizers.SGD(),
+    model.compile(optimizer=tf.keras.optimizers.SGD(),
+                  loss=loss,
                   metrics=[metrics.PearsonR(num_targets, summarize=False),
                            metrics.R2(num_targets, summarize=False)])
 

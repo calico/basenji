@@ -31,7 +31,7 @@ import cooler
 from cooltools.lib.numutils import observed_over_expected, adaptive_coarsegrain, interpolate_bad_singletons, set_diag, interp_nan
 from astropy.convolution import Gaussian2DKernel
 from astropy.convolution import convolve
-kernel = Gaussian2DKernel(x_stddev=1,x_size=5)
+
 
 
 
@@ -101,6 +101,9 @@ def main():
 
   seqs_hic_open.create_dataset('seqs_hic', shape=(num_seqs, seq_pool_len_hic), dtype='float16')
 
+  kernel = Gaussian2DKernel(x_stddev=1,x_size=5)
+
+
   # open genome coverage file
   genome_hic_cool = cooler.Cooler(genome_hic_file)
 
@@ -148,26 +151,25 @@ def main():
                               seq_hic_raw,  
                               genome_hic_cool.matrix(balance=False).fetch(mseq_str),  
                               cutoff= 2, max_levels=8)
+      seq_hic_nan = np.isnan(seq_hic_smoothed)
       #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
 
       if options.as_obsexp == True:
-        # interpolate single missing bins
-        seq_hic_interpolated =  interpolate_bad_singletons(seq_hic_smoothed, mask=(~seq_hic_nan),
-                                                 fillDiagonal=True, returnMask=False, secondPass=True,verbose=False)
-        seq_hic_nan = np.isnan(seq_hic_interpolated)
-
-        # compute observed/expected
-        seq_hic_obsexp = observed_over_expected(seq_hic_interpolated, ~seq_hic_nan)[0]
-        # todo: allow passing a global expected rather than computing locally
+        # compute observed/expected. todo: allow passing a global expected rather than computing locally
+        seq_hic_obsexp = observed_over_expected(seq_hic_smoothed, ~seq_hic_nan)[0]
 
         # log
         seq_hic_obsexp = np.log(seq_hic_obsexp)
+        seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
+        seq_hic_obsexp = interp_nan(seq_hic_obsexp)
 
         # set nan to 0
         seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
 
         # todo: make obsexp_clip an option for obs/exp
         seq_hic = np.clip(seq_hic_obsexp,-2,2)
+        for i in [-1,0,1]: set_diag(seq_hic, 0,i)
+        seq_hic = convolve(seq_hic, kernel)
       
       else:
         # interpolate all missing bins

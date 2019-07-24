@@ -371,6 +371,10 @@ def symmetric_dilated_residual_2D(inputs, filters, kernel_size=3, rate_mult=2, d
 
   return current
 
+
+
+############### experimental zone ############3
+
 def bidirectional_LSTM(inputs, units, useGPU=True, **kwargs):
   if useGPU:
     current = tf.keras.layers.Bidirectional(tf.keras.layers.CuDNNLSTM(units, return_sequences = True))(inputs)
@@ -380,6 +384,190 @@ def bidirectional_LSTM(inputs, units, useGPU=True, **kwargs):
 
 
 
+def separable_conv_block_2D(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, depth_multiplier=1,
+        l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
+  """Construct a single 2D convolution block.   """
+  print('conv2D: l2_scale',l2_scale)
+  # flow through variable current
+  current = inputs
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # convolution
+  current = tf.keras.layers.SeparableConv2D(
+    filters=filters,
+    kernel_size=kernel_size,
+    strides=strides,
+    padding='same',
+    use_bias=False,
+    dilation_rate=dilation_rate,
+    depth_multiplier = depth_multiplier,
+    kernel_initializer='he_normal',
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # batch norm
+  if batch_norm:
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum,
+      gamma_initializer=bn_gamma,
+      fused=True)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # Pool
+  if pool_size > 1:
+    current = tf.keras.layers.MaxPool2D(
+      pool_size=pool_size,
+      padding='same')(current)
+
+  return current
+
+
+def symmetric_separable_dilated_residual_2D(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, repeat=1, **kwargs):
+  """Construct a residual dilated convolution block.
+  """
+
+  # flow through variable current
+  current = inputs
+
+  # initialize dilation rate
+  dilation_rate = 1.0
+
+  for ri in range(repeat):
+    rep_input = current
+
+    # dilate
+    current = separable_conv_block_2D(current,
+      filters=filters,
+      kernel_size=kernel_size,
+      dilation_rate=int(np.round(dilation_rate)),
+      bn_gamma='ones',
+      **kwargs)
+
+    # return
+    current = conv_block_2D(current,
+      filters=rep_input.shape[-1],
+      dropout=dropout,
+      bn_gamma='zeros',
+      **kwargs)
+
+    # residual add
+    current = tf.keras.layers.Add()([rep_input,current])
+
+    # enforce symmetry
+    current = symmetrize2D()(current)
+
+    # update dilation rate
+    dilation_rate *= rate_mult
+
+  return current
+
+
+
+def separable_conv_block(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, depth_multiplier=1
+      l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
+
+  # flow through variable current
+  current = inputs
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # convolution
+  current = tf.keras.layers.SeparableConv1D(
+    filters=filters,
+    kernel_size=kernel_size,
+    strides=strides,
+    depth_multiplier=depth_multiplier,
+    padding='same',
+    use_bias=False,
+    dilation_rate=dilation_rate,
+    kernel_initializer='he_normal',
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # batch norm
+  if batch_norm:
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum,
+      gamma_initializer=bn_gamma,
+      fused=True)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # Pool
+  if pool_size > 1:
+    current = tf.keras.layers.MaxPool1D(
+      pool_size=pool_size,
+      padding='same')(current)
+
+  return current
+
+
+def separable_conv_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
+  """Construct a reducing convolution block.
+
+  Args:
+
+  Returns:
+    output sequence
+  """
+
+  # flow through variable current
+  current = inputs
+
+  # initialize filters
+  rep_filters = filters_init
+
+  for ri in range(repeat):
+    # convolution
+    current = separable_conv_block(current,
+      filters=int(np.round(rep_filters)),
+      **kwargs)
+
+    # update filters
+    rep_filters *= filters_mult
+
+  return current
+
+
+def separable_dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, depth_multiplier=1, dropout=0, repeat=1, **kwargs):
+  # flow through variable current
+  current = inputs
+
+  # initialize dilation rate
+  dilation_rate = 1.0
+
+  for ri in range(repeat):
+    rep_input = current
+
+    # dilate
+    current = separable_conv_block(current,
+      filters=filters,
+      kernel_size=kernel_size,
+      dilation_rate=int(np.round(dilation_rate)),
+      depth_multiplier=1,
+      bn_gamma='ones',
+      **kwargs)
+
+    # return
+    current = conv_block(current,
+      filters=rep_input.shape[-1],
+      dropout=dropout,
+      bn_gamma='zeros',
+      **kwargs)
+
+    # residual add
+    current = tf.keras.layers.Add()([rep_input,current])
+
+    # update dilation rate
+    dilation_rate *= rate_mult
+
+  return current
 
 
 name_func = {
@@ -396,7 +584,10 @@ name_func = {
   'conv_block_2D':conv_block_2D,
   'symmetric_dilated_residual_2D':symmetric_dilated_residual_2D,
   'bidirectional_LSTM':bidirectional_LSTM,
-  'symmetrize_2D':symmetrize_2D
+  'symmetrize_2D':symmetrize_2D,
+  'separable_dilated_residual':separable_dilated_residual,
+  'separable_conv_tower':separable_conv_tower,
+  'symmetric_separable_dilated_residual_2D':symmetric_separable_dilated_residual_2D
 }
 
 keras_func = {

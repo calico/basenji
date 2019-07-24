@@ -467,7 +467,7 @@ def symmetric_separable_dilated_residual_2D(inputs, filters, kernel_size=3, rate
 
 
 
-def separable_conv_block(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, depth_multiplier=1
+def separable_conv_block(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, depth_multiplier=1,
       l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
 
   # flow through variable current

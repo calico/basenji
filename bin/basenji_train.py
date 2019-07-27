@@ -52,10 +52,8 @@ flags.DEFINE_string('restore', None, 'Restore model and continue training.')
 flags.DEFINE_boolean('trunk', False, 'Restore model as trunk only.')
 
 # eval options
-flags.DEFINE_boolean('metrics_thread', False, 'Evaluate validation metrics in a separate thread.')
 flags.DEFINE_boolean('r', False, 'Compute validation set PearsonrR.')
 flags.DEFINE_boolean('r2', False, 'Compute validation set R2.')
-flags.DEFINE_float('metrics_sample', 1.0, 'Sample sequence positions for computing metrics.')
 
 FLAGS = flags.FLAGS
 

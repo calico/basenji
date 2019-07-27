@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+
 import collections
+import glob
 import json
 import multiprocessing
 import os
@@ -37,9 +39,9 @@ Study motifs in a Basenji model, via activations on given sequences.
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <bed_file>'
     parser = OptionParser(usage)
-    parser.add_option('-a', dest='align_seqlets',
-        default=False, action='store_true',
-        help='Align seqlets [Default: %default]')
+    parser.add_option('-a', dest='align_seqlets_shift',
+        default=0, type='int',
+        help='Align seqlets, expecting the specified shift [Default: %default]')
     parser.add_option('-b', dest='background_fasta',
         default=None, help='Homer background FASTA.')
     parser.add_option('-d', dest='meme_db',
@@ -144,7 +146,7 @@ def main():
         if feature_mask[fi]:
             fa = (seqlet_acts[:,sfi], seqlet_dna, kernel_weights[fi],
                  '%s/f%d' % (features_out_dir,fi), negatives_fasta_file,
-                  options.align_seqlets, options.meme_db)
+                  options.align_seqlets_shift, options.meme_db)
             feature_args.append(fa)
             sfi += 1
 
@@ -155,6 +157,7 @@ def main():
         mp = multiprocessing.Pool(options.threads)
         mp.starmap(process_feature, feature_args)
 
+    annotate_motifs(features_out_dir, negatives_fasta_file, options.meme_db)
 
     ################################################################
     # factorized
@@ -175,7 +178,7 @@ def main():
     for fi in range(num_factors):
         fa = (seqlet_H[fi,:], seqlet_W[:,fi], seqlet_dna, feature_mask,
               '%s/f%d' % (factors_out_dir,fi), negatives_fasta_file,
-              options.align_seqlets, options.meme_db)
+              options.align_seqlets_shift, options.meme_db)
         factor_args.append(fa)
 
     if options.threads == 1:
@@ -183,6 +186,8 @@ def main():
             process_factor(*fa)
     else:
         mp.starmap(process_factor, factor_args)
+
+    annotate_motifs(factors_out_dir, negatives_fasta_file, options.meme_db)
 
 
     ################################################################
@@ -193,6 +198,114 @@ def main():
 
     # compute leiden clustering
     # seqlet_clusters = cluster_leiden(seqlet_nn)
+
+def annotate_motifs(motifs_dir, background_fasta, meme_db):
+    # open motifs meme file
+    motifs_meme_file = '%s/motifs_meme.txt' % motifs_dir
+    motifs_meme_out = open(motifs_meme_file, 'w')
+
+    # write introduction
+    meme_intro(motifs_meme_out, background_fasta)
+
+    # write motifs
+    for fasta_file in glob.glob('%s/f*_dna.fa' % motifs_dir):
+        motif_label = fasta_file.split('/')[-1].replace('_dna.fa','')
+        msa_file = fasta_file.replace('_dna.fa','_msa.fa')
+        if os.path.isfile(msa_file):
+            meme_add(motifs_meme_out, msa_file, motif_label)
+        else:
+            meme_add(motifs_meme_out, fasta_file, motif_label)
+
+    # close motifs meme file
+    motifs_meme_out.close()
+
+    # run tomtom
+    tomtom_out = '%s/tomtom' % motifs_dir
+    tomtom_cmd = 'tomtom -dist pearson -thresh 0.1 -oc %s %s %s' % (tomtom_out, motifs_meme_file, meme_db)
+    subprocess.call(tomtom_cmd, shell=True)
+
+    # annotate
+
+
+def fasta_pwm(motif_fasta_file):
+    # read sequences
+    seqs_dna = [line.rstrip() for line in open(motif_fasta_file) if line[0] != '>']
+    seqs_1hot = np.array([dna_io.dna_1hot_float(sd) for sd in seqs_dna])
+    num_seqs = seqs_1hot.shape[0]
+
+    # compute PWM
+    pwm = seqs_1hot.sum(axis=0) + 1
+    pwm = pwm / (seqs_1hot.shape[0]+4)
+
+    return pwm, num_seqs+4
+
+def info_content(pwm, transpose=False, bg_gc=0.415):
+    ''' Compute PWM information content.'''
+    pseudoc = 1e-9
+
+    if transpose:
+        pwm = np.transpose(pwm)
+
+    bg_pwm = [1-bg_gc, bg_gc, bg_gc, 1-bg_gc]
+
+    ic = 0
+    for i in range(pwm.shape[0]):
+        for j in range(4):
+            ic += -bg_pwm[j]*np.log2(bg_pwm[j]) + pwm[i][j]*np.log2(pseudoc+pwm[i][j])
+
+    return ic
+
+
+def meme_add(motifs_meme_out, motif_fasta_file, motif_label, trim_filters=True):
+    ''' Print a filter to the growing MEME file
+    Attrs:
+        motifs_meme_out : open file
+        f (int) : filter index #
+        filter_pwm (array) : filter PWM array
+    '''
+    motif_pwm, nsites = fasta_pwm(motif_fasta_file)
+
+    if not trim_filters:
+        ic_start = 0
+        ic_end = filter_pwm.shape[0]-1
+    else:
+        ic_t = 0.2
+
+        # trim PWM of uninformative prefix
+        ic_start = 0
+        while ic_start < motif_pwm.shape[0] and info_content(motif_pwm[ic_start:ic_start+1]) < ic_t:
+            ic_start += 1
+
+        # trim PWM of uninformative suffix
+        ic_end = motif_pwm.shape[0]-1
+        while ic_end >= 0 and info_content(motif_pwm[ic_end:ic_end+1]) < ic_t:
+            ic_end -= 1
+
+    if ic_start < ic_end:
+        print('MOTIF %s' % motif_label, file=motifs_meme_out)
+        print('letter-probability matrix: alength= 4 w= %d nsites= %d' % (ic_end-ic_start+1, nsites), file=motifs_meme_out)
+
+        for i in range(ic_start, ic_end+1):
+            print('%.4f %.4f %.4f %.4f' % tuple(motif_pwm[i]), file=motifs_meme_out)
+        print('', file=motifs_meme_out)
+
+
+def meme_intro(motifs_meme_out, background_fasta):
+    # count background nucleotides
+    nt_counts = {}
+    for line in open(background_fasta):
+        if line[0] != '>':
+            seq = line.rstrip()
+            for nt in seq:
+                nt_counts[nt] = nt_counts.get(nt,0) + 1
+    nt_sum = float(sum([nt_counts[nt] for nt in 'ACGT']))
+    nt_freqs = [nt_counts[nt]/nt_sum for nt in 'ACGT']
+
+    # write intro material
+    print('MEME version 4\n', file=motifs_meme_out)
+    print('ALPHABET= ACGT\n', file=motifs_meme_out)
+    print('Background letter frequencies:', file=motifs_meme_out)
+    print('A %.4f C %.4f G %.4f T %.4f\n' % tuple(nt_freqs), file=motifs_meme_out)
 
 
 def cluster_leiden(seq_nn, resolution=2):
@@ -210,7 +323,7 @@ def cluster_leiden(seq_nn, resolution=2):
     return clusters
 
 
-def end_align_fasta(seqlets_fasta, msa_fasta, gaps=2, pwm_iter=1, epochs=2):
+def end_align_fasta(seqlets_fasta, msa_fasta, shift=1, pwm_iter=1, epochs=2):
     """Align seqlets in a FASTA file, allowing only end gaps."""
 
     # read seqlet DNA
@@ -224,17 +337,16 @@ def end_align_fasta(seqlets_fasta, msa_fasta, gaps=2, pwm_iter=1, epochs=2):
     num_seqs, width, depth = seqs_1hot.shape
 
     # extend with blanks for shifts
-    num_nan = num_seqs*depth
-    gap_col = np.array([np.nan]*num_nan).reshape((num_seqs,1,depth))
+    gaps = 2*shift
+    gap_col = np.full((num_seqs, shift, depth), np.nan)
     msa_1hot = np.concatenate([gap_col, seqs_1hot, gap_col], axis=1)
-
-    # gaps != 2 not implemented
-    assert(gaps == 2)
 
     for ei in range(epochs):
         for si in range(num_seqs):
             if si % pwm_iter == 0:
-                pwm = (msa_1hot[:,gaps:-gaps,:] + .1).mean(axis=0)
+                # pwm = (msa_1hot[:,gaps:-gaps,:] + .1).mean(axis=0)
+                pwm = msa_1hot[:,gaps:-gaps,:].sum(axis=0) + 0.1
+                pwm /= num_seqs
 
             # extract sequence
             seq_1hot = seqs_1hot[si]
@@ -405,17 +517,17 @@ def plot_kernel(kernel_weights, out_pdf):
     plt.close()
 
 
-def plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets=False):
+def plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets_shift=0):
     # make feature fasta
     feature_fasta_file = '%s_dna.fa' % out_prefix
     make_feature_fasta(seqlet_acts, seqlet_dna, feature_fasta_file)
 
-    if align_seqlets:
+    if align_seqlets_shift > 0:
         # write and run multiple sequence alignment
         feature_afasta_file = '%s_msa.fa' % out_prefix
 
         # align
-        end_align_fasta(feature_fasta_file, feature_afasta_file)
+        end_align_fasta(feature_fasta_file, feature_afasta_file, align_seqlets_shift)
         # muscle_cmd = 'muscle -diags -maxiters 2 -in %s -out %s' % (feature_fasta_file, feature_afasta_file)
         # subprocess.call(muscle_cmd, shell=True)
 
@@ -433,7 +545,7 @@ def plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets=False):
     subprocess.call(weblogo_cmd, shell=True)
 
 
-def process_feature(seqlet_acts, seqlet_dna, kernel_weights, out_prefix, background_fasta, align_seqlets=False, meme_db=None):
+def process_feature(seqlet_acts, seqlet_dna, kernel_weights, out_prefix, background_fasta, align_seqlets_shift, meme_db=None):
     """Perform all analyses on one feature."""
     print(out_prefix)
 
@@ -441,7 +553,7 @@ def process_feature(seqlet_acts, seqlet_dna, kernel_weights, out_prefix, backgro
     plot_kernel(kernel_weights, '%s_weights.pdf' % out_prefix)
 
     # plot logo
-    plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets)
+    plot_logo(seqlet_acts, seqlet_dna, out_prefix, align_seqlets_shift)
 
     # homer
     run_homer(seqlet_acts, seqlet_dna, out_prefix, background_fasta)
@@ -450,7 +562,7 @@ def process_feature(seqlet_acts, seqlet_dna, kernel_weights, out_prefix, backgro
     run_dreme(seqlet_acts, seqlet_dna, out_prefix, background_fasta, meme_db)
 
 
-def process_factor(seqlet_H, seqlet_W, seqlet_dna, feature_mask, out_prefix, background_fasta, align_seqlets=False, meme_db=None):
+def process_factor(seqlet_H, seqlet_W, seqlet_dna, feature_mask, out_prefix, background_fasta, align_seqlets_shift, meme_db=None):
     """Perform all analyses on one factor."""
     print(out_prefix)
 
@@ -458,7 +570,7 @@ def process_factor(seqlet_H, seqlet_W, seqlet_dna, feature_mask, out_prefix, bac
     write_factor(seqlet_H, feature_mask, '%s_coef.txt' % out_prefix)
 
     # plot logo
-    plot_logo(seqlet_W, seqlet_dna, out_prefix, align_seqlets)
+    plot_logo(seqlet_W, seqlet_dna, out_prefix, align_seqlets_shift)
 
     # homer
     run_homer(seqlet_W, seqlet_dna, out_prefix, background_fasta)

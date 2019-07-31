@@ -151,7 +151,13 @@ class SeqNN():
       # build blocks
       for bi, block_params in enumerate(head):
           current = self.build_block(current, block_params)
+    
 
+      # if clipping the final layer:
+      clip_target = getattr(self, 'clip_target', False)
+      if clip_target:
+        print('clipping targets to:',clip_target)
+        current = layers.Clip(clip_target[0],clip_target[1])(current)
       # save head output
       self.head_output.append(current)
 

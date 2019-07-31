@@ -41,8 +41,30 @@ class Trainer:
     self.train_epochs = self.params.get('train_epochs', 1000)
 
   def compile(self, model):
+    loss = self.params.get('loss','poisson')
+    print('loss: ', loss)
+    import numpy as np
+    from tensorflow.python.ops import math_ops
+    from tensorflow.python.framework import ops
+    from tensorflow.python.framework import dtypes
+    sample_weights =  self.params.get('sample_weights',None) 
     num_targets = model.output_shape[-1]
-    model.compile(loss=self.params.get('loss','poisson'),
+    if sample_weights is not None:
+      print('sample weights value provided')
+      if len(sample_weights) != num_targets: raise ValueError('number of sample_weights != number of targets')
+      else: sample_weights = np.array(sample_weights)
+      if ('mse' in loss):
+        def weighted_mse(ytrue,ypred, weights=sample_weights): 
+          weights = math_ops.cast(ops.convert_to_tensor(weights),dtypes.float32)
+          print('sample weights', sample_weights)
+          return tf.keras.backend.mean(  weights * tf.keras.backend.square(ytrue-ypred) ,axis=-1)
+        loss = weighted_mse 
+        print('using weighted mse')
+      else:
+        raise ValueError('no custom weighted loss defined')
+
+    num_targets = model.output_shape[-1]
+    model.compile(loss=loss,
                   optimizer=self.optimizer,
                   metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
     self.compiled = True
@@ -50,6 +72,7 @@ class Trainer:
   def fit(self, model):
     if not self.compiled:
       self.compile(model)
+
 
     callbacks = [
       tf.keras.callbacks.EarlyStopping(patience=self.patience, monitor='val_loss', verbose=1),

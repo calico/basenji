@@ -1,13 +1,7 @@
 """Wrapper code for using commonly-used layers."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
+import sys
 import tensorflow as tf
-
 from basenji import ops
-
 
 ############################################################
 # Keras Layers
@@ -20,6 +14,12 @@ class Clip(tf.keras.layers.Layer):
     self.max_value = max_value
   def call(self, x):
     return tf.clip_by_value(x, self.min_value, self.max_value)
+
+class Exp(tf.keras.layers.Layer):
+    def __init__(self):
+        super(Exp, self).__init__()
+    def call(self, x):
+      return tf.keras.activations.exponential(x)
 
 class GELU(tf.keras.layers.Layer):
     def __init__(self):
@@ -167,6 +167,8 @@ def activate(current, activation):
     current = tf.keras.layers.ReLU()(current)
   elif activation == 'gelu':
     current = GELU()(current)
+  elif activation == 'exp':
+    current = Exp()(current)
   else:
     print('Unrecognized activation "%s"' % activation, file=sys.stderr)
     exit(1)

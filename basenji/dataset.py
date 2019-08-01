@@ -13,10 +13,12 @@
 # limitations under the License.
 # =========================================================================
 from __future__ import print_function
+import glob
 import os
 import pdb
 import sys
 
+from natsort import natsorted
 import numpy as np
 import tensorflow as tf
 
@@ -34,23 +36,6 @@ TFR_GENOME = 'genome'
 
 def file_to_records(filename):
   return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
-
-
-def order_tfrecords(tfr_pattern):
-  """Check for TFRecords files fitting my pattern in succession,
-     else return empty list."""
-  tfr_files = []
-
-  if tfr_pattern.count('*') == 1:
-    i = 0
-    tfr_file = tfr_pattern.replace('*', str(i))
-
-    while os.path.isfile(tfr_file):
-      tfr_files.append(tfr_file)
-      i += 1
-      tfr_file = tfr_pattern.replace('*', str(i))
-
-  return tfr_files
 
 
 class SeqDataset:
@@ -122,8 +107,8 @@ class SeqDataset:
   def make_dataset(self):
     """Make Dataset w/ transformations."""
 
-    # initialize dataset from TFRecords globf
-    tfr_files = order_tfrecords(self.tfr_pattern)
+    # initialize dataset from TFRecords glob
+    tfr_files = natsorted(glob.glob(self.tfr_pattern))
     if tfr_files:
       dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
     else:

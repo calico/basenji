@@ -191,7 +191,7 @@ class SeqNN():
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
       # predict each sequence
-      preds = [layers.SwitchReverse(o)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+      preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)
@@ -236,6 +236,8 @@ class SeqNN():
     weights = np.transpose(weights, [2,1,0])
     return weights
 
+  def num_targets(self, head_i=0):
+    return self.models[head_i].output_shape[-1]
 
   def predict(self, seq_data, head_i=0, **kwargs):
     """ Predict targets for SeqDataset. """

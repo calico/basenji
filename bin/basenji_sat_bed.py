@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 
+import json
 import os
 import pdb
 import pickle
@@ -104,12 +105,26 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   #################################################################
-  # read parameters and collet target information
+  # read parameters and construct model
 
-  job = params.read_job_params(params_file)
+  # read model parameters
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
+
+  # initialize model
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  #################################################################
+  # collet target information
+
+  num_targets = seqnn_model.num_targets()
 
   if options.targets_file is None:
-    target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
+    target_ids = ['t%d' % ti for ti in range(num_targets)]
     target_labels = ['']*len(target_ids)
     target_subset = None
 
@@ -118,8 +133,11 @@ def main():
     target_ids = targets_df.identifier
     target_labels = targets_df.description
     target_subset = targets_df.index
-    if len(target_subset) == job['num_targets']:
+    if len(target_subset) == num_targets:
         target_subset = None
+    else:
+        print('target_subset isnt currently implemented.', file=sys.stderr)
+        exit(1)
 
   num_targets = len(target_ids)
 
@@ -127,7 +145,7 @@ def main():
   # sequence dataset
 
   # read sequences from BED
-  seqs_dna, seqs_coords = bed_seqs(bed_file, options.genome_fasta, job['seq_length'])
+  seqs_dna, seqs_coords = bed_seqs(bed_file, options.genome_fasta, params_model['seq_length'])
 
   # filter for worker SNPs
   if options.processes is not None:
@@ -138,20 +156,12 @@ def main():
   num_seqs = len(seqs_dna)
 
   # determine mutation region limits
-  seq_mid = job['seq_length'] // 2
+  seq_mid = params_model['seq_length'] // 2
   mut_start = seq_mid - options.mut_len // 2
   mut_end = mut_start + options.mut_len
 
   # make data ops
-  data_ops = satmut_data_ops(seqs_dna, mut_start, mut_end, job['batch_size'])
-
-  #################################################################
-  # setup model
-
-  # build model
-  model = seqnn.SeqNN()
-  model.build_sad(job, data_ops, target_subset=target_subset,
-                  ensemble_rc=options.rc, ensemble_shifts=options.shifts)
+  data_ops = satmut_data_ops(seqs_dna, mut_start, mut_end, params_train['batch_size'])
 
   #################################################################
   # setup output

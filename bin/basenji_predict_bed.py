@@ -33,6 +33,7 @@ import tensorflow as tf
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
 
+from basenji import bed
 from basenji import dna_io
 from basenji import seqnn
 from basenji import stream
@@ -152,10 +153,12 @@ def main():
   # sequence dataset
 
   # construct model sequences
-  model_seqs_dna, model_seqs_coords = make_bed_data(bed_file, options.genome_fasta, params_model['seq_length'])
+  model_seqs_dna, model_seqs_coords = bed.make_bed_seqs(
+    bed_file, options.genome_fasta,
+    params_model['seq_length'], stranded=False)
 
   # construct site coordinates
-  site_seqs_coords = read_bed(bed_file, options.site_length)
+  site_seqs_coords = bed.read_bed_coords(bed_file, options.site_length)
 
   # filter for worker SNPs
   if options.processes is not None:
@@ -226,8 +229,14 @@ def main():
   #################################################################
   # predict scores, write output
 
+  # define sequence generator
+  def seqs_gen():
+    for seq_dna in model_seqs_dna:
+      yield dna_io.dna_1hot(seq_dna)
+
   # predict
-  preds_stream = stream.PredStream(seqnn_model, model_seqs_dna, params['train']['batch_size'])
+  preds_stream = stream.PredStreamDNA(seqnn_model, model_seqs_dna, params['train']['batch_size'])
+  # preds_stream = stream.PredStream(seqnn_model, seqs_gen(), params['train']['batch_size'])
 
   for si in range(num_seqs):
     preds_seq = preds_stream[si]
@@ -305,74 +314,6 @@ def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_buffer=0):
           values=[float(s) for s in signal])
 
   bw_out.close()
-
-
-def make_bed_data(bed_file, fasta_file, seq_len):
-  """Extract and extend BED sequences to seq_len."""
-  fasta_open = pysam.Fastafile(fasta_file)
-
-  seqs_dna = []
-  seqs_coords = []
-
-  for line in open(bed_file):
-    a = line.split()
-    chrm = a[0]
-    start = int(float(a[1]))
-    end = int(float(a[2]))
-
-    # determine sequence limits
-    mid = (start + end) // 2
-    seq_start = mid - seq_len//2
-    seq_end = seq_start + seq_len
-
-    # save
-    seqs_coords.append((chrm,seq_start,seq_end))
-
-    # initialize sequence
-    seq_dna = ''
-
-    # add N's for left over reach
-    if seq_start < 0:
-      print('Adding %d Ns to %s:%d-%s' % \
-          (-seq_start,chrm,start,end), file=sys.stderr)
-      seq_dna = 'N'*(-seq_start)
-      seq_start = 0
-
-    # get dna
-    seq_dna += fasta_open.fetch(chrm, seq_start, seq_end).upper()
-
-    # add N's for right over reach
-    if len(seq_dna) < seq_len:
-      print('Adding %d Ns to %s:%d-%s' % \
-          (seq_len-len(seq_dna),chrm,start,end), file=sys.stderr)
-      seq_dna += 'N'*(seq_len-len(seq_dna))
-
-    # append
-    seqs_dna.append(seq_dna)
-
-  fasta_open.close()
-
-  return seqs_dna, seqs_coords
-
-
-def read_bed(bed_file, seq_len):
-  seqs_coords = []
-
-  for line in open(bed_file):
-    a = line.split()
-    chrm = a[0]
-    start = int(float(a[1]))
-    end = int(float(a[2]))
-
-    # determine sequence limits
-    mid = (start + end) // 2
-    seq_start = mid - seq_len//2
-    seq_end = seq_start + seq_len
-
-    # save
-    seqs_coords.append((chrm,seq_start,seq_end))
-
-  return seqs_coords
 
 
 ################################################################################

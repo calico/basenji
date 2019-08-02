@@ -21,13 +21,14 @@ import tensorflow as tf
 from basenji import batcher
 from basenji import dna_io
 
+
 class PredStream:
   """ Interface to acquire predictions via a buffered stream mechanism
          rather than getting them all at once and using excessive memory. """
 
-  def __init__(self, model, seqs_dna, batch_size, stream_seqs=128, verbose=False):
+  def __init__(self, model, seqs_gen, batch_size, stream_seqs=128, verbose=False):
     self.model = model
-    self.seqs_dna = seqs_dna
+    self.seqs_gen = seqs_gen
     self.stream_seqs = stream_seqs
     self.batch_size = batch_size
     self.verbose = verbose
@@ -56,10 +57,13 @@ class PredStream:
   def make_dataset(self):
     """ Construct Dataset object for this stream chunk. """
     seqs_1hot = []
-    stream_end = min(len(self.seqs_dna), self.stream_start+self.stream_seqs)
+    stream_end = self.stream_start+self.stream_seqs
     for si in range(self.stream_start, stream_end):
-      seq_1hot = dna_io.dna_1hot(self.seqs_dna[si])
-      seqs_1hot.append(seq_1hot)
+      try:
+        seqs_1hot.append(self.seqs_gen.__next__())
+      except StopIteration:
+        continue
+
     seqs_1hot = np.array(seqs_1hot)
 
     dataset = tf.data.Dataset.from_tensor_slices((seqs_1hot,))

@@ -587,6 +587,7 @@ name_func = {
   'symmetrize_2D':symmetrize_2D,
   'separable_dilated_residual':separable_dilated_residual,
   'separable_conv_tower':separable_conv_tower,
+  'separable_conv_block':separable_conv_block,
   'symmetric_separable_dilated_residual_2D':symmetric_separable_dilated_residual_2D
 }
 

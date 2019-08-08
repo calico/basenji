@@ -5,15 +5,78 @@ import tensorflow as tf
 
 from basenji import layers
 
-def conv_block(inputs, filters=128, activation='relu', kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
+def attention(inputs, kq_depth=None, max_relative_position=64, batch_norm=False, bn_momentum=0.99, **kwargs):
+  """Construct a residual attention block.
+
+  Args:
+    inputs:                 [batch_size, seq_length, features] input sequence
+    kq_depth:               Key-query feature depth
+    max_relative_position:  Max relative position to differentiate w/ its own parameter
+
+  Returns:
+    output sequence
+  """
+
+  # flow through variable current
+  current = inputs
+
+  current_depth = current.shape[-1]
+  if kq_depth is None:
+    kq_depth = current_depth
+
+  # key - who am I?
+  key = tf.keras.layers.Conv1D(
+    filters=kq_depth,
+    kernel_size=1,
+    padding='same',
+    kernel_initializer='he_normal'
+  )(current)
+
+  # query - what am I looking for?
+  query = tf.keras.layers.Conv1D(
+    filters=kq_depth,
+    kernel_size=1,
+    padding='same',
+    kernel_initializer='he_normal'
+  )(current)
+
+  # value - what do I have to say?
+  value = tf.keras.layers.Conv1D(
+    filters=current_depth,
+    kernel_size=1,
+    padding='same',
+    kernel_initializer='he_normal',
+  )(current)
+
+  # apply layer
+  z = layers.Attention(max_relative_position=max_relative_position)([query,value,key])
+
+  # batch norm
+  if batch_norm:
+    z = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum,
+      gamma_initializer='zeros',
+      fused=True)(z)
+
+  # residual add
+  current = tf.keras.layers.Add()([current,z])
+
+  return current
+
+
+def conv_block(inputs, filters=128, kernel_size=1, activation='relu', strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
   """Construct a single convolution block.
 
   Args:
-    inputs:        [batchsize, length, num_channels] input sequence
+    inputs:        [batch_size, seq_length, features] input sequence
     filters:       Conv1D filters
     kernel_size:   Conv1D kernel_size
     activation:    relu/gelu/etc
     strides:       Conv1D strides
+    dilation_rate: Conv1D dilation rate
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    pool_size:     Max pool width
 
   Returns:
     output sequence
@@ -42,6 +105,8 @@ def conv_block(inputs, filters=128, activation='relu', kernel_size=1, strides=1,
       momentum=bn_momentum,
       gamma_initializer=bn_gamma,
       fused=True)(current)
+  # current = tf.keras.layers.LayerNormalization(
+  #   gamma_initializer=bn_gamma)(current)
 
   # dropout
   if dropout > 0:
@@ -567,10 +632,43 @@ def separable_dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dept
     # update dilation rate
     dilation_rate *= rate_mult
 
+=======
+def position_encoding(current, min_rate=.0001):
+    seq_length = current.shape[1].value
+    features = current.shape[2].value
+
+    assert(features % 2 == 0)
+
+    # compute angle rates
+    angle_rate_exponents = np.linspace(0, 1, features//2)
+    angle_rates = min_rate**angle_rate_exponents
+
+    # compute angle radians
+    positions = np.range(seq_length)
+    angle_rads = positions[:, np.newaxis] * angle_rates[np.newaxis, :]
+
+    # sines and cosines
+    sines = np.sin(angle_rads)
+    cosines = np.cos(angle_rads)
+    pos_encode = np.concatenate([sines, cosines], axis=-1)
+
+    # activation
+    current = layers.activate(current, activation)
+
+    return current
+
+
+def slice_center(inputs, center=1, **kwargs):
+  crop_len = inputs.shape[1].value - center
+  crop_start = crop_len // 2
+  crop_end = crop_len - crop_start
+  current = inputs
+  current = tf.keras.layers.Cropping1D((crop_start,crop_end))(current)
   return current
 
 
 name_func = {
+  'attention': attention,
   'conv_block': conv_block,
   'conv_tower': conv_tower,
   'dense': dense,
@@ -589,6 +687,7 @@ name_func = {
   'separable_conv_tower':separable_conv_tower,
   'separable_conv_block':separable_conv_block,
   'symmetric_separable_dilated_residual_2D':symmetric_separable_dilated_residual_2D
+  'slice_center': slice_center
 }
 
 keras_func = {

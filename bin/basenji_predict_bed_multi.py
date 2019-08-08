@@ -45,22 +45,25 @@ def main():
   # basenji_predict_bed.py options
   parser.add_option('-b', dest='bigwig_indexes',
       default=None, help='Comma-separated list of target indexes to write BigWigs')
+  parser.add_option('-e', dest='embed_layer',
+      default=None, type='int', help='Embed sequences using the specified layer index.')
   parser.add_option('-f', dest='genome_fasta',
       default=None,
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genome_file',
       default=None,
       help='Chromosome length information [Default: %default]')
-  parser.add_option('-l', dest='embed_layer',
-      default=None, type='int', help='Embed sequences using the specified layer index.')
+  parser.add_option('-l', dest='site_length',
+      default=None, type='int',
+      help='Prediction site length. [Default: params.seq_length]')
   parser.add_option('-o', dest='out_dir',
       default='pred_out', help='Output directory [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
-  parser.add_option('-s', dest='sum_windows',
-      default=None, type='int',
-      help='Sum predictions in center windows [Default: %default]')
+  parser.add_option('-s', dest='sum',
+      default=False, action='store_true',
+      help='Sum site predictions [Default: %default]')
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
@@ -110,7 +113,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.13-gpu;'
+      cmd += ' conda activate tf1.14-gpu;'
       cmd += ' basenji_predict_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
       name = 'pred_p%d' % pi
@@ -119,7 +122,7 @@ def main():
       j = slurm.Job(cmd, name,
           outf, errf,
           queue=options.queue, gpu=1,
-          mem=45000, time='14-0:0:0')
+          mem=60000, time='14-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

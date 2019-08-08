@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 
+import json
 import os
 import pdb
 import pickle
@@ -31,10 +32,14 @@ import pandas as pd
 import pysam
 import tensorflow as tf
 
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
+
+from basenji import bed
 from basenji import dna_io
 from basenji import params
 from basenji import seqnn
-from basenji.stream import PredStream
+from basenji import stream
 
 '''
 basenji_sat_bed.py
@@ -104,12 +109,26 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   #################################################################
-  # read parameters and collet target information
+  # read parameters and construct model
 
-  job = params.read_job_params(params_file)
+  # read model parameters
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
+
+  # initialize model
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  #################################################################
+  # collet target information
+
+  num_targets = seqnn_model.num_targets()
 
   if options.targets_file is None:
-    target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
+    target_ids = ['t%d' % ti for ti in range(num_targets)]
     target_labels = ['']*len(target_ids)
     target_subset = None
 
@@ -118,8 +137,11 @@ def main():
     target_ids = targets_df.identifier
     target_labels = targets_df.description
     target_subset = targets_df.index
-    if len(target_subset) == job['num_targets']:
+    if len(target_subset) == num_targets:
         target_subset = None
+    else:
+        print('target_subset isnt currently implemented.', file=sys.stderr)
+        exit(1)
 
   num_targets = len(target_ids)
 
@@ -127,7 +149,8 @@ def main():
   # sequence dataset
 
   # read sequences from BED
-  seqs_dna, seqs_coords = bed_seqs(bed_file, options.genome_fasta, job['seq_length'])
+  seqs_dna, seqs_coords = bed.make_bed_seqs(
+    bed_file, options.genome_fasta, params_model['seq_length'], stranded=True)
 
   # filter for worker SNPs
   if options.processes is not None:
@@ -138,20 +161,12 @@ def main():
   num_seqs = len(seqs_dna)
 
   # determine mutation region limits
-  seq_mid = job['seq_length'] // 2
+  seq_mid = params_model['seq_length'] // 2
   mut_start = seq_mid - options.mut_len // 2
   mut_end = mut_start + options.mut_len
 
-  # make data ops
-  data_ops = satmut_data_ops(seqs_dna, mut_start, mut_end, job['batch_size'])
-
-  #################################################################
-  # setup model
-
-  # build model
-  model = seqnn.SeqNN()
-  model.build_sad(job, data_ops, target_subset=target_subset,
-                  ensemble_rc=options.rc, ensemble_shifts=options.shifts)
+  # make sequence generator
+  seqs_gen = satmut_gen(seqs_dna, mut_start, mut_end)
 
   #################################################################
   # setup output
@@ -188,41 +203,30 @@ def main():
   #################################################################
   # predict scores, write output
 
-  # initialize saver
-  saver = tf.train.Saver()
+  # initialize predictions stream
+  preds_stream = stream.PredStream(seqnn_model, seqs_gen, params['train']['batch_size'])
 
-  with tf.Session() as sess:
-    # coordinator
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
+  # predictions index
+  pi = 0
 
-    # load variables into session
-    saver.restore(sess, model_file)
+  for si in range(num_seqs):
+    print('Predicting %d' % si, flush=True)
 
-    # initialize predictions stream
-    preds_stream = PredStream(sess, model, 32)
+    # collect sequence predictions
+    seq_preds = []
+    for spi in range(preds_per_seq):
+      seq_preds.append(preds_stream[pi])
+      pi += 1
 
-    # predictions index
-    pi = 0
+    # wait for previous to finish
+    score_queue.join()
 
-    for si in range(num_seqs):
-      print('Predicting %d' % si, flush=True)
+    # queue sequence for scoring
+    score_queue.put((seqs_dna[si], seq_preds, si))
 
-      # collect sequence predictions
-      seq_preds = []
-      for spi in range(preds_per_seq):
-        seq_preds.append(preds_stream[pi])
-        pi += 1
-
-      # wait for previous to finish
-      score_queue.join()
-
-      # queue sequence for scoring
-      score_queue.put((seqs_dna[si], seq_preds, si))
-
-      # queue sequence for plotting
-      if options.plots:
-        plot_queue.put((seqs_dna[si], seq_preds, si))
+    # queue sequence for plotting
+    if options.plots:
+      plot_queue.put((seqs_dna[si], seq_preds, si))
 
   # finish queue
   print('Waiting for threads to finish.', flush=True)
@@ -232,110 +236,26 @@ def main():
   scores_h5.close()
 
 
-def bed_seqs(bed_file, fasta_file, seq_len):
-  """Extract and extend BED sequences to seq_len."""
-  fasta_open = pysam.Fastafile(fasta_file)
+def satmut_gen(seqs_dna, mut_start, mut_end):
+  """Construct generator for 1 hot encoded saturation
+     mutagenesis DNA sequences."""
 
-  seqs_dna = []
-  seqs_coords = []
+  for seq_dna in seqs_dna:
+    # 1 hot code DNA
+    seq_1hot = dna_io.dna_1hot(seq_dna, n_random=True)
+    yield seq_1hot
 
-  for line in open(bed_file):
-    a = line.split()
-    chrm = a[0]
-    start = int(a[1])
-    end = int(a[2])
-    if len(a) >= 6:
-      strand = a[5]
-    else:
-      strand = '+'
-
-    # determine sequence limits
-    mid = (start + end) // 2
-    seq_start = mid - seq_len//2
-    seq_end = seq_start + seq_len
-
-    # save
-    seqs_coords.append((chrm,seq_start,seq_end,strand))
-
-    # initialize sequence
-    seq_dna = ''
-
-    # add N's for left over reach
-    if seq_start < 0:
-      print('Adding %d Ns to %s:%d-%s' % \
-          (-seq_start,chrm,start,end), file=sys.stderr)
-      seq_dna = 'N'*(-seq_start)
-      seq_start = 0
-
-    # get dna
-    seq_dna += fasta_open.fetch(chrm, seq_start, seq_end).upper()
-
-    # add N's for right over reach
-    if len(seq_dna) < seq_len:
-      print('Adding %d Ns to %s:%d-%s' % \
-          (seq_len-len(seq_dna),chrm,start,end), file=sys.stderr)
-      seq_dna += 'N'*(seq_len-len(seq_dna))
-
-    # randomly set all N's
-    seq_dna = list(seq_dna)
-    for i in range(len(seq_dna)):
-      if seq_dna[i] == 'N':
-        seq_dna[i] = random.choice('ACGT')
-    seq_dna = ''.join(seq_dna)
-
-    # reverse complement
-    if strand == '-':
-      seq_dna = dna_io.dna_rc(seq_dna)
-
-    # append
-    seqs_dna.append(seq_dna)
-
-  fasta_open.close()
-
-  return seqs_dna, seqs_coords
-
-
-def satmut_data_ops(seqs_dna, mut_start, mut_end, batch_size):
-  """Construct 1 hot encoded saturation mutagenesis DNA sequences
-      using tf.data."""
-
-  # make sequence generator
-  def seqs_gen():
-    for seq_dna in seqs_dna:
-      # 1 hot code DNA
-      seq_1hot = dna_io.dna_1hot(seq_dna, n_random)
-      yield {'sequence':seq_1hot}
-
-      # for mutation positions
-      for mi in range(mut_start, mut_end):
-        # for each nucleotide
-        for ni in range(4):
-          # if non-reference
-          if seq_1hot[mi,ni] == 0:
-            # copy and modify
-            seq_mut_1hot = np.copy(seq_1hot)
-            seq_mut_1hot[mi,:] = 0
-            seq_mut_1hot[mi,ni] = 1
-            yield {'sequence':seq_mut_1hot}
-
-  # auxiliary info
-  seq_len = len(seqs_dna[0])
-  seqs_types = {'sequence': tf.float32}
-  seqs_shapes = {'sequence': tf.TensorShape([tf.Dimension(seq_len),
-                                            tf.Dimension(4)])}
-
-  # create dataset
-  dataset = tf.data.Dataset.from_generator(seqs_gen,
-                                           output_types=seqs_types,
-                                           output_shapes=seqs_shapes)
-  dataset = dataset.batch(batch_size)
-  dataset = dataset.prefetch(2*batch_size)
-
-  # make iterator ops
-  iterator = dataset.make_one_shot_iterator()
-  data_ops = iterator.get_next()
-
-  return data_ops
+    # for mutation positions
+    for mi in range(mut_start, mut_end):
+      # for each nucleotide
+      for ni in range(4):
+        # if non-reference
+        if seq_1hot[mi,ni] == 0:
+          # copy and modify
+          seq_mut_1hot = np.copy(seq_1hot)
+          seq_mut_1hot[mi,:] = 0
+          seq_mut_1hot[mi,ni] = 1
+          yield seq_mut_1hot
 
 
 class PlotWorker(Thread):

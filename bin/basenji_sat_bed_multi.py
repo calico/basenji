@@ -108,7 +108,7 @@ def main():
   jobs = []
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
-      cmd = 'source activate tf1.12-gpu; basenji_sat_bed.py %s %s %d' % (
+      cmd = 'source activate tf1.14-gpu; basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
       name = '%s_p%d' % (options.name, pi)
       outf = '%s/job%d.out' % (options.out_dir, pi)

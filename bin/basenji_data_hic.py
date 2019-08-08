@@ -101,7 +101,7 @@ def main():
   parser.add_option('-u', dest='umap_bed',
       help='Unmappable regions in BED format')
   parser.add_option('--umap_midpoints', dest='umap_midpoints',
-      help='Regions with midpoints to exclude in BED format. Used for 4C.')
+      help='Regions with midpoints to exclude in BED format. Used for 4C/HiC.')
   parser.add_option('--umap_t', dest='umap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
@@ -258,7 +258,7 @@ def main():
     np.save(unmap_npy, mseqs_unmap)
 
   if options.umap_midpoints is not None:
-    # annotate unmappable midpoints for 4C
+    # annotate unmappable midpoints for 4C/HiC
     mseqs_unmap = annotate_unmap(mseqs, options.umap_midpoints,
                                  options.seq_length, options.pool_width)
 
@@ -307,7 +307,7 @@ def main():
     if options.restart and os.path.isfile(seqs_cov_file):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
-      cmd = 'basenji_data_4C_read.py'
+      cmd = 'basenji_data_hic_read.py'
       cmd += ' -w %d' % options.pool_width
       cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
@@ -366,7 +366,7 @@ def main():
     while tfr_start <= tvt_set_end:
       tfr_stem = '%s/%s-%d' % (tfr_dir, tvt_set, tfr_i)
 
-      cmd = 'basenji_data_write.py'
+      cmd = 'basenji_data_hic_write.py'
       cmd += ' -s %d' % tfr_start
       cmd += ' -e %d' % tfr_end
       if options.umap_bed is not None:

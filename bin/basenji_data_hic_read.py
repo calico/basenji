@@ -34,16 +34,15 @@ import pandas as pd
 
 
 """
-basenji_data_4C_read.py
+basenji_data_hic_read.py
 
-Read virtual 4C profiles from coolers.
 """
 
 ################################################################################
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <genome_hic_file> <seqs_bed_file> <seqs_4C_file>'
+  usage = 'usage: %prog [options] <genome_hic_file> <seqs_bed_file> <seqs_hic_file>'
   parser = OptionParser(usage)
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
@@ -73,7 +72,7 @@ def main():
   else:
     genome_hic_file = args[0]
     seqs_bed_file = args[1]
-    seqs_4C_file = args[2]
+    seqs_hic_file = args[2]
 
   print('saving TFRs as obsexp:',options.as_obsexp)
 
@@ -92,8 +91,8 @@ def main():
   seq_len_pool = seq_len_nt // options.pool_width
 
   # initialize sequences coverage file
-  seqs_4C_open = h5py.File(seqs_4C_file, 'w')
-  seqs_4C_open.create_dataset('seqs_cov', shape=(num_seqs, seq_len_pool), dtype='float16')
+  seqs_hic_open = h5py.File(seqs_hic_file, 'w')
+  seqs_hic_open.create_dataset('seqs_hic', shape=(num_seqs, seq_len_pool, seq_len_pool), dtype='float16')
 
   # open genome coverage file
   genome_hic_cool = cooler.Cooler(genome_hic_file)
@@ -142,11 +141,7 @@ def main():
                               seq_hic_raw,  
                               genome_hic_cool.matrix(balance=False).fetch(mseq_str),  
                               cutoff= 2, max_levels=8)
-      
       #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
-      #seq_hic_min = np.min(seq_hic_raw[seq_hic_raw > 0])
-      #seq_hic_raw += seq_hic_min
-
 
       if options.as_obsexp == True:
         # interpolate single missing bins
@@ -164,31 +159,27 @@ def main():
         # set nan to 0
         seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
 
-        # todo: make obsexp_clip an option for obs/exp 4C
-        seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
-
-        # take the mean
-        seq_4C = np.nanmean( seq_hic_obsexp[len(seq_hic_obsexp)//2-1:len(seq_hic_obsexp)//2+1,:],axis=0)
+        # todo: make obsexp_clip an option for obs/exp
+        seq_hic = np.clip(seq_hic_obsexp,-2,2)
       
       else:
         # interpolate all missing bins
         seq_hic_interpolated =  interp_nan(seq_hic_smoothed)
 
-        # take the mean, rescale
-        seq_4C = 100000*np.nanmean( seq_hic_interpolated[len(seq_hic_interpolated)//2-1:len(seq_hic_interpolated)//2+1,:],axis=0)
+        # rescale
+        seq_hic = 100000* seq_hic_interpolated
 
-        # smooth. todo allow passing the options.
-        seq_4C = smooth(seq_4C, 11, window='blackman')
+        # todo add extra smoothing
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
-      seq_4C = np.zeros((seq_len_pool,), dtype='float16')
+      seq_hic = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
     
     # write
-    seqs_4C_open['seqs_cov'][si,:] = seq_4C.astype('float16')
+    seqs_hic_open['seqs_hic'][si,:,:] = seq_hic.astype('float16')
     
   # close sequences coverage file
-  seqs_4C_open.close()
+  seqs_hic_open.close()
 
 def smooth(y, box_pts, window='flat'):
   # https://scipy-cookbook.readthedocs.io/items/SignalSmooth.html

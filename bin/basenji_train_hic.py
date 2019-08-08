@@ -44,10 +44,13 @@ flags.DEFINE_string('augment_shifts', '0', 'Augment training with shifted sequen
 # training modes
 flags.DEFINE_string('restore', None, 'Restore model and continue training.')
 flags.DEFINE_boolean('trunk', False, 'Restore model as trunk only.')
+flags.DEFINE_boolean('freeze_trunk',False,'Freeze layers in the trunk')
 
 # eval options
+flags.DEFINE_boolean('metrics_thread', False, 'Evaluate validation metrics in a separate thread.')
 flags.DEFINE_boolean('r', False, 'Compute validation set PearsonrR.')
 flags.DEFINE_boolean('r2', False, 'Compute validation set R2.')
+flags.DEFINE_float('metrics_sample', 1.0, 'Sample sequence positions for computing metrics.')
 
 FLAGS = flags.FLAGS
 
@@ -86,16 +89,27 @@ def main(_):
 
 
   # load data
+  hic_diags = 2
+  tlen = (params_model['target_length']-hic_diags) * (params_model['target_length']-hic_diags+1) // 2
+
   train_data = dataset.SeqDataset(FLAGS.train_data,
     params_train['batch_size'],
     params_model['seq_length'],
-    params_model['target_length'],
+    tlen,
     tf.estimator.ModeKeys.TRAIN)
+
   eval_data = dataset.SeqDataset(FLAGS.eval_data,
     params_train['batch_size'],
     params_model['seq_length'],
-    params_model['target_length'],
+    tlen,
     tf.estimator.ModeKeys.EVAL)
+
+#  eval_data = dataset.HicDataset(FLAGS.eval_data,
+#    params_train['batch_size'],
+#    params_model['seq_length'],
+#    params_model['target_length'],
+#    tf.estimator.ModeKeys.EVAL)
+
 
   if params_train.get('num_gpu',1) == 1:
     ########################################
@@ -107,6 +121,10 @@ def main(_):
     # restore
     if FLAGS.restore:
       seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
+      print('restored weights')
+      if FLAGS.freeze_trunk:
+        seqnn_model.model_trunk.trainable = False
+        print('frozen trunk')
 
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
@@ -120,16 +138,13 @@ def main(_):
   else:
     ########################################
     # two GPU
-
+    print('need to update multigpu')
+    '''
     mirrored_strategy = tf.distribute.MirroredStrategy()
     with mirrored_strategy.scope():
 
       # initialize model
       seqnn_model = seqnn.SeqNN(params_model)
-
-      # restore
-      if FLAGS.restore:
-        seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
 
       # initialize trainer
       seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
@@ -139,6 +154,6 @@ def main(_):
 
     # train model
     seqnn_trainer.fit(seqnn_model.model)
-
+    '''
 if __name__ == '__main__':
   app.run(main)

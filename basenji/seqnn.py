@@ -63,6 +63,7 @@ class SeqNN():
         block_args[gv] = gv_value
 
     # extract name
+    print(block_params)
     block_name = block_params['name']
     del block_params['name']
 
@@ -123,8 +124,13 @@ class SeqNN():
         right=current_length-target_diff2)(current)
     """
 
+    if self.augment_rc: ### needs to be earlier for hic
+      # transform back from reverse complement
+      current = layers.SwitchReverse()([current, reverse_bool])
+
     trunk_output = current
     self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
+    print('done with trunk')
 
     ###################################################
     # heads
@@ -145,9 +151,11 @@ class SeqNN():
       for bi, block_params in enumerate(head):
           current = self.build_block(current, block_params)
 
-      if self.augment_rc:
-        # transform back from reverse complement
-        current = layers.SwitchReverse()([current, reverse_bool])
+      # if clipping the final layer:
+      clip_target = getattr(self, 'clip_target', False)
+      if clip_target:
+        print('clipping targets to:',clip_target)
+        current = layers.Clip(clip_target[0],clip_target[1])(current)
 
       # save head output
       self.head_output.append(current)
@@ -190,8 +198,8 @@ class SeqNN():
       else:
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
-      # predict each sequence
-      preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+      # predict each sequence ### todo: this probably needs to change for hic
+      preds = [layers.SwitchReverse(o)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)
@@ -227,8 +235,7 @@ class SeqNN():
     """ Return specified convolution layer. """
     conv_layers = [layer for layer in self.model.layers if layer.name.startswith('conv')]
     return conv_layers[conv_layer_i]
-
-
+                  
   def get_conv_weights(self, conv_layer_i):
     """ Return kernel weights for specified convolution layer. """
     conv_layer = self.get_conv_layer(conv_layer_i)
@@ -238,7 +245,7 @@ class SeqNN():
 
   def num_targets(self, head_i=0):
     return self.models[head_i].output_shape[-1]
-
+                  
   def predict(self, seq_data, head_i=0, **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
@@ -254,7 +261,6 @@ class SeqNN():
       dataset = seq_data
 
     return model.predict(dataset, **kwargs)
-
 
   def restore(self, model_file, trunk=False):
     """ Restore weights from saved model. """

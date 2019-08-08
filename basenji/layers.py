@@ -216,11 +216,16 @@ def shift_sequence(seq, shift, pad_value=0.25):
 # helpers
 ############################################################
 
-def activate(current, activation):
+def activate(current, activation, verbose=False):
+  if verbose: print('activate:',activation)
   if activation == 'relu':
     current = tf.keras.layers.ReLU()(current)
   elif activation == 'gelu':
     current = GELU()(current)
+  elif activation == 'sigmoid':
+    current = tf.keras.layers.Activation('sigmoid')(current)
+  elif activation == 'tanh':
+    current = tf.keras.layers.Activation('tanh')(current)
   elif activation == 'exp':
     current = Exp()(current)
   else:

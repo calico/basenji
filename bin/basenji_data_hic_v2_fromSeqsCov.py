@@ -101,7 +101,7 @@ def main():
   parser.add_option('-u', dest='umap_bed',
       help='Unmappable regions in BED format')
   parser.add_option('--umap_midpoints', dest='umap_midpoints',
-      help='Regions with midpoints to exclude in BED format. Used for 4C.')
+      help='Regions with midpoints to exclude in BED format. Used for 4C/HiC.')
   parser.add_option('--umap_t', dest='umap_t',
       default=0.3, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
@@ -157,127 +157,8 @@ def main():
   ################################################################
   # define genomic contigs
   ################################################################
-  chrom_contigs = genome.load_chromosomes(fasta_file)
-
-  # remove gaps
-  if options.gaps_file:
-    chrom_contigs = genome.split_contigs(chrom_contigs,
-                                         options.gaps_file)
-
-  # ditch the chromosomes for contigs
-  contigs = []
-  for chrom in chrom_contigs:
-    contigs += [Contig(chrom, ctg_start, ctg_end)
-                 for ctg_start, ctg_end in chrom_contigs[chrom]]
-
-  # limit to a BED file
-  if options.limit_bed is not None:
-    contigs = limit_contigs(contigs, options.limit_bed)
-
-  # filter for large enough
-  contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
-
-  # break up large contigs
-  if options.break_t is not None:
-    contigs = break_large_contigs(contigs, options.break_t)
-
-  # print contigs to BED file
-  ctg_bed_file = '%s/contigs.bed' % options.out_dir
-  write_seqs_bed(ctg_bed_file, contigs)
-
-
   ################################################################
   # divide between train/valid/test
-  ################################################################
-  try:
-    # convert to float pct
-    valid_pct = float(options.valid_pct_or_chr)
-    test_pct = float(options.test_pct_or_chr)
-    assert(0 <= valid_pct <= 1)
-    assert(0 <= test_pct <= 1)
-
-    # divide by pct
-    contig_sets = divide_contigs_pct(contigs, test_pct, valid_pct)
-
-  except (ValueError, AssertionError):
-    # divide by chr
-    valid_chr = options.valid_pct_or_chr
-    test_chr = options.test_pct_or_chr
-    contig_sets = divide_contigs_chr(contigs, test_chr, valid_chr)
-
-  train_contigs, valid_contigs, test_contigs = contig_sets
-
-  # rejoin broken contigs within set
-  train_contigs = rejoin_large_contigs(train_contigs)
-  valid_contigs = rejoin_large_contigs(valid_contigs)
-  test_contigs = rejoin_large_contigs(test_contigs)
-
-  ################################################################
-  # define model sequences
-  ################################################################
-  # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test,  options.snap, label='valid')
-  test_mseqs  = contig_sequences(test_contigs,  options.seq_length, options.stride_test,  options.snap, label='test')
-
-  # shuffle
-  random.shuffle(train_mseqs)
-  random.shuffle(valid_mseqs)
-  random.shuffle(test_mseqs)
-
-  # down-sample
-  if options.sample_pct < 1.0:
-    train_mseqs = random.sample(train_mseqs, int(options.sample_pct*len(train_mseqs)))
-    valid_mseqs = random.sample(valid_mseqs, int(options.sample_pct*len(valid_mseqs)))
-    test_mseqs = random.sample(test_mseqs, int(options.sample_pct*len(test_mseqs)))
-
-  # merge
-  mseqs = train_mseqs + valid_mseqs + test_mseqs
-
-
-  ################################################################
-  # mappability
-  ################################################################
-  if (options.umap_bed is not None) or (options.umap_midpoints is not None):
-    if shutil.which('bedtools') is None:
-      print('Install Bedtools to annotate unmappable sites', file=sys.stderr)
-      exit(1)
-
-  if options.umap_bed is not None:
-    # annotate unmappable positions
-    mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
-                                 options.seq_length, options.pool_width)
-
-    # filter unmappable
-    mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
-    mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
-
-    # write to file
-    unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
-    np.save(unmap_npy, mseqs_unmap)
-
-  if options.umap_midpoints is not None:
-    # annotate unmappable midpoints for 4C
-    mseqs_unmap = annotate_unmap(mseqs, options.umap_midpoints,
-                                 options.seq_length, options.pool_width)
-
-    # filter unmappable
-    seqmid =  mseqs_unmap.shape[1]//2  #int( options.seq_length / options.pool_width /2)
-    mseqs_map_mask = (np.sum(mseqs_unmap[:,seqmid-1:seqmid+1],axis=1) == 0)
-
-    mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
-
-    # write to file
-    unmap_npy = '%s/mseqs_unmap_midpoints.npy' % options.out_dir
-    np.save(unmap_npy, mseqs_unmap)
-
-  # write sequences to BED
-  print('writing sequences to BED')
-  seqs_bed_file = '%s/sequences.bed' % options.out_dir
-  write_seqs_bed(seqs_bed_file, mseqs, True)
-
 
   ################################################################
   # read sequence coverage values
@@ -285,67 +166,19 @@ def main():
   # read target datasets
   targets_df = pd.read_table(targets_file, index_col=0)
 
-  seqs_cov_dir = '%s/seqs_cov' % options.out_dir
-  if not os.path.isdir(seqs_cov_dir):
-    os.mkdir(seqs_cov_dir)
-
-  read_jobs = []
-
-  for ti in range(targets_df.shape[0]):
-    genome_cov_file = targets_df['file'].iloc[ti]
-    seqs_cov_stem = '%s/%d' % (seqs_cov_dir, ti)
-    seqs_cov_file = '%s.h5' % seqs_cov_stem
-
-    clip_ti = None
-    if 'clip' in targets_df.columns:
-      clip_ti = targets_df['clip'].iloc[ti]
-
-    scale_ti = 1
-    if 'scale' in targets_df.columns:
-      scale_ti = targets_df['scale'].iloc[ti]
-
-    if options.restart and os.path.isfile(seqs_cov_file):
-      print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
-    else:
-      cmd = 'basenji_data_4C_read.py'
-      cmd += ' -w %d' % options.pool_width
-      cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
-      if clip_ti is not None:
-        cmd += ' -c %f' % clip_ti
-      if options.soft_clip:
-        cmd += ' --soft'
-      cmd += ' -s %f' % scale_ti
-      if options.blacklist_bed:
-        cmd += ' -b %s' % options.blacklist_bed
-      if options.as_obsexp:
-        cmd += ' --as_obsexp'  
-      cmd += ' %s' % genome_cov_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_file
-
-      if options.run_local:
-        #cmd += ' &> %s.err' % seqs_cov_stem ##comment this out to work in ubuntu
-        read_jobs.append(cmd)
-      else:
-        j = slurm.Job(cmd,
-            name='read_t%d' % ti,
-            out_file='%s.out' % seqs_cov_stem,
-            err_file='%s.err' % seqs_cov_stem,
-            queue='standard', mem=15000, time='12:0:0')
-        read_jobs.append(j)
-
-  if options.run_local:
-    util.exec_par(read_jobs, options.processes, verbose=True)
-  else:
-    slurm.multi_run(read_jobs, options.processes, verbose=True,
-                    launch_sleep=1, update_sleep=5)
-
-
   ################################################################
   # write TF Records
   ################################################################
   # copy targets file
   shutil.copy(targets_file, '%s/targets.txt' % options.out_dir)
+  seqs_cov_dir = '%s/seqs_cov' % options.out_dir
+  seqs_bed_file = '%s/sequences.bed' % options.out_dir
+  seqs_all = pd.read_csv(seqs_bed_file,sep='\t',names=['chr','start','stop','type'])
+  mseqs = []
+  for i in seqs_all.values:
+    mseqs.append(ModelSeq(i[0],i[1],i[2],i[3]))
+
+  print(mseqs[0:3])
 
   # initialize TF Records dir
   tfr_dir = '%s/tfrecords' % options.out_dir
@@ -366,7 +199,7 @@ def main():
     while tfr_start <= tvt_set_end:
       tfr_stem = '%s/%s-%d' % (tfr_dir, tvt_set, tfr_i)
 
-      cmd = 'basenji_data_write.py'
+      cmd = 'basenji_data_hic_write_v2.py'
       cmd += ' -s %d' % tfr_start
       cmd += ' -e %d' % tfr_end
       if options.umap_bed is not None:

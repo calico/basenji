@@ -76,7 +76,6 @@ def main(_):
   if not os.path.isdir(FLAGS.log_dir):
     os.mkdir(FLAGS.log_dir)
   shutil.copy(FLAGS.params,FLAGS.log_dir+'/params.json')
-  print('saving model to:', FLAGS.log_dir+'/params.json')
 
   import tensorflow as tf
   if tf.__version__[0] == '1':
@@ -111,7 +110,7 @@ def main(_):
 #    tf.estimator.ModeKeys.EVAL)
 
 
-  if params_train.get('num_gpu',1) == 1:
+  if params_train.get('num_gpu', 1) == 1:
     ########################################
     # one GPU
 

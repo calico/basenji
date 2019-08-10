@@ -235,7 +235,7 @@ class SeqNN():
     """ Return specified convolution layer. """
     conv_layers = [layer for layer in self.model.layers if layer.name.startswith('conv')]
     return conv_layers[conv_layer_i]
-                  
+
   def get_conv_weights(self, conv_layer_i):
     """ Return kernel weights for specified convolution layer. """
     conv_layer = self.get_conv_layer(conv_layer_i)
@@ -245,7 +245,7 @@ class SeqNN():
 
   def num_targets(self, head_i=0):
     return self.models[head_i].output_shape[-1]
-                  
+
   def predict(self, seq_data, head_i=0, **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model

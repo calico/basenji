@@ -1,5 +1,7 @@
 """Wrapper code for using commonly-used layers."""
 import sys
+
+import numpy as np
 import tensorflow as tf
 
 from tensor2tensor.layers.common_attention import attention_bias_proximal
@@ -8,7 +10,7 @@ from tensor2tensor.layers.common_attention import _generate_relative_positions_e
 from basenji import ops
 
 ############################################################
-# Keras Layers
+# Basic
 ############################################################
 
 class Clip(tf.keras.layers.Layer):
@@ -48,6 +50,9 @@ class Softplus(tf.keras.layers.Layer):
     return tf.keras.activations.softplus(x)
 
 
+############################################################
+# Attention
+############################################################
 class Attention(tf.keras.layers.Layer):
   def __init__(self, max_relative_position, dropout=0):
     super(Attention, self).__init__()
@@ -97,6 +102,108 @@ class Attention(tf.keras.layers.Layer):
     z = z[:,0,:,:]
 
     return z
+
+
+############################################################
+# Position
+############################################################
+class ConcatPosition(tf.keras.layers.Layer):
+  ''' Concatenate position to 1d feature vectors.'''
+
+  def __init__(self, transform=None, power=1):
+    super(ConcatPosition, self).__init__()
+    self.transform = transform
+    self.power = power
+
+  def call(self, inputs):
+    input_shape = tf.shape(inputs)
+    batch_size, seq_len = input_shape[0], input_shape[1]
+
+    pos_range = tf.range(-seq_len//2, seq_len//2)
+    if self.transform is None:
+      pos_feature = pos_range
+    elif self.transform == 'abs':
+      pos_feature = tf.math.abs(pos_range)
+    elif self.transform == 'reversed':
+      pos_feature = pos_range[::-1]
+    else:
+      raise ValueError('Unknown ConcatPosition transform.')
+
+    if self.power != 1:
+      pos_feature = tf.pow(pos_feature, self.power)
+    pos_feature = tf.expand_dims(pos_feature, axis=0)
+    pos_feature = tf.expand_dims(pos_feature, axis=-1)
+    pos_feature = tf.tile(pos_feature, [batch_size, 1, 1])
+    pos_feature = tf.dtypes.cast(pos_feature, dtype=tf.float32)
+
+    return tf.concat([pos_feature, inputs], axis=-1)
+
+
+############################################################
+# 2D
+############################################################
+class ConcatTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors concatenated.'''
+  def __init__(self):
+    super(ConcatTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+    # seq_len = seq_len.value
+    # batch_size  = batch_size.value
+    # output_dim = output_dim.value
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis= -1)
+
+    return current
+
+class ConcatDist2D(tf.keras.layers.Layer):
+  ''' Concatenate the pairwise distance to 2d feature matrix.'''
+  def __init__(self):
+    super(ConcatDist2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    batch_size, seq_len = input_shape[0], input_shape[1]
+
+    ## concat 2D distance ##
+    pos = tf.expand_dims(tf.range(0, seq_len), axis=-1)
+    matrix_repr1 = tf.tile(pos, [1,seq_len])
+    matrix_repr2 = tf.transpose(matrix_repr1, [1,0])
+    dist  = tf.math.abs( tf.math.subtract(matrix_repr1, matrix_repr2) )
+    dist = tf.dtypes.cast(dist, tf.float32)
+    dist = tf.expand_dims(dist, axis=-1)
+    dist = tf.expand_dims(dist, axis=0)
+    dist = tf.tile(dist, [batch_size, 1, 1, 1])
+    return tf.concat([inputs, dist], axis=-1)
+
+class UpperTriu(tf.keras.layers.Layer):
+  ''' Unroll matrix to its upper triangular portion.'''
+  def __init__(self):
+    super(UpperTriu, self).__init__()
+
+  def call(self,inputs):
+    seq_len = inputs.shape[1].value
+    output_dim = inputs.shape[-1]
+
+    triu_tup = np.triu_indices(seq_len, 2)
+    triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
+    unroll_repr = tf.reshape(inputs, [-1, seq_len**2, output_dim])
+    return tf.gather(unroll_repr, triu_index, axis=1)
+
+class Symmetrize2D(tf.keras.layers.Layer):
+  '''Take the average of a matrix and its transpose to enforce symmetry.'''
+  def __init__(self):
+    super(Symmetrize2D, self).__init__()
+  def call(self, x):
+    x_t = tf.transpose(x,[0,2,1,3])
+    x_sym = (x+x_t)/2
+    return x_sym
 
 ############################################################
 # Augmentation

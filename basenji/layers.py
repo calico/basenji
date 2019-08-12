@@ -142,6 +142,23 @@ class ConcatPosition(tf.keras.layers.Layer):
 ############################################################
 # 2D
 ############################################################
+class AverageTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors averaged.'''
+  def __init__(self):
+    super(AverageTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+    current = (matrix_repr1 + matrix_repr2) / 2
+
+    return current
+
 class ConcatTo2D(tf.keras.layers.Layer):
   ''' Transform 1d to 2d with i,j vectors concatenated.'''
   def __init__(self):
@@ -158,7 +175,7 @@ class ConcatTo2D(tf.keras.layers.Layer):
     matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
     matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
     matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
-    current  = tf.concat([matrix_repr1, matrix_repr2], axis= -1)
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
 
     return current
 

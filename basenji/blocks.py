@@ -250,6 +250,10 @@ def average_pooling(inputs, pool_size=2, **kwargs):
       padding='same')(inputs)
     return current
 
+def average_to_2d(inputs, **kwargs):
+  current = layers.AverageTo2D()(inputs)
+  return current
+
 def concat_to_2d(inputs, **kwargs):
   current = layers.ConcatTo2D()(inputs)
   return current
@@ -405,6 +409,7 @@ name_func = {
   'average_pooling': average_pooling,
   'concat_position': concat_position,
   'concat_to_2d': concat_to_2d,
+  'average_to_2d': average_to_2d,
   'concat_dist_2d': concat_dist_2d,
   'upper_triu': upper_triu,
   'conv_block_2d': conv_block_2d,

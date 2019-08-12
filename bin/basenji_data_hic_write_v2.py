@@ -130,9 +130,9 @@ def main():
   fasta_open = pysam.Fastafile(fasta_file)
 
   # define options
-  tf_opts = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.ZLIB)
+  tf_opts = tf.io.TFRecordOptions(tf.compat.v1.python_io.TFRecordCompressionType.ZLIB)
 
-  with tf.python_io.TFRecordWriter(tfr_file, tf_opts) as writer:
+  with tf.io.TFRecordWriter(tfr_file, tf_opts) as writer:
     for si in range(num_seqs):
       msi = options.start_i + si
       mseq = model_seqs[msi]

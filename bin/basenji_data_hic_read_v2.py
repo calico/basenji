@@ -32,9 +32,6 @@ from cooltools.lib.numutils import observed_over_expected, adaptive_coarsegrain,
 from astropy.convolution import Gaussian2DKernel
 from astropy.convolution import convolve
 
-
-
-
 """
 basenji_data_hic_read.py
 

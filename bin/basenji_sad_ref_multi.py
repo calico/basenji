@@ -131,7 +131,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.13-gpu;'
+      cmd += ' conda activate tf1.14-gpu;'
       cmd += ' echo $HOSTNAME;'
 
       cmd += ' basenji_sad_ref.py %s %s %d' % (

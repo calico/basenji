@@ -254,6 +254,18 @@ def average_to_2d(inputs, **kwargs):
   current = layers.AverageTo2D()(inputs)
   return current
 
+def max_to_2d(inputs, **kwargs):
+  current = layers.MaxTo2D()(inputs)
+  return current
+
+def dot_to_2d(inputs, **kwargs):
+  current = layers.DotTo2D()(inputs)
+  return current
+
+def geodot_to_2d(inputs, **kwargs):
+  current = layers.GeoDotTo2D()(inputs)
+  return current
+
 def concat_to_2d(inputs, **kwargs):
   current = layers.ConcatTo2D()(inputs)
   return current
@@ -410,6 +422,9 @@ name_func = {
   'concat_position': concat_position,
   'concat_to_2d': concat_to_2d,
   'average_to_2d': average_to_2d,
+  'max_to_2d': max_to_2d,
+  'dot_to_2d': dot_to_2d,
+  'geodot_to_2d': geodot_to_2d,
   'concat_dist_2d': concat_dist_2d,
   'upper_triu': upper_triu,
   'conv_block_2d': conv_block_2d,

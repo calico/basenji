@@ -142,6 +142,24 @@ class ConcatPosition(tf.keras.layers.Layer):
 ############################################################
 # 2D
 ############################################################
+class AverageTo2D_v1(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors averaged.'''
+  def __init__(self):
+    super(AverageTo2D_v1, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+    current = (matrix_repr1 + matrix_repr2) / 2
+
+    return current
+
+
 class AverageTo2D(tf.keras.layers.Layer):
   ''' Transform 1d to 2d with i,j vectors averaged.'''
   def __init__(self):
@@ -155,7 +173,69 @@ class AverageTo2D(tf.keras.layers.Layer):
     matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
     matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
     matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
-    current = (matrix_repr1 + matrix_repr2) / 2
+
+    matrix_repr1 = tf.expand_dims(matrix_repr1, axis=-1)
+    matrix_repr2 = tf.expand_dims(matrix_repr2, axis=-1)
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
+    current = tf.reduce_mean(current, axis=-1)
+
+    return current
+
+class MaxTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors maxed.'''
+  def __init__(self):
+    super(MaxTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+
+    matrix_repr1 = tf.expand_dims(matrix_repr1, axis=-1)
+    matrix_repr2 = tf.expand_dims(matrix_repr2, axis=-1)
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
+    current = tf.reduce_max(current, axis=-1)
+
+    return current
+
+class DotTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors maxed.'''
+  def __init__(self):
+    super(DotTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+
+    current  = tf.multiply(matrix_repr1, matrix_repr2)
+
+    return current
+
+class GeoDotTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors maxed.'''
+  def __init__(self):
+    super(GeoDotTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+
+    current = tf.multiply(matrix_repr1+1, matrix_repr2+1)
+    current = tf.sqrt(current)-1
 
     return current
 

@@ -49,7 +49,7 @@ def main():
     parser.add_option('-t', dest='targets_file',
             default=None, help='Read only the specified targets')
     parser.add_option('-x', dest='memory_max',
-            default='2B', type='str',
+            default='1B', type='str',
             help='Decomposition matrix size maximum [Default: %default]')
     parser.add_option('-u', dest='unsigned',
             default=False, action='store_true',
@@ -65,7 +65,7 @@ def main():
         os.mkdir(options.out_dir)
 
     if options.targets_file is not None:
-        targets_df = pd.read_table(options.targets_file, index_col=0)
+        targets_df = pd.read_csv(options.targets_file, index_col=0, sep='\t')
     else:
         targets_df = None
 
@@ -203,7 +203,9 @@ def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sa
         if model is not None:
             if type(model) == NMF:
                 sad_si = np.abs(sad_si)
+            sad_si = sad_si.reshape((1,-1))
             sad_si = model.transform(sad_si.astype('float32'))
+            sad_si = sad_si.flatten()
 
         if unsigned:
             sad_si = np.abs(sad_si)

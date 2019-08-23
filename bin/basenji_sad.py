@@ -59,9 +59,6 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('-g', dest='genome_file',
-      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
-      help='Chromosome lengths file [Default: %default]')
   parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -382,8 +379,17 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
   snp_pos = np.array([snp.pos for snp in snps], dtype='uint32')
   sad_out.create_dataset('pos', data=snp_pos)
 
+  # check flips
+  snp_flips = [snp.flipped for snp in snps]
+
   # write SNP reference allele
-  snp_refs = np.array([snp.ref_allele for snp in snps], 'S')
+  snp_refs = []
+  for snp in snps:
+    if snp.flipped:
+      snp_refs.append(snp.alt_alleles[0])
+    else:
+      snp_refs.append(snp.ref_allele)
+  snp_refs = np.array(snp_refs, 'S')
   sad_out.create_dataset('ref', data=snp_refs)
 
   # write targets

@@ -620,6 +620,7 @@ class SNP:
     self.ref_allele = a[3]
     self.alt_alleles = a[4].split(',')
     # self.alt_allele = self.alt_alleles[0]
+    self.flipped = False
 
     if self.rsid == '.':
       self.rsid = '%s:%d' % (self.chr, self.pos)
@@ -632,6 +633,7 @@ class SNP:
     """ Flip reference and first alt allele."""
     assert(len(self.alt_alleles) == 1)
     self.ref_allele, self.alt_alleles[0] = self.alt_alleles[0], self.ref_allele
+    self.flipped = True
 
   def get_alleles(self):
     """ Return a list of all alleles """

@@ -16,6 +16,7 @@
 
 from optparse import OptionParser
 
+import pdb
 import os
 import sys
 
@@ -48,6 +49,9 @@ def main():
   parser.add_option('-c', dest='clip',
       default=None, type='float',
       help='Clip values post-summary to a maximum [Default: %default]')
+  parser.add_option('-k', dest='kernel_stddev',
+      default=0, type='int',
+      help='Gaussian kernel stddev to smooth values [Default: %default]')
   parser.add_option('-s', dest='scale',
       default=1., type='float',
       help='Scale values by [Default: %default]')
@@ -73,7 +77,7 @@ def main():
     seqs_bed_file = args[1]
     seqs_hic_file = args[2]
 
-  print('saving TFRs as obsexp:',options.as_obsexp)
+  print('saving TFRs as obsexp:', options.as_obsexp)
 
   # read model sequences
   model_seqs = []
@@ -98,8 +102,11 @@ def main():
 
   seqs_hic_open.create_dataset('seqs_hic', shape=(num_seqs, seq_pool_len_hic), dtype='float16')
 
-  kernel = Gaussian2DKernel(x_stddev=1,x_size=5)
-
+  if options.kernel_stddev > 0:
+    # initialize Gaussian kernel
+    kernel = Gaussian2DKernel(x_stddev=options.kernel_stddev)
+  else:
+    kernel = None
 
   # open genome coverage file
   genome_hic_cool = cooler.Cooler(genome_hic_file)
@@ -121,7 +128,7 @@ def main():
       else:
         mseq_str = '%s:%d-%d' % (mseq.chr[3:], mseq.start, mseq.end)
       #print('mseq_str:', mseq_str)
-      
+
       seq_hic_raw = genome_hic_cool.matrix(balance=True).fetch(mseq_str)
       seq_hic_nan = np.isnan(seq_hic_raw)
       if np.sum(  seq_hic_nan[len(seq_hic_nan)//2-1:len(seq_hic_nan)//2+1, len(seq_hic_nan)//2-2:len(seq_hic_nan)//2+2 ]) > 4:
@@ -144,10 +151,10 @@ def main():
       seq_hic_raw[seq_hic_nan] = np.nan
 
       # adaptively coarsegrain based on raw counts
-      seq_hic_smoothed =  adaptive_coarsegrain(
-                              seq_hic_raw,  
-                              genome_hic_cool.matrix(balance=False).fetch(mseq_str),  
-                              cutoff= 2, max_levels=8)
+      seq_hic_smoothed = adaptive_coarsegrain(
+                              seq_hic_raw,
+                              genome_hic_cool.matrix(balance=False).fetch(mseq_str),
+                              cutoff=2, max_levels=8)
       seq_hic_nan = np.isnan(seq_hic_smoothed)
       #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
 
@@ -161,13 +168,19 @@ def main():
         seq_hic_obsexp = interp_nan(seq_hic_obsexp)
 
         # set nan to 0
+        # DK: is this covered by interp_nan?
         seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
 
-        # todo: make obsexp_clip an option for obs/exp
-        seq_hic = np.clip(seq_hic_obsexp,-2,2)
-        for i in [-1,0,1]: set_diag(seq_hic, 0,i)
-        seq_hic = convolve(seq_hic, kernel)
-      
+        # apply kernel
+        if kernel is not None:
+          # DK: redundant?
+          seq_hic = np.clip(seq_hic_obsexp,-2,2)
+          # DK: should this be performed after convolution?
+          for i in [-1,0,1]: set_diag(seq_hic, 0,i)
+          seq_hic = convolve(seq_hic, kernel)
+        else:
+          seq_hic = seq_hic_obsexp
+
       else:
         # interpolate all missing bins
         seq_hic_interpolated =  interp_nan(seq_hic_smoothed)
@@ -179,23 +192,23 @@ def main():
         seq_hic = np.clip(seq_hic, 0, clipval)
 
         #extra smoothing. todo pass kernel specs
-        seq_hic = convolve(seq_hic, kernel)
-        clipval = np.nanmedian(np.diag(seq_hic,2))
-        for i in [-1,0,1]: set_diag(seq_hic, clipval,i)
-        seq_hic = np.clip(seq_hic, 0, clipval)
+        if kernel is not None:
+          seq_hic = convolve(seq_hic, kernel)
+          clipval = np.nanmedian(np.diag(seq_hic,2))
+          for i in [-1,0,1]: set_diag(seq_hic, clipval,i)
+          seq_hic = np.clip(seq_hic, 0, clipval)
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
       seq_hic = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
-    
+
     seq_hic = seq_hic[triu_tup]
 
     # write
     seqs_hic_open['seqs_hic'][si,:] = seq_hic.astype('float16')
-    
+
   # close sequences coverage file
   seqs_hic_open.close()
-
 
 
 def read_blacklist(blacklist_bed, black_buffer=20):

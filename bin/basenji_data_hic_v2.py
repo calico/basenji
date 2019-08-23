@@ -63,6 +63,9 @@ def main():
       help='Down-sample the segments')
   parser.add_option('-g', dest='gaps_file',
       help='Genome assembly gaps BED [Default: %default]')
+  parser.add_option('-k', dest='kernel_stddev',
+      default=0, type='int',
+      help='Gaussian kernel stddev to smooth values [Default: %default]')
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
@@ -117,11 +120,9 @@ def main():
   parser.add_option('--snap', dest='snap',
       default=None, type='int',
       help='snap stride to multiple for binned targets in bp, if not None seq_length must be a multiple of snap')
-  parser.add_option('--as_obsexp',dest='as_obsexp',action="store_true", default=False, 
+  parser.add_option('--as_obsexp', dest='as_obsexp',
+      action="store_true", default=False,
       help='save targets as obsexp profiles')
-  #parser.add_option("-v", action="store_true", dest="verbose", default=True)
-
-
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -146,9 +147,9 @@ def main():
   options.stride_test = int(np.round(options.stride_test))
 
   if options.snap != None:
-    if np.mod(options.seq_length, options.snap) !=0: 
+    if np.mod(options.seq_length, options.snap) !=0:
       raise ValueError('seq_length must be a multiple of snap')
-    if np.mod(options.stride_test, options.snap) !=0 or  np.mod(options.stride_train, options.snap) !=0: 
+    if np.mod(options.stride_test, options.snap) !=0 or  np.mod(options.stride_train, options.snap) !=0:
       raise ValueError('stride lengths must be a multiple of snap')
 
   if not os.path.isdir(options.out_dir):
@@ -283,7 +284,7 @@ def main():
   # read sequence coverage values
   ################################################################
   # read target datasets
-  targets_df = pd.read_table(targets_file, index_col=0)
+  targets_df = pd.read_csv(targets_file, index_col=0, sep='\t')
 
   seqs_cov_dir = '%s/seqs_cov' % options.out_dir
   if not os.path.isdir(seqs_cov_dir):
@@ -308,6 +309,7 @@ def main():
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_hic_read_v2.py'
+      cmd += ' -k %d' % options.kernel_stddev
       cmd += ' -w %d' % options.pool_width
       cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
@@ -318,7 +320,7 @@ def main():
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
       if options.as_obsexp:
-        cmd += ' --as_obsexp'  
+        cmd += ' --as_obsexp'
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file
@@ -536,7 +538,7 @@ def contig_sequences(contigs, seq_length, stride, snap, label=None):
       # update
       seq_start += stride
       seq_end += stride
-      
+
   return mseqs
 
 

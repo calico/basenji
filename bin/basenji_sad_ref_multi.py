@@ -54,9 +54,9 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('-g', dest='genome_file',
-      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
-      help='Chromosome lengths file [Default: %default]')
+  parser.add_option('--flip', dest='flip_ref',
+      default=False, action='store_true',
+      help='Flip reference/alternate alleles when simple [Default: %default]')
   parser.add_option('--local',dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -112,11 +112,11 @@ def main():
   #######################################################
   # prep work
 
-  # output directory
-  if not options.restart:
-    if os.path.isdir(options.out_dir):
+  if os.path.isdir(options.out_dir):
+    if not options.restart:
       print('Please remove %s' % options.out_dir, file=sys.stderr)
       exit(1)
+  else:
     os.mkdir(options.out_dir)
 
   # pickle options
@@ -131,7 +131,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.14-gpu;'
+      cmd += ' conda activate tf1.13-gpu;'
       cmd += ' echo $HOSTNAME;'
 
       cmd += ' basenji_sad_ref.py %s %s %d' % (
@@ -144,7 +144,7 @@ def main():
       j = slurm.Job(cmd, name,
           outf, errf,
           queue=options.queue, gpu=1,
-          mem=37000, time='14-0:0:0')
+          mem=45000, time='14-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
@@ -162,10 +162,7 @@ def main():
 def job_completed(options, pi):
   """Check whether a specific job has generated its
      output file."""
-  if options.out_zarr:
-    out_file = '%s/job%d/sad.zarr' % (options.out_dir, pi)
-  else:
-    out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
+  out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
   return os.path.isfile(out_file) or os.path.isdir(out_file)
 
 

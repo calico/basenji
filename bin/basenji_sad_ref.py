@@ -16,6 +16,7 @@
 from __future__ import print_function
 
 from optparse import OptionParser
+import gc
 import pdb
 import pickle
 import os
@@ -58,9 +59,9 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('-g', dest='genome_file',
-      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
-      help='Chromosome lengths file [Default: %default]')
+  parser.add_option('--flip', dest='flip_ref',
+      default=False, action='store_true',
+      help='Flip reference/alternate alleles when simple [Default: %default]')
   parser.add_option('--local', dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -158,7 +159,7 @@ def main():
   # load SNPs
 
   # read sorted SNPs from VCF
-  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=False,
+  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=options.flip_ref,
                        validate_ref_fasta=options.genome_fasta)
 
   # filter for worker SNPs
@@ -228,6 +229,8 @@ def main():
   #################################################################
   # setup output
 
+  snp_flips = np.array([snp.flipped for snp in snps], dtype='bool')
+
   sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
                                  snps, target_ids, target_labels)
 
@@ -268,7 +271,10 @@ def main():
         pi += 1
 
         # queue SNP
-        snp_queue.put((ref_preds, alt_preds, si))
+        if snp_flips[si]:
+          snp_queue.put((alt_preds, ref_preds, si))
+        else:
+          snp_queue.put((ref_preds, alt_preds, si))
 
         # update SNP index
         si += 1
@@ -422,6 +428,9 @@ class SNPWorker(Thread):
                     - np.log2(ref_preds.astype('float64') + self.log_pseudo)
         geo_sad = sar_vec.sum(axis=0)
         self.sad_out['geoSAD'][szi,:] = geo_sad.astype('float16')
+
+      if szi % 32 == 0:
+        gc.collect()
 
       # communicate finished task
       self.queue.task_done()

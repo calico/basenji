@@ -134,6 +134,7 @@ class SeqNN(seqnn_util.SeqNNModel):
     # update # targets
     if target_subset is not None:
       self.hp.num_targets = len(target_subset)
+      self.hp.sum_targets = len(target_subset)
 
     # helper variables
     self.preds_length = self.preds_train.shape[1].value
@@ -307,12 +308,12 @@ class SeqNN(seqnn_util.SeqNNModel):
           final_repr = tf.nn.bias_add(final_repr, bias_subset)
 
           # update # targets
-          self.hp.sum_targets = len(target_subset)
+          sum_targets = len(target_subset)
 
         # expand length back out
         if self.hp.target_classes > 1:
           final_repr = tf.reshape(final_repr,
-                                  (-1, seq_length, self.hp.sum_targets,
+                                  (-1, seq_length, sum_targets,
                                    self.hp.target_classes))
 
     # transform for reverse complement

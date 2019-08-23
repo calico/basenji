@@ -17,7 +17,7 @@ from basenji import accuracy
 
 class SeqNNModel(object):
 
-  def build_grads(self, layers=[0]):
+  def build_grads(self, layers=[0], center=False):
     ''' Build gradient ops for predictions summed across the sequence for
          each target with respect to some set of layers.
     In
@@ -27,8 +27,13 @@ class SeqNNModel(object):
     self.grad_layers = layers
     self.grad_ops = []
 
+    ci = self.preds_length // 2
+
     for ti in range(self.hp.num_targets):
-      grad_ti_op = tf.gradients(self.preds_train[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
+      if center:
+        grad_ti_op = tf.gradients(self.preds_train[:,ci:ci+2,ti], [self.layer_reprs[li] for li in self.grad_layers])
+      else:
+        grad_ti_op = tf.gradients(self.preds_train[:,:,ti], [self.layer_reprs[li] for li in self.grad_layers])
       self.grad_ops.append(grad_ti_op)
 
 

@@ -15,7 +15,13 @@
 """SeqNN trainer"""
 
 from absl import flags
+
+import numpy as np
+
 import tensorflow as tf
+from tensorflow.python.ops import math_ops
+from tensorflow.python.framework import ops
+from tensorflow.python.framework import dtypes
 
 from basenji import layers
 from basenji import metrics
@@ -42,23 +48,20 @@ class Trainer:
 
   def compile(self, model):
     loss = self.params.get('loss','poisson')
-    print('loss: ', loss)
-    import numpy as np
-    from tensorflow.python.ops import math_ops
-    from tensorflow.python.framework import ops
-    from tensorflow.python.framework import dtypes
-    sample_weights =  self.params.get('sample_weights',None) 
+
+    sample_weights =  self.params.get('sample_weights',None)
     num_targets = model.output_shape[-1]
     if sample_weights is not None:
-      print('sample weights value provided')
-      if len(sample_weights) != num_targets: raise ValueError('number of sample_weights != number of targets')
-      else: sample_weights = np.array(sample_weights)
+      if len(sample_weights) != num_targets:
+        raise ValueError('number of sample_weights != number of targets')
+      else:
+        sample_weights = np.array(sample_weights)
       if ('mse' in loss):
-        def weighted_mse(ytrue,ypred, weights=sample_weights): 
+        def weighted_mse(ytrue, ypred, weights=sample_weights):
           weights = math_ops.cast(ops.convert_to_tensor(weights),dtypes.float32)
           print('sample weights', sample_weights)
           return tf.keras.backend.mean(  weights * tf.keras.backend.square(ytrue-ypred) ,axis=-1)
-        loss = weighted_mse 
+        loss = weighted_mse
         print('using weighted mse')
       else:
         raise ValueError('no custom weighted loss defined')
@@ -101,18 +104,22 @@ class Trainer:
     else:
       lr_schedule = initial_learning_rate
 
+    clip_norm = self.params.get('clipnorm', None)
+
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()
     if optimizer_type == 'adam':
       self.optimizer = tf.keras.optimizers.Adam(
           lr=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
-          beta_2=self.params.get('adam_beta2',0.999))
+          beta_2=self.params.get('adam_beta2',0.999),
+          clipnorm=clip_norm)
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
           lr=lr_schedule,
-          momentum=self.params.get('momentum', 0.99))
+          momentum=self.params.get('momentum', 0.99),
+          clipnorm=clip_norm)
 
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)

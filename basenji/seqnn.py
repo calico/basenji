@@ -73,7 +73,6 @@ class SeqNN():
     if block_name[0].islower():
       block_func = blocks.name_func[block_name]
       current = block_func(current, **block_args)
-
     else:
       block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)

@@ -18,11 +18,13 @@ from __future__ import print_function
 from optparse import OptionParser
 import gc
 import os
+import pdb
 import sys
 import time
 
 import h5py
 import numpy as np
+import pandas as pd
 import pyBigWig
 from scipy.stats import ttest_1samp
 import tensorflow as tf
@@ -47,6 +49,13 @@ the genomic region.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <genes_hdf5_file>'
   parser = OptionParser(usage)
+  parser.add_option('-b', dest='bigwig',
+      default=False, action='store_true',
+      help='Write BigWig tracks [Default: %default]')
+  parser.add_option('-c', dest='center',
+      default=False, action='store_true',
+      help='Compute gradients to the center position, \
+            rather than the sum across sequence [Default: %default]')
   parser.add_option('-g', dest='genome_file',
       default='%s/data/human.hg38.genome' % os.environ['BASENJIDIR'],
       help='Chromosome lengths file [Default: %default]')
@@ -67,9 +76,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option('-t', dest='target_indexes',
-      default=None,
-      help='Target indexes to plot')
+  parser.add_option('-t', dest='targets_file',
+    default=None, type='str',
+    help='File specifying target indexes and labels in table format')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -118,13 +127,18 @@ def main():
         file=sys.stderr)
     exit(1)
 
-  # set target indexes
-  if options.target_indexes is not None:
-    options.target_indexes = [int(ti) for ti in options.target_indexes.split(',')]
-    target_subset = options.target_indexes
+  # read targets
+  if options.targets_file is not None:
+    targets_df = pd.read_table(options.targets_file, index_col=0)
+    target_indexes = targets_df.index
+    target_subset = target_indexes
   else:
-    options.target_indexes = list(range(job['num_targets']))
-    target_subset = None
+    if gene_data.num_targets is None:
+      print('No targets to test against.', file=sys.stderr)
+      exit(1)
+    else:
+      target_indexes = np.arange(gene_data.num_targets)
+      target_subset = None
 
   # build model
   model = seqnn.SeqNN()
@@ -140,7 +154,7 @@ def main():
   # build gradients ops
   t0 = time.time()
   print('Building target/position-specific gradient ops.', end='')
-  model.build_grads(layers=[pre_dilated_layer])
+  model.build_grads(layers=[pre_dilated_layer], center=options.center)
   print(' Done in %ds' % (time.time()-t0), flush=True)
 
 
@@ -155,13 +169,20 @@ def main():
     saver.restore(sess, model_file)
 
     # score sequences and write bigwigs
-    score_write(sess, model, options, gene_data.seqs_1hot, seqs_chrom, seqs_start)
+    score_write(sess, model, options, target_indexes, gene_data.seqs_1hot, seqs_chrom, seqs_start)
 
 
-def score_write(sess, model, options, seqs_1hot, seqs_chrom, seqs_start):
+def score_write(sess, model, options, target_indexes, seqs_1hot, seqs_chrom, seqs_start):
   ''' Compute scores and write them as BigWigs for a set of sequences. '''
 
-  for si in range(seqs_1hot.shape[0]):
+  num_seqs = seqs_1hot.shape[0]
+  num_targets = len(target_indexes)
+
+  # initialize scores HDF5
+  scores_h5_file = '%s/scores.h5' % options.out_dir
+  scores_h5_out = h5py.File(scores_h5_file, 'w')
+
+  for si in range(num_seqs):
     # initialize batcher
     batcher_si = batcher.Batcher(seqs_1hot[si:si+1],
                                  batch_size=model.hp.batch_size,
@@ -184,31 +205,42 @@ def score_write(sess, model, options, seqs_1hot, seqs_chrom, seqs_start):
 
     # S (sequences) x T (targets) x P (seq position) x U (units layer i) x E (ensembles)
     print('batch_grads', batch_grads.shape)
-    pooled_length = batch_grads.shape[2]
 
     # S (sequences) x P (seq position) x U (Units layer i) x E (ensembles)
     print('batch_reprs', batch_reprs.shape)
 
+    preds_length = batch_reprs.shape[1]
+    if 'score' not in scores_h5_out:
+      # initialize scores
+      scores_h5_out.create_dataset('score', shape=(num_seqs,preds_length,num_targets), dtype='float16')
+      scores_h5_out.create_dataset('pvalue', shape=(num_seqs,preds_length,num_targets), dtype='float16')
+
     # write bigwigs
     t0 = time.time()
-    print('Writing BigWigs.', end='', flush=True)
+    print('Computing and writing scores.', end='', flush=True)
 
     # for each target
-    for tii in range(len(options.target_indexes)):
-      ti = options.target_indexes[tii]
+    for tii in range(len(target_indexes)):
+      ti = target_indexes[tii]
 
-      # compute scores
+      # representation x gradient
+      batch_grads_scores = np.multiply(batch_reprs[0], batch_grads[0,tii,:,:,:])
+
       if options.norm is None:
-        batch_grads_scores = np.multiply(batch_reprs[0], batch_grads[0,tii,:,:,:]).sum(axis=1)
-      else:
-        batch_grads_scores = np.multiply(batch_reprs[0], batch_grads[0,tii,:,:,:])
-        batch_grads_scores = np.power(np.abs(batch_grads_scores), options.norm)
+        # sum across filters
         batch_grads_scores = batch_grads_scores.sum(axis=1)
+      else:
+        # raise to power
+        batch_grads_scores = np.power(np.abs(batch_grads_scores), options.norm)
+        # sum across filters
+        batch_grads_scores = batch_grads_scores.sum(axis=1)
+        # normalize w/ 1/power
         batch_grads_scores = np.power(batch_grads_scores, 1./options.norm)
 
-      # compute score statistics
+      # mean across ensemble
       batch_grads_mean = batch_grads_scores.mean(axis=1)
 
+      # compute p-values
       if options.norm is None:
         batch_grads_pval = ttest_1samp(batch_grads_scores, 0, axis=1)[1]
       else:
@@ -216,29 +248,37 @@ def score_write(sess, model, options, seqs_1hot, seqs_chrom, seqs_start):
         # batch_grads_pval = chi2(df=)
         batch_grads_pval /= 2
 
-      # open bigwig
-      bws_file = '%s/s%d_t%d_scores.bw' % (options.out_dir, si, ti)
-      bwp_file = '%s/s%d_t%d_pvals.bw' % (options.out_dir, si, ti)
-      bws_open = bigwig_open(bws_file, options.genome_file)
-      # bwp_open = bigwig_open(bwp_file, options.genome_file)
+      # write to HDF5
+      scores_h5_out['score'][si,:,tii] = batch_grads_mean.astype('float16')
+      scores_h5_out['pvalue'][si,:,tii] = batch_grads_pval.astype('float16')
 
-      # specify bigwig locations and values
-      bw_chroms = [seqs_chrom[si]]*pooled_length
-      bw_starts = [int(seqs_start[si] + pi*model.hp.target_pool) for pi in range(pooled_length)]
-      bw_ends = [int(bws + model.hp.target_pool) for bws in bw_starts]
-      bws_values = [float(bgs) for bgs in batch_grads_mean]
-      # bwp_values = [float(bgp) for bgp in batch_grads_pval]
+      if options.bigwig:
+        # open bigwig
+        bws_file = '%s/s%d_t%d_scores.bw' % (options.out_dir, si, ti)
+        bwp_file = '%s/s%d_t%d_pvals.bw' % (options.out_dir, si, ti)
+        bws_open = bigwig_open(bws_file, options.genome_file)
+        # bwp_open = bigwig_open(bwp_file, options.genome_file)
 
-      # write
-      bws_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=bws_values)
-      # bwp_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=bwp_values)
+        # specify bigwig locations and values
+        bw_chroms = [seqs_chrom[si]]*preds_length
+        bw_starts = [int(seqs_start[si] + pi*model.hp.target_pool) for pi in range(preds_length)]
+        bw_ends = [int(bws + model.hp.target_pool) for bws in bw_starts]
+        bws_values = [float(bgs) for bgs in batch_grads_mean]
+        # bwp_values = [float(bgp) for bgp in batch_grads_pval]
+
+        # write
+        bws_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=bws_values)
+        # bwp_open.addEntries(bw_chroms, bw_starts, ends=bw_ends, values=bwp_values)
 
       # close
-      bws_open.close()
-      # bwp_open.close()
+      if options.bigwig:
+        bws_open.close()
+        # bwp_open.close()
 
     print(' Done in %ds.' % (time.time()-t0), flush=True)
     gc.collect()
+
+  scores_h5_out.close()
 
 
 ################################################################################

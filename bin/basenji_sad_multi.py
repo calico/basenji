@@ -52,9 +52,6 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('-g', dest='genome_file',
-      default='%s/data/human.hg19.genome' % os.environ['BASENJIDIR'],
-      help='Chromosome lengths file [Default: %default]')
   parser.add_option('--local',dest='local',
       default=1024, type='int',
       help='Local SAD score [Default: %default]')
@@ -140,7 +137,8 @@ def main():
       if options.cpu:
         cmd = ''
       else:
-        cmd = 'source activate tf1.13-gpu;'
+        cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+        cmd += 'conda activate tf1.14-gpu;'
 
       cmd += ' basenji_sad.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)

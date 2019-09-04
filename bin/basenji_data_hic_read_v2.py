@@ -46,9 +46,15 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
-  parser.add_option('-c', dest='clip',
+  parser.add_option('--clip', dest='clip',
       default=None, type='float',
       help='Clip values post-summary to a maximum [Default: %default]')
+  parser.add_option('--crop', dest='crop_bp',
+      default=0, type='int',
+      help='Crop bp off each end [Default: %default]')
+  parser.add_option('-d', dest='diagonal_offset',
+      default=2, type='int',
+      help='Positions on the diagonal to ignore [Default: %default]')
   parser.add_option('-k', dest='kernel_stddev',
       default=0, type='int',
       help='Gaussian kernel stddev to smooth values [Default: %default]')
@@ -93,14 +99,21 @@ def main():
   seq_len_nt = model_seqs[0].end - model_seqs[0].start
   seq_len_pool = seq_len_nt // options.pool_width
 
+  if options.crop_bp == 0:
+    seq_len_crop = seq_len_pool
+  else:
+    crop_start = options.crop_bp // options.pool_width
+    crop_end = seq_len_pool - crop_start
+    seq_len_crop = seq_len_pool - 2*crop_start
+
+  # compute upper triangular indexes
+  triu_tup = np.triu_indices(seq_len_crop, options.diagonal_offset)
+  seq_len_nodiag = seq_len_crop - options.diagonal_offset
+  seq_len_hic = seq_len_nodiag*(seq_len_nodiag + 1) // 2
+
   # initialize sequences coverage file
   seqs_hic_open = h5py.File(seqs_hic_file, 'w')
-
-  hic_diags = 2
-  triu_tup = np.triu_indices(seq_len_pool,hic_diags)
-  seq_pool_len_hic = (seq_len_pool - hic_diags) * ( seq_len_pool - hic_diags +1 ) // 2
-
-  seqs_hic_open.create_dataset('seqs_hic', shape=(num_seqs, seq_pool_len_hic), dtype='float16')
+  seqs_hic_open.create_dataset('seqs_hic', shape=(num_seqs, seq_len_hic), dtype='float16')
 
   if options.kernel_stddev > 0:
     # initialize Gaussian kernel
@@ -202,6 +215,12 @@ def main():
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))
       seq_hic = np.zeros((seq_len_pool,seq_len_pool), dtype='float16')
 
+    # crop
+    if options.crop_bp > 0:
+      seq_hic = seq_hic[crop_start:crop_end,:]
+      seq_hic = seq_hic[:,crop_start:crop_end]
+
+    # unroll upper triangular
     seq_hic = seq_hic[triu_tup]
 
     # write

@@ -58,6 +58,9 @@ def main():
   # parser.add_option('-c', dest='clip',
   #     default=None, type='float',
   #     help='Clip target values to have minimum [Default: %default]')
+  parser.add_option('--crop', dest='crop_bp',
+      default=0, type='int',
+      help='Crop bp off each end [Default: %default]')
   parser.add_option('-d', dest='sample_pct',
       default=1.0, type='float',
       help='Down-sample the segments')
@@ -309,11 +312,12 @@ def main():
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_hic_read_v2.py'
+      cmd += ' --crop %d' % options.crop_bp
       cmd += ' -k %d' % options.kernel_stddev
       cmd += ' -w %d' % options.pool_width
       cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
-        cmd += ' -c %f' % clip_ti
+        cmd += ' --clip %f' % clip_ti
       if options.soft_clip:
         cmd += ' --soft'
       cmd += ' -s %f' % scale_ti

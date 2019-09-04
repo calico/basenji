@@ -281,14 +281,15 @@ class ConcatDist2D(tf.keras.layers.Layer):
 
 class UpperTriu(tf.keras.layers.Layer):
   ''' Unroll matrix to its upper triangular portion.'''
-  def __init__(self):
+  def __init__(self, diagonal_offset=2):
     super(UpperTriu, self).__init__()
+    self.diagonal_offset = diagonal_offset
 
-  def call(self,inputs):
+  def call(self, inputs):
     seq_len = inputs.shape[1].value
     output_dim = inputs.shape[-1]
 
-    triu_tup = np.triu_indices(seq_len, 2)
+    triu_tup = np.triu_indices(seq_len, self.diagonal_offset)
     triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
     unroll_repr = tf.reshape(inputs, [-1, seq_len**2, output_dim])
     return tf.gather(unroll_repr, triu_index, axis=1)

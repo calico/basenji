@@ -87,10 +87,11 @@ def main(_):
   from basenji import seqnn
   from basenji import trainer
 
-
   # load data
-  hic_diags = 2
-  tlen = (params_model['target_length']-hic_diags) * (params_model['target_length']-hic_diags+1) // 2
+  diagonal_offset = params_model.get('diagonal_offset', 2)
+  target_crop = params_model.get('target_crop', 0)
+  target_length_crop = params_model['target_length'] - diagonal_offset - 2*target_crop
+  tlen = target_length_crop*(target_length_crop+1) // 2
 
   train_data = dataset.SeqDataset(FLAGS.train_data,
     params_train['batch_size'],

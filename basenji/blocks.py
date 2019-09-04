@@ -245,10 +245,14 @@ def concat_position(inputs, transform='abs', power=1, **kwargs):
   return current
 
 def average_pooling(inputs, pool_size=2, **kwargs):
-    current = tf.keras.layers.AveragePooling1D(
-      pool_size=pool_size,
-      padding='same')(inputs)
-    return current
+  current = tf.keras.layers.AveragePooling1D(
+    pool_size=pool_size,
+    padding='same')(inputs)
+  return current
+
+def cropping_2d(inputs, cropping, **kwargs):
+  current = tf.keras.layers.Cropping2D(cropping)(inputs)
+  return current
 
 def average_to_2d(inputs, **kwargs):
   current = layers.AverageTo2D()(inputs)
@@ -415,6 +419,7 @@ name_func = {
   'attention': attention,
   'conv_block': conv_block,
   'conv_tower': conv_tower,
+  'cropping_2d': cropping_2d,
   'dense': dense,
   'dilated_residual': dilated_residual,
   'dilated_dense': dilated_dense,

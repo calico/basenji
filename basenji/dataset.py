@@ -194,7 +194,6 @@ class SeqDataset:
     #seqs_1hot = []
     #targets = []
 
-
     # initialize inputs and outputs: this speeds it up insanely!
     seqs_1hot = np.zeros((self.num_seqs, self.seq_length, self.seq_depth))
     targets   = np.zeros((self.num_seqs, self.target_length, self.num_targets))
@@ -205,7 +204,7 @@ class SeqDataset:
       if return_inputs:
         seqs_1hot[counter,:,:] = seq1_1hot[0,:,:]
       if return_outputs:
-        targets[counter,:,:] = targets1[0,:,:] 
+        targets[counter,:,:] = targets1[0,:,:]
       counter += 1
     assert(counter == self.num_seqs)
 
@@ -321,7 +320,7 @@ class HicDataset(SeqDataset):
       if return_inputs:
         seqs_1hot[counter,:,:] = seq1_1hot[0,:,:]
       if return_outputs:
-        targets[counter,:,:,:] = targets1[0,:,:,:] 
+        targets[counter,:,:,:] = targets1[0,:,:,:]
       counter += 1
     assert(counter == self.num_seqs)
 

@@ -22,6 +22,7 @@ import sys
 
 import h5py
 import numpy as np
+import pandas as pd
 import pyBigWig
 import intervaltree
 
@@ -73,6 +74,12 @@ def main():
   parser.add_option('--as_obsexp',dest='as_obsexp',
       default=False,action="store_true",
       help='save targets as obsexp profiles')
+  parser.add_option('--global_obsexp',dest='global_obsexp',
+      default=False,action="store_true",
+      help='use global obs/exp')
+  parser.add_option('--no_log',dest='no_log',
+      default=False,action="store_true",
+      help='no not take log for obs/exp')
 
   (options, args) = parser.parse_args()
 
@@ -124,6 +131,14 @@ def main():
   # open genome coverage file
   genome_hic_cool = cooler.Cooler(genome_hic_file)
 
+  if options.global_obsexp:
+    try:
+      print('loading by-chromosome expected')
+      genome_hic_expected = pd.read_csv(genome_hic_file.replace('.cool','.expected'), sep='\t')
+    except:
+      print('not found: '+genome_hic_file.replace('cool','expected'))
+      raise ValueError('invalid expected file')
+   
   # check for "chr" prefix
   chr_pre = 'chr1' in genome_hic_cool.chromnames
 
@@ -144,8 +159,9 @@ def main():
 
       seq_hic_raw = genome_hic_cool.matrix(balance=True).fetch(mseq_str)
       seq_hic_nan = np.isnan(seq_hic_raw)
-      if np.sum(  seq_hic_nan[len(seq_hic_nan)//2-1:len(seq_hic_nan)//2+1, len(seq_hic_nan)//2-2:len(seq_hic_nan)//2+2 ]) > 4:
-        print("WARNING: %s lots of zeros, check that umap_midpoint is correct %s. " % (genome_hic_file, mseq_str))
+      num_filtered_bins = np.sum(np.sum(seq_hic_nan,axis=0) == len(seq_hic_nan))
+      if num_filtered_bins > (.5*len(seq_hic_nan)):
+        print("WARNING: %s >50% bins filtered, check:  %s. " % (genome_hic_file, mseq_str))
 
       # set blacklist to NaNs
       if mseq.chr in black_chr_trees:
@@ -158,8 +174,8 @@ def main():
         seq_hic_nan = np.isnan(seq_hic_raw)
 
       # clip first diagonals and high values
-      clipval = np.nanmedian(np.diag(seq_hic_raw,2))
-      for i in [-1,0,1]: set_diag(seq_hic_raw,clipval,i)
+      clipval = np.nanmedian(np.diag(seq_hic_raw,options.diagonal_offset))
+      for i in range(-options.diagonal_offset+1,options.diagonal_offset): set_diag(seq_hic_raw,clipval,i)
       seq_hic_raw = np.clip(seq_hic_raw, 0, clipval)
       seq_hic_raw[seq_hic_nan] = np.nan
 
@@ -172,25 +188,38 @@ def main():
       #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
 
       if options.as_obsexp == True:
-        # compute observed/expected. todo: allow passing a global expected rather than computing locally
-        seq_hic_obsexp = observed_over_expected(seq_hic_smoothed, ~seq_hic_nan)[0]
+        # compute obs/exp        
+        if options.global_obsexp: # compute global obs/exp
+          exp_chr = genome_hic_expected.iloc[ genome_hic_expected['chrom'].values ==mseq.chr][0:seq_len_pool]
+          if len(exp_chr) ==0: 
+              raise ValueError('no expected values found for chr:'+mseq.chr)
+          exp_map= np.zeros((seq_len_pool,seq_len_pool))
+          for i in range(seq_len_pool):
+            set_diag(exp_map,exp_chr['balanced.avg'].values[i],i)
+            set_diag(exp_map,exp_chr['balanced.avg'].values[i],-i)
+          seq_hic_obsexp = seq_hic_smoothed / exp_map
+          for i in range(-options.diagonal_offset+1,options.diagonal_offset): set_diag(seq_hic_obsexp,1.0,i)
+          seq_hic_obsexp[seq_hic_nan] = np.nan          
+        else: # compute local obs/exp
+          seq_hic_obsexp = observed_over_expected(seq_hic_smoothed, ~seq_hic_nan)[0]
 
         # log
-        seq_hic_obsexp = np.log(seq_hic_obsexp)
-        seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
-        seq_hic_obsexp = interp_nan(seq_hic_obsexp)
-
-        # set nan to 0
-        # DK: is this covered by interp_nan?
-        seq_hic_obsexp = np.nan_to_num(seq_hic_obsexp)
+        if options.no_log==False:
+          seq_hic_obsexp = np.log(seq_hic_obsexp)
+          seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
+          seq_hic_obsexp = interp_nan(seq_hic_obsexp)
+          for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic_obsexp, 0,i)
+        else:
+          seq_hic_obsexp = np.clip(seq_hic_obsexp,0,10)
+          seq_hic_obsexp = interp_nan(seq_hic_obsexp)
+          for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic_obsexp, 1,i)
 
         # apply kernel
         if kernel is not None:
-          # DK: redundant?
-          seq_hic = np.clip(seq_hic_obsexp,-2,2)
-          # DK: should this be performed after convolution?
-          for i in [-1,0,1]: set_diag(seq_hic, 0,i)
-          seq_hic = convolve(seq_hic, kernel)
+          # DK: should this be performed after convolution? 
+          # GF: I think before, to avoid influencing the convolution w/ near-diagonal byproducts
+          #moved up: for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic, 0,i)
+          seq_hic = convolve(seq_hic_obsexp, kernel)
         else:
           seq_hic = seq_hic_obsexp
 
@@ -200,16 +229,13 @@ def main():
 
         # rescale, reclip
         seq_hic = 100000* seq_hic_interpolated
-        clipval = np.nanmedian(np.diag(seq_hic,2))
-        for i in [-1,0,1]: set_diag(seq_hic,clipval,i)
+        clipval = np.nanmedian(np.diag(seq_hic,options.diagonal_offset))
+        for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic,clipval,i)
         seq_hic = np.clip(seq_hic, 0, clipval)
 
         #extra smoothing. todo pass kernel specs
         if kernel is not None:
           seq_hic = convolve(seq_hic, kernel)
-          clipval = np.nanmedian(np.diag(seq_hic,2))
-          for i in [-1,0,1]: set_diag(seq_hic, clipval,i)
-          seq_hic = np.clip(seq_hic, 0, clipval)
 
     except ValueError:
       print("WARNING: %s doesn't see %s. Setting to all zeros." % (genome_hic_file, mseq_str))

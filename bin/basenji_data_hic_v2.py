@@ -126,6 +126,13 @@ def main():
   parser.add_option('--as_obsexp', dest='as_obsexp',
       action="store_true", default=False,
       help='save targets as obsexp profiles')
+  parser.add_option('--global_obsexp', dest='global_obsexp',
+      action="store_true", default=False,
+      help='use pre-calculated by-chromosome obs/exp')
+  parser.add_option('--no_log', dest='no_log',
+      action="store_true", default=False,
+      help='do not take log for obs/exp')
+
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -325,6 +332,10 @@ def main():
         cmd += ' -b %s' % options.blacklist_bed
       if options.as_obsexp:
         cmd += ' --as_obsexp'
+        if options.global_obsexp:
+          cmd += ' --global_obsexp'
+        if options.no_log:
+          cmb += ' --no_log'
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file

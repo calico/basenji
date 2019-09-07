@@ -335,7 +335,7 @@ def main():
         if options.global_obsexp:
           cmd += ' --global_obsexp'
         if options.no_log:
-          cmb += ' --no_log'
+          cmd += ' --no_log'
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file

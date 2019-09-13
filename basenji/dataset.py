@@ -150,11 +150,12 @@ class SeqDataset:
     """ Iterate over the TFRecords to count sequences, and infer
         seq_depth and num_targets."""
 
-    # read TF Records
-    dataset = tf.data.Dataset.list_files(self.tfr_pattern)
-    dataset = dataset.flat_map(file_to_records)
-    dataset = dataset.map(self.generate_parser(raw=True))
-    dataset = dataset.batch(1)
+    with tf.name_scope('stats'):
+      # read TF Records
+      dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+      dataset = dataset.flat_map(file_to_records)
+      dataset = dataset.map(self.generate_parser(raw=True))
+      dataset = dataset.batch(1)
 
     self.num_seqs = 0
     # for (seq_raw, genome), targets_raw in dataset:
@@ -190,21 +191,31 @@ class SeqDataset:
   def numpy(self, return_inputs=True, return_outputs=True):
     """ Convert TFR inputs and/or outputs to numpy arrays."""
 
-    # read TF Records
-    dataset = tf.data.Dataset.list_files(self.tfr_pattern)
-    dataset = dataset.flat_map(file_to_records)
-    dataset = dataset.map(self.generate_parser())
-    dataset = dataset.batch(1)
+    with tf.name_scope('numpy'):
+      # initialize dataset from TFRecords glob
+      tfr_files = natsorted(glob.glob(self.tfr_pattern))
+      if tfr_files:
+        dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+      else:
+        print('Cannot order TFRecords %s' % self.tfr_pattern, file=sys.stderr)
+        dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+
+      # read TF Records
+      dataset = dataset.flat_map(file_to_records)
+      dataset = dataset.map(self.generate_parser(raw=True))
+      dataset = dataset.batch(1)
 
     # initialize inputs and outputs
     seqs_1hot = []
     targets = []
 
     # collect inputs and outputs
-    for seq1_1hot, targets1 in dataset:
+    for seq_raw, targets_raw in dataset:
       if return_inputs:
+        seq_1hot = seq_raw.numpy().reshape((self.seq_length,-1))
         seqs_1hot.append(seq1_1hot)
       if return_outputs:
+        targets1 = targets_raw.numpy().reshape(self.target_length,-1)
         targets.append(targets1)
 
     # make arrays

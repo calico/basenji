@@ -30,7 +30,6 @@ if tf.__version__[0] == '1':
 
 from basenji import dataset
 from basenji import seqnn
-from basenji_test import bigwig_write
 
 """
 basenji_predict.py

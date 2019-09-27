@@ -5,7 +5,8 @@ import tensorflow as tf
 
 from basenji import layers
 
-def attention(inputs, kq_depth=None, max_relative_position=64, batch_norm=False, bn_momentum=0.99, **kwargs):
+def attention(inputs, kq_depth=None, max_relative_position=64,
+    batch_norm=False, bn_momentum=0.99, **kwargs):
   """Construct a residual attention block.
 
   Args:
@@ -64,7 +65,9 @@ def attention(inputs, kq_depth=None, max_relative_position=64, batch_norm=False,
   return current
 
 
-def conv_block(inputs, filters=128, kernel_size=1, activation='relu', conv_type='standard', strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
+def conv_block(inputs, filters=128, kernel_size=1, activation='relu', 
+    conv_type='standard', strides=1, dilation_rate=1, l2_scale=0, dropout=0, 
+    pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
   """Construct a single convolution block.
 
   Args:
@@ -126,7 +129,8 @@ def conv_block(inputs, filters=128, kernel_size=1, activation='relu', conv_type=
 
   return current
 
-def conv_tower(inputs, filters_init, filters_mult=1, conv_type='standard', repeat=1, **kwargs):
+def conv_tower(inputs, filters_init, filters_mult=1,
+    conv_type='standard', repeat=1, **kwargs):
   """Construct a reducing convolution block.
 
   Args:
@@ -154,7 +158,8 @@ def conv_tower(inputs, filters_init, filters_mult=1, conv_type='standard', repea
   return current
 
 
-def dense(inputs, units, activation='softplus', kernel_initializer='he_normal', l2_scale=0, l1_scale=0, **kwargs):
+def dense(inputs, units, activation='softplus', kernel_initializer='he_normal',
+    l2_scale=0, l1_scale=0, **kwargs):
   current = tf.keras.layers.Dense(
     units=units,
     activation=activation,
@@ -165,7 +170,8 @@ def dense(inputs, units, activation='softplus', kernel_initializer='he_normal', 
   return current
 
 
-def dilated_dense(inputs, filters, kernel_size=3, rate_mult=2, conv_type='standard', dropout=0, repeat=1, **kwargs):
+def dilated_dense(inputs, filters, kernel_size=3, rate_mult=2,
+    conv_type='standard', dropout=0, repeat=1, **kwargs):
   """Construct a residual dilated dense block.
 
   Args:
@@ -199,7 +205,8 @@ def dilated_dense(inputs, filters, kernel_size=3, rate_mult=2, conv_type='standa
   return current
 
 
-def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, conv_type='standard', dropout=0, repeat=1, **kwargs):
+def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, 
+    conv_type='standard', dropout=0, repeat=1, **kwargs):
   """Construct a residual dilated convolution block.
 
   Args:
@@ -282,7 +289,9 @@ def upper_triu(inputs, **kwargs):
   current = layers.UpperTriu()(inputs)
   return current
 
-def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma='ones'):
+def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
+    kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1,
+    batch_norm=False, bn_momentum=0.99, bn_gamma='ones', symmetric=True):
   """Construct a single 2D convolution block.   """
 
   # flow through variable current
@@ -319,18 +328,23 @@ def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
   if dropout > 0:
     current = tf.keras.layers.Dropout(rate=dropout)(current)
 
-  # Pool
+  # pool
   if pool_size > 1:
     current = tf.keras.layers.MaxPool2D(
       pool_size=pool_size,
       padding='same')(current)
+
+  # symmetric
+  if symmetric:
+    current = layers.Symmetrize2D()(current)
 
   return current
 
 def symmetrize_2d(inputs, **kwargs):
   return layers.Symmetrize2D()(inputs)
 
-def dilated_residual_2d(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, repeat=1, symmetric=True, **kwargs):
+def dilated_residual_2d(inputs, filters, kernel_size=3, rate_mult=2,
+    dropout=0, repeat=1, symmetric=True, **kwargs):
   """Construct a residual dilated convolution block.
   """
 
@@ -375,9 +389,11 @@ def dilated_residual_2d(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, 
 
 def bidirectional_LSTM(inputs, units, useGPU=True, **kwargs):
   if useGPU:
-    current = tf.keras.layers.Bidirectional(tf.keras.layers.CuDNNLSTM(units, return_sequences = True))(inputs)
+    current = tf.keras.layers.Bidirectional(
+      tf.keras.layers.CuDNNLSTM(units, return_sequences = True))(inputs)
   else:
-    current = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units, return_sequences = True))(inputs)
+    current = tf.keras.layers.Bidirectional(
+      tf.keras.layers.LSTM(units, return_sequences = True))(inputs)
   return current
 
 

@@ -198,7 +198,7 @@ class SeqNN():
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
       # predict each sequence ### todo: this probably needs to change for hic
-      preds = [layers.SwitchReverse(o)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+      preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)

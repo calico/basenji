@@ -54,28 +54,33 @@ class SeqNN():
     """
     block_args = {}
 
+    # extract name
+    block_name = block_params['name']
+    del block_params['name']
+
+    # get block variables names
+    if block_name[0].islower():
+      block_func = blocks.name_func[block_name]
+      block_varnames = block_func.__code__.co_varnames
+    else:
+      block_func = blocks.keras_func[block_name]
+      block_varnames = block_func.__init__.__code__.co_varnames
+
     # set global defaults
     global_vars = ['activation', 'batch_norm', 'bn_momentum',
       'l2_scale', 'l1_scale']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
-      if gv_value:
+      if gv_value and gv in block_varnames:
         block_args[gv] = gv_value
-
-    # extract name
-    print(block_params)
-    block_name = block_params['name']
-    del block_params['name']
 
     # set remaining params
     block_args.update(block_params)
 
-    # switch for block
+    # apply
     if block_name[0].islower():
-      block_func = blocks.name_func[block_name]
       current = block_func(current, **block_args)
     else:
-      block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
 
     return current

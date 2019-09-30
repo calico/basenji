@@ -168,7 +168,6 @@ def main():
     # read targets
     test_targets = eval_data.numpy(return_inputs=False)
 
-
   if options.save:
     preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
     preds_h5.create_dataset('preds', data=test_preds)

@@ -146,11 +146,12 @@ class SeqDataset:
     """ Iterate over the TFRecords to count sequences, and infer
         seq_depth and num_targets."""
 
-    # read TF Records
-    dataset = tf.data.Dataset.list_files(self.tfr_pattern)
-    dataset = dataset.flat_map(file_to_records)
-    dataset = dataset.map(self.generate_parser(raw=True))
-    dataset = dataset.batch(1)
+    with tf.name_scope('stats'):
+      # read TF Records
+      dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+      dataset = dataset.flat_map(file_to_records)
+      dataset = dataset.map(self.generate_parser(raw=True))
+      dataset = dataset.batch(1)
 
     self.num_seqs = 0
     # for (seq_raw, genome), targets_raw in dataset:
@@ -196,49 +197,31 @@ class SeqDataset:
         print('Cannot order TFRecords %s' % self.tfr_pattern, file=sys.stderr)
         dataset = tf.data.Dataset.list_files(self.tfr_pattern)
 
-    # read TF Records
-    dataset = dataset.flat_map(file_to_records)
-    dataset = dataset.map(self.generate_parser())
-    dataset = dataset.batch(1)
+      # read TF Records
+      dataset = dataset.flat_map(file_to_records)
+      dataset = dataset.map(self.generate_parser())
+      dataset = dataset.batch(1)
 
     # initialize inputs and outputs
-    #seqs_1hot = []
-    #targets = []
-
-    # initialize inputs and outputs: this speeds it up insanely!
     seqs_1hot = np.zeros((self.num_seqs, self.seq_length, self.seq_depth))
-    targets   = np.zeros((self.num_seqs, self.target_length, self.num_targets))
-    counter = 0
-    # collect inputs and outputs
-    for seq1_1hot, targets1 in dataset:
-      #print(seq1_1hot.shape, targets1.shape)
-      if return_inputs:
-        seqs_1hot[counter,:,:] = seq1_1hot[0,:,:]
-      if return_outputs:
-        targets[counter,:,:] = targets1[0,:,:]
-      counter += 1
-    assert(counter == self.num_seqs)
+    targets = np.zeros((self.num_seqs, self.target_length, self.num_targets))
 
-#    # collect inputs and outputs
-#    for seq1_1hot, targets1 in dataset:
-#      #print(seq1_1hot.shape, targets1.shape)
-#      if return_inputs:
-#        seqs_1hot.append(seq1_1hot)
-#      if return_outputs:
-#        targets.append(targets1)
-    print('done')
-    # make arrays
+    # collect inputs and outputs
+    si = 0
+    for seq1_1hot, targets1 in dataset:
+      if return_inputs:
+        seqs_1hot[si,:,:] = seq1_1hot[0,:,:]
+      if return_outputs:
+        targets[si,:,:] = targets1[0,:,:]
+      si += 1
+    assert(si == self.num_seqs)
 
     # return
     if return_inputs and return_outputs:
-      #seqs_1hot = np.array(seqs_1hot)
-      #targets = np.array(targets)
       return seqs_1hot, targets
     elif return_inputs:
-      ##seqs_1hot = np.array(seqs_1hot)
       return seqs_1hot
     else:
-      #targets = np.array(targets)
       return targets
 
 class HicDataset(SeqDataset):

@@ -162,17 +162,20 @@ class SeqDataset:
         self.seq_depth = seq_1hot.shape[-1]
       else:
         assert(self.seq_depth == seq_1hot.shape[-1])
+
       # infer num_targets
       targets1 = targets_raw.numpy().reshape(self.target_length,-1)
       #print('targets_raw', targets_raw.numpy().shape, targets1.shape)
       if self.num_targets is None:
         self.num_targets = targets1.shape[-1]
-        targets_nonzero = (targets1.sum(axis=0, dtype='float32') > 0)
+        targets_nonzero = ((targets1 != 0).sum(axis=0) > 0)
       else:
         assert(self.num_targets == targets1.shape[-1])
-        targets_nonzero = np.logical_or(targets_nonzero, targets1.sum(axis=0, dtype='float32') > 0)
+        targets_nonzero = np.logical_or(targets_nonzero, (targets1 != 0).sum(axis=0) > 0)
+
       # count sequences
       self.num_seqs += 1
+
     # warn user about nonzero targets
     if self.num_seqs > 0:
       self.num_targets_nonzero = (targets_nonzero > 0).sum()
@@ -184,8 +187,16 @@ class SeqDataset:
   def numpy(self, return_inputs=True, return_outputs=True):
     """ Convert TFR inputs and/or outputs to numpy arrays."""
 
+    with tf.name_scope('numpy'):
+      # initialize dataset from TFRecords glob
+      tfr_files = natsorted(glob.glob(self.tfr_pattern))
+      if tfr_files:
+        dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+      else:
+        print('Cannot order TFRecords %s' % self.tfr_pattern, file=sys.stderr)
+        dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+
     # read TF Records
-    dataset = tf.data.Dataset.list_files(self.tfr_pattern)
     dataset = dataset.flat_map(file_to_records)
     dataset = dataset.map(self.generate_parser())
     dataset = dataset.batch(1)

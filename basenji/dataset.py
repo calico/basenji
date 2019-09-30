@@ -199,22 +199,25 @@ class SeqDataset:
 
       # read TF Records
       dataset = dataset.flat_map(file_to_records)
-      dataset = dataset.map(self.generate_parser())
+      dataset = dataset.map(self.generate_parser(raw=True))
       dataset = dataset.batch(1)
 
     # initialize inputs and outputs
-    seqs_1hot = np.zeros((self.num_seqs, self.seq_length, self.seq_depth))
-    targets = np.zeros((self.num_seqs, self.target_length, self.num_targets))
+    seqs_1hot = []
+    targets = []
 
     # collect inputs and outputs
-    si = 0
-    for seq1_1hot, targets1 in dataset:
+    for seq_raw, targets_raw in dataset:
       if return_inputs:
-        seqs_1hot[si,:,:] = seq1_1hot[0,:,:]
+        seq_1hot = seq_raw.numpy().reshape((self.seq_length,-1))
+        seqs_1hot.append(seq_1hot)
       if return_outputs:
-        targets[si,:,:] = targets1[0,:,:]
-      si += 1
-    assert(si == self.num_seqs)
+        targets1 = targets_raw.numpy().reshape((self.target_length,-1))
+        targets.append(targets1)
+
+    # make arrays
+    seqs_1hot = np.array(seqs_1hot)
+    targets = np.array(targets)
 
     # return
     if return_inputs and return_outputs:
@@ -223,6 +226,7 @@ class SeqDataset:
       return seqs_1hot
     else:
       return targets
+
 
 class HicDataset(SeqDataset):
   def generate_parser(self, raw=False):

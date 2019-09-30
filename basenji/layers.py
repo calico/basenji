@@ -5,7 +5,8 @@ import numpy as np
 import tensorflow as tf
 
 from tensor2tensor.layers.common_attention import attention_bias_proximal
-from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings, _relative_attention_inner
+from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings
+from tensor2tensor.layers.common_attention import _relative_attention_inner
 
 from basenji import ops
 
@@ -142,24 +143,45 @@ class ConcatPosition(tf.keras.layers.Layer):
 ############################################################
 # 2D
 ############################################################
-class AverageTo2D_v1(tf.keras.layers.Layer):
-  ''' Transform 1d to 2d with i,j vectors averaged.'''
-  def __init__(self):
-    super(AverageTo2D_v1, self).__init__()
-
-  def call(self,inputs):
-    input_shape = tf.shape(inputs)
-    assert len(inputs.shape)==3
-    batch_size, seq_len, output_dim = inputs.shape
-
-    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
-    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
-    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
-    current = (matrix_repr1 + matrix_repr2) / 2
-
-    return current
+class OneToTwo(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors operated on.'''
+  def __init__(self, operation='mean'):
+    super(OneToTwo, self).__init__()
+    self.operation = operation.lower()
+    valid_operations = ['concat','mean','max','multipy','multiply1']
+    assert self.operation in valid_operations
 
 
+  def call(self, oned):
+    _, seq_len, features = oned.shape
+
+    twod1 = tf.tile(oned, [1, seq_len, 1])
+    twod1 = tf.reshape(twod1, [-1, seq_len, seq_len, features])
+    twod2 = tf.transpose(twod1, [0,2,1,3])
+
+    if self.operation == 'concat':
+      twod  = tf.concat([twod1, twod2], axis=-1)
+
+    elif self.operation == 'multiply':
+      twod  = tf.multiply(twod1, twod2)
+
+    elif self.operation == 'multiply1':
+      twod = tf.multiply(twod1+1, twod2+1) - 1
+
+    else:
+      twod1 = tf.expand_dims(twod1, axis=-1)
+      twod2 = tf.expand_dims(twod2, axis=-1)
+      twod  = tf.concat([twod1, twod2], axis=-1)
+
+      if self.operation == 'mean':
+        twod = tf.reduce_mean(twod, axis=-1)
+
+      elif self.operation == 'max':
+        twod = tf.reduce_max(twod, axis=-1)
+
+    return twod
+
+# depracated: use OneToTwo
 class AverageTo2D(tf.keras.layers.Layer):
   ''' Transform 1d to 2d with i,j vectors averaged.'''
   def __init__(self):
@@ -181,6 +203,7 @@ class AverageTo2D(tf.keras.layers.Layer):
 
     return current
 
+# depracated: use OneToTwo
 class MaxTo2D(tf.keras.layers.Layer):
   ''' Transform 1d to 2d with i,j vectors maxed.'''
   def __init__(self):
@@ -202,6 +225,7 @@ class MaxTo2D(tf.keras.layers.Layer):
 
     return current
 
+# depracated: use OneToTwo
 class DotTo2D(tf.keras.layers.Layer):
   ''' Transform 1d to 2d with i,j vectors maxed.'''
   def __init__(self):
@@ -220,6 +244,7 @@ class DotTo2D(tf.keras.layers.Layer):
 
     return current
 
+# depracated: use OneToTwo
 class GeoDotTo2D(tf.keras.layers.Layer):
   ''' Transform 1d to 2d with i,j vectors maxed.'''
   def __init__(self):
@@ -239,6 +264,7 @@ class GeoDotTo2D(tf.keras.layers.Layer):
 
     return current
 
+# depracated: use OneToTwo
 class ConcatTo2D(tf.keras.layers.Layer):
   ''' Transform 1d to 2d with i,j vectors concatenated.'''
   def __init__(self):

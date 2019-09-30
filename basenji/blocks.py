@@ -261,22 +261,31 @@ def cropping_2d(inputs, cropping, **kwargs):
   current = tf.keras.layers.Cropping2D(cropping)(inputs)
   return current
 
+def one_to_two(inputs, operation='mean', **kwargs):
+  current = layers.OneToTwo(operation)(inputs)
+  return current
+
+# depracated: use one_to_two
 def average_to_2d(inputs, **kwargs):
   current = layers.AverageTo2D()(inputs)
   return current
 
+# depracated: use one_to_two
 def max_to_2d(inputs, **kwargs):
   current = layers.MaxTo2D()(inputs)
   return current
 
+# depracated: use one_to_two
 def dot_to_2d(inputs, **kwargs):
   current = layers.DotTo2D()(inputs)
   return current
 
+# depracated: use one_to_two
 def geodot_to_2d(inputs, **kwargs):
   current = layers.GeoDotTo2D()(inputs)
   return current
 
+# depracated: use one_to_two
 def concat_to_2d(inputs, **kwargs):
   current = layers.ConcatTo2D()(inputs)
   return current
@@ -291,7 +300,7 @@ def upper_triu(inputs, **kwargs):
 
 def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
     kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1,
-    batch_norm=False, bn_momentum=0.99, bn_gamma='ones', symmetric=True):
+    batch_norm=False, bn_momentum=0.99, bn_gamma='ones', symmetric=False):
   """Construct a single 2D convolution block.   """
 
   # flow through variable current
@@ -440,6 +449,7 @@ name_func = {
   'dilated_residual': dilated_residual,
   'dilated_dense': dilated_dense,
   'average_pooling': average_pooling,
+  'one_to_two': one_to_two,
   'concat_position': concat_position,
   'concat_to_2d': concat_to_2d,
   'average_to_2d': average_to_2d,
@@ -457,5 +467,7 @@ name_func = {
 
 keras_func = {
   'Conv1D': tf.keras.layers.Conv1D,
+  'Cropping1D': tf.keras.layers.Cropping1D,
+  'Cropping2D': tf.keras.layers.Cropping2D,
   'Dense': tf.keras.layers.Dense
 }

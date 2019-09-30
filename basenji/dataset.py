@@ -213,9 +213,9 @@ class SeqDataset:
     for seq_raw, targets_raw in dataset:
       if return_inputs:
         seq_1hot = seq_raw.numpy().reshape((self.seq_length,-1))
-        seqs_1hot.append(seq1_1hot)
+        seqs_1hot.append(seq_1hot)
       if return_outputs:
-        targets1 = targets_raw.numpy().reshape(self.target_length,-1)
+        targets1 = targets_raw.numpy().reshape((self.target_length,-1))
         targets.append(targets1)
 
     # make arrays

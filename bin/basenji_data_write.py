@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2019 Calico LLC
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ def main():
     print('Sequence coverage files not found, e.g. %s' % seqs_cov_file, file=sys.stderr)
     exit(1)
 
-  seq_pool_len = h5py.File(seqs_cov_files[0], 'r')['seqs_cov'].shape[1]
+  seq_pool_len = h5py.File(seqs_cov_files[0], 'r')['targets'].shape[1]
   num_targets = len(seqs_cov_files)
 
   ################################################################
@@ -119,7 +119,7 @@ def main():
   for ti in range(num_targets):
     seqs_cov_open = h5py.File(seqs_cov_files[ti], 'r')
     tii = options.target_start + ti
-    targets[:,:,tii] = seqs_cov_open['seqs_cov'][options.start_i:options.end_i,:]
+    targets[:,:,tii] = seqs_cov_open['targets'][options.start_i:options.end_i,:]
     seqs_cov_open.close()
 
   ################################################################
@@ -144,9 +144,9 @@ def main():
   fasta_open = pysam.Fastafile(fasta_file)
 
   # define options
-  tf_opts = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.ZLIB)
+  tf_opts = tf.io.TFRecordOptions(tf.compat.v1.python_io.TFRecordCompressionType.ZLIB)
 
-  with tf.python_io.TFRecordWriter(tfr_file, tf_opts) as writer:
+  with tf.io.TFRecordWriter(tfr_file, tf_opts) as writer:
     for si in range(num_seqs):
       msi = options.start_i + si
       mseq = model_seqs[msi]

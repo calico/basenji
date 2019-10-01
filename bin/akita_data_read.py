@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2019 Calico LLC
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-
 from optparse import OptionParser
 
 import pdb
@@ -27,16 +26,19 @@ import pyBigWig
 import intervaltree
 
 from basenji_data import ModelSeq
+from basenji_data_read import read_blacklist
 
 # hic imports
 import cooler
-from cooltools.lib.numutils import observed_over_expected, adaptive_coarsegrain, interpolate_bad_singletons, set_diag, interp_nan
+from cooltools.lib.numutils import observed_over_expected, adaptive_coarsegrain
+from cooltools.lib.numutils import interpolate_bad_singletons, set_diag, interp_nan
 from astropy.convolution import Gaussian2DKernel
 from astropy.convolution import convolve
 
 """
-basenji_data_hic_read.py
+akita_data_read.py
 
+Read and pre-process Hi-C/uC data from cooler.
 """
 
 ################################################################################
@@ -59,15 +61,12 @@ def main():
   parser.add_option('-k', dest='kernel_stddev',
       default=0, type='int',
       help='Gaussian kernel stddev to smooth values [Default: %default]')
-  parser.add_option('-s', dest='scale',
-      default=1., type='float',
-      help='Scale values by [Default: %default]')
+  # parser.add_option('-s', dest='scale',
+  #     default=1., type='float',
+  #     help='Scale values by [Default: %default]')
   parser.add_option('--soft', dest='soft_clip',
       default=False, action='store_true',
       help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
-  parser.add_option('-u', dest='sum_stat',
-      default='sum',
-      help='Summary statistic to compute in windows [Default: %default]')
   parser.add_option('-w',dest='pool_width',
       default=1, type='int',
       help='Average pooling width [Default: %default]')
@@ -89,8 +88,6 @@ def main():
     genome_hic_file = args[0]
     seqs_bed_file = args[1]
     seqs_hic_file = args[2]
-
-  print('saving TFRs as obsexp:', options.as_obsexp)
 
   # read model sequences
   model_seqs = []
@@ -120,7 +117,7 @@ def main():
 
   # initialize sequences coverage file
   seqs_hic_open = h5py.File(seqs_hic_file, 'w')
-  seqs_hic_open.create_dataset('seqs_hic', shape=(num_seqs, seq_len_hic), dtype='float16')
+  seqs_hic_open.create_dataset('targets', shape=(num_seqs, seq_len_hic), dtype='float16')
 
   if options.kernel_stddev > 0:
     # initialize Gaussian kernel
@@ -175,7 +172,8 @@ def main():
 
       # clip first diagonals and high values
       clipval = np.nanmedian(np.diag(seq_hic_raw,options.diagonal_offset))
-      for i in range(-options.diagonal_offset+1,options.diagonal_offset): set_diag(seq_hic_raw,clipval,i)
+      for i in range(-options.diagonal_offset+1,options.diagonal_offset):
+        set_diag(seq_hic_raw, clipval, i)
       seq_hic_raw = np.clip(seq_hic_raw, 0, clipval)
       seq_hic_raw[seq_hic_nan] = np.nan
 
@@ -187,7 +185,7 @@ def main():
       seq_hic_nan = np.isnan(seq_hic_smoothed)
       #todo: pass an option to add a certain pseudocount value, or the minimum nonzero value
 
-      if options.as_obsexp == True:
+      if options.as_obsexp:
         # compute obs/exp        
         if options.global_obsexp: # compute global obs/exp
           exp_chr = genome_hic_expected.iloc[ genome_hic_expected['chrom'].values ==mseq.chr][0:seq_len_pool]
@@ -200,25 +198,23 @@ def main():
           seq_hic_obsexp = seq_hic_smoothed / exp_map
           for i in range(-options.diagonal_offset+1,options.diagonal_offset): set_diag(seq_hic_obsexp,1.0,i)
           seq_hic_obsexp[seq_hic_nan] = np.nan          
+
         else: # compute local obs/exp
           seq_hic_obsexp = observed_over_expected(seq_hic_smoothed, ~seq_hic_nan)[0]
 
         # log
         if options.no_log==False:
           seq_hic_obsexp = np.log(seq_hic_obsexp)
-          seq_hic_obsexp = np.clip(seq_hic_obsexp,-2,2)
+          seq_hic_obsexp = np.clip(seq_hic_obsexp, -options.clip, options.clip)
           seq_hic_obsexp = interp_nan(seq_hic_obsexp)
           for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic_obsexp, 0,i)
         else:
-          seq_hic_obsexp = np.clip(seq_hic_obsexp,0,10)
+          seq_hic_obsexp = np.clip(seq_hic_obsexp, 0, options.clip)
           seq_hic_obsexp = interp_nan(seq_hic_obsexp)
           for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic_obsexp, 1,i)
 
         # apply kernel
         if kernel is not None:
-          # DK: should this be performed after convolution? 
-          # GF: I think before, to avoid influencing the convolution w/ near-diagonal byproducts
-          #moved up: for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic, 0,i)
           seq_hic = convolve(seq_hic_obsexp, kernel)
         else:
           seq_hic = seq_hic_obsexp
@@ -230,7 +226,8 @@ def main():
         # rescale, reclip
         seq_hic = 100000* seq_hic_interpolated
         clipval = np.nanmedian(np.diag(seq_hic,options.diagonal_offset))
-        for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic,clipval,i)
+        for i in range(-options.diagonal_offset+1, options.diagonal_offset):
+          set_diag(seq_hic,clipval,i)
         seq_hic = np.clip(seq_hic, 0, clipval)
 
         #extra smoothing. todo pass kernel specs
@@ -250,32 +247,10 @@ def main():
     seq_hic = seq_hic[triu_tup]
 
     # write
-    seqs_hic_open['seqs_hic'][si,:] = seq_hic.astype('float16')
+    seqs_hic_open['targets'][si,:] = seq_hic.astype('float16')
 
   # close sequences coverage file
   seqs_hic_open.close()
-
-
-def read_blacklist(blacklist_bed, black_buffer=20):
-  """Construct interval trees of blacklist
-     regions for each chromosome."""
-  black_chr_trees = {}
-
-  if blacklist_bed is not None and os.path.isfile(blacklist_bed):
-    for line in open(blacklist_bed):
-      a = line.split()
-      chrm = a[0]
-      start = max(0, int(a[1]) - black_buffer)
-      end = int(a[2]) + black_buffer
-
-      if chrm not in black_chr_trees:
-        black_chr_trees[chrm] = intervaltree.IntervalTree()
-
-      black_chr_trees[chrm][start:end] = True
-
-  return black_chr_trees
-
-
 
 ################################################################################
 # __main__

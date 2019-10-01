@@ -114,7 +114,7 @@ def main():
       help='Proportion of the data for validation [Default: %default]')
   parser.add_option('--snap', dest='snap',
       default=None, type='int',
-      help='snap stride to multiple for binned targets in bp, if not None seq_length must be a multiple of snap')
+      help='Snap sequences to multiple of the given value [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -138,12 +138,13 @@ def main():
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
 
-  if options.snap != None:
-    if np.mod(options.seq_length, options.snap) !=0: 
+  if options.snap is not None:
+    if np.mod(options.seq_length, options.snap) != 0: 
       raise ValueError('seq_length must be a multiple of snap')
-    if np.mod(options.stride_test, options.snap) !=0 or  np.mod(options.stride_train, options.snap) !=0: 
-      raise ValueError('stride lengths must be a multiple of snap')
-
+    if np.mod(options.stride_train, options.snap) != 0: 
+      raise ValueError('stride_train must be a multiple of snap')
+    if np.mod(options.stride_test, options.snap) != 0:
+      raise ValueError('stride_test must be a multiple of snap')
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
@@ -298,7 +299,8 @@ def main():
       cmd += ' %s' % seqs_cov_file
 
       if options.run_local:
-        #cmd += ' &> %s.err' % seqs_cov_stem ## breaks on ubuntu, comment to fix
+        # breaks on some OS
+        # cmd += ' &> %s.err' % seqs_cov_stem
         read_jobs.append(cmd)
       else:
         j = slurm.Job(cmd,
@@ -353,7 +355,8 @@ def main():
       cmd += ' %s.tfr' % tfr_stem
 
       if options.run_local:
-        cmd += ' &> %s.err' % tfr_stem
+        # breaks on some OS
+        # cmd += ' &> %s.err' % tfr_stem
         write_jobs.append(cmd)
       else:
         j = slurm.Job(cmd,
@@ -493,19 +496,20 @@ def break_large_contigs(contigs, break_t, verbose=False):
 
 
 ################################################################################
-def contig_sequences(contigs, seq_length, stride, snap, label=None):
+def contig_sequences(contigs, seq_length, stride, snap=None, label=None):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
   for ctg in contigs:
-    if snap==None:
+    if snap is None:
       seq_start = ctg.start
-      seq_end = seq_start + seq_length
     else:
-      seq_start =  int( np.ceil(ctg.start/snap)*snap)
-      seq_end   =  int( ((seq_start + seq_length)//snap) *snap)
+      seq_start = int(np.ceil(ctg.start/snap)*snap)
+    seq_end = seq_start + seq_length
+
     while seq_end < ctg.end:
       # record sequence
       mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
+
       # update
       seq_start += stride
       seq_end += stride

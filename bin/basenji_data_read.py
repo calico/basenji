@@ -80,7 +80,7 @@ def main():
 
   # initialize sequences coverage file
   seqs_cov_open = h5py.File(seqs_cov_file, 'w')
-  seqs_cov_open.create_dataset('seqs_cov', shape=(num_seqs, seq_len_pool), dtype='float16')
+  seqs_cov_open.create_dataset('targets', shape=(num_seqs, seq_len_pool), dtype='float16')
 
   # open genome coverage file
   genome_cov_open = CovFace(genome_cov_file)
@@ -135,7 +135,7 @@ def main():
     seq_cov = options.scale * seq_cov
 
     # write
-    seqs_cov_open['seqs_cov'][si,:] = seq_cov.astype('float16')
+    seqs_cov_open['targets'][si,:] = seq_cov.astype('float16')
 
   # close genome coverage file
   genome_cov_open.close()

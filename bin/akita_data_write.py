@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2019 Calico LLC
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ from basenji.dna_io import dna_1hot
 import tensorflow as tf
 
 """
-basenji_data_write.py
+akita_data_write.py
 
 Write TF Records for batches of model sequences.
 """
@@ -100,7 +100,7 @@ def main():
     print('Sequence coverage files not found, e.g. %s' % seqs_cov_file, file=sys.stderr)
     exit(1)
 
-  seq_pool_len_hic = h5py.File(seqs_cov_files[0], 'r')['seqs_hic'].shape[1]
+  seq_pool_len_hic = h5py.File(seqs_cov_files[0], 'r')['targets'].shape[1]
   num_targets = len(seqs_cov_files)
 
   ################################################################
@@ -119,7 +119,7 @@ def main():
   for ti in range(num_targets):
     seqs_cov_open = h5py.File(seqs_cov_files[ti], 'r')
     tii = options.target_start + ti
-    targets[:,:,tii] = seqs_cov_open['seqs_hic'][options.start_i:options.end_i,:]
+    targets[:,:,tii] = seqs_cov_open['targets'][options.start_i:options.end_i,:]
     seqs_cov_open.close()
 
 

@@ -15,6 +15,7 @@
 # =========================================================================
 from __future__ import print_function
 from optparse import OptionParser
+import json
 import os
 import random
 import shutil
@@ -58,9 +59,9 @@ def main():
   parser.add_option('--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
-  parser.add_option('-d', dest='sample_pct',
-      default=1.0, type='float',
-      help='Down-sample the segments')
+  parser.add_option('-d', dest='diagonal_offset',
+      default=2, type='int',
+      help='Positions on the diagonal to ignore [Default: %default]')
   parser.add_option('-g', dest='gaps_file',
       help='Genome assembly gaps BED [Default: %default]')
   parser.add_option('-k', dest='kernel_stddev',
@@ -86,6 +87,9 @@ def main():
   parser.add_option('--restart', dest='restart',
       default=False, action='store_true',
       help='Skip already read HDF5 coverage values. [Default: %default]')
+  parser.add_option('--sample', dest='sample_pct',
+      default=1.0, type='float',
+      help='Down-sample the segments')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -163,6 +167,10 @@ def main():
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
+
+  # dump options
+  with open('%s/options.json' % options.out_dir, 'w') as options_json_out:
+    json.dump(options.__dict__, options_json_out, sort_keys=True, indent=4)
 
   ################################################################
   # define genomic contigs
@@ -419,6 +427,28 @@ def main():
   else:
     slurm.multi_run(write_jobs, options.processes, verbose=True,
                     launch_sleep=1, update_sleep=5)
+
+  ################################################################
+  # stats
+  ################################################################
+  stats_dict = {}
+  stats_dict['num_targets'] = targets_df.shape[0]
+  stats_dict['train_seqs'] = len(train_mseqs)
+  stats_dict['valid_seqs'] = len(valid_mseqs)
+  stats_dict['test_seqs'] = len(test_mseqs)
+  stats_dict['seq_length'] = options.seq_length
+  stats_dict['pool_width'] = options.pool_width
+  stats_dict['crop_bp'] = options.crop_bp
+  stats_dict['diagonal_offset'] = options.diagonal_offset
+
+  target1_length = options.seq_length - 2*options.crop_bp
+  target1_length = target1_length // options.pool_width
+  target1_length = target1_length - options.diagonal_offset
+  target_length = target1_length*(target1_length+1) // 2
+  stats_dict['target_length'] = target_length
+
+  with open('%s/statistics.json' % options.out_dir, 'w') as stats_json_out:
+    json.dump(stats_dict, stats_json_out, indent=4)
 
 
 ################################################################################

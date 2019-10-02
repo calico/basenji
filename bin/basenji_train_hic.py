@@ -105,13 +105,6 @@ def main(_):
     tlen,
     tf.estimator.ModeKeys.EVAL)
 
-#  eval_data = dataset.HicDataset(FLAGS.eval_data,
-#    params_train['batch_size'],
-#    params_model['seq_length'],
-#    params_model['target_length'],
-#    tf.estimator.ModeKeys.EVAL)
-
-
   if params_train.get('num_gpu', 1) == 1:
     ########################################
     # one GPU

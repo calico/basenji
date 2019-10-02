@@ -221,10 +221,10 @@ def main():
 
       else:
         # interpolate all missing bins
-        seq_hic_interpolated =  interp_nan(seq_hic_smoothed)
+        seq_hic_interpolated = interp_nan(seq_hic_smoothed)
 
         # rescale, reclip
-        seq_hic = 100000* seq_hic_interpolated
+        seq_hic = 100000*seq_hic_interpolated
         clipval = np.nanmedian(np.diag(seq_hic,options.diagonal_offset))
         for i in range(-options.diagonal_offset+1, options.diagonal_offset):
           set_diag(seq_hic,clipval,i)

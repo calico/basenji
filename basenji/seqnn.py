@@ -58,11 +58,10 @@ class SeqNN():
     block_name = block_params['name']
     del block_params['name']
 
-    # get block variables names
-    if block_name[0].islower():
-      block_func = blocks.name_func[block_name]
-      block_varnames = block_func.__code__.co_varnames
-    else:
+    # if Keras, get block variables names
+    pass_all_globals = True
+    if block_name[0].isupper():
+      pass_all_globals = False
       block_func = blocks.keras_func[block_name]
       block_varnames = block_func.__init__.__code__.co_varnames
 
@@ -71,7 +70,7 @@ class SeqNN():
       'l2_scale', 'l1_scale']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
-      if gv_value and gv in block_varnames:
+      if gv_value and (pass_all_globals or gv in block_varnames):
         block_args[gv] = gv_value
 
     # set remaining params
@@ -79,8 +78,10 @@ class SeqNN():
 
     # apply
     if block_name[0].islower():
+      block_func = blocks.name_func[block_name]
       current = block_func(current, **block_args)
     else:
+      block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
 
     return current

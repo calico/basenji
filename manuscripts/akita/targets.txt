@@ -1,0 +1,6 @@
+index	identifier	file	clip	description
+0	HFF	../../data/coolers/Krietenstein2019/HFF_hg38_4DNFIP5EUOFX.mapq_30.2048.cool	2	HFF
+1	H1hESC	../../data/coolers/Krietenstein2019/H1hESC_hg38_4DNFI1O6IL1Q.mapq_30.2048.cool	2	H1hESC
+2	GM12878	../../data/coolers/Rao2014/GM12878_inSitu_MboI_all.hg38.2048.cool	2	GM12878
+3	IMR90	../../data/coolers/Rao2014/IMR90_inSitu_MboI_all.hg38.2048.cool	2	IMR90
+4	HCT116	../../data/coolers/Rao2017/Unsynchronized_all.hg38.2048.cool	2	HCT116

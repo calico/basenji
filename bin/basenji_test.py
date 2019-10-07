@@ -137,14 +137,15 @@ def main():
   print('Test PearsonR:     %7.5f' % test_pr.mean())
 
   # write target-level statistics
-  acc_out = open('%s/acc.txt' % options.out_dir, 'w')
-  for ti in range(len(test_r2)):
-    tid = targets_df.identifier.iloc[ti]
-    tdesc = targets_df.description.iloc[ti]
-    print('%4d  %.5f  %.5f  %10s  %s' %
-            (ti, test_r2[ti], test_pr[ti], tid, tdesc),
-          file=acc_out)
-  acc_out.close()
+  targets_acc_df = pd.DataFrame({
+      'index': targets_df.index,
+      'r2': test_r2,
+      'pearsonr': test_pr,
+      'identifier': targets_df.identifier,
+      'description': targets_df.description
+      })
+  targets_acc_df.to_csv('%s/acc.txt'%options.out_dir, sep='\t',
+                        index=False, float_format='%.5f')
 
   #######################################################
   # predict?

@@ -14,19 +14,17 @@
 # =========================================================================
 """SeqNN trainer"""
 
-from absl import flags
 import tensorflow as tf
 
 from basenji import layers
 from basenji import metrics
 
-FLAGS = flags.FLAGS
-
 class Trainer:
-  def __init__(self, params, train_data, eval_data):
+  def __init__(self, params, train_data, eval_data, out_dir):
     self.params = params
     self.train_data = train_data
     self.eval_data = eval_data
+    self.out_dir = out_dir
     self.compiled = False
 
     # optimizer
@@ -53,9 +51,9 @@ class Trainer:
 
     callbacks = [
       tf.keras.callbacks.EarlyStopping(patience=self.patience, monitor='val_loss', verbose=1),
-      tf.keras.callbacks.TensorBoard(FLAGS.log_dir),
-      tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%FLAGS.log_dir),
-      tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%FLAGS.log_dir, save_best_only=True, monitor='val_loss', verbose=1)]
+      tf.keras.callbacks.TensorBoard(self.out_dir),
+      tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
+      tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir, save_best_only=True, monitor='val_loss', verbose=1)]
 
     model.fit(
       self.train_data.dataset,

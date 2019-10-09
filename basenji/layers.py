@@ -345,10 +345,10 @@ class Symmetrize2D(tf.keras.layers.Layer):
 ############################################################
 
 class EnsembleReverseComplement(tf.keras.layers.Layer):
+  """Expand tensor to include reverse complement of one hot encoded DNA sequence."""
   def __init__(self):
     super(EnsembleReverseComplement, self).__init__()
   def call(self, seqs_1hot):
-    """Expand tensor to include reverse complement of one hot encoded DNA sequence."""
     if not isinstance(seqs_1hot, list):
       seqs_1hot = [seqs_1hot]
 
@@ -361,10 +361,10 @@ class EnsembleReverseComplement(tf.keras.layers.Layer):
     return ens_seqs_1hot
 
 class StochasticReverseComplement(tf.keras.layers.Layer):
+  """Stochastically reverse complement a one hot encoded DNA sequence."""
   def __init__(self):
     super(StochasticReverseComplement, self).__init__()
   def call(self, seq_1hot, training):
-    """Stochastically reverse complement a one hot encoded DNA sequence."""
     def stoch_rc():
       rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
       rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])
@@ -377,6 +377,7 @@ class StochasticReverseComplement(tf.keras.layers.Layer):
                    lambda: (seq_1hot, tf.constant(False)))
 
 class SwitchReverse(tf.keras.layers.Layer):
+  """Reverse predictions if the inputs were reverse complemented."""
   def __init__(self):
     super(SwitchReverse, self).__init__()
   def call(self, x_reverse):
@@ -396,12 +397,12 @@ class SwitchReverse(tf.keras.layers.Layer):
                                    x)
 
 class EnsembleShift(tf.keras.layers.Layer):
+  """Expand tensor to include shifts of one hot encoded DNA sequence."""
   def __init__(self, shifts=[0], pad='uniform'):
     super(EnsembleShift, self).__init__()
     self.shifts = shifts
     self.pad = pad
   def call(self, seqs_1hot):
-    """Expand tensor to include shifts of one hot encoded DNA sequence."""
     if not isinstance(seqs_1hot, list):
       seqs_1hot = [seqs_1hot]
 
@@ -413,12 +414,12 @@ class EnsembleShift(tf.keras.layers.Layer):
     return ens_seqs_1hot
 
 class StochasticShift(tf.keras.layers.Layer):
+  """Stochastically shift a one hot encoded DNA sequence."""
   def __init__(self, shift_max=0, pad='uniform'):
     super(StochasticShift, self).__init__()
     self.augment_shifts = tf.range(-shift_max, shift_max+1)
     self.pad = pad
   def call(self, seq_1hot, training):
-    """Stochastically shift a one hot encoded DNA sequence."""
     def stoch_shift():
       shift_i = tf.random.uniform(shape=[], minval=0,
         maxval=len(self.augment_shifts), dtype=tf.int64)

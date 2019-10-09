@@ -1,4 +1,4 @@
-# Copyright 2017 Calico LLC
+# Copyright 2019 Calico LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,8 +21,6 @@ import time
 from natsort import natsorted
 import numpy as np
 import tensorflow as tf
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
 
 from basenji import blocks
 from basenji import layers
@@ -46,41 +44,34 @@ class SeqNN():
 
   def build_block(self, current, block_params):
     """Construct a SeqNN block.
-
     Args:
-
     Returns:
       current
     """
     block_args = {}
-
-    # extract name
-    block_name = block_params['name']
-    del block_params['name']
-
-    # get block variables names
-    if block_name[0].islower():
-      block_func = blocks.name_func[block_name]
-      block_varnames = block_func.__code__.co_varnames
-    else:
-      block_func = blocks.keras_func[block_name]
-      block_varnames = block_func.__init__.__code__.co_varnames
 
     # set global defaults
     global_vars = ['activation', 'batch_norm', 'bn_momentum',
       'l2_scale', 'l1_scale']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
-      if gv_value and gv in block_varnames:
+      if gv_value:
         block_args[gv] = gv_value
+
+    # extract name
+    block_name = block_params['name']
+    del block_params['name']
 
     # set remaining params
     block_args.update(block_params)
 
-    # apply
+    # switch for block
     if block_name[0].islower():
+      block_func = blocks.name_func[block_name]
       current = block_func(current, **block_args)
+
     else:
+      block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
 
     return current
@@ -96,6 +87,9 @@ class SeqNN():
     # augmentation
     if self.augment_rc:
       current, reverse_bool = layers.StochasticReverseComplement()(current)
+      requires_reversal = True
+    else:
+      requires_reversal = False
     current = layers.StochasticShift(self.augment_shift)(current)
 
     ###################################################
@@ -107,38 +101,17 @@ class SeqNN():
     # final activation
     current = layers.activate(current, self.activation)
 
-    # TEMP to include in the graph for model saving
-    # genome_repeat = tf.keras.layers.RepeatVector(1024)(tf.cast(self.genome, tf.float32))
-    # current = tf.keras.layers.Add()([current, genome_repeat])
-
-    ###################################################
-    # slice center (replace w/ Cropping1D?)
-    ###################################################
-    """
-    current_length = current.shape[1]
-    target_diff = self.target_length - current_length
-    target_diff2 = target_diff // 2
-    if target_diff2 < 0:
-      print('Model over-pools to %d for target_length %d.' % \
-        (current_length, self.target_length), file=sys.stderr)
-      exit(1)
-    elif target_diff2 > 0:
-      current = layers.SliceCenter(
-        left=target_diff2,
-        right=current_length-target_diff2)(current)
-    """
-
-    if self.augment_rc: ### needs to be earlier for hic
-      # transform back from reverse complement
-      current = layers.SwitchReverse()([current, reverse_bool])
+    # ORIGINAL
+    # if self.augment_rc:
+    #   current = layers.SwitchReverse()([current, reverse_bool])
 
     trunk_output = current
     self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
-    print('done with trunk')
 
     ###################################################
     # heads
     ###################################################
+    irreversible_blocks = ['upper_triu']
 
     head_keys = natsorted([v for v in vars(self) if v.startswith('head')])
     self.heads = [getattr(self, hk) for hk in head_keys]
@@ -153,13 +126,16 @@ class SeqNN():
 
       # build blocks
       for bi, block_params in enumerate(head):
+          if requires_reversal and block_params['name'] in irreversible_blocks:
+            # transform back from reverse complement before next block
+            current = layers.SwitchReverse()([current, reverse_bool])
+            requires_reversal = False
+          
           current = self.build_block(current, block_params)
 
-      # if clipping the final layer:
-      clip_target = getattr(self, 'clip_target', False)
-      if clip_target:
-        print('clipping targets to:',clip_target)
-        current = layers.Clip(clip_target[0],clip_target[1])(current)
+      if requires_reversal:
+        # transform back from reverse complement
+        current = layers.SwitchReverse()([current, reverse_bool])
 
       # save head output
       self.head_output.append(current)
@@ -202,11 +178,11 @@ class SeqNN():
       else:
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
-      # predict each sequence ### todo: this probably needs to change for hic
+      # predict each sequence
       preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
-      preds_avg = tf.keras.layers.Average()(preds)
+      preds_avg = tf.keras.layers.Average()(preds)      
 
       # create meta model
       self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
@@ -230,15 +206,18 @@ class SeqNN():
     # evaluate
     return model.evaluate(seq_data.dataset)
 
+
   def get_bn_layer(self, bn_layer_i):
     """ Return specified batch normalization layer. """
     bn_layers = [layer for layer in self.model.layers if layer.name.startswith('batch_normalization')]
     return bn_layers[bn_layer_i]
 
+
   def get_conv_layer(self, conv_layer_i):
     """ Return specified convolution layer. """
     conv_layers = [layer for layer in self.model.layers if layer.name.startswith('conv')]
     return conv_layers[conv_layer_i]
+
 
   def get_conv_weights(self, conv_layer_i):
     """ Return kernel weights for specified convolution layer. """
@@ -247,8 +226,10 @@ class SeqNN():
     weights = np.transpose(weights, [2,1,0])
     return weights
 
+
   def num_targets(self, head_i=0):
     return self.models[head_i].output_shape[-1]
+
 
   def predict(self, seq_data, head_i=0, **kwargs):
     """ Predict targets for SeqDataset. """
@@ -265,6 +246,7 @@ class SeqNN():
       dataset = seq_data
 
     return model.predict(dataset, **kwargs)
+
 
   def restore(self, model_file, trunk=False):
     """ Restore weights from saved model. """

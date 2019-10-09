@@ -40,13 +40,12 @@ class TestTrain(unittest.TestCase):
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
       basenji_cmd += ' basenji_train.py'
-      basenji_cmd += ' --params %s' % self.params_file
-      basenji_cmd += ' --train_data "%s/tfrecords/train-*.tfr"' % self.data_dir
-      basenji_cmd += ' --eval_data "%s/tfrecords/valid-*.tfr"' % self.data_dir
-      basenji_cmd += ' --log_dir %s/train' % it_dir
+      basenji_cmd += ' -o %s/train' % it_dir
+      basenji_cmd += ' %s' % self.params_file
+      basenji_cmd += ' %s' % self.data_dir
 
       basenji_job = slurm.Job(basenji_cmd,
-                      name='test%d' % i,
+                      name='train%d' % i,
                       out_file='%s/train.out'%it_dir,
                       err_file='%s/train.err'%it_dir,
                       queue=self.queue,
@@ -57,7 +56,6 @@ class TestTrain(unittest.TestCase):
       jobs.append(basenji_job)
 
     slurm.multi_run(jobs, verbose=True)
-
 
     ################################################################
     # test
@@ -88,7 +86,6 @@ class TestTrain(unittest.TestCase):
 
     slurm.multi_run(jobs, verbose=True)
 
-
     ################################################################
     # compare
     ################################################################
@@ -98,15 +95,14 @@ class TestTrain(unittest.TestCase):
       ref_cors.append(acc_df.pearsonr.mean())
 
     exp_cors = []
-    for acc_file in glob.glob('%s/*/test/acc.txt' % self.ref_dir):
+    for acc_file in glob.glob('%s/*/test/acc.txt' % exp_dir):
       acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
       exp_cors.append(acc_df.pearsonr.mean())
 
-
     _, pval = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
-    print('Reference  PearsonR: %.4f (%.4f' % (np.mean(ref_cors), np.std(ref_cors)))
-    print('Experiment PearsonR: %.4f (%.4f' % (np.mean(exp_cors), np.std(exp_cors)))
-    print('Mann-Whitney U p-value: %.2e' % pval)
+    print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
+    print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
+    print('Mann-Whitney U p-value: %.3g' % pval)
 
     self.assertGreater(pval, 0.05)
 

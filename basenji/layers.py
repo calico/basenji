@@ -1,14 +1,25 @@
-"""Wrapper code for using commonly-used layers."""
+# Copyright 2019 Calico LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =========================================================================
 import sys
 
 import numpy as np
 import tensorflow as tf
 
-from tensor2tensor.layers.common_attention import attention_bias_proximal
-from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings
-from tensor2tensor.layers.common_attention import _relative_attention_inner
-
-from basenji import ops
+# from tensor2tensor.layers.common_attention import attention_bias_proximal
+# from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings
+# from tensor2tensor.layers.common_attention import _relative_attention_inner
 
 ############################################################
 # Basic
@@ -353,16 +364,16 @@ class StochasticReverseComplement(tf.keras.layers.Layer):
   def __init__(self):
     super(StochasticReverseComplement, self).__init__()
   def call(self, seq_1hot, training):
-    """Stochastically reverse complement a one hot encoded DNA sequence."""
-    if training:
+    def stoch_rc():
       rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
       rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])
       reverse_bool = tf.random.uniform(shape=[]) > 0.5
       src_seq_1hot = tf.cond(reverse_bool, lambda: rc_seq_1hot, lambda: seq_1hot)
       return src_seq_1hot, reverse_bool
-    else:
-      return seq_1hot, tf.constant(False)
 
+    return tf.cond(training,
+                   stoch_rc,
+                   lambda: (seq_1hot, tf.constant(False)))
 
 class SwitchReverse(tf.keras.layers.Layer):
   def __init__(self):
@@ -370,8 +381,17 @@ class SwitchReverse(tf.keras.layers.Layer):
   def call(self, x_reverse):
     x = x_reverse[0]
     reverse = x_reverse[1]
+
+    xd = len(x.shape)
+    if xd == 3:
+      rev_axes = [1]
+    elif xd == 4:
+      rev_axes = [1,2]
+    else:
+      raise ValueError('Cannot recognize SwitchReverse input dimensions %d.' % xd)
+    
     return tf.keras.backend.switch(reverse,
-                                   tf.reverse(x, axis=[1]),
+                                   tf.reverse(x, axis=rev_axes),
                                    x)
 
 class EnsembleShift(tf.keras.layers.Layer):
@@ -398,7 +418,7 @@ class StochasticShift(tf.keras.layers.Layer):
     self.pad = pad
   def call(self, seq_1hot, training):
     """Stochastically shift a one hot encoded DNA sequence."""
-    if training:
+    def stoch_shift():
       shift_i = tf.random.uniform(shape=[], minval=0,
         maxval=len(self.augment_shifts), dtype=tf.int64)
       shift = tf.gather(self.augment_shifts, shift_i)
@@ -406,10 +426,11 @@ class StochasticShift(tf.keras.layers.Layer):
       sseq_1hot = tf.cond(tf.not_equal(shift, 0),
                           lambda: shift_sequence(seq_1hot, shift),
                           lambda: seq_1hot)
-    else:
-      sseq_1hot = seq_1hot
+      return sseq_1hot
 
-    return sseq_1hot
+    return tf.cond(training,
+                   stoch_shift,
+                   lambda: seq_1hot)
 
 def shift_sequence(seq, shift, pad_value=0.25):
   """Shift a sequence left or right by shift_amount.

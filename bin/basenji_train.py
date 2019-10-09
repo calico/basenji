@@ -28,6 +28,10 @@ import tensorflow as tf
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
 
+from basenji import dataset
+from basenji import seqnn
+from basenji import trainer
+
 """
 basenji_train.py
 
@@ -72,18 +76,23 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
+  # read data parameters
+  data_stats_file = '%s/statistics.json' % data_dir
+  with open(data_stats_file) as data_stats_open:
+    data_stats = json.load(data_stats_open)
+
   # load data
   tfr_train_full = '%s/tfrecords/%s' % (data_dir, options.tfr_train_pattern)
   train_data = dataset.SeqDataset(tfr_train_full,
     params_train['batch_size'],
-    params_model['seq_length'],
-    params_model['target_length'],
+    data_stats['seq_length'],
+    data_stats['target_length'],
     tf.estimator.ModeKeys.TRAIN)
   tfr_eval_full = '%s/tfrecords/%s' % (data_dir, options.tfr_eval_pattern)
   eval_data = dataset.SeqDataset(tfr_eval_full,
     params_train['batch_size'],
-    params_model['seq_length'],
-    params_model['target_length'],
+    data_stats['seq_length'],
+    data_stats['target_length'],
     tf.estimator.ModeKeys.EVAL)
 
   if params_train.get('num_gpu', 1) == 1:

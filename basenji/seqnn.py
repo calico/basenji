@@ -69,10 +69,6 @@ class SeqNN():
       if gv_value and (pass_all_globals or gv in block_varnames):
         block_args[gv] = gv_value
 
-    # extract name
-    block_name = block_params['name']
-    del block_params['name']
-
     # set remaining params
     block_args.update(block_params)
 

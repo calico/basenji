@@ -24,9 +24,9 @@ import time
 
 import numpy as np
 
-# import tensorflow as tf
-# if tf.__version__[0] == '1':
-#   tf.compat.v1.enable_eager_execution()
+import tensorflow as tf
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
 
 """
 basenji_train.py

@@ -364,6 +364,7 @@ class StochasticReverseComplement(tf.keras.layers.Layer):
   def __init__(self):
     super(StochasticReverseComplement, self).__init__()
   def call(self, seq_1hot, training):
+    """Stochastically reverse complement a one hot encoded DNA sequence."""
     def stoch_rc():
       rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
       rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])

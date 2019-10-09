@@ -14,90 +14,79 @@
 # limitations under the License.
 # =========================================================================
 from __future__ import print_function
+from optparse import OptionParser
 
 import json
 import os
-import pdb
-from queue import Queue
+import shutil
 import sys
-from threading import Thread
 import time
 
-from absl import app, flags
 import numpy as np
 
+# import tensorflow as tf
+# if tf.__version__[0] == '1':
+#   tf.compat.v1.enable_eager_execution()
 
+"""
+basenji_train.py
 
-################################################################################
-
-# parameters and data
-flags.DEFINE_string('params', '', 'Parameter JSON')
-flags.DEFINE_string('train_data', '', 'train tfrecord file')
-flags.DEFINE_string('eval_data', '', 'test tfrecord file')
-
-# ensembling/augmentation
-flags.DEFINE_boolean('augment_rc', False, 'Augment training with reverse complement.')
-# flags.DEFINE_boolean('ensemble_rc', False, 'Ensemble prediction with reverse complement.')
-flags.DEFINE_string('augment_shifts', '0', 'Augment training with shifted sequences.')
-# flags.DEFINE_string('ensemble_shifts', '0', 'Ensemble prediction with shifted sequences.')
-
-# training modes
-flags.DEFINE_string('restore', None, 'Restore model and continue training.')
-flags.DEFINE_boolean('trunk', False, 'Restore model as trunk only.')
-
-# eval options
-flags.DEFINE_boolean('r', False, 'Compute validation set PearsonrR.')
-flags.DEFINE_boolean('r2', False, 'Compute validation set R2.')
-
-FLAGS = flags.FLAGS
-
+Train Basenji model using given parameters and data.
+"""
 
 ################################################################################
+# main
+################################################################################
+def main():
+  usage = 'usage: %prog [options] <params_file> <data_dir>'
+  parser = OptionParser(usage)
+  parser.add_option('-o', dest='out_dir',
+      default='train_out',
+      help='Output directory for test statistics [Default: %default]')
+  parser.add_option('--restore', dest='restore',
+      help='Restore model and continue training [Default: %default]')
+  parser.add_option('--trunk', dest='trunk',
+      default=False, action='store_true',
+      help='Restore only model trunk [Default: %default]')
+  parser.add_option('--tfr_train', dest='tfr_train_pattern',
+      default='train-*.tfr',
+      help='Training TFRecord pattern string appended to data_dir [Default: %default]')
+  parser.add_option('--tfr_eval', dest='tfr_eval_pattern',
+      default='valid-*.tfr',
+      help='Evaluation TFRecord pattern string appended to data_dir [Default: %default]')
+  (options, args) = parser.parse_args()
 
-def main(_):
-  # I could write some additional code around this to check for common
-  # problems, such as with num_targets.
-  with open(FLAGS.params) as params_open:
+  if len(args) != 2:
+    parser.error('Must provide parameters and data directory.')
+  else:
+    params_file = args[0]
+    data_dir = args[1]
+
+  if not os.path.isdir(options.out_dir):
+    os.mkdir(options.out_dir)
+  shutil.copy(params_file, '%s/params.json' % options.out_dir)
+
+  # read model parameters
+  with open(params_file) as params_open:
     params = json.load(params_open)
   params_model = params['model']
   params_train = params['train']
 
-  if params_train.get('use_gpu',1) == False:
-    os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
-    print("  ")
-    print(" training on CPU ")
-    print("  ")
-    #need to blind to CPUs before tf is imported
-
-  import shutil
-  if not os.path.isdir(FLAGS.log_dir):
-    os.mkdir(FLAGS.log_dir)
-  shutil.copy(FLAGS.params,FLAGS.log_dir+'/params.json')
-  print('saving model to:', FLAGS.log_dir+'/params.json')
-
-  import tensorflow as tf
-  if tf.__version__[0] == '1':
-    tf.compat.v1.enable_eager_execution()
-  print('tf version:',tf.__version__)
-
-  from basenji import dataset
-  from basenji import seqnn
-  from basenji import trainer
-
-
   # load data
-  train_data = dataset.SeqDataset(FLAGS.train_data,
+  tfr_train_full = '%s/tfrecords/%s' % (data_dir, options.tfr_train_pattern)
+  train_data = dataset.SeqDataset(tfr_train_full,
     params_train['batch_size'],
     params_model['seq_length'],
     params_model['target_length'],
     tf.estimator.ModeKeys.TRAIN)
-  eval_data = dataset.SeqDataset(FLAGS.eval_data,
+  tfr_eval_full = '%s/tfrecords/%s' % (data_dir, options.tfr_eval_pattern)
+  eval_data = dataset.SeqDataset(tfr_eval_full,
     params_train['batch_size'],
     params_model['seq_length'],
     params_model['target_length'],
     tf.estimator.ModeKeys.EVAL)
 
-  if params_train.get('num_gpu',1) == 1:
+  if params_train.get('num_gpu', 1) == 1:
     ########################################
     # one GPU
 
@@ -105,11 +94,12 @@ def main(_):
     seqnn_model = seqnn.SeqNN(params_model)
 
     # restore
-    if FLAGS.restore:
-      seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
+    if options.restore:
+      seqnn_model.restore(options.restore, options.trunk)
 
     # initialize trainer
-    seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
+    seqnn_trainer = trainer.Trainer(params_train, train_data, 
+                                    eval_data, options.out_dir)
 
     # compile model
     seqnn_trainer.compile(seqnn_model.model)
@@ -128,11 +118,12 @@ def main(_):
       seqnn_model = seqnn.SeqNN(params_model)
 
       # restore
-      if FLAGS.restore:
-        seqnn_model.restore(FLAGS.restore, FLAGS.trunk)
+      if options.restore:
+        seqnn_model.restore(options.restore, options.trunk)
 
       # initialize trainer
-      seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data)
+      seqnn_trainer = trainer.Trainer(params_train, train_data,
+                                      eval_data, options.out_dir)
 
       # compile model
       seqnn_trainer.compile(seqnn_model.model, None)
@@ -140,5 +131,8 @@ def main(_):
     # train model
     seqnn_trainer.fit(seqnn_model.model)
 
+################################################################################
+# __main__
+################################################################################
 if __name__ == '__main__':
-  app.run(main)
+  main()

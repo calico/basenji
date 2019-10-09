@@ -50,12 +50,23 @@ class SeqNN():
     """
     block_args = {}
 
+    # extract name
+    block_name = block_params['name']
+    del block_params['name']
+
+    # if Keras, get block variables names
+    pass_all_globals = True
+    if block_name[0].isupper():
+      pass_all_globals = False
+      block_func = blocks.keras_func[block_name]
+      block_varnames = block_func.__init__.__code__.co_varnames
+
     # set global defaults
     global_vars = ['activation', 'batch_norm', 'bn_momentum',
       'l2_scale', 'l1_scale']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
-      if gv_value:
+      if gv_value and (pass_all_globals or gv in block_varnames):
         block_args[gv] = gv_value
 
     # extract name

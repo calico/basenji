@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2019 Calico LLC
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -96,10 +96,11 @@ def main():
     os.mkdir(rep_dir)
 
     cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-    cmd += ' conda activate tf1.14-gpu;'
+    cmd += ' conda activate tf1.15-gpu;'
     cmd += ' echo $HOSTNAME;'
 
-    cmd += ' basenji_train.py' 
+    # TEMP path!
+    cmd += ' /home/drk/code/basenji2/bin/basenji_train.py' 
     cmd += ' %s' % options_string(options, train_options, rep_dir)
     cmd += ' %s %s' % (params_file, data_dir)
 

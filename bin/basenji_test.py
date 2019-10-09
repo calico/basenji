@@ -139,8 +139,10 @@ def main():
   #######################################################
   # evaluate
 
+  eval_loss = params_train.get('loss', 'poisson')
+
   # evaluate
-  test_loss, test_pr, test_r2 = seqnn_model.evaluate(eval_data)
+  test_loss, test_pr, test_r2 = seqnn_model.evaluate(eval_data, loss=eval_loss)
   print('')
 
   # print summary statistics

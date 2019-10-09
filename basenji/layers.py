@@ -123,15 +123,16 @@ class StochasticReverseComplement(tf.keras.layers.Layer):
     super(StochasticReverseComplement, self).__init__()
   def call(self, seq_1hot, training):
     """Stochastically reverse complement a one hot encoded DNA sequence."""
-    if training:
+    def stoch_rc():
       rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
       rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])
       reverse_bool = tf.random.uniform(shape=[]) > 0.5
       src_seq_1hot = tf.cond(reverse_bool, lambda: rc_seq_1hot, lambda: seq_1hot)
       return src_seq_1hot, reverse_bool
-    else:
-      return seq_1hot, tf.constant(False)
 
+    return tf.cond(training,
+                   stoch_rc,
+                   lambda: (seq_1hot, tf.constant(False)))
 
 class SwitchReverse(tf.keras.layers.Layer):
   def __init__(self):
@@ -167,7 +168,7 @@ class StochasticShift(tf.keras.layers.Layer):
     self.pad = pad
   def call(self, seq_1hot, training):
     """Stochastically shift a one hot encoded DNA sequence."""
-    if training:
+    def stoch_shift():
       shift_i = tf.random.uniform(shape=[], minval=0,
         maxval=len(self.augment_shifts), dtype=tf.int64)
       shift = tf.gather(self.augment_shifts, shift_i)
@@ -175,10 +176,11 @@ class StochasticShift(tf.keras.layers.Layer):
       sseq_1hot = tf.cond(tf.not_equal(shift, 0),
                           lambda: shift_sequence(seq_1hot, shift),
                           lambda: seq_1hot)
-    else:
-      sseq_1hot = seq_1hot
+      return sseq_1hot
 
-    return sseq_1hot
+    return tf.cond(training,
+                   stoch_shift,
+                   lambda: seq_1hot)
 
 def shift_sequence(seq, shift, pad_value=0.25):
   """Shift a sequence left or right by shift_amount.

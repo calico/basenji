@@ -6,4 +6,5 @@
 
 *get_data.sh* - Download the training/validation/test TFRecords	(~10 Gb).
 
-*explore_model.ipynb* - Load and visualize predictions for the trained model.
+*explore_model.ipynb* - Load and visualize predictions for the trained model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/tf2_hic/manuscripts/akita/explore_model.ipynb)
+

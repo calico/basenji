@@ -1,0 +1,88 @@
+{
+    "train": {
+        "batch_size": 2,
+        "optimizer": "sgd",
+        "learning_rate": 0.0065,
+        "momentum": 0.99575,
+        "loss": "mse",
+        "patience": 12,
+        "clipnorm": 10.7
+    },
+    "model": {
+        "seq_length": 1048576,
+        "target_length": 512,
+        "target_crop": 32,
+        "diagonal_offset": 2,
+        "augment_rc": true,
+        "augment_shift": 11,
+        "activation": "relu",
+        "batch_norm": true,
+        "bn_momentum": 0.9265,
+        "trunk": [
+            {
+                "name": "conv_block",
+                "filters": 96,
+                "kernel_size": 11,
+                "pool_size": 2
+            },
+            {
+                "name": "conv_tower",
+                "filters_init": 96,
+                "filters_mult": 1.0,
+                "kernel_size": 5,
+                "pool_size": 2,
+                "repeat": 10
+            },
+            {
+                "name": "dilated_residual",
+                "filters": 48,
+                "rate_mult": 1.75,
+                "repeat": 8,
+                "dropout": 0.4
+            },
+	    {
+                "name": "conv_block",
+                "filters": 64,
+                "kernel_size": 5
+            }
+
+        ],
+        "head_hic": [
+            {
+                "name": "average_to_2d"
+            },
+            {
+                "name": "concat_dist_2d"
+            },
+            {
+                "name": "conv_block_2d",
+                "filters": 48,
+                "kernel_size": 3
+            },
+            {
+                "name": "symmetrize_2d"
+            },
+            {
+                "name": "dilated_residual_2d",
+                "filters": 24,
+                "kernel_size": 3,
+                "rate_mult": 1.75,
+                "repeat": 6,
+                "dropout": 0.1
+            },
+            {
+                "name": "cropping_2d",
+                "cropping": 32
+            },
+            {
+                "name": "upper_triu",
+                "diagonal_offset": 2
+            },
+            {
+                "name": "dense",
+                "units": 5,
+                "activation": "linear"
+            }
+        ]
+    }
+}

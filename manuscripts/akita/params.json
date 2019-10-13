@@ -75,7 +75,7 @@
                 "cropping": 32
             },
             {
-                "name": "upper_triu",
+                "name": "upper_tri",
                 "diagonal_offset": 2
             },
             {

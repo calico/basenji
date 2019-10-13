@@ -53,9 +53,6 @@ def main():
   parser.add_option('--break', dest='break_t',
       default=8388608, type='int',
       help='Break in half contigs above length [Default: %default]')
-  # parser.add_option('-c', dest='clip',
-  #     default=None, type='float',
-  #     help='Clip target values to have minimum [Default: %default]')
   parser.add_option('--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')

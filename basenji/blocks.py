@@ -408,8 +408,8 @@ def one_to_two(inputs, operation='mean', **kwargs):
 def symmetrize_2d(inputs, **kwargs):
   return layers.Symmetrize2D()(inputs)
 
-def upper_triu(inputs, diagonal_offset=2, **kwargs):
-  current = layers.UpperTriu(diagonal_offset)(inputs)
+def upper_tri(inputs, diagonal_offset=2, **kwargs):
+  current = layers.UpperTri(diagonal_offset)(inputs)
   return current
 
 
@@ -494,7 +494,7 @@ name_func = {
   'dot_to_2d': dot_to_2d,
   'geodot_to_2d': geodot_to_2d,
   'concat_dist_2d': concat_dist_2d,
-  'upper_triu': upper_triu,
+  'upper_tri': upper_tri,
   'conv_block_2d': conv_block_2d,
   'dilated_residual_2d': dilated_residual_2d,
   'symmetrize_2d':symmetrize_2d,

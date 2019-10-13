@@ -94,9 +94,6 @@ class SeqNN():
     # augmentation
     if self.augment_rc:
       current, reverse_bool = layers.StochasticReverseComplement()(current)
-      requires_reversal = True
-    else:
-      requires_reversal = False
     current = layers.StochasticShift(self.augment_shift)(current)
 
     ###################################################
@@ -108,17 +105,13 @@ class SeqNN():
     # final activation
     current = layers.activate(current, self.activation)
 
-    # ORIGINAL
-    # if self.augment_rc:
-    #   current = layers.SwitchReverse()([current, reverse_bool])
-
     trunk_output = current
     self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
 
     ###################################################
     # heads
     ###################################################
-    irreversible_blocks = ['upper_triu']
+    self.preds_triu = False
 
     head_keys = natsorted([v for v in vars(self) if v.startswith('head')])
     self.heads = [getattr(self, hk) for hk in head_keys]
@@ -126,23 +119,22 @@ class SeqNN():
     self.head_output = []
     for hi, head in enumerate(self.heads):
       if not isinstance(head, list):
-          head = [head]
+        head = [head]
 
       # reset to trunk output
       current = trunk_output
 
       # build blocks
       for bi, block_params in enumerate(head):
-          if requires_reversal and block_params['name'] in irreversible_blocks:
-            # transform back from reverse complement before next block
-            current = layers.SwitchReverse()([current, reverse_bool])
-            requires_reversal = False
-          
-          current = self.build_block(current, block_params)
+        self.preds_triu |= (block_params['name'] == 'upper_tri')
+        current = self.build_block(current, block_params)
 
-      if requires_reversal:
-        # transform back from reverse complement
-        current = layers.SwitchReverse()([current, reverse_bool])
+      # transform back from reverse complement
+      if self.augment_rc:
+        if self.preds_triu:
+          current = layers.SwitchReverseTriu(self.diagonal_offset)([current, reverse_bool])
+        else:
+          current = layers.SwitchReverse()([current, reverse_bool])
 
       # save head output
       self.head_output.append(current)
@@ -186,7 +178,11 @@ class SeqNN():
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
       # predict each sequence
-      preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+      if self.preds_triu:
+        preds = [layers.SwitchReverseTriu(self.diagonal_offset)
+                  ([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+      else:
+        preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)      

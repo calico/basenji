@@ -316,10 +316,10 @@ class ConcatDist2D(tf.keras.layers.Layer):
     dist = tf.tile(dist, [batch_size, 1, 1, 1])
     return tf.concat([inputs, dist], axis=-1)
 
-class UpperTriu(tf.keras.layers.Layer):
+class UpperTri(tf.keras.layers.Layer):
   ''' Unroll matrix to its upper triangular portion.'''
   def __init__(self, diagonal_offset=2):
-    super(UpperTriu, self).__init__()
+    super(UpperTri, self).__init__()
     self.diagonal_offset = diagonal_offset
 
   def call(self, inputs):
@@ -396,6 +396,46 @@ class SwitchReverse(tf.keras.layers.Layer):
                                    tf.reverse(x, axis=rev_axes),
                                    x)
 
+class SwitchReverseTriu(tf.keras.layers.Layer):
+  def __init__(self, diagonal_offset):
+    super(SwitchReverseTriu, self).__init__()
+    self.diagonal_offset = diagonal_offset
+
+  def call(self, x_reverse):
+    x_ut = x_reverse[0]
+    reverse = x_reverse[1]
+
+    # infer original sequence length
+    ut_len = x_ut.shape[1].value
+    seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
+    seq_len += self.diagonal_offset
+
+    # get triu indexes
+    ut_indexes = np.triu_indices(seq_len, self.diagonal_offset)
+    assert(len(ut_indexes[0]) == ut_len)
+
+    # construct a ut matrix of ut indexes
+    mat_ut_indexes = np.zeros(shape=(seq_len,seq_len), dtype='int')
+    mat_ut_indexes[ut_indexes] = np.arange(ut_len)
+
+    # make lower diag mask
+    mask_ut = np.zeros(shape=(seq_len,seq_len), dtype='bool')
+    mask_ut[ut_indexes] = True
+    mask_ld = ~mask_ut
+
+    # construct a matrix of symmetric ut indexes
+    mat_indexes = mat_ut_indexes + np.multiply(mask_ld, mat_ut_indexes.T)
+
+    # reverse complement
+    mat_rc_indexes = mat_indexes[::-1,::-1]
+
+    # extract ut order
+    rc_ut_order = mat_rc_indexes[ut_indexes]
+
+    return tf.keras.backend.switch(reverse,
+                                   tf.gather(x_ut, rc_ut_order, axis=1),
+                                   x_ut)
+    
 class EnsembleShift(tf.keras.layers.Layer):
   """Expand tensor to include shifts of one hot encoded DNA sequence."""
   def __init__(self, shifts=[0], pad='uniform'):

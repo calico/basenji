@@ -43,9 +43,9 @@ To verify the install, launch python and run
 
 
 ---------------------------------------------------------------------------------------------------
-### Manuscript
+### Manuscripts
 
-Models and (links to) data studied in the manuscript are available in the [manuscript](manuscript) directory.
+Models and (links to) data studied in various manuscripts are available in the [manuscripts](manuscripts) directory.
 
 
 ---------------------------------------------------------------------------------------------------

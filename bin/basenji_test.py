@@ -58,9 +58,6 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('--ai', dest='accuracy_indexes',
       help='Comma-separated list of target indexes to make accuracy scatter plots.')
-  parser.add_option('--hic', dest='hic',
-      default=False, action='store_true',
-      help='Hi-C data [Default: %default]')
   parser.add_option('--mc', dest='mc_n',
       default=0, type='int',
       help='Monte carlo test iterations [Default: %default]')
@@ -114,21 +111,17 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # load data
-  if options.hic:
-    diagonal_offset = params_model.get('diagonal_offset', 2)
-    target_crop = params_model.get('target_crop', 0)
-    target_length_crop = params_model['target_length'] - diagonal_offset - 2*target_crop
-    target_length = target_length_crop*(target_length_crop+1) // 2
-  else:
-    target_length = params_model['target_length']
+  # read data parameters
+  data_stats_file = '%s/statistics.json' % data_dir
+  with open(data_stats_file) as data_stats_open:
+    data_stats = json.load(data_stats_open)
 
   # construct data ops
   tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
   eval_data = dataset.SeqDataset(tfr_pattern_path,
     params_train['batch_size'],
     params_model['seq_length'],
-    target_length,
+    data_stats['target_length'],
     tf.estimator.ModeKeys.EVAL)
 
   # initialize model

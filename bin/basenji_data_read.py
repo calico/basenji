@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-
 from optparse import OptionParser
 
 import os
@@ -43,6 +42,9 @@ def main():
   parser.add_option('-c', dest='clip',
       default=None, type='float',
       help='Clip values post-summary to a maximum [Default: %default]')
+  parser.add_option('--crop', dest='crop_bp',
+      default=0, type='int',
+      help='Crop bp off each end [Default: %default]')
   parser.add_option('-s', dest='scale',
       default=1., type='float',
       help='Scale values by [Default: %default]')
@@ -63,6 +65,8 @@ def main():
     genome_cov_file = args[0]
     seqs_bed_file = args[1]
     seqs_cov_file = args[2]
+
+  assert(options.crop_bp > 0)
 
   # read model sequences
   model_seqs = []
@@ -107,6 +111,10 @@ def main():
     # set NaN's to baseline
     nan_mask = np.isnan(seq_cov_nt)
     seq_cov_nt[nan_mask] = baseline_cov
+
+    # crop
+    assert(2*options.crop_bp < len(seq_cov_nt))
+    seq_cov_nt = seq_cov_nt[options.crop_bp:-options.crop_bp]
 
     # sum pool
     seq_cov = seq_cov_nt.reshape(seq_len_pool, options.pool_width)

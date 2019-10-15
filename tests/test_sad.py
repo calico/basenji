@@ -75,7 +75,7 @@ class TestSAD(unittest.TestCase):
       shutil.rmtree('sad/testm')
 
     sad_opts = '--rc --shifts "0,21"'
-    sad_opts += ' -o sad/testm -q k80 -p 4'
+    sad_opts += ' -o sad/testm -q "" -p 4'
 
     cmd = 'basenji_sad_multi.py %s %s %s %s' % \
         (sad_opts, self.params_file, self.model_file, self.vcf_file)
@@ -134,7 +134,7 @@ class TestSadRef(unittest.TestCase):
       shutil.rmtree('sad/testrm')
 
     sad_opts = '--rc --shifts "0,21"'
-    sad_opts += ' -o sad/testrm -q k80 -p 4'
+    sad_opts += ' -o sad/testrm -q "" -p 4'
     cmd = 'basenji_sad_ref_multi.py %s %s %s %s' % \
         (sad_opts, self.params_file, self.model_file, self.vcf_file)
     subprocess.call(cmd, shell=True)

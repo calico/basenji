@@ -91,11 +91,14 @@ def main():
   # multi
   parser.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
+  parser.add_option('--max_proc', dest='max_proc',
+      default=None, type='int',
+      help='Maximum concurrent processes [Default: %default]')
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
   parser.add_option('-q', dest='queue',
-      default='k80',
+      default='gtx1080ti',
       help='SLURM queue on which to run the jobs [Default: %default]')
   parser.add_option('-r', dest='restart',
       default=False, action='store_true',
@@ -131,7 +134,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.13-gpu;'
+      cmd += ' conda activate tf1.14-gpu;'
       cmd += ' echo $HOSTNAME;'
 
       cmd += ' basenji_sad_ref.py %s %s %d' % (
@@ -147,7 +150,7 @@ def main():
           mem=45000, time='14-0:0:0')
       jobs.append(j)
 
-  slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
+  slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
   #######################################################

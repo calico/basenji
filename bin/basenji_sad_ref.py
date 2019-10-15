@@ -147,7 +147,7 @@ def main():
     target_subset = None
 
   else:
-    targets_df = pd.read_table(options.targets_file, index_col=0)
+    targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
     target_subset = targets_df.index
@@ -158,16 +158,21 @@ def main():
   #################################################################
   # load SNPs
 
-  # read sorted SNPs from VCF
-  snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=options.flip_ref,
-                       validate_ref_fasta=options.genome_fasta)
-
   # filter for worker SNPs
   if options.processes is not None:
-    worker_bounds = np.linspace(0, len(snps), options.processes+1, dtype='int')
-    snps = snps[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+    # determine boundaries
+    num_snps = bvcf.vcf_count(vcf_file)
+    worker_bounds = np.linspace(0, num_snps, options.processes+1, dtype='int')
 
-  num_snps = len(snps)
+    # read sorted SNPs from VCF
+    snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=options.flip_ref,
+                         validate_ref_fasta=options.genome_fasta,
+                         start_i=worker_bounds[worker_index],
+                         end_i=worker_bounds[worker_index+1])
+  else:
+    # read sorted SNPs from VCF
+    snps = bvcf.vcf_snps(vcf_file, require_sorted=True, flip_ref=options.flip_ref,
+                         validate_ref_fasta=options.genome_fasta)
 
   # cluster SNPs by position
   snp_clusters = cluster_snps(snps, job['seq_length'], options.center_pct)
@@ -198,7 +203,6 @@ def main():
 
   iterator = dataset.make_one_shot_iterator()
   data_ops = iterator.get_next()
-
 
   #################################################################
   # setup model

@@ -41,7 +41,6 @@ from basenji import dataset
 from basenji import params
 from basenji import plots
 from basenji import seqnn
-from basenji import tfrecord_batcher
 
 """
 basenji_test.py

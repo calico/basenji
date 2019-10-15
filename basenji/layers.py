@@ -15,8 +15,8 @@
 import sys
 import tensorflow as tf
 
-from tensor2tensor.layers.common_attention import attention_bias_proximal
-from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings, _relative_attention_inner
+# from tensor2tensor.layers.common_attention import attention_bias_proximal
+# from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings, _relative_attention_inner
 
 ############################################################
 # Keras Layers

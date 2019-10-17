@@ -19,7 +19,7 @@ class TestTrain(unittest.TestCase):
     cls.data_dir = 'train/data'
     cls.ref_dir = 'train/ref'
     cls.iterations = 4
-    cls.conda_env = 'tf1.14-gpu'
+    cls.conda_env = 'tf1.15-gpu'
     cls.queue = 'gtx1080ti'
 
   def test_train(self):
@@ -39,7 +39,7 @@ class TestTrain(unittest.TestCase):
       # basenji train
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' basenji_train.py'
+      basenji_cmd += ' /home/drk/code/basenji2/bin/basenji_train.py'
       basenji_cmd += ' -o %s/train' % it_dir
       basenji_cmd += ' %s' % self.params_file
       basenji_cmd += ' %s' % self.data_dir
@@ -67,7 +67,7 @@ class TestTrain(unittest.TestCase):
       # basenji test
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' basenji_test.py'
+      basenji_cmd += ' /home/drk/code/basenji2/bin/basenji_test.py'
       basenji_cmd += ' -o %s/test' % it_dir
       basenji_cmd += ' %s' % self.params_file
       basenji_cmd += ' %s/train/model_best.h5' % it_dir

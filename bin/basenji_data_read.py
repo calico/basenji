@@ -66,7 +66,7 @@ def main():
     seqs_bed_file = args[1]
     seqs_cov_file = args[2]
 
-  assert(options.crop_bp > 0)
+  assert(options.crop_bp >= 0)
 
   # read model sequences
   model_seqs = []
@@ -80,11 +80,13 @@ def main():
   # compute dimensions
   num_seqs = len(model_seqs)
   seq_len_nt = model_seqs[0].end - model_seqs[0].start
-  seq_len_pool = seq_len_nt // options.pool_width
+  seq_len_nt -= 2*options.crop_bp
+  target_length = seq_len_nt // options.pool_width
+  assert(target_length > 0)
 
   # initialize sequences coverage file
   seqs_cov_open = h5py.File(seqs_cov_file, 'w')
-  seqs_cov_open.create_dataset('seqs_cov', shape=(num_seqs, seq_len_pool), dtype='float16')
+  seqs_cov_open.create_dataset('seqs_cov', shape=(num_seqs, target_length), dtype='float16')
 
   # open genome coverage file
   genome_cov_open = CovFace(genome_cov_file)
@@ -113,11 +115,11 @@ def main():
     seq_cov_nt[nan_mask] = baseline_cov
 
     # crop
-    assert(2*options.crop_bp < len(seq_cov_nt))
-    seq_cov_nt = seq_cov_nt[options.crop_bp:-options.crop_bp]
+    if options.crop_bp > 0:
+      seq_cov_nt = seq_cov_nt[options.crop_bp:-options.crop_bp]
 
     # sum pool
-    seq_cov = seq_cov_nt.reshape(seq_len_pool, options.pool_width)
+    seq_cov = seq_cov_nt.reshape(target_length, options.pool_width)
     if options.sum_stat == 'sum':
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
     elif options.sum_stat in ['mean', 'avg']:

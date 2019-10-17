@@ -290,5 +290,6 @@ name_func = {
 
 keras_func = {
   'Conv1D': tf.keras.layers.Conv1D,
+  'Cropping1D': tf.keras.layers.Cropping1D,
   'Dense': tf.keras.layers.Dense
 }

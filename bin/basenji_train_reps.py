@@ -75,7 +75,6 @@ def main():
     params_file = os.path.abspath(args[0])
     data_dir = os.path.abspath(args[1])
 
-  """
   #######################################################
   # prep work
 
@@ -96,7 +95,7 @@ def main():
     cmd += ' conda activate tf1.15-gpu;'
     cmd += ' echo $HOSTNAME;'
 
-    cmd += ' basenji_train.py' 
+    cmd += ' /home/drk/code/basenji2/bin/basenji_train.py' 
     cmd += ' %s' % options_string(options, train_options, rep_dir)
     cmd += ' %s %s' % (params_file, data_dir)
 
@@ -113,7 +112,6 @@ def main():
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)
-  """
 
   #######################################################
   # test

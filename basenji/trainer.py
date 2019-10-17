@@ -13,7 +13,9 @@
 # limitations under the License.
 # =========================================================================
 """SeqNN trainer"""
+import time
 
+import numpy as np
 import tensorflow as tf
 
 from basenji import layers
@@ -63,6 +65,63 @@ class Trainer:
       validation_data=self.eval_data.dataset,
       validation_steps=self.eval_epoch_batches)
 
+
+  def fit_tape(self, model):
+    self.loss_fn = tf.keras.losses.Poisson()
+
+    num_targets = model.output_shape[-1]
+    train_loss = tf.keras.metrics.Poisson()
+    train_r = metrics.PearsonR(num_targets)
+    valid_r = metrics.PearsonR(num_targets)
+
+    # @tf.function
+    def train_step(x, y):
+      with tf.GradientTape() as tape:
+        pred = model(x)
+        loss = self.loss_fn(y, pred)
+      train_loss(y, pred)
+      train_r(y, pred)
+      gradients = tape.gradient(loss, model.trainable_variables)
+      self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+    valid_best = np.inf
+    valid_ei = 0
+    unimproved = 0
+
+    for ei in range(self.train_epochs):
+      if unimproved > self.patience:
+        break
+      else:
+        # train
+        t0 = time.time()
+        si = 0
+        for x, y in self.train_data.dataset:
+          train_step(x, y)
+          si += 1
+          if si >= self.train_epoch_batches:
+            break
+
+        train_loss_epoch = train_loss.result().numpy()
+        train_r_epoch = train_r.result().numpy()
+        print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f' % (ei, (time.time()-t0), train_loss_epoch, train_r_epoch), end='')
+
+        # checkpoint
+        model.save('%s/model_check.h5'%self.out_dir)
+
+        # valid
+        valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data.dataset, verbose=0)
+        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), flush=True)
+
+        if valid_loss < valid_best:
+          unimproved = 0
+          valid_ei = ei
+          valid_best = valid_loss
+          model.save('%s/model_best.h5'%self.out_dir)
+        else:
+          unimproved += 1
+
+        # reset
+        train_r.reset_states()
 
   def make_optimizer(self):
     # schedule (currently OFF)

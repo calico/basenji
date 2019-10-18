@@ -152,18 +152,22 @@ class Trainer:
     else:
       lr_schedule = initial_learning_rate
 
+    clip_norm = self.params.get('clipnorm', None)
+
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()
     if optimizer_type == 'adam':
       self.optimizer = tf.keras.optimizers.Adam(
           lr=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
-          beta_2=self.params.get('adam_beta2',0.999))
+          beta_2=self.params.get('adam_beta2',0.999),
+          clipnorm=clip_norm)
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
           lr=lr_schedule,
-          momentum=self.params.get('momentum', 0.99))
+          momentum=self.params.get('momentum', 0.99),
+          clipnorm=clip_norm)
 
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)

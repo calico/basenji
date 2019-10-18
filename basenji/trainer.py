@@ -29,6 +29,13 @@ class Trainer:
     self.out_dir = out_dir
     self.compiled = False
 
+    # loss
+    loss_name = self.params.get('loss','poisson')
+    if loss_name.lower() == 'mse':
+      self.loss_fn = tf.keras.losses.MSE()
+    else:
+      self.loss_fn = tf.keras.losses.Poisson()
+
     # optimizer
     self.make_optimizer()
 
@@ -41,8 +48,9 @@ class Trainer:
     self.train_epochs = self.params.get('train_epochs', 1000)
 
   def compile(self, model):
+
     num_targets = model.output_shape[-1]
-    model.compile(loss=self.params.get('loss','poisson'),
+    model.compile(loss=self.loss_fn,
                   optimizer=self.optimizer,
                   metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
     self.compiled = True
@@ -67,8 +75,10 @@ class Trainer:
 
 
   def fit_tape(self, model):
-    self.loss_fn = tf.keras.losses.Poisson()
+    if not self.compiled:
+      self.compile(model)
 
+    # metrics
     num_targets = model.output_shape[-1]
     train_loss = tf.keras.metrics.Poisson()
     train_r = metrics.PearsonR(num_targets)
@@ -77,17 +87,19 @@ class Trainer:
     # @tf.function
     def train_step(x, y):
       with tf.GradientTape() as tape:
-        pred = model(x)
+        pred = model(x, training=True)
         loss = self.loss_fn(y, pred)
       train_loss(y, pred)
       train_r(y, pred)
       gradients = tape.gradient(loss, model.trainable_variables)
       self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
+    # improvement variables
     valid_best = np.inf
     valid_ei = 0
     unimproved = 0
 
+    # training loop
     for ei in range(self.train_epochs):
       if unimproved > self.patience:
         break
@@ -101,6 +113,7 @@ class Trainer:
           if si >= self.train_epoch_batches:
             break
 
+        # print training accuracy
         train_loss_epoch = train_loss.result().numpy()
         train_r_epoch = train_r.result().numpy()
         print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f' % (ei, (time.time()-t0), train_loss_epoch, train_r_epoch), end='')
@@ -108,19 +121,23 @@ class Trainer:
         # checkpoint
         model.save('%s/model_check.h5'%self.out_dir)
 
-        # valid
+        # print validation accuracy
         valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data.dataset, verbose=0)
-        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), flush=True)
+        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), end='')
 
+        # check best
         if valid_loss < valid_best:
+          print(' - BEST!', end='')
           unimproved = 0
           valid_ei = ei
           valid_best = valid_loss
           model.save('%s/model_best.h5'%self.out_dir)
         else:
           unimproved += 1
+        print('', flush=True)
 
-        # reset
+        # reset metrics
+        train_loss.reset_states()
         train_r.reset_states()
 
   def make_optimizer(self):

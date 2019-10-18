@@ -58,7 +58,7 @@ def main():
   # multi
   rep_options = OptionGroup(parser, 'replication options')
   rep_options.add_option('--name', dest='name',
-      default='train', help='SLURM name prefix [Default: %default]')
+      default='reps', help='SLURM name prefix [Default: %default]')
   rep_options.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
@@ -79,17 +79,13 @@ def main():
   # prep work
 
   if os.path.isdir(options.out_dir):
-    shutil.rmtree(options.out_dir)
+    print('Output directory %s exists. Please remove.' % options.out_dir)
+    exit(1)
   os.mkdir(options.out_dir)
 
-  # pickle options
-  # options_pkl_file = '%s/options.pkl' % options.out_dir
-  # options_pkl = open(options_pkl_file, 'wb')
-  # pickle.dump(options, options_pkl)
-  # options_pkl.close()
-
   #######################################################
-  # launch worker threads
+  # train
+
   jobs = []
   for pi in range(options.processes):
     rep_dir = '%s/rep%d' % (options.out_dir, pi)
@@ -104,7 +100,7 @@ def main():
     cmd += ' %s' % options_string(options, train_options, rep_dir)
     cmd += ' %s %s' % (params_file, data_dir)
 
-    name = '%s_p%d' % (options.name, pi)
+    name = '%s-train%d' % (options.name, pi)
     sbf = os.path.abspath('%s/train.sb' % rep_dir)
     outf = os.path.abspath('%s/train.out' % rep_dir)
     errf = os.path.abspath('%s/train.err' % rep_dir)
@@ -113,6 +109,37 @@ def main():
         outf, errf, sbf,
         queue=options.queue, gpu=1,
         mem=23000, time='28-0:0:0')
+    jobs.append(j)
+
+  slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
+                  launch_sleep=10, update_sleep=60)
+
+  #######################################################
+  # test
+
+  jobs = []
+  for pi in range(options.processes):
+    rep_dir = '%s/rep%d' % (options.out_dir, pi)
+    test_dir = '%s/test_out' % rep_dir
+
+    cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+    cmd += ' conda activate tf1.15-gpu;'
+    cmd += ' echo $HOSTNAME;'
+
+    cmd += ' /home/drk/code/basenji2/bin/basenji_test.py' 
+    cmd += ' --rc --shifts "1,0,-1"'
+    cmd += ' -o %s' % test_dir
+    cmd += ' %s %s/model_best.h5 %s' % (params_file, rep_dir, data_dir)
+
+    name = '%s-test%d' % (options.name, pi)
+    sbf = os.path.abspath('%s/test.sb' % rep_dir)
+    outf = os.path.abspath('%s/test.out' % rep_dir)
+    errf = os.path.abspath('%s/test.err' % rep_dir)
+
+    j = slurm.Job(cmd, name,
+        outf, errf, sbf,
+        queue=options.queue, gpu=1,
+        mem=23000, time='4:0:0')
     jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

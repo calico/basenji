@@ -13,7 +13,9 @@
 # limitations under the License.
 # =========================================================================
 """SeqNN trainer"""
+import time
 
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework import ops
@@ -30,6 +32,13 @@ class Trainer:
     self.out_dir = out_dir
     self.compiled = False
 
+    # loss
+    self.loss = self.params.get('loss','poisson')
+    if loss_name.lower() == 'mse':
+      self.loss_fn = tf.keras.losses.MSE()
+    else:
+      self.loss_fn = tf.keras.losses.Poisson()
+
     # optimizer
     self.make_optimizer()
 
@@ -42,27 +51,8 @@ class Trainer:
     self.train_epochs = self.params.get('train_epochs', 1000)
 
   def compile(self, model):
-    loss = self.params.get('loss','poisson')
-
-    sample_weights =  self.params.get('sample_weights',None)
     num_targets = model.output_shape[-1]
-    if sample_weights is not None:
-      if len(sample_weights) != num_targets:
-        raise ValueError('number of sample_weights != number of targets')
-      else:
-        sample_weights = np.array(sample_weights)
-      if ('mse' in loss):
-        def weighted_mse(ytrue, ypred, weights=sample_weights):
-          weights = math_ops.cast(ops.convert_to_tensor(weights),dtypes.float32)
-          print('sample weights', sample_weights)
-          return tf.keras.backend.mean(  weights * tf.keras.backend.square(ytrue-ypred) ,axis=-1)
-        loss = weighted_mse
-        print('using weighted mse')
-      else:
-        raise ValueError('no custom weighted loss defined')
-
-    num_targets = model.output_shape[-1]
-    model.compile(loss=loss,
+    model.compile(loss=self.loss_fn,
                   optimizer=self.optimizer,
                   metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
     self.compiled = True
@@ -85,6 +75,72 @@ class Trainer:
       validation_data=self.eval_data.dataset,
       validation_steps=self.eval_epoch_batches)
 
+
+  def fit_tape(self, model):
+    if not self.compiled:
+      self.compile(model)
+
+    # metrics
+    num_targets = model.output_shape[-1]
+    train_loss = tf.keras.metrics.Poisson()
+    train_r = metrics.PearsonR(num_targets)
+    valid_r = metrics.PearsonR(num_targets)
+
+    # @tf.function
+    def train_step(x, y):
+      with tf.GradientTape() as tape:
+        pred = model(x, training=True)
+        loss = self.loss_fn(y, pred)
+      train_loss(y, pred)
+      train_r(y, pred)
+      gradients = tape.gradient(loss, model.trainable_variables)
+      self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+    # improvement variables
+    valid_best = np.inf
+    valid_ei = 0
+    unimproved = 0
+
+    # training loop
+    for ei in range(self.train_epochs):
+      if unimproved > self.patience:
+        break
+      else:
+        # train
+        t0 = time.time()
+        si = 0
+        for x, y in self.train_data.dataset:
+          train_step(x, y)
+          si += 1
+          if si >= self.train_epoch_batches:
+            break
+
+        # print training accuracy
+        train_loss_epoch = train_loss.result().numpy()
+        train_r_epoch = train_r.result().numpy()
+        print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f' % (ei, (time.time()-t0), train_loss_epoch, train_r_epoch), end='')
+
+        # checkpoint
+        model.save('%s/model_check.h5'%self.out_dir)
+
+        # print validation accuracy
+        valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data.dataset, verbose=0)
+        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), end='')
+
+        # check best
+        if valid_loss < valid_best:
+          print(' - BEST!', end='')
+          unimproved = 0
+          valid_ei = ei
+          valid_best = valid_loss
+          model.save('%s/model_best.h5'%self.out_dir)
+        else:
+          unimproved += 1
+        print('', flush=True)
+
+        # reset metrics
+        train_loss.reset_states()
+        train_r.reset_states()
 
   def make_optimizer(self):
     # schedule (currently OFF)

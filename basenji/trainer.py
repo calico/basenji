@@ -127,7 +127,7 @@ class Trainer:
 
         # check best
         if valid_loss < valid_best:
-          print(' - BEST!', end='')
+          print(' - best!', end='')
           unimproved = 0
           valid_ei = ei
           valid_best = valid_loss

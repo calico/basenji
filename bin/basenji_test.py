@@ -120,7 +120,7 @@ def main():
   tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
   eval_data = dataset.SeqDataset(tfr_pattern_path,
     params_train['batch_size'],
-    params_model['seq_length'],
+    data_stats['seq_length'],
     data_stats['target_length'],
     tf.estimator.ModeKeys.EVAL)
 

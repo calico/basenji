@@ -19,9 +19,10 @@ import os
 import sys
 
 import h5py
+import intervaltree
 import numpy as np
 import pyBigWig
-import intervaltree
+import scipy.interpolate
 
 from basenji_data import ModelSeq
 
@@ -45,6 +46,9 @@ def main():
   parser.add_option('--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
+  parser.add_option('-i', dest='interp_nan',
+      default=False, action='store_true',
+      help='Interpolate NaNs [Default: %default]') 
   parser.add_option('-s', dest='scale',
       default=1., type='float',
       help='Scale values by [Default: %default]')
@@ -98,6 +102,10 @@ def main():
     # read coverage
     seq_cov_nt = genome_cov_open.read(mseq.chr, mseq.start, mseq.end)
 
+    # interpolate NaN
+    if options.interp_nan:
+        seq_cov_nt = interp_nan(seq_cov_nt)
+
     # determine baseline coverage
     baseline_cov = np.percentile(seq_cov_nt, 10)
     baseline_cov = np.nan_to_num(baseline_cov)
@@ -111,8 +119,9 @@ def main():
         seq_cov_nt[black_seq_start:black_seq_end] = baseline_cov
 
     # set NaN's to baseline
-    nan_mask = np.isnan(seq_cov_nt)
-    seq_cov_nt[nan_mask] = baseline_cov
+    if not options.interp_nan:
+        nan_mask = np.isnan(seq_cov_nt)
+        seq_cov_nt[nan_mask] = baseline_cov
 
     # crop
     if options.crop_bp > 0:
@@ -153,6 +162,35 @@ def main():
   # close sequences coverage file
   seqs_cov_open.close()
 
+
+def interp_nan(x, kind='linear'):
+    '''Linearly interpolate to fill NaN.'''
+
+    # pad zeroes
+    xp = np.zeros(len(x)+2)
+    xp[1:-1] = x
+
+    # find NaN
+    x_nan = np.isnan(xp)
+
+    if np.sum(x_nan) == 0:
+        # unnecessary
+        return x
+
+    else:
+        # interpolate
+        inds = np.arange(len(xp))
+        interpolator = scipy.interpolate.interp1d(
+            inds[~x_nan],
+            xp[~x_nan],
+            kind=kind,
+            bounds_error=False)
+
+        loc = np.where(x_nan)
+        xp[loc] = interpolator(loc)
+
+        # slice off pad
+        return xp[1:-1]
 
 def read_blacklist(blacklist_bed, black_buffer=20):
   """Construct interval trees of blacklist

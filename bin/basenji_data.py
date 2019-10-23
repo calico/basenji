@@ -64,6 +64,9 @@ def main():
       help='Down-sample the segments')
   parser.add_option('-g', dest='gaps_file',
       help='Genome assembly gaps BED [Default: %default]')
+  parser.add_option('-i', dest='interp_nan',
+      default=False, action='store_true',
+      help='Interpolate NaNs [Default: %default]') 
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
@@ -286,7 +289,7 @@ def main():
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
-      cmd += ' --crop %d' % options.crop_bp
+      cmd += ' --crop %d' % options.crop_bp      
       cmd += ' -w %d' % options.pool_width
       cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
@@ -296,6 +299,8 @@ def main():
       cmd += ' -s %f' % scale_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
+      if options.interp_nan:
+        cmd += ' -i'
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file

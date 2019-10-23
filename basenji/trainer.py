@@ -34,8 +34,8 @@ class Trainer:
 
     # loss
     self.loss = self.params.get('loss','poisson')
-    if loss_name.lower() == 'mse':
-      self.loss_fn = tf.keras.losses.MSE()
+    if self.loss.lower() == 'mse':
+      self.loss_fn = tf.keras.losses.MSE
     else:
       self.loss_fn = tf.keras.losses.Poisson()
 
@@ -82,14 +82,17 @@ class Trainer:
 
     # metrics
     num_targets = model.output_shape[-1]
-    train_loss = tf.keras.metrics.Poisson()
     train_r = metrics.PearsonR(num_targets)
     valid_r = metrics.PearsonR(num_targets)
+    if self.loss.lower() == 'mse':
+      train_loss = tf.keras.metrics.MSE()
+    else:
+      train_loss = tf.keras.metrics.Poisson()
 
-    # @tf.function
+    @tf.function
     def train_step(x, y):
       with tf.GradientTape() as tape:
-        pred = model(x, training=True)
+        pred = model(x, training=tf.constant(True))
         loss = self.loss_fn(y, pred)
       train_loss(y, pred)
       train_r(y, pred)
@@ -129,7 +132,7 @@ class Trainer:
 
         # check best
         if valid_loss < valid_best:
-          print(' - BEST!', end='')
+          print(' - best!', end='')
           unimproved = 0
           valid_ei = ei
           valid_best = valid_loss

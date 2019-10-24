@@ -203,7 +203,7 @@ def dilated_dense(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, repeat
   return current
 
 
-def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, repeat=1, **kwargs):
+def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, repeat=1, round=False, **kwargs):
   """Construct a residual dilated convolution block.
 
   Args:
@@ -240,6 +240,8 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0, rep
 
     # update dilation rate
     dilation_rate *= rate_mult
+    if round:
+      dilation_rate = np.round(dilation_rate)
 
   return current
 

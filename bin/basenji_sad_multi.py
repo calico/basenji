@@ -95,11 +95,14 @@ def main():
       help='Run without a GPU [Default: %default]')
   parser.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
+  parser.add_option('--max_proc', dest='max_proc',
+      default=None, type='int',
+      help='Maximum concurrent processes [Default: %default]')
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
   parser.add_option('-q', dest='queue',
-      default='k80',
+      default='gtx1080ti',
       help='SLURM queue on which to run the jobs [Default: %default]')
   parser.add_option('-r', dest='restart',
       default=False, action='store_true',
@@ -152,10 +155,10 @@ def main():
       j = slurm.Job(cmd, name,
           outf, errf,
           queue=options.queue, gpu=num_gpu,
-          mem=15000, time='7-0:0:0')
+          mem=15000, time='14-0:0:0')
       jobs.append(j)
 
-  slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
+  slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
   #######################################################

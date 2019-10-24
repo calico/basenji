@@ -261,7 +261,7 @@ def hot1_insert(seq_1hot, pos, insert_seq):
     elif nt == 'T':
       seq_1hot[pos + i, 3] = 1
     else:
-      print('Invalid nucleotide set %s' % nt, file=sys.stderr)
+      print('Invalid nucleotide insert %s' % nt, file=sys.stderr)
 
 
 def hot1_rc(seqs_1hot):

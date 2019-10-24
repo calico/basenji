@@ -455,13 +455,17 @@ def make_alt_1hot(ref_1hot, snp_seq_pos, ref_allele, alt_allele):
   elif ref_n > alt_n:
     # deletion
     delete_len = ref_n - alt_n
-    assert (ref_allele[0] == alt_allele[0])
-    dna_io.hot1_delete(alt_1hot, snp_seq_pos+1, delete_len)
+    if (ref_allele[0] == alt_allele[0]):
+      dna_io.hot1_delete(alt_1hot, snp_seq_pos+1, delete_len)
+    else:
+      print('WARNING: Delection first nt does not match: %s %s' % (ref_allele, alt_allele), file=sys.stderr)    
 
   else:
     # insertion
-    assert (ref_allele[0] == alt_allele[0])
-    dna_io.hot1_insert(alt_1hot, snp_seq_pos+1, alt_allele[1:])
+    if (ref_allele[0] == alt_allele[0]):
+      dna_io.hot1_insert(alt_1hot, snp_seq_pos+1, alt_allele[1:])
+    else:
+      print('WARNING: Insertion first nt does not match: %s %s' % (ref_allele, alt_allele), file=sys.stderr)    
 
   return alt_1hot
 

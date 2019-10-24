@@ -108,27 +108,7 @@ class SeqNN():
     # final activation
     current = layers.activate(current, self.activation)
 
-    # TEMP to include in the graph for model saving
-    # genome_repeat = tf.keras.layers.RepeatVector(1024)(tf.cast(self.genome, tf.float32))
-    # current = tf.keras.layers.Add()([current, genome_repeat])
-
-    ###################################################
-    # slice center (replace w/ Cropping1D?)
-    ###################################################
-    """
-    current_length = current.shape[1]
-    target_diff = self.target_length - current_length
-    target_diff2 = target_diff // 2
-    if target_diff2 < 0:
-      print('Model over-pools to %d for target_length %d.' % \
-        (current_length, self.target_length), file=sys.stderr)
-      exit(1)
-    elif target_diff2 > 0:
-      current = layers.SliceCenter(
-        left=target_diff2,
-        right=current_length-target_diff2)(current)
-    """
-
+    # make model trunk
     trunk_output = current
     self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
 

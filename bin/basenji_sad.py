@@ -150,7 +150,7 @@ def main():
     target_subset = None
 
   else:
-    targets_df = pd.read_table(options.targets_file, index_col=0)
+    targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
     target_subset = targets_df.index
@@ -161,14 +161,18 @@ def main():
   #################################################################
   # load SNPs
 
-  snps = bvcf.vcf_snps(vcf_file)
-
   # filter for worker SNPs
   if options.processes is not None:
-    worker_bounds = np.linspace(0, len(snps), options.processes+1, dtype='int')
-    snps = snps[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+    # determine boundaries
+    num_snps = bvcf.vcf_count(vcf_file)
+    worker_bounds = np.linspace(0, num_snps, options.processes+1, dtype='int')
 
-  num_snps = len(snps)
+    # read SNPs form VCF
+    snps = bvcf.vcf_snps(vcf_file, start_i=worker_bounds[worker_index], end_i=worker_bounds[worker_index+1])
+
+  else:
+    # read SNPs form VCF
+    snps = bvcf.vcf_snps(vcf_file)
 
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
@@ -287,6 +291,7 @@ def main():
       # predict next
       batch_preds = model.predict_tfr(sess, test_batches=sw_batch_size)
 
+  print('Waiting for threads to finish.', flush=True)
   sum_write_thread.join()
 
   ###################################################

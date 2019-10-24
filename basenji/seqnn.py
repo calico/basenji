@@ -105,6 +105,7 @@ class SeqNN():
     # final activation
     current = layers.activate(current, self.activation)
 
+    # make model trunk
     trunk_output = current
     self.model_trunk = tf.keras.Model(inputs=sequence, outputs=trunk_output)
 

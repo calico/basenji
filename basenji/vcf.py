@@ -507,8 +507,30 @@ def dna_length_1hot(seq, length):
 
   return seq_1hot, seq
 
+def vcf_count(vcf_file):
+  """ Count SNPs in a VCF file """
+  if vcf_file[-3:] == '.gz':
+    vcf_in = gzip.open(vcf_file, 'rt')
+  else:
+    vcf_in = open(vcf_file)
 
-def vcf_snps(vcf_file, require_sorted=False, validate_ref_fasta=None, flip_ref=False, pos2=False):
+  # read through header
+  line = vcf_in.readline()
+  while line[0] == '#':
+    line = vcf_in.readline()
+
+  # count SNPs
+  num_snps = 0
+  while line:
+    num_snps += 1
+    line = vcf_in.readline()
+
+  vcf_in.close()
+
+  return num_snps
+
+def vcf_snps(vcf_file, require_sorted=False, validate_ref_fasta=None,
+             flip_ref=False, pos2=False, start_i=None, end_i=None):
   """ Load SNPs from a VCF file """
   if vcf_file[-3:] == '.gz':
     vcf_in = gzip.open(vcf_file, 'rt')
@@ -532,50 +554,53 @@ def vcf_snps(vcf_file, require_sorted=False, validate_ref_fasta=None, flip_ref=F
 
   # read in SNPs
   snps = []
+  si = 0
   while line:
-    snps.append(SNP(line, pos2))
+    if start_i is None or start_i <= si < end_i:
+      snps.append(SNP(line, pos2))
 
-    if require_sorted:
-      if prev_chr is not None:
-        # same chromosome
-        if prev_chr == snps[-1].chr:
-          if snps[-1].pos < prev_pos:
-            print('Sorted VCF required. Mis-ordered position: %s' % line.rstrip(),
-                  file=sys.stderr)
+      if require_sorted:
+        if prev_chr is not None:
+          # same chromosome
+          if prev_chr == snps[-1].chr:
+            if snps[-1].pos < prev_pos:
+              print('Sorted VCF required. Mis-ordered position: %s' % line.rstrip(),
+                    file=sys.stderr)
+              exit(1)
+          elif snps[-1].chr in seen_chrs:
+            print('Sorted VCF required. Mis-ordered chromosome: %s' % line.rstrip(),
+                   file=sys.stderr)
             exit(1)
-        elif snps[-1].chr in seen_chrs:
-          print('Sorted VCF required. Mis-ordered chromosome: %s' % line.rstrip(),
-                 file=sys.stderr)
-          exit(1)
 
-      seen_chrs.add(snps[-1].chr)
-      prev_chr = snps[-1].chr
-      prev_pos = snps[-1].pos
+        seen_chrs.add(snps[-1].chr)
+        prev_chr = snps[-1].chr
+        prev_pos = snps[-1].pos
 
-    if validate_ref_fasta is not None:
-      ref_n = len(snps[-1].ref_allele)
-      snp_pos = snps[-1].pos-1
-      ref_snp = genome_open.fetch(snps[-1].chr, snp_pos, snp_pos+ref_n)
-      if snps[-1].ref_allele != ref_snp:
-        if not flip_ref:
-          # bail
-          print('ERROR: %s does not match reference %s' % (snps[-1], ref_snp), file=sys.stderr)
-          exit(1)
-
-        else:
-          alt_n = len(snps[-1].alt_alleles[0])
-          ref_snp = genome_open.fetch(snps[-1].chr, snp_pos, snp_pos+alt_n)
-
-          # if alt matches fasta reference
-          if snps[-1].alt_alleles[0] == ref_snp:
-            # flip alleles
-            snps[-1].flip_alleles()
-
-          else:
+      if validate_ref_fasta is not None:
+        ref_n = len(snps[-1].ref_allele)
+        snp_pos = snps[-1].pos-1
+        ref_snp = genome_open.fetch(snps[-1].chr, snp_pos, snp_pos+ref_n)
+        if snps[-1].ref_allele != ref_snp:
+          if not flip_ref:
             # bail
             print('ERROR: %s does not match reference %s' % (snps[-1], ref_snp), file=sys.stderr)
             exit(1)
 
+          else:
+            alt_n = len(snps[-1].alt_alleles[0])
+            ref_snp = genome_open.fetch(snps[-1].chr, snp_pos, snp_pos+alt_n)
+
+            # if alt matches fasta reference
+            if snps[-1].alt_alleles[0] == ref_snp:
+              # flip alleles
+              snps[-1].flip_alleles()
+
+            else:
+              # bail
+              print('ERROR: %s does not match reference %s' % (snps[-1], ref_snp), file=sys.stderr)
+              exit(1)
+
+    si += 1
     line = vcf_in.readline()
 
   vcf_in.close()

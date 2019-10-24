@@ -108,7 +108,7 @@ def main():
   eval_data = dataset.SeqDataset(tfr_pattern_path,
     params_train['batch_size'],
     params_model['seq_length'],
-    data_stats['target_length']
+    data_stats['target_length'],
     tf.estimator.ModeKeys.EVAL)
 
   # initialize model
@@ -117,7 +117,7 @@ def main():
   seqnn_model.build_ensemble(options.rc, options.shifts)
 
   # predict
-  test_preds = seqnn_model.predict(eval_data)
+  test_preds = seqnn_model.predict(eval_data, verbose=1).astype('float16')
 
   # save
   preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')

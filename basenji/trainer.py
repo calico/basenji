@@ -32,7 +32,7 @@ class Trainer:
     # loss
     loss_name = self.params.get('loss','poisson')
     if loss_name.lower() == 'mse':
-      self.loss_fn = tf.keras.losses.MSE()
+      self.loss_fn = tf.keras.losses.MSE
     else:
       self.loss_fn = tf.keras.losses.Poisson()
 

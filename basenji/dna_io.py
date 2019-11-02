@@ -267,6 +267,12 @@ def hot1_insert(seq_1hot, pos, insert_seq):
 def hot1_rc(seqs_1hot):
   """ Reverse complement a batch of one hot coded sequences """
 
+  if seqs_1hot.ndim == 2:
+    singleton = True
+    seqs_1hot = np.expand_dims(seqs_1hot, axis=0)
+  else:
+    singleton = False
+
   seqs_1hot_rc = seqs_1hot.copy()
 
   # reverse
@@ -278,6 +284,9 @@ def hot1_rc(seqs_1hot):
 
   # swap C and G
   seqs_1hot_rc[:, :, [1, 2]] = seqs_1hot_rc[:, :, [2, 1]]
+
+  if singleton:
+    seqs_1hot_rc = seqs_1hot_rc[0]
 
   return seqs_1hot_rc
 

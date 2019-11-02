@@ -54,11 +54,11 @@ class SliceCenter(tf.keras.layers.Layer):
     return x[:, self.left:self.right, :]
 
 class Softplus(tf.keras.layers.Layer):
-  def __init__(self, exp_max):
+  def __init__(self, exp_max=10000):
     super(Softplus, self).__init__()
     self.exp_max = exp_max
   def call(self, x):
-    x = tf.clip_by_value(x, -self.exp_max, 10000)
+    x = tf.clip_by_value(x, -self.exp_max, self.exp_max)
     return tf.keras.activations.softplus(x)
 
 
@@ -522,6 +522,8 @@ def activate(current, activation, verbose=False):
     current = tf.keras.layers.Activation('tanh')(current)
   elif activation == 'exp':
     current = Exp()(current)
+  elif activation == 'softplus':
+    current = Softplus()(current)
   else:
     print('Unrecognized activation "%s"' % activation, file=sys.stderr)
     exit(1)

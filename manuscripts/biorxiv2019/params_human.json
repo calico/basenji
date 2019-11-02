@@ -1,0 +1,57 @@
+{
+    "train": {
+        "batch_size": 4,
+        "optimizer": "sgd",
+        "learning_rate": 0.15,
+        "momentum": 0.99,
+        "patience": 16,
+        "clipnorm": 2
+    },
+    "model": {
+        "seq_length": 131072,
+        "target_length": 1024,
+
+        "activation": "gelu",
+        "batch_norm": true,
+        "bn_momentum": 0.9,
+
+        "trunk": [
+            {
+                "name": "conv_block",
+                "filters": 288,
+                "kernel_size": 15,
+                "pool_size": 2
+            },
+            {
+                "name": "conv_tower",
+                "filters_init": 339,
+                "filters_mult": 1.1776,
+                "kernel_size": 5,
+                "pool_size": 2,
+                "repeat": 6
+            },
+	    {
+                "name": "dilated_residual",
+                "filters": 384,
+                "rate_mult": 1.5,
+                "repeat": 11,
+                "dropout": 0.3,
+		"round": true
+            },
+	    {
+		"name": "Cropping1D",
+		"cropping": 64
+	    },	
+	    {
+                "name": "conv_block",
+                "filters": 1536,
+                "dropout": 0.05
+            }
+        ],
+        "head_human": {
+	    "name": "dense",
+	    "units": 5313,
+	    "activation": "softplus"
+	}
+    }
+}

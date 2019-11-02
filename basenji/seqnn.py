@@ -192,6 +192,21 @@ class SeqNN():
       self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
 
 
+  def build_slice(self, target_slice=None):
+    if target_slice is not None:
+      # sequence input
+      sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+
+      # predict
+      predictions = self.model(sequence)
+
+      # slice
+      predictions_slice = tf.gather(predictions, target_slice, axis=-1)
+
+      # replace model
+      self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
+
+
   def evaluate(self, seq_data, head_i=0, loss='poisson'):
     """ Evaluate model on SeqDataset. """
     # choose model
@@ -235,7 +250,7 @@ class SeqNN():
     return self.models[head_i].output_shape[-1]
 
 
-  def predict(self, seq_data, head_i=0, **kwargs):
+  def predict(self, seq_data, head_i=0, generator=False, **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
     if self.embed is not None:
@@ -249,7 +264,10 @@ class SeqNN():
     if dataset is None:
       dataset = seq_data
 
-    return model.predict(dataset, **kwargs)
+    if generator:
+      return model.predict_generator(dataset, **kwargs)
+    else:
+      return model.predict(dataset, **kwargs)
 
 
   def restore(self, model_file, trunk=False):

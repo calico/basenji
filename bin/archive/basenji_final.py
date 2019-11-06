@@ -21,39 +21,49 @@ import sys
 import time
 
 import h5py
+import numpy as np
 import tensorflow as tf
 
-from basenji import params
-from basenji import seqnn
+import basenji
 
-"""
-basenji_variables.py
+"""basenji_final.py
 
-Print a model's variables, typically for debugging purposes.
+Write the weights from the final model layer.
+
 """
 
 ################################################################################
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file>'
+  usage = 'usage: %prog [options] <params_file> <model_file>'
   parser = OptionParser(usage)
+  parser.add_option('-o', dest='out_npy', default='final.npy')
   (options, args) = parser.parse_args()
 
-  if len(args) != 1:
-    parser.error('Must provide parameters file.')
+  if len(args) != 2:
+    parser.error('Must provide parameters, model, and test data HDF5')
   else:
     params_file = args[0]
+    model_file = args[1]
 
   #######################################################
   # model parameters and placeholders
 
-  job = params.read_job_params(params_file)
-  model = seqnn.SeqNN()
+  job = basenji.dna_io.read_job_params(params_file)
+  model = basenji.seqnn.SeqNN()
   model.build(job)
 
-  for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
-    print(v.name, v.shape)
+  # initialize saver
+  saver = tf.train.Saver()
+
+  with tf.Session() as sess:
+    # load variables into session
+    saver.restore(sess, model_file)
+
+    for v in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
+      if v.name == 'final/dense/kernel:0':
+        np.save(options.out_npy, v.eval())
 
 
 ################################################################################

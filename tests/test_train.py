@@ -85,6 +85,8 @@ class TestTrain(unittest.TestCase):
                       time='1:00:00')
       jobs.append(basenji_job)
 
+    slurm.multi_run(jobs, verbose=True)
+
     ################################################################
     # test best
     ################################################################

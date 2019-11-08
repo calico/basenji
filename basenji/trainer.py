@@ -44,15 +44,16 @@ class Trainer:
     self.patience = self.params.get('patience', 20)
 
     # compute batches/epoch
-    self.train_epoch_batches = train_data.batches_per_epoch()
-    self.eval_epoch_batches = eval_data.batches_per_epoch()
+    self.train_epoch_batches = [td.batches_per_epoch() for td in self.train_data]
+    self.eval_epoch_batches = [ed.batches_per_epoch() for ed in self.eval_data]
     self.train_epochs = self.params.get('train_epochs', 1000)
 
-  def compile(self, model):
-    num_targets = model.output_shape[-1]
-    model.compile(loss=self.loss_fn,
-                  optimizer=self.optimizer,
-                  metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
+  def compile(self, seqnn_model):
+    for model in seqnn_model.models:
+      num_targets = model.output_shape[-1]
+      model.compile(loss=self.loss_fn,
+                    optimizer=self.optimizer,
+                    metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
     self.compiled = True
 
   def fit(self, model):
@@ -73,7 +74,75 @@ class Trainer:
       validation_data=self.eval_data.dataset,
       validation_steps=self.eval_epoch_batches)
 
+  def fit2(self, seqnn_model):
+    if not self.compiled:
+      self.compile(model)
 
+    assert(len(seqnn_model.models) == len(self.train_data))
+
+    # metrics
+    num_targets = model.output_shape[-1]
+    train_r = metrics.PearsonR(num_targets)
+    valid_r = metrics.PearsonR(num_targets)
+    train_loss = tf.keras.metrics.Mean()
+
+    @tf.function
+    def train_step(x, y):
+      with tf.GradientTape() as tape:
+        pred = model(x, training=tf.constant(True))
+        loss = self.loss_fn(y, pred) + sum(model.losses)
+      train_loss(loss)
+      train_r(y, pred)
+      gradients = tape.gradient(loss, model.trainable_variables)
+      self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+    # improvement variables
+    valid_best = np.inf
+    valid_ei = 0
+    unimproved = 0
+
+    # training loop
+    for ei in range(self.train_epochs):
+      if unimproved > self.patience:
+        break
+      else:
+        # train
+        t0 = time.time()
+        si = 0
+        for x, y in self.train_data.dataset:
+          train_step(x, y)
+          si += 1
+          if si >= self.train_epoch_batches:
+            break
+
+        # print training accuracy
+        train_loss_epoch = train_loss.result().numpy()
+        train_r_epoch = train_r.result().numpy()
+        print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f' % (ei, (time.time()-t0), train_loss_epoch, train_r_epoch), end='')
+
+        # checkpoint
+        model.save('%s/model_check.h5'%self.out_dir)
+
+        # print validation accuracy
+        valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data.dataset, verbose=0)
+        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), end='')
+
+        # check best
+        if valid_loss < valid_best:
+          print(' - best!', end='')
+          unimproved = 0
+          valid_ei = ei
+          valid_best = valid_loss
+          model.save('%s/model_best.h5'%self.out_dir)
+        else:
+          unimproved += 1
+        print('', flush=True)
+
+        # reset metrics
+        train_loss.reset_states()
+        train_r.reset_states()
+
+        
   def fit_tape(self, model):
     if not self.compiled:
       self.compile(model)

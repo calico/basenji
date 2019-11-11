@@ -187,7 +187,8 @@ def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
       epoch += 1
 
     # block for final metrics compute
-    metrics_queue.join()
+    if FLAGS.metrics_thread:
+      metrics_queue.join()
 
     if FLAGS.logdir:
       train_writer.close()

@@ -108,10 +108,10 @@ def main():
                                     eval_data, options.out_dir)
 
     # compile model
-    seqnn_trainer.compile(seqnn_model.model)
+    seqnn_trainer.compile(seqnn_model)
 
     # train model
-    seqnn_trainer.fit(seqnn_model.model)
+    seqnn_trainer.fit(seqnn_model)
 
   else:
     ########################################

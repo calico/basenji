@@ -89,7 +89,7 @@ def main():
     train_data.append(dataset.SeqDataset(tfr_train_full,
       params_train['batch_size'],
       params_model['seq_length'],
-      data_stats['target_length'],
+      data_stats[-1]['target_length'],
       tf.estimator.ModeKeys.TRAIN))
 
     # load eval data
@@ -97,7 +97,7 @@ def main():
     eval_data.append(dataset.SeqDataset(tfr_eval_full,
       params_train['batch_size'],
       params_model['seq_length'],
-      data_stats['target_length'],
+      data_stats[-1]['target_length'],
       tf.estimator.ModeKeys.EVAL))
 
   if params_train.get('num_gpu', 1) == 1:

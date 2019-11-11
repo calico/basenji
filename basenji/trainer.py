@@ -26,7 +26,11 @@ class Trainer:
   def __init__(self, params, train_data, eval_data, out_dir):
     self.params = params
     self.train_data = train_data
+    if type(self.train_data) is not list:
+      self.train_data = [self.train_data]
     self.eval_data = eval_data
+    if type(self.eval_data) is not list:
+      self.eval_data = [self.eval_data]
     self.out_dir = out_dir
     self.compiled = False
 
@@ -48,6 +52,13 @@ class Trainer:
     self.eval_epoch_batches = [ed.batches_per_epoch() for ed in self.eval_data]
     self.train_epochs = self.params.get('train_epochs', 1000)
 
+    # dataset
+    self.num_datasets = len(self.train_data)
+    self.dataset_indexes = []
+    for di in range(self.num_datasets):
+      self.dataset_indexes += [di]*self.train_epoch_batches[di]
+    self.dataset_indexes = np.array(self.dataset_indexes)
+
   def compile(self, seqnn_model):
     for model in seqnn_model.models:
       num_targets = model.output_shape[-1]
@@ -56,9 +67,9 @@ class Trainer:
                     metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
     self.compiled = True
 
-  def fit(self, model):
+  def fit(self, seqnn_model):
     if not self.compiled:
-      self.compile(model)
+      self.compile(seqnn_model)
 
     callbacks = [
       tf.keras.callbacks.EarlyStopping(patience=self.patience, monitor='val_loss', verbose=1),
@@ -66,81 +77,129 @@ class Trainer:
       tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir, save_best_only=True, monitor='val_loss', verbose=1)]
 
-    model.fit(
-      self.train_data.dataset,
+    seqnn_model.model.fit(
+      self.train_data[0].dataset,
       epochs=self.train_epochs,
-      steps_per_epoch=self.train_epoch_batches,
+      steps_per_epoch=self.train_epoch_batches[0],
       callbacks=callbacks,
-      validation_data=self.eval_data.dataset,
-      validation_steps=self.eval_epoch_batches)
+      validation_data=self.eval_data[0].dataset,
+      validation_steps=self.eval_epoch_batches[0])
 
   def fit2(self, seqnn_model):
     if not self.compiled:
-      self.compile(model)
+      self.compile(seqnn_model)
 
-    assert(len(seqnn_model.models) == len(self.train_data))
+    assert(len(seqnn_model.models) == self.num_datasets)
+
+    ################################################################
+    # prep
 
     # metrics
-    num_targets = model.output_shape[-1]
-    train_r = metrics.PearsonR(num_targets)
-    valid_r = metrics.PearsonR(num_targets)
-    train_loss = tf.keras.metrics.Mean()
+    train_loss, train_r, train_r2 = [], [], []
+    for di in range(self.num_datasets):
+      num_targets = seqnn_model.models[di].output_shape[-1]
+      train_loss.append(tf.keras.metrics.Mean())
+      train_r.append(metrics.PearsonR(num_targets))
+      train_r2.append(metrics.R2(num_targets))
+
+    # generate decorated train steps
+    """
+    train_steps = []
+    for di in range(self.num_datasets):
+      model = seqnn_model.models[di]
+
+      @tf.function
+      def train_step(x, y):
+        with tf.GradientTape() as tape:
+          pred = model(x, training=tf.constant(True))
+          loss = self.loss_fn(y, pred) + sum(model.losses)
+        train_loss[di](loss)
+        train_r[di](y, pred)
+        train_r2[di](y, pred)
+        gradients = tape.gradient(loss, model.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+      train_steps.append(train_step)
+    """
+    @tf.function
+    def train_step0(x, y):
+      with tf.GradientTape() as tape:
+        pred = seqnn_model.models[0](x, training=tf.constant(True))
+        loss = self.loss_fn(y, pred) + sum(seqnn_model.models[0].losses)
+      train_loss[0](loss)
+      train_r[0](y, pred)
+      train_r2[0](y, pred)
+      gradients = tape.gradient(loss, seqnn_model.models[0].trainable_variables)
+      self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[0].trainable_variables))
 
     @tf.function
-    def train_step(x, y):
+    def train_step1(x, y):
       with tf.GradientTape() as tape:
-        pred = model(x, training=tf.constant(True))
-        loss = self.loss_fn(y, pred) + sum(model.losses)
-      train_loss(loss)
-      train_r(y, pred)
-      gradients = tape.gradient(loss, model.trainable_variables)
-      self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        pred = seqnn_model.models[1](x, training=tf.constant(True))
+        loss = self.loss_fn(y, pred) + sum(seqnn_model.models[1].losses)
+      train_loss[1](loss)
+      train_r[1](y, pred)
+      train_r2[1](y, pred)
+      gradients = tape.gradient(loss, seqnn_model.models[1].trainable_variables)
+      self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[1].trainable_variables))
 
     # improvement variables
-    valid_best = np.inf
-    valid_ei = 0
-    unimproved = 0
+    valid_best = [np.inf]*self.num_datasets
+    unimproved = [0]*self.num_datasets
 
+    ################################################################
     # training loop
+
     for ei in range(self.train_epochs):
-      if unimproved > self.patience:
+      if np.min(unimproved) > self.patience:
         break
       else:
+        # shuffle datasets
+        np.random.shuffle(self.dataset_indexes)
+
         # train
         t0 = time.time()
-        si = 0
-        for x, y in self.train_data.dataset:
-          train_step(x, y)
-          si += 1
-          if si >= self.train_epoch_batches:
-            break
+        for di in self.dataset_indexes:
+          x, y = iter(self.train_data[di].dataset).next()
+          # train_steps[di](x, y)
+          if di == 0:
+            train_step0(x, y)
+          else:
+            train_step1(x, y)
 
-        # print training accuracy
-        train_loss_epoch = train_loss.result().numpy()
-        train_r_epoch = train_r.result().numpy()
-        print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f' % (ei, (time.time()-t0), train_loss_epoch, train_r_epoch), end='')
+        print('Epoch %d - %ds' % (ei, (time.time()-t0)))
+        for di in range(self.num_datasets):
+          print('  Data %d' % di, end='')
+          model = seqnn_model.models[di]
 
-        # checkpoint
-        model.save('%s/model_check.h5'%self.out_dir)
+          # print training accuracy
+          print(' - train_loss: %.4f' % train_loss[di].result().numpy(), end='')
+          print(' - train_r: %.4f' %  train_r[di].result().numpy(), end='')
+          print(' - train_r: %.4f' %  train_r2[di].result().numpy(), end='')
 
-        # print validation accuracy
-        valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data.dataset, verbose=0)
-        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), end='')
+          # print validation accuracy
+          valid_stats = model.evaluate(self.eval_data[di].dataset, verbose=0)
+          print(' - valid_loss: %.4f' % valid_stats[0], end='')
+          print(' - valid_r: %.4f' % valid_stats[1], end='')
+          print(' - valid_r2: %.4f' % valid_stats[2], end='')
 
-        # check best
-        if valid_loss < valid_best:
-          print(' - best!', end='')
-          unimproved = 0
-          valid_ei = ei
-          valid_best = valid_loss
-          model.save('%s/model_best.h5'%self.out_dir)
-        else:
-          unimproved += 1
-        print('', flush=True)
+          # checkpoint
+          model.save('%s/model%d_check.h5' % (self.out_dir, di))
 
-        # reset metrics
-        train_loss.reset_states()
-        train_r.reset_states()
+          # check best
+          if valid_stats[0] < valid_best[di]:
+            print(' - best!', end='')
+            unimproved[di] = 0
+            valid_best[di] = valid_stats[0]
+            model.save('%s/model%d_best.h5' % (self.out_dir, di))
+          else:
+            unimproved[di] += 1
+          print('', flush=True)
+
+          # reset metrics
+          train_loss[di].reset_states()
+          train_r[di].reset_states()
+          train_r2[di].reset_states()
 
         
   def fit_tape(self, model):
@@ -149,10 +208,10 @@ class Trainer:
 
     # metrics
     num_targets = model.output_shape[-1]
-    train_r = metrics.PearsonR(num_targets)
-    valid_r = metrics.PearsonR(num_targets)
     train_loss = tf.keras.metrics.Mean()
-
+    train_r = metrics.PearsonR(num_targets)
+    train_r2 = metrics.R2(num_targets)
+    
     @tf.function
     def train_step(x, y):
       with tf.GradientTape() as tape:
@@ -165,7 +224,6 @@ class Trainer:
 
     # improvement variables
     valid_best = np.inf
-    valid_ei = 0
     unimproved = 0
 
     # training loop
@@ -198,7 +256,6 @@ class Trainer:
         if valid_loss < valid_best:
           print(' - best!', end='')
           unimproved = 0
-          valid_ei = ei
           valid_best = valid_loss
           model.save('%s/model_best.h5'%self.out_dir)
         else:

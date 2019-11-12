@@ -8,22 +8,22 @@ import unittest
 
 import numpy as np
 import pandas as pd
-from scipy.stats import mannwhitneyu
+from scipy.stats import mannwhitneyu, ttest_ind
 
 import slurm
 
 class TestTrain(unittest.TestCase):
   @classmethod
   def setUpClass(cls):
-    cls.params_file = 'train/params.json'
-    cls.data_dir = 'train/data'
-    cls.ref_dir = 'train/ref'
+    cls.params_file = 'train_full/params.json'
+    cls.data_dir = 'train_full/data'
+    cls.ref_dir = 'train_full/ref'
     cls.iterations = 4
     cls.conda_env = 'tf1.15-gpu'
     cls.queue = 'gtx1080ti'
 
   def test_train(self):
-    exp_dir = 'train/exp'
+    exp_dir = 'train_full/exp'
     if os.path.isdir(exp_dir):
       shutil.rmtree(exp_dir)
     os.mkdir(exp_dir)
@@ -52,7 +52,7 @@ class TestTrain(unittest.TestCase):
                       cpu=1,
                       gpu=1,
                       mem=23000,
-                      time='2-00:00:00')
+                      time='9-00:00:00')
       jobs.append(basenji_job)
 
     slurm.multi_run(jobs, verbose=True)
@@ -82,7 +82,7 @@ class TestTrain(unittest.TestCase):
                       cpu=1,
                       gpu=1,
                       mem=23000,
-                      time='1:00:00')
+                      time='4:00:00')
       jobs.append(basenji_job)
 
     slurm.multi_run(jobs, verbose=True)
@@ -111,11 +111,10 @@ class TestTrain(unittest.TestCase):
                       cpu=1,
                       gpu=1,
                       mem=23000,
-                      time='1:00:00')
+                      time='4:00:00')
       jobs.append(basenji_job)
 
     slurm.multi_run(jobs, verbose=True)
-    
 
     ################################################################
     # compare checkpoint on training set

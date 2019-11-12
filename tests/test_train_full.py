@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 import pandas as pd
-from scipy.stats import mannwhitneyu
+from scipy.stats import mannwhitneyu, ttest_ind
 
 import slurm
 
@@ -39,7 +39,7 @@ class TestTrain(unittest.TestCase):
       # basenji train
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' /home/drk/code/basenji2/bin/basenji_train.py'
+      basenji_cmd += ' basenji_train.py'
       basenji_cmd += ' -o %s/train' % it_dir
       basenji_cmd += ' %s' % self.params_file
       basenji_cmd += ' %s' % self.data_dir
@@ -67,7 +67,7 @@ class TestTrain(unittest.TestCase):
       # basenji test
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' /home/drk/code/basenji2/bin/basenji_test.py'
+      basenji_cmd += ' basenji_test.py'
       basenji_cmd += ' -o %s/test_train' % it_dir
       basenji_cmd += ' --tfr "train-*.tfr"'
       basenji_cmd += ' %s' % self.params_file
@@ -97,7 +97,7 @@ class TestTrain(unittest.TestCase):
       # basenji test
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' /home/drk/code/basenji2/bin/basenji_test.py'
+      basenji_cmd += ' basenji_test.py'
       basenji_cmd += ' -o %s/test' % it_dir
       basenji_cmd += ' %s' % self.params_file
       basenji_cmd += ' %s/train/model_best.h5' % it_dir
@@ -115,7 +115,6 @@ class TestTrain(unittest.TestCase):
       jobs.append(basenji_job)
 
     slurm.multi_run(jobs, verbose=True)
-    
 
     ################################################################
     # compare checkpoint on training set
@@ -130,13 +129,16 @@ class TestTrain(unittest.TestCase):
       acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
       exp_cors.append(acc_df.pearsonr.mean())
 
-    _, pval = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, tp = ttest_ind(ref_cors, exp_cors)
     print('\nTrain:')
     print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
     print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
-    print('Mann-Whitney U p-value: %.3g' % pval)
+    print('Mann-Whitney U p-value: %.3g' % mwp)
+    print('T-test p-value: %.3g' % tp)
 
-    self.assertGreater(pval, 0.05)
+    self.assertGreater(mwp, 0.05)
+    self.assertGreater(tp, 0.05)
     
     ################################################################
     # compare best on test set
@@ -151,13 +153,16 @@ class TestTrain(unittest.TestCase):
       acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
       exp_cors.append(acc_df.pearsonr.mean())
 
-    _, pval = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, tp = ttest_ind(ref_cors, exp_cors)
     print('\nTest:')
     print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
     print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
-    print('Mann-Whitney U p-value: %.3g' % pval)
-
-    self.assertGreater(pval, 0.05)
+    print('Mann-Whitney U p-value: %.3g' % mwp)
+    print('T-test p-value: %.3g' % tp)
+    
+    self.assertGreater(mwp, 0.05)
+    self.assertGreater(tp, 0.05)
 
 
 ################################################################################

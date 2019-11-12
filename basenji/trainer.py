@@ -233,12 +233,10 @@ class Trainer:
       else:
         # train
         t0 = time.time()
-        si = 0
-        for x, y in self.train_data.dataset:
+        train_iter = iter(self.train_data.dataset)
+        for si in range(self.train_epoch_batches):
+          x, y = next(train_iter)
           train_step(x, y)
-          si += 1
-          if si >= self.train_epoch_batches:
-            break
 
         # print training accuracy
         train_loss_epoch = train_loss.result().numpy()

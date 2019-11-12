@@ -130,13 +130,16 @@ class TestTrain(unittest.TestCase):
       acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
       exp_cors.append(acc_df.pearsonr.mean())
 
-    _, pval = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, tp = ttest_ind(ref_cors, exp_cors)
     print('\nTrain:')
     print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
     print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
-    print('Mann-Whitney U p-value: %.3g' % pval)
+    print('Mann-Whitney U p-value: %.3g' % mwp)
+    print('T-test p-value: %.3g' % tp)
 
-    self.assertGreater(pval, 0.05)
+    self.assertGreater(mwp, 0.05)
+    self.assertGreater(tp, 0.05)
     
     ################################################################
     # compare best on test set
@@ -151,13 +154,16 @@ class TestTrain(unittest.TestCase):
       acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
       exp_cors.append(acc_df.pearsonr.mean())
 
-    _, pval = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
+    _, tp = ttest_ind(ref_cors, exp_cors)
     print('\nTest:')
     print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
     print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
-    print('Mann-Whitney U p-value: %.3g' % pval)
-
-    self.assertGreater(pval, 0.05)
+    print('Mann-Whitney U p-value: %.3g' % mwp)
+    print('T-test p-value: %.3g' % tp)
+    
+    self.assertGreater(mwp, 0.05)
+    self.assertGreater(tp, 0.05)
 
 
 ################################################################################

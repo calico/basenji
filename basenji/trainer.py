@@ -132,16 +132,17 @@ class Trainer:
       gradients = tape.gradient(loss, seqnn_model.models[0].trainable_variables)
       self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[0].trainable_variables))
 
-    @tf.function
-    def train_step1(x, y):
-      with tf.GradientTape() as tape:
-        pred = seqnn_model.models[1](x, training=tf.constant(True))
-        loss = self.loss_fn(y, pred) + sum(seqnn_model.models[1].losses)
-      train_loss[1](loss)
-      train_r[1](y, pred)
-      train_r2[1](y, pred)
-      gradients = tape.gradient(loss, seqnn_model.models[1].trainable_variables)
-      self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[1].trainable_variables))
+    if self.num_datasets > 1:
+      @tf.function
+      def train_step1(x, y):
+        with tf.GradientTape() as tape:
+          pred = seqnn_model.models[1](x, training=tf.constant(True))
+          loss = self.loss_fn(y, pred) + sum(seqnn_model.models[1].losses)
+        train_loss[1](loss)
+        train_r[1](y, pred)
+        train_r2[1](y, pred)
+        gradients = tape.gradient(loss, seqnn_model.models[1].trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[1].trainable_variables))
 
     # improvement variables
     valid_best = [np.inf]*self.num_datasets
@@ -157,10 +158,13 @@ class Trainer:
         # shuffle datasets
         np.random.shuffle(self.dataset_indexes)
 
+        # get iterators
+        train_data_iters = [iter(td.dataset) for td in self.train_data]
+
         # train
         t0 = time.time()
         for di in self.dataset_indexes:
-          x, y = iter(self.train_data[di].dataset).next()
+          x, y = next(train_data_iters[di])
           # train_steps[di](x, y)
           if di == 0:
             train_step0(x, y)

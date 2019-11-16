@@ -14,6 +14,7 @@
 # =========================================================================
 """SeqNN trainer"""
 import time
+import pdb
 
 import numpy as np
 import tensorflow as tf
@@ -84,17 +85,14 @@ class Trainer:
     num_targets = model.output_shape[-1]
     train_r = metrics.PearsonR(num_targets)
     valid_r = metrics.PearsonR(num_targets)
-    if self.loss.lower() == 'mse':
-      train_loss = tf.keras.metrics.MSE()
-    else:
-      train_loss = tf.keras.metrics.Poisson()
+    train_loss = tf.keras.metrics.Mean()
 
     @tf.function
     def train_step(x, y):
       with tf.GradientTape() as tape:
         pred = model(x, training=tf.constant(True))
-        loss = self.loss_fn(y, pred)
-      train_loss(y, pred)
+        loss = self.loss_fn(y, pred) + sum(model.losses)
+      train_loss(loss)
       train_r(y, pred)
       gradients = tape.gradient(loss, model.trainable_variables)
       self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -111,12 +109,10 @@ class Trainer:
       else:
         # train
         t0 = time.time()
-        si = 0
-        for x, y in self.train_data.dataset:
+        train_iter = iter(self.train_data.dataset)
+        for si in range(self.train_epoch_batches):
+          x, y = next(train_iter)
           train_step(x, y)
-          si += 1
-          if si >= self.train_epoch_batches:
-            break
 
         # print training accuracy
         train_loss_epoch = train_loss.result().numpy()

@@ -1,0 +1,57 @@
+{
+    "train": {
+        "batch_size": 4,
+        "loss": "poisson",
+        "optimizer": "sgd",
+        "learning_rate": 0.1,
+        "momentum": 0.99,
+        "train_epochs": 20,
+        "patience": 8,
+        "clipnorm": 2
+    },
+    "model": {
+        "seq_length": 131072,
+        "target_length": 1024,
+
+        "augment_rc": true,
+        "augment_shift": 3,
+
+        "activation": "gelu",
+        "batch_norm": true,
+        "bn_momentum": 0.9,
+
+        "trunk": [
+            {
+                "name": "conv_block",
+                "filters": 64,
+                "kernel_size": 15,
+                "pool_size": 8
+            },
+            {
+                "name": "conv_tower",
+                "filters_init": 64,
+                "filters_mult": 1.125,
+                "kernel_size": 5,
+                "pool_size": 4,
+                "repeat": 2
+            },
+            {
+                "name": "dilated_residual",
+                "filters": 32,
+                "rate_mult": 2,
+                "repeat": 6,
+                "dropout": 0.25
+            },
+            {
+                "name": "conv_block",
+                "filters": 64,
+                "dropout": 0.05
+            }
+        ],
+        "head": {
+            "name": "dense",
+            "units": 3,
+            "activation": "softplus"
+        }
+    }
+}

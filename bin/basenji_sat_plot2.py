@@ -276,14 +276,14 @@ def plot_seqlogo(ax, seq_align, sat_score_ti, pseudo_pct=0.05):
         sat_score_ti (L_sm array): Minimum mutation delta across satmut length.
         pseudo_pct (float): % of the max to add as a pseudocount.
     """
-
+  sat_score_cp = sat_score_ti.copy()
   satmut_len = len(sat_score_ti)
 
   # add pseudocounts
-  sat_score_ti += pseudo_pct * np.nanmax(sat_score_ti)
+  sat_score_cp += pseudo_pct * np.nanmax(sat_score_cp)
 
   # expand
-  sat_score_4l = expand_4l(sat_score_ti, seq_align)
+  sat_score_4l = expand_4l(sat_score_cp, seq_align)
 
   plots.seqlogo(sat_score_4l, ax)
 

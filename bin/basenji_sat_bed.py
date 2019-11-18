@@ -37,7 +37,6 @@ if tf.__version__[0] == '1':
 
 from basenji import bed
 from basenji import dna_io
-from basenji import params
 from basenji import seqnn
 from basenji import stream
 

@@ -36,9 +36,9 @@ FLAGS = tf.app.flags.FLAGS
 def main(_):
   np.random.seed(FLAGS.seed)
 
-  # split comma-separated files
-  train_files = FLAGS.train_data.split(',')
-  test_files = FLAGS.test_data.split(',')
+  # Target train and valid tfr files
+  train_files = 'path_to_tfrecords_directory/train-*.tfr'
+  test_files = 'path_to_tfrecords_directory/valid-*.tfr'
 
   # determine whether to save predictions/targets
   if not FLAGS.r2 and not FLAGS.r:
@@ -209,25 +209,46 @@ def make_data_ops(job, train_patterns, test_patterns):
   test_dataseqs = []
 
   # make datasets and iterators for each genome's train/test
-  for gi in range(job['num_genomes']):
-    train_dataseq = make_dataset(train_patterns[gi], mode=tf.estimator.ModeKeys.TRAIN)
+  if job['num_genomes'] > 1 :
+    for gi in range(job['num_genomes']):
+      train_dataseq = make_dataset(train_patterns[gi], mode=tf.estimator.ModeKeys.TRAIN)
+      train_dataseq.make_iterator_initializable()
+      train_dataseqs.append(train_dataseq)
+      
+      test_dataseq = make_dataset(test_patterns[gi], mode=tf.estimator.ModeKeys.EVAL)
+      test_dataseq.make_iterator_initializable()
+      test_dataseqs.append(test_dataseq)
+      
+      # verify dataset shapes
+      if train_dataseq.num_targets_nonzero != job['num_targets'][gi]:
+        print('WARNING: %s nonzero targets found, but %d specified for genome %d.' % (train_dataseq.num_targets_nonzero, job['num_targets'][gi], gi), file=sys.stderr)
+        
+      if train_dataseq.seq_depth is not None:
+        if 'seq_depth' in job:
+          assert(job['seq_depth'] == train_dataseq.seq_depth)
+        else:
+          job['seq_depth'] = train_dataseq.seq_depth
+  else :
+    train_dataseq = make_dataset(train_patterns, mode=tf.estimator.ModeKeys.TRAIN)
     train_dataseq.make_iterator_initializable()
     train_dataseqs.append(train_dataseq)
 
-    test_dataseq = make_dataset(test_patterns[gi], mode=tf.estimator.ModeKeys.EVAL)
+    test_dataseq = make_dataset(test_patterns, mode=tf.estimator.ModeKeys.EVAL)
     test_dataseq.make_iterator_initializable()
     test_dataseqs.append(test_dataseq)
 
     # verify dataset shapes
-    if train_dataseq.num_targets_nonzero != job['num_targets'][gi]:
-      print('WARNING: %s nonzero targets found, but %d specified for genome %d.' % (train_dataseq.num_targets_nonzero, job['num_targets'][gi], gi), file=sys.stderr)
 
-    if train_dataseq.seq_depth is not None:
-      if 'seq_depth' in job:
-        assert(job['seq_depth'] == train_dataseq.seq_depth)
+    if train_dataseq.num_targets_nonzero != job['num_targets']:
+      print('WARNING: %s nonzero targets found, but %d specified.' % (train_dataseq.num_targets_nonzero, job['num_targets']), file=sys.stderr)
+
+      if train_dataseq.seq_depth is not None:
+        if 'seq_depth' in job:
+          assert(job['seq_depth'] == train_dataseq.seq_depth)
+
       else:
         job['seq_depth'] = train_dataseq.seq_depth
-
+         
   # create feedable iterator
   handle = tf.placeholder(tf.string, shape=[])
 

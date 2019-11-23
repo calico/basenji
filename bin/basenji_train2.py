@@ -18,12 +18,10 @@ from optparse import OptionParser
 
 import json
 import os
-import shutil
 import sys
 import time
 
 import numpy as np
-
 import tensorflow as tf
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
@@ -42,10 +40,10 @@ Train Basenji model using given parameters and data.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <data_dir>'
+  usage = 'usage: %prog [options] <params_file> <data1_dir> <data2_dir> ...'
   parser = OptionParser(usage)
   parser.add_option('-o', dest='out_dir',
-      default='train_out',
+      default='train2_out',
       help='Output directory for test statistics [Default: %default]')
   parser.add_option('--restore', dest='restore',
       help='Restore model and continue training [Default: %default]')
@@ -60,15 +58,14 @@ def main():
       help='Evaluation TFRecord pattern string appended to data_dir [Default: %default]')
   (options, args) = parser.parse_args()
 
-  if len(args) != 2:
+  if len(args) < 2:
     parser.error('Must provide parameters and data directory.')
   else:
     params_file = args[0]
-    data_dir = args[1]
+    data_dirs = args[1:]
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
-  shutil.copy(params_file, '%s/params.json' % options.out_dir)
 
   # read model parameters
   with open(params_file) as params_open:
@@ -76,24 +73,32 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # read data parameters
-  data_stats_file = '%s/statistics.json' % data_dir
-  with open(data_stats_file) as data_stats_open:
-    data_stats = json.load(data_stats_open)
+  # read datasets
+  data_stats = []
+  train_data = []
+  eval_data = []
 
-  # load data
-  tfr_train_full = '%s/tfrecords/%s' % (data_dir, options.tfr_train_pattern)
-  train_data = dataset.SeqDataset(tfr_train_full,
-    params_train['batch_size'],
-    data_stats['seq_length'],
-    data_stats['target_length'],
-    tf.estimator.ModeKeys.TRAIN)
-  tfr_eval_full = '%s/tfrecords/%s' % (data_dir, options.tfr_eval_pattern)
-  eval_data = dataset.SeqDataset(tfr_eval_full,
-    params_train['batch_size'],
-    data_stats['seq_length'],
-    data_stats['target_length'],
-    tf.estimator.ModeKeys.EVAL)
+  for data_dir in data_dirs:
+    # read data parameters
+    data_stats_file = '%s/statistics.json' % data_dir
+    with open(data_stats_file) as data_stats_open:
+      data_stats.append(json.load(data_stats_open))
+
+    # load train data
+    tfr_train_full = '%s/tfrecords/%s' % (data_dir, options.tfr_train_pattern)
+    train_data.append(dataset.SeqDataset(tfr_train_full,
+      params_train['batch_size'],
+      params_model['seq_length'],
+      data_stats[-1]['target_length'],
+      tf.estimator.ModeKeys.TRAIN))
+
+    # load eval data
+    tfr_eval_full = '%s/tfrecords/%s' % (data_dir, options.tfr_eval_pattern)
+    eval_data.append(dataset.SeqDataset(tfr_eval_full,
+      params_train['batch_size'],
+      params_model['seq_length'],
+      data_stats[-1]['target_length'],
+      tf.estimator.ModeKeys.EVAL))
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################
@@ -114,7 +119,7 @@ def main():
     seqnn_trainer.compile(seqnn_model)
 
     # train model
-    seqnn_trainer.fit(seqnn_model)
+    seqnn_trainer.fit2(seqnn_model)
 
   else:
     ########################################

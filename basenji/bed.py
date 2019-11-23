@@ -17,6 +17,8 @@ import sys
 
 import pysam
 
+from basenji import dna_io
+
 ################################################################################
 # bed.py
 #

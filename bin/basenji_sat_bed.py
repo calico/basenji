@@ -37,7 +37,6 @@ if tf.__version__[0] == '1':
 
 from basenji import bed
 from basenji import dna_io
-from basenji import params
 from basenji import seqnn
 from basenji import stream
 
@@ -130,18 +129,13 @@ def main():
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(num_targets)]
     target_labels = ['']*len(target_ids)
-    target_subset = None
+    target_indexes = np.arange(num_targets)
 
   else:
     targets_df = pd.read_table(options.targets_file, index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
-    target_subset = targets_df.index
-    if len(target_subset) == num_targets:
-        target_subset = None
-    else:
-        print('target_subset isnt currently implemented.', file=sys.stderr)
-        exit(1)
+    target_indexes = np.array(targets_df.index)
 
   num_targets = len(target_ids)
 
@@ -215,7 +209,8 @@ def main():
     # collect sequence predictions
     seq_preds = []
     for spi in range(preds_per_seq):
-      seq_preds.append(preds_stream[pi])
+      preds_subset = preds_stream[pi][...,target_indexes]
+      seq_preds.append(preds_subset)
       pi += 1
 
     # wait for previous to finish

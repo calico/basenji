@@ -23,7 +23,44 @@ from basenji import dna_io
 class PredStream:
   """ Interface to acquire predictions via a buffered stream mechanism
          rather than getting them all at once and using excessive memory. """
+  def __init__(self, model, dataset_iter, stream_seqs=128, verbose=False):
+    self.model = model
+    self.dataset_iter = dataset_iter
+    self.stream_seqs = stream_seqs
+    self.verbose = verbose
 
+    self.stream_start = 0
+    self.stream_end = 0
+
+
+  def __getitem__(self, i):
+    # acquire predictions, if needed
+    if i >= self.stream_end:
+      # update start
+      self.stream_start = self.stream_end
+
+      if self.verbose:
+        print('Predicting from %d' % self.stream_start, flush=True)
+
+      # predict
+      self.stream_preds = self.model.predict(self.get_batch())
+
+      # update end
+      self.stream_end = self.stream_start + self.stream_preds.shape[0]
+
+    return self.stream_preds[i - self.stream_start]
+
+  def fetch_batch():
+    """Fetch a batch of data from the dataset iterator."""
+    x = [next(self.dataset_iter)]
+    while x[-1] and len(x) < self.stream_seqs:
+      x.append(next(self.dataset_iter))
+   return x
+
+
+class PredStreamGen:
+  """ Interface to acquire predictions via a buffered stream mechanism
+         rather than getting them all at once and using excessive memory. """
   def __init__(self, model, seqs_gen, batch_size, stream_seqs=128, verbose=False):
     self.model = model
     self.seqs_gen = seqs_gen

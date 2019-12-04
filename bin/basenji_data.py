@@ -56,7 +56,7 @@ def main():
   parser.add_option('--break', dest='break_t',
       default=786432, type='int',
       help='Break in half contigs above length [Default: %default]')
-  parser.add_option('--crop', dest='crop_bp',
+  parser.add_option('-c','--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
   parser.add_option('-d', dest='sample_pct',

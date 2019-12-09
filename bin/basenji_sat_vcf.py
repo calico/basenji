@@ -20,8 +20,6 @@ import os
 import sys
 
 import h5py
-import matplotlib
-matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -73,6 +71,9 @@ def main():
   parser.add_option('-l', dest='satmut_len',
       default=200, type='int',
       help='Length of centered sequence to mutate [Default: %default]')
+  parser.add_option('--mean', dest='mean_targets',
+      default=False, action='store_true',
+      help='Take the mean across targets for a single plot [Default: %default]')
   parser.add_option('-m', dest='mc_n',
       default=0, type='int',
       help='Monte carlo iterations [Default: %default]')
@@ -137,6 +138,7 @@ def main():
     target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
     target_labels = ['']*len(target_ids)
     target_subset = None
+    num_targets = job['num_targets']
 
   else:
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
@@ -145,6 +147,7 @@ def main():
     target_subset = targets_df.index
     if len(target_subset) == job['num_targets']:
         target_subset = None
+    num_targets = len(target_subset)
 
   if not options.load_sat_npy:
     # build model
@@ -194,6 +197,10 @@ def main():
         sat_preds = model.predict_h5(sess, batcher_sat)
         np.save('%s/seq%d_preds.npy' % (options.out_dir, si), sat_preds)
 
+      if options.mean_targets:
+        sat_preds = np.mean(sat_preds, axis=-1, keepdims=True)
+        num_targets = 1
+
       #################################################################
       # compute delta, loss, and gain matrices
 
@@ -207,7 +214,7 @@ def main():
       ##############################################
       # plot
 
-      for ti in range(len(target_subset)):
+      for ti in range(num_targets):
         # setup plot
         sns.set(style='white', font_scale=1)
         spp = subplot_params(sat_delta.shape[1])

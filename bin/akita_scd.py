@@ -26,8 +26,11 @@ import time
 
 import h5py
 import numpy as np
+import matplotlib.pyplot as plt
 import pandas as pd
 import pysam
+import seaborn as sns
+sns.set(style='ticks', font_scale=1.3)
 
 import tensorflow as tf
 if tf.__version__[0] == '1':
@@ -51,6 +54,9 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
+  parser.add_option('-m', dest='plot_map',
+      default=False, action='store_true',
+      help='Plot contact map for each allele [Default: %default]')
   parser.add_option('-o',dest='out_dir',
       default='scd',
       help='Output directory for tables and plots [Default: %default]')
@@ -98,6 +104,10 @@ def main():
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
+  if options.plot_map:
+    plot_dir = options.out_dir
+  else:
+    plot_dir = None
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.scd_stats = options.scd_stats.split(',')
@@ -204,7 +214,8 @@ def main():
 
     # summarize and write
     sum_write_thread = threading.Thread(target=summarize_write,
-          args=(batch_preds, scd_out, szi, options.scd_stats))
+          args=(batch_preds, scd_out, szi, options.scd_stats,
+                plot_dir, seqnn_model.diagonal_offset))
     sum_write_thread.start()
 
     # update SNP index
@@ -220,16 +231,16 @@ def main():
   scd_out.close()
 
 
-def summarize_write(batch_preds, scd_out, szi, stats):
+def summarize_write(batch_preds, scd_out, szi, stats, plot_dir, diagonal_offset):
   num_targets = batch_preds.shape[-1]
 
   pi = 0
   while pi < batch_preds.shape[0]:
-  	# get reference prediction (LxLxT)
+  	# get reference prediction (LxT)
     ref_preds = batch_preds[pi].astype('float32')
     pi += 1
 
-    # get alternate prediction (LxLxT)
+    # get alternate prediction (LxT)
     alt_preds = batch_preds[pi].astype('float32')
     pi += 1
 
@@ -246,8 +257,53 @@ def summarize_write(batch_preds, scd_out, szi, stats):
       s2d_preds = alt_ss - ref_ss
       scd_out['SSD'][szi,:] = s2d_preds.astype('float16')
 
+    if plot_dir is not None:
+      # TEMP
+      ref_preds = ref_preds.mean(axis=-1, keepdims=True)
+      alt_preds = alt_preds.mean(axis=-1, keepdims=True)
+
+      # convert back to dense
+      ref_map = ut_dense(ref_preds, diagonal_offset)
+      alt_map = ut_dense(alt_preds, diagonal_offset)
+
+      for ti in range(ref_preds.shape[-1]):
+        vmin = min(ref_preds[...,ti].min(), alt_preds[...,ti].min())
+        vmax = max(ref_preds[...,ti].max(), alt_preds[...,ti].max())
+
+        _, (ax_ref, ax_alt, ax_diff) = plt.subplots(1, 3, figsize=(21,6))
+        sns.heatmap(ref_map[...,ti], ax=ax_ref, center=0, vmin=vmin, vmax=vmax,
+                    cmap='RdBu_r', xticklabels=False, yticklabels=False)
+        sns.heatmap(alt_map[...,ti], ax=ax_alt, center=0, vmin=vmin, vmax=vmax,
+                    cmap='RdBu_r', xticklabels=False, yticklabels=False)
+        sns.heatmap(ref_map[...,ti]-alt_map[...,ti], ax=ax_diff, center=0,
+                    cmap='PRGn', xticklabels=False, yticklabels=False)
+        plt.tight_layout()
+        plt.savefig('%s/s%d_t%d.pdf' % (plot_dir, szi, ti))
+        plt.close()
+
     szi += 1
 
+
+def ut_dense(preds_ut, diagonal_offset):
+  """Construct dense prediction matrix from upper triangular."""
+  ut_len, num_targets = preds_ut.shape
+
+  # infer original sequence length
+  seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
+  seq_len += diagonal_offset
+
+  # get triu indexes
+  ut_indexes = np.triu_indices(seq_len, diagonal_offset)
+  assert(len(ut_indexes[0]) == ut_len)
+
+  # assign to dense matrix
+  preds_dense = np.zeros(shape=(seq_len,seq_len,num_targets), dtype=preds_ut.dtype)
+  preds_dense[ut_indexes] = preds_ut
+
+  # symmetrize
+  preds_dense += np.transpose(preds_dense, axes=[1,0,2])
+
+  return preds_dense
 
 def initialize_output_h5(out_dir, scd_stats, snps, target_ids, target_labels):
   """Initialize an output HDF5 file for SCD stats."""

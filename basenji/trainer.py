@@ -92,7 +92,7 @@ class Trainer:
     if not self.compiled:
       self.compile(seqnn_model)
 
-    assert(len(seqnn_model.models) == self.num_datasets)
+    assert(len(seqnn_model.models) >= self.num_datasets)
 
     ################################################################
     # prep

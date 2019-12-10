@@ -45,6 +45,9 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
+  parser.add_option('-m', dest='plot_map',
+      default=False, action='store_true',
+      help='Plot contact map for each allele [Default: %default]')
   parser.add_option('-o',dest='out_dir',
       default='scd',
       help='Output directory for tables and plots [Default: %default]')

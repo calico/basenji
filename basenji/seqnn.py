@@ -148,6 +148,23 @@ class SeqNN():
     self.model = self.models[0]
     print(self.model.summary())
 
+    ###################################################
+    # track pooling/striding and cropping
+    ###################################################
+    self.model_strides = []
+    self.target_lengths = []
+    self.target_crops = []
+    for model in self.models:
+      self.model_strides.append(1)
+      for layer in self.model.layers:
+        if hasattr(layer, 'strides'):
+          self.model_strides[-1] *= layer.strides[0]
+      target_full_length = sequence.shape[1].value // self.model_strides[-1]
+      self.target_lengths.append(model.outputs[0].shape[1].value)
+      self.target_crops.append((target_full_length - self.target_lengths[-1])//2)
+    print('model_strides', self.model_strides)
+    print('target_lengths', self.target_lengths)
+    print('target_crops', self.target_crops)
 
   def build_embed(self, conv_layer_i):
     if conv_layer_i == -1:

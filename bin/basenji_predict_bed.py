@@ -145,12 +145,34 @@ def main():
       num_targets = len(target_subset)
   """
 
-  if options.site_length is None:
-    options.site_length = params_model['seq_length']
+  #################################################################
+  # setup model
+
+  # initialize model
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  if options.embed_layer is not None:
+    seqnn_model.build_embed(options.embed_layer)
+    preds_length = seqnn_model.embed.output.shape[1].value
+    preds_depth = seqnn_model.embed.output.shape[2].value
+  else:
+    preds_length = seqnn_model.model.output.shape[1].value
+    preds_depth = seqnn_model.model.output.shape[2].value
+
+  preds_window = seqnn_model.model_strides[0]
+  seq_crop = seqnn_model.target_crops[0]*preds_window
+
+  # target_subset?
 
 
   #################################################################
   # sequence dataset
+
+  if options.site_length is None:
+    options.site_length = preds_window*preds_length
+    print('site_length: %d' % options.site_length)
 
   # construct model sequences
   model_seqs_dna, model_seqs_coords = bed.make_bed_seqs(
@@ -169,30 +191,9 @@ def main():
 
   num_seqs = len(model_seqs_dna)
 
-  #################################################################
-  # setup model
-
-  # initialize model
-  seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(model_file)
-  seqnn_model.build_ensemble(options.rc, options.shifts)
-
-  if options.embed_layer is not None:
-    seqnn_model.build_embed(options.embed_layer)
-    preds_length = seqnn_model.embed.output.shape[1]
-    preds_depth = seqnn_model.embed.output.shape[2]
-  else:
-    preds_length = seqnn_model.model.output.shape[1]
-    preds_depth = seqnn_model.model.output.shape[2]
-
-  # target_subset?
 
   #################################################################
   # setup output
-
-  # determine site boundaries in predictions space
-  assert(params_model['seq_length'] % preds_length == 0)
-  preds_window = params_model['seq_length'] // preds_length
 
   assert(preds_length % 2 == 0)
   preds_mid = preds_length // 2
@@ -235,8 +236,8 @@ def main():
       yield dna_io.dna_1hot(seq_dna)
 
   # predict
-  preds_stream = stream.PredStreamDNA(seqnn_model, model_seqs_dna, params['train']['batch_size'])
-  # preds_stream = stream.PredStream(seqnn_model, seqs_gen(), params['train']['batch_size'])
+  # preds_stream = stream.PredStreamDNA(seqnn_model, model_seqs_dna, params['train']['batch_size'])
+  preds_stream = stream.PredStream(seqnn_model, seqs_gen(), params['train']['batch_size'])
 
   for si in range(num_seqs):
     preds_seq = preds_stream[si]
@@ -254,7 +255,7 @@ def main():
     for ti in options.bigwig_indexes:
       bw_file = '%s/s%d_t%d.bw' % (bigwig_dir, si, ti)
       bigwig_write(preds_seq[:,ti], model_seqs_coords[si], bw_file,
-                   options.genome_file, model.hp.batch_buffer)
+                   options.genome_file, seq_crop)
 
   # close output HDF5
   out_h5.close()
@@ -275,7 +276,7 @@ def bigwig_open(bw_file, genome_file):
   return bw_out
 
 
-def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_buffer=0):
+def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_crop=0):
   """ Write a signal track to a BigWig file over the region
          specified by seqs_coords.
 
@@ -284,7 +285,7 @@ def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_buffer=0):
      seq_coords:  (chr,start,end)
      bw_file:     BigWig filename
      genome_file: Chromosome lengths file
-     seq_buffer:  Length skipped on each side of the region.
+     seq_crop:    Sequence length cropped from each side of the sequence.
     """
   target_length = len(signal)
 
@@ -297,9 +298,9 @@ def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_buffer=0):
 
   # set entries
   chrm, start, end = seq_coords
-  preds_pool = (end - start - 2 * seq_buffer) // target_length
+  preds_pool = (end - start - 2 * seq_crop) // target_length
 
-  bw_start = start + seq_buffer
+  bw_start = start + seq_crop
   for li in range(target_length):
     bw_end = bw_start + preds_pool
     entry_starts.append(bw_start)

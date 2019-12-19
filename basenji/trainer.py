@@ -179,7 +179,7 @@ class Trainer:
           # print training accuracy
           print(' - train_loss: %.4f' % train_loss[di].result().numpy(), end='')
           print(' - train_r: %.4f' %  train_r[di].result().numpy(), end='')
-          print(' - train_r: %.4f' %  train_r2[di].result().numpy(), end='')
+          print(' - train_r2: %.4f' %  train_r2[di].result().numpy(), end='')
 
           # print validation accuracy
           valid_stats = model.evaluate(self.eval_data[di].dataset, verbose=0)

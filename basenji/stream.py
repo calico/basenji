@@ -55,7 +55,7 @@ class PredStream:
     x = [next(self.dataset_iter)]
     while x[-1] and len(x) < self.stream_seqs:
       x.append(next(self.dataset_iter))
-   return x
+    return x
 
 
 class PredStreamGen:

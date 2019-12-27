@@ -15,12 +15,14 @@ import slurm
 class TestTrain(unittest.TestCase):
   @classmethod
   def setUpClass(cls):
-    cls.params_file = 'train_full/params.json'
+    cls.params_file = 'train_full/params_res.json'
     cls.data_dir = 'train_full/data'
     cls.ref_dir = 'train_full/ref'
     cls.iterations = 4
+
+    cls.basenji_path = '/home/drk/code/basenji2/bin'
     cls.conda_env = 'tf1.15-gpu'
-    cls.queue = 'gtx1080ti'
+    cls.queue = 'gpu24'
 
   def test_train(self):
     exp_dir = 'train_full/exp'
@@ -39,7 +41,7 @@ class TestTrain(unittest.TestCase):
       # basenji train
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' basenji_train.py'
+      basenji_cmd += ' %s/basenji_train.py' % self.basenji_path
       basenji_cmd += ' -o %s/train' % it_dir
       basenji_cmd += ' %s' % self.params_file
       basenji_cmd += ' %s' % self.data_dir
@@ -67,7 +69,7 @@ class TestTrain(unittest.TestCase):
       # basenji test
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' basenji_test.py'
+      basenji_cmd += ' %s/basenji_test.py' % self.basenji_path
       basenji_cmd += ' -o %s/test_train' % it_dir
       basenji_cmd += ' --tfr "train-*.tfr"'
       basenji_cmd += ' %s' % self.params_file
@@ -97,7 +99,7 @@ class TestTrain(unittest.TestCase):
       # basenji test
       basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
       basenji_cmd += ' conda activate %s;' % self.conda_env
-      basenji_cmd += ' basenji_test.py'
+      basenji_cmd += ' %s/basenji_test.py' % self.basenji_path
       basenji_cmd += ' -o %s/test' % it_dir
       basenji_cmd += ' %s' % self.params_file
       basenji_cmd += ' %s/train/model_best.h5' % it_dir

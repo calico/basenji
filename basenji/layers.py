@@ -32,6 +32,13 @@ class Clip(tf.keras.layers.Layer):
     self.max_value = max_value
   def call(self, x):
     return tf.clip_by_value(x, self.min_value, self.max_value)
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'min_value': self.min_value,
+      'max_value': self.max_value
+    })
+    return config
 
 class Exp(tf.keras.layers.Layer):
     def __init__(self):
@@ -52,6 +59,13 @@ class SliceCenter(tf.keras.layers.Layer):
     self.right = right if right is not None else -self.left
   def call(self, x):
     return x[:, self.left:self.right, :]
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'left': self.left,
+      'right': self.right
+    })
+    return config
 
 class Softplus(tf.keras.layers.Layer):
   def __init__(self, exp_max=10000):
@@ -60,7 +74,10 @@ class Softplus(tf.keras.layers.Layer):
   def call(self, x):
     x = tf.clip_by_value(x, -self.exp_max, self.exp_max)
     return tf.keras.activations.softplus(x)
-
+  def get_config(self):
+    config = super().get_config().copy()
+    config['exp_max'] = self.exp_max
+    return config
 
 ############################################################
 # Attention
@@ -115,6 +132,14 @@ class Attention(tf.keras.layers.Layer):
 
     return z
 
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'max_relative_position': self.max_relative_position,
+      'dropout': self.dropout
+    })
+    return config
+
 
 ############################################################
 # Position
@@ -150,6 +175,14 @@ class ConcatPosition(tf.keras.layers.Layer):
 
     return tf.concat([pos_feature, inputs], axis=-1)
 
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'transform': self.transform,
+      'power': self.power
+    })
+    return config
+
 
 ############################################################
 # 2D
@@ -161,7 +194,6 @@ class OneToTwo(tf.keras.layers.Layer):
     self.operation = operation.lower()
     valid_operations = ['concat','mean','max','multipy','multiply1']
     assert self.operation in valid_operations
-
 
   def call(self, oned):
     _, seq_len, features = oned.shape
@@ -191,6 +223,11 @@ class OneToTwo(tf.keras.layers.Layer):
         twod = tf.reduce_max(twod, axis=-1)
 
     return twod
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config['operation'] = self.operation
+    return config
 
 # depracated: use OneToTwo
 class AverageTo2D(tf.keras.layers.Layer):
@@ -331,6 +368,11 @@ class UpperTri(tf.keras.layers.Layer):
     unroll_repr = tf.reshape(inputs, [-1, seq_len**2, output_dim])
     return tf.gather(unroll_repr, triu_index, axis=1)
 
+  def get_config(self):
+    config = super().get_config().copy()
+    config['diagonal_offset'] = self.diagonal_offset
+    return config
+
 class Symmetrize2D(tf.keras.layers.Layer):
   '''Take the average of a matrix and its transpose to enforce symmetry.'''
   def __init__(self):
@@ -364,17 +406,15 @@ class StochasticReverseComplement(tf.keras.layers.Layer):
   """Stochastically reverse complement a one hot encoded DNA sequence."""
   def __init__(self):
     super(StochasticReverseComplement, self).__init__()
-  def call(self, seq_1hot, training):
-    def stoch_rc():
+  def call(self, seq_1hot, training=None):
+    if training:
       rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
       rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])
       reverse_bool = tf.random.uniform(shape=[]) > 0.5
       src_seq_1hot = tf.cond(reverse_bool, lambda: rc_seq_1hot, lambda: seq_1hot)
       return src_seq_1hot, reverse_bool
-
-    return tf.cond(training,
-                   stoch_rc,
-                   lambda: (seq_1hot, tf.constant(False)))
+    else:
+      return seq_1hot, tf.constant(False)
 
 class SwitchReverse(tf.keras.layers.Layer):
   """Reverse predictions if the inputs were reverse complemented."""
@@ -435,6 +475,10 @@ class SwitchReverseTriu(tf.keras.layers.Layer):
     return tf.keras.backend.switch(reverse,
                                    tf.gather(x_ut, rc_ut_order, axis=1),
                                    x_ut)
+  def get_config(self):
+    config = super().get_config().copy()
+    config['diagonal_offset'] = self.diagonal_offset
+    return config
     
 class EnsembleShift(tf.keras.layers.Layer):
   """Expand tensor to include shifts of one hot encoded DNA sequence."""
@@ -442,6 +486,7 @@ class EnsembleShift(tf.keras.layers.Layer):
     super(EnsembleShift, self).__init__()
     self.shifts = shifts
     self.pad = pad
+
   def call(self, seqs_1hot):
     if not isinstance(seqs_1hot, list):
       seqs_1hot = [seqs_1hot]
@@ -453,26 +498,41 @@ class EnsembleShift(tf.keras.layers.Layer):
 
     return ens_seqs_1hot
 
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'shifts': self.shifts,
+      'pad': self.pad
+    })
+    return config
+
 class StochasticShift(tf.keras.layers.Layer):
   """Stochastically shift a one hot encoded DNA sequence."""
   def __init__(self, shift_max=0, pad='uniform'):
     super(StochasticShift, self).__init__()
-    self.augment_shifts = tf.range(-shift_max, shift_max+1)
+    self.shift_max = shift_max
+    self.augment_shifts = tf.range(-self.shift_max, self.shift_max+1)
     self.pad = pad
-  def call(self, seq_1hot, training):
-    def stoch_shift():
-      shift_i = tf.random.uniform(shape=[], minval=0,
-        maxval=len(self.augment_shifts), dtype=tf.int64)
-      shift = tf.gather(self.augment_shifts, shift_i)
 
+  def call(self, seq_1hot, training=None):
+    if training:
+      shift_i = tf.random.uniform(shape=[], minval=0, dtype=tf.int64,
+                                  maxval=len(self.augment_shifts))
+      shift = tf.gather(self.augment_shifts, shift_i)
       sseq_1hot = tf.cond(tf.not_equal(shift, 0),
                           lambda: shift_sequence(seq_1hot, shift),
                           lambda: seq_1hot)
       return sseq_1hot
+    else:
+      return seq_1hot
 
-    return tf.cond(training,
-                   stoch_shift,
-                   lambda: seq_1hot)
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'shift_max': self.shift_max,
+      'pad': self.pad
+    })
+    return config
 
 def shift_sequence(seq, shift, pad_value=0.25):
   """Shift a sequence left or right by shift_amount.

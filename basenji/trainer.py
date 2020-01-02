@@ -75,7 +75,7 @@ class Trainer:
       self.compile(seqnn_model)
 
     callbacks = [
-      tf.keras.callbacks.EarlyStopping(patience=self.patience, monitor='val_loss', verbose=1),
+      tf.keras.callbacks.EarlyStopping(patience=self.patience, verbose=1),
       tf.keras.callbacks.TensorBoard(self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir, save_best_only=True, monitor='val_loss', verbose=1)]

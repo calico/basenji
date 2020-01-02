@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 import pandas as pd
-from scipy.stats import mannwhitneyu
+from scipy.stats import mannwhitneyu, ttest_ind
 
 import slurm
 

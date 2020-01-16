@@ -236,7 +236,6 @@ def main():
       yield dna_io.dna_1hot(seq_dna)
 
   # predict
-  # preds_stream = stream.PredStreamDNA(seqnn_model, model_seqs_dna, params['train']['batch_size'])
   preds_stream = stream.PredStreamGen(seqnn_model, seqs_gen(), params['train']['batch_size'])
 
   for si in range(num_seqs):

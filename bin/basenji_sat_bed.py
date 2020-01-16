@@ -198,7 +198,7 @@ def main():
   # predict scores, write output
 
   # initialize predictions stream
-  preds_stream = stream.PredStream(seqnn_model, seqs_gen, params['train']['batch_size'])
+  preds_stream = stream.PredStreamGen(seqnn_model, seqs_gen, params['train']['batch_size'])
 
   # predictions index
   pi = 0

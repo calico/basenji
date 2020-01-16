@@ -84,6 +84,9 @@ def main():
   parser.add_option('--ti', dest='track_indexes',
       default=None, type='str',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option('--threads', dest='threads',
+      default=False, action='store_true',
+      help='Run CPU math and output in a separate thread [Default: %default]')
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
@@ -134,10 +137,10 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.14-gpu;'
-      cmd += ' echo $HOSTNAME;'
+      cmd += ' conda activate tf1.15-gpu2;'
 
-      cmd += ' basenji_sad_ref.py %s %s %d' % (
+      # TEMP
+      cmd += ' /home/drk/code/basenji2/bin/basenji_sad_ref.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
 
       name = '%s_p%d' % (options.name, pi)
@@ -147,7 +150,7 @@ def main():
       j = slurm.Job(cmd, name,
           outf, errf,
           queue=options.queue, gpu=1,
-          mem=45000, time='14-0:0:0')
+          mem=22000, time='14-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,

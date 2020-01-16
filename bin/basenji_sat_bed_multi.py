@@ -65,6 +65,9 @@ def main():
       help='File specifying target indexes and labels in table format')
 
   # _multi.py options
+  parser.add_option('--max_proc', dest='max_proc',
+      default=None, type='int',
+      help='Maximum concurrent processes [Default: %default]')
   parser.add_option('-n', dest='name',
       default='sat',
       help='SLURM job name prefix [Default: %default]')
@@ -109,7 +112,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.14-gpu;'
+      cmd += ' conda activate tf1.15-gpu;'
 
       cmd += ' basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
@@ -122,7 +125,7 @@ def main():
           mem=30000, time='14-0:0:0')
       jobs.append(j)
 
-  slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
+  slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
   #######################################################

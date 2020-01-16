@@ -57,6 +57,9 @@ def main():
 
   # multi
   rep_options = OptionGroup(parser, 'replication options')
+  rep_options.add_option('-e', dest='conda_env',
+      default='tf1.15-gpu',
+      help='Anaconda environment [Default: %default]')
   rep_options.add_option('--name', dest='name',
       default='reps', help='SLURM name prefix [Default: %default]')
   rep_options.add_option('-p', dest='processes',
@@ -88,11 +91,11 @@ def main():
 
   jobs = []
   for pi in range(options.processes):
-    rep_dir = '%s/rep%d' % (options.out_dir, pi)
+    rep_dir = '%s/%d' % (options.out_dir, pi)
     os.mkdir(rep_dir)
 
     cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-    cmd += ' conda activate tf1.15-gpu;'
+    cmd += ' conda activate %s;' % options.conda_env
     cmd += ' echo $HOSTNAME;'
 
     # TEMP path!
@@ -115,15 +118,15 @@ def main():
                   launch_sleep=10, update_sleep=60)
 
   #######################################################
-  # test
+  # test best
 
   jobs = []
   for pi in range(options.processes):
-    rep_dir = '%s/rep%d' % (options.out_dir, pi)
+    rep_dir = '%s/%d' % (options.out_dir, pi)
     test_dir = '%s/test_out' % rep_dir
 
     cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-    cmd += ' conda activate tf1.15-gpu;'
+    cmd += ' conda activate %s;' % options.conda_env
     cmd += ' echo $HOSTNAME;'
 
     cmd += ' /home/drk/code/basenji2/bin/basenji_test.py' 

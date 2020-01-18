@@ -80,7 +80,7 @@ def main():
 
   #######################################################
   # prep work
-
+  
   if os.path.isdir(options.out_dir):
     print('Output directory %s exists. Please remove.' % options.out_dir)
     exit(1)
@@ -100,7 +100,7 @@ def main():
 
     # TEMP path!
     cmd += ' /home/drk/code/basenji2/bin/basenji_train.py' 
-    cmd += ' %s' % options_string(options, train_options, rep_dir)
+    cmd += ' %s' % options_string(options, train_options, '%s/train'%rep_dir)
     cmd += ' %s %s' % (params_file, data_dir)
 
     name = '%s-train%d' % (options.name, pi)
@@ -123,7 +123,7 @@ def main():
   jobs = []
   for pi in range(options.processes):
     rep_dir = '%s/%d' % (options.out_dir, pi)
-    test_dir = '%s/test_out' % rep_dir
+    test_dir = '%s/test' % rep_dir
 
     cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
     cmd += ' conda activate %s;' % options.conda_env
@@ -132,7 +132,7 @@ def main():
     cmd += ' /home/drk/code/basenji2/bin/basenji_test.py' 
     cmd += ' --rc --shifts "1,0,-1"'
     cmd += ' -o %s' % test_dir
-    cmd += ' %s %s/model_best.h5 %s' % (params_file, rep_dir, data_dir)
+    cmd += ' %s %s/train/model_best.h5 %s' % (params_file, rep_dir, data_dir)
 
     name = '%s-test%d' % (options.name, pi)
     sbf = os.path.abspath('%s/test.sb' % rep_dir)

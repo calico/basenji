@@ -22,7 +22,8 @@ from basenji import layers
 ############################################################
 def conv_block(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
     dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
-    pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma=None):
+    pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma=None,
+    kernel_initializer='he_normal'):
   """Construct a single convolution block.
 
   Args:
@@ -68,7 +69,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', strides=1
     padding='same',
     use_bias=False,
     dilation_rate=dilation_rate,
-    kernel_initializer='he_normal',
+    kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
 
   # batch norm
@@ -176,6 +177,7 @@ def xception_block(inputs, filters=None, kernel_size=1,
     kernel_size=pool_size,
     strides=pool_size,
     dropout=0,
+    kernel_initializer='ones',
     **kwargs)
 
   # pooled convolution
@@ -187,6 +189,9 @@ def xception_block(inputs, filters=None, kernel_size=1,
       conv_type='separable',
       dropout=dropout,
       **kwargs)
+
+  # should the last conv_block be set to bn_gamma='zeros'?
+  # I don't think so since we really need that new information
 
   # max pool
   current_pool = tf.keras.layers.MaxPool1D(
@@ -268,11 +273,12 @@ def res_tower(inputs, filters_init, filters_mult=1, dropout=0,
     current0 = current
 
     # subsequent
-    for ci in range(num_convs):
+    for ci in range(1,num_convs):
+      bg = 'ones' if ci < num_convs-1 else 'zeros'
       current = conv_block(current,
                            filters=rep_filters_int,
                            dropout=dropout,
-                           bn_gamma='zeros',
+                           bn_gamma=bg,
                            **kwargs)
 
     # residual add

@@ -21,7 +21,7 @@ class TestTrain(unittest.TestCase):
     cls.iterations = 4
 
     cls.basenji_path = '/home/drk/code/basenji2/bin'
-    cls.conda_env = 'tf1.15-gpu'
+    cls.conda_env = 'tf1.15-gpu2'
     cls.queue = 'gtx1080ti'
 
   def test_train(self):

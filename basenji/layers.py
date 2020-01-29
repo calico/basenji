@@ -141,6 +141,37 @@ class Attention(tf.keras.layers.Layer):
     return config
 
 
+class SqueezeExcite(tf.keras.layers.Layer):
+  def __init__(self):
+    super(SqueezeExcite, self).__init__()
+
+    self.gap = tf.keras.layers.GlobalAveragePooling1D()
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+    self.dense1 = tf.keras.layers.Dense(
+      units=self.num_channels//4,
+      activation='relu')
+    self.dense2 = tf.keras.layers.Dense(
+      units=self.num_channels,
+      activation='relu')
+
+  def call(self, x):
+    # squeeze
+    squeeze = self.gap(x)
+
+    # excite
+    excite = self.dense1(squeeze)
+    excite = self.dense2(excite)
+    excite = tf.keras.activations.sigmoid(excite)
+
+    # scale
+    excite = tf.reshape(excite, [-1,1,self.num_channels])
+    xs = x * excite
+
+    return xs
+
+
 ############################################################
 # Position
 ############################################################

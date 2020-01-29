@@ -261,6 +261,8 @@ def position_encoding(current, min_rate=.0001):
 
   return current
 
+def squeeze_excite(inputs, **kwargs):
+  return layers.SqueezeExcite()(inputs)
 
 ############################################################
 # Dilated Towers
@@ -500,7 +502,8 @@ name_func = {
   'conv_block_2d': conv_block_2d,
   'dilated_residual_2d': dilated_residual_2d,
   'symmetrize_2d':symmetrize_2d,
-  'slice_center': slice_center
+  'slice_center': slice_center,
+  'squeeze_excite':squeeze_excite
 }
 
 keras_func = {

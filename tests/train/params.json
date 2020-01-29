@@ -36,6 +36,9 @@
                 "repeat": 6
             },
 	    {
+		"name": "squeeze_excite"
+	    },
+	    {
                 "name": "dilated_residual",
                 "filters": 64,
                 "rate_mult": 1.75,

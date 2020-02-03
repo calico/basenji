@@ -141,10 +141,54 @@ class Attention(tf.keras.layers.Layer):
     return config
 
 
+class WheezeExcite(tf.keras.layers.Layer):
+  def __init__(self, pool_size):
+    super(WheezeExcite, self).__init__()
+    self.pool_size = pool_size
+    assert(self.pool_size % 2 == 1)
+    self.paddings = [[0,0], [self.pool_size//2, self.pool_size//2], [0,0]]
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+
+    self.wheeze = tf.keras.layers.AveragePooling1D(self.pool_size,
+        strides=1, padding='valid')
+
+    self.excite1 = tf.keras.layers.Dense(
+      units=self.num_channels//4,
+      activation='relu')
+    self.excite2 = tf.keras.layers.Dense(
+      units=self.num_channels,
+      activation='relu')
+
+  def call(self, x):
+    # pad
+    x_pad = tf.pad(x, self.paddings, 'SYMMETRIC')
+
+    # squeeze
+    x_squeeze = self.wheeze(x_pad)
+
+    # excite
+    x_excite = self.excite1(x_squeeze)
+    x_excite = self.excite2(x_excite)
+    x_excite = tf.keras.activations.sigmoid(x_excite)
+
+    # scale
+    xs = x * x_excite
+
+    return xs
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'pool_size': self.pool_size
+    })
+    return config
+
+
 class SqueezeExcite(tf.keras.layers.Layer):
   def __init__(self):
     super(SqueezeExcite, self).__init__()
-
     self.gap = tf.keras.layers.GlobalAveragePooling1D()
 
   def build(self, input_shape):

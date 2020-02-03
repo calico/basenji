@@ -422,6 +422,9 @@ def position_encoding(current, min_rate=.0001):
 def squeeze_excite(inputs, **kwargs):
   return layers.SqueezeExcite()(inputs)
 
+def wheeze_excite(inputs, pool_size, **kwargs):
+  return layers.WheezeExcite(pool_size)(inputs)
+
 ############################################################
 # Dilated Towers
 ############################################################
@@ -664,7 +667,8 @@ name_func = {
   'dilated_residual_2d': dilated_residual_2d,
   'symmetrize_2d':symmetrize_2d,
   'slice_center': slice_center,
-  'squeeze_excite':squeeze_excite
+  'squeeze_excite': squeeze_excite,
+  'wheeze_excite': wheeze_excite
 }
 
 keras_func = {

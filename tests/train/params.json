@@ -36,7 +36,8 @@
                 "repeat": 6
             },
 	    {
-		"name": "squeeze_excite"
+		"name": "wheeze_excite",
+		"pool_size": 1025
 	    },
 	    {
                 "name": "dilated_residual",

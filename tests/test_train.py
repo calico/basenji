@@ -16,18 +16,17 @@ import slurm
 class TestTrain(unittest.TestCase):
   @classmethod
   def setUpClass(cls):
-    cls.params_file = 'train/params_x.json'
+    cls.params_file = 'train/params.json'
     cls.data_dir = 'train/data'
     cls.ref_dir = 'train/ref'
     cls.iterations = 4
 
     cls.basenji_path = '/home/drk/code/basenji2/bin'
-    cls.conda_env = 'tf1.15-gpu'
-    cls.queue = 'k80'
+    cls.conda_env = 'tf1.15-gpu2'
+    cls.queue = 'gtx1080ti'
 
   def test_train(self):
     exp_dir = 'train/exp'
-    """
     if os.path.isdir(exp_dir):
       shutil.rmtree(exp_dir)
     os.mkdir(exp_dir)
@@ -119,7 +118,7 @@ class TestTrain(unittest.TestCase):
       jobs.append(basenji_job)
 
     slurm.multi_run(jobs, verbose=True)
-    """
+
 
     ################################################################
     # compare checkpoint on training set

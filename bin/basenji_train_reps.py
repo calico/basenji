@@ -58,7 +58,7 @@ def main():
   # multi
   rep_options = OptionGroup(parser, 'replication options')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf1.15-gpu',
+      default='tf1.15-gpu2',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('--name', dest='name',
       default='reps', help='SLURM name prefix [Default: %default]')
@@ -116,6 +116,35 @@ def main():
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)
+
+  #######################################################
+  # test train
+
+  jobs = []
+  for pi in range(options.processes):
+    rep_dir = '%s/%d' % (options.out_dir, pi)
+    test_dir = '%s/test_train' % rep_dir
+
+    cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+    cmd += ' conda activate %s;' % options.conda_env
+    cmd += ' echo $HOSTNAME;'
+
+    cmd += ' /home/drk/code/basenji2/bin/basenji_test.py' 
+    cmd += ' --rc'
+    cmd += ' -o %s' % test_dir
+    cmd += ' --tfr "train-*.tfr"'
+    cmd += ' %s %s/train/model_check.h5 %s' % (params_file, rep_dir, data_dir)
+
+    name = '%s-testtr%d' % (options.name, pi)
+    sbf = os.path.abspath('%s/test_train.sb' % rep_dir)
+    outf = os.path.abspath('%s/test_train.out' % rep_dir)
+    errf = os.path.abspath('%s/test_train.err' % rep_dir)
+
+    j = slurm.Job(cmd, name,
+        outf, errf, sbf,
+        queue=options.queue, gpu=1,
+        mem=23000, time='4:0:0')
+    jobs.append(j)
 
   #######################################################
   # test best

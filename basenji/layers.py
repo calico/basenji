@@ -189,10 +189,20 @@ class WheezeExcite(tf.keras.layers.Layer):
 class SqueezeExcite(tf.keras.layers.Layer):
   def __init__(self):
     super(SqueezeExcite, self).__init__()
-    self.gap = tf.keras.layers.GlobalAveragePooling1D()
 
   def build(self, input_shape):
     self.num_channels = input_shape[-1]
+
+    if len(input_shape) == 3:
+      self.one_or_two = 'one'
+      self.gap = tf.keras.layers.GlobalAveragePooling1D()
+    elif len(input_shape) == 4:
+      self.one_or_two = 'two'
+      self.gap = tf.keras.layers.GlobalAveragePooling2D()
+    else:
+      print('SqueezeExcite: input dim %d unexpected' % len(input_shape), file=sys.stderr)
+      exit(1)
+
     self.dense1 = tf.keras.layers.Dense(
       units=self.num_channels//4,
       activation='relu')
@@ -210,7 +220,10 @@ class SqueezeExcite(tf.keras.layers.Layer):
     excite = tf.keras.activations.sigmoid(excite)
 
     # scale
-    excite = tf.reshape(excite, [-1,1,self.num_channels])
+    if self.one_or_two == 'one':
+      excite = tf.reshape(excite, [-1,1,self.num_channels])
+    else:
+      excite = tf.reshape(excite, [-1,1,1,self.num_channels])
     xs = x * excite
 
     return xs

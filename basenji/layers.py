@@ -187,8 +187,9 @@ class WheezeExcite(tf.keras.layers.Layer):
 
 
 class SqueezeExcite(tf.keras.layers.Layer):
-  def __init__(self):
+  def __init__(self, additive=False):
     super(SqueezeExcite, self).__init__()
+    self.additive = additive
 
   def build(self, input_shape):
     self.num_channels = input_shape[-1]
@@ -208,7 +209,7 @@ class SqueezeExcite(tf.keras.layers.Layer):
       activation='relu')
     self.dense2 = tf.keras.layers.Dense(
       units=self.num_channels,
-      activation='relu')
+      activation=None)
 
   def call(self, x):
     # squeeze
@@ -217,16 +218,28 @@ class SqueezeExcite(tf.keras.layers.Layer):
     # excite
     excite = self.dense1(squeeze)
     excite = self.dense2(excite)
-    excite = tf.keras.activations.sigmoid(excite)
 
     # scale
     if self.one_or_two == 'one':
       excite = tf.reshape(excite, [-1,1,self.num_channels])
     else:
       excite = tf.reshape(excite, [-1,1,1,self.num_channels])
-    xs = x * excite
+
+    if self.additive:
+      xs = x + excite
+      xs = tf.keras.activations.relu(xs)
+    else:
+      excite = tf.keras.activations.sigmoid(excite)
+      xs = x * excite
 
     return xs
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'additive': self.additive
+    })
+    return config
 
 
 ############################################################

@@ -5,3 +5,5 @@
 *get_model.sh* - Download the saved TensorFlow models for human	and mouse targets
 
 Download the training/validation/test TFRecords	(319 Gb) from https://console.cloud.google.com/storage/browser/basenji_barnyard/data.
+
+Autism variant scores available from https://console.cloud.google.com/storage/browser/basenji_barnyard/sad/autism/,

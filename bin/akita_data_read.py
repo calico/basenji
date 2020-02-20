@@ -205,11 +205,13 @@ def main():
         # log
         if options.no_log==False:
           seq_hic_obsexp = np.log(seq_hic_obsexp)
-          seq_hic_obsexp = np.clip(seq_hic_obsexp, -options.clip, options.clip)
+          if options.clip is not None:
+            seq_hic_obsexp = np.clip(seq_hic_obsexp, -options.clip, options.clip)
           seq_hic_obsexp = interp_nan(seq_hic_obsexp)
           for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic_obsexp, 0,i)
         else:
-          seq_hic_obsexp = np.clip(seq_hic_obsexp, 0, options.clip)
+          if options.clip is not None:
+            seq_hic_obsexp = np.clip(seq_hic_obsexp, 0, options.clip)
           seq_hic_obsexp = interp_nan(seq_hic_obsexp)
           for i in range(-options.diagonal_offset+1, options.diagonal_offset): set_diag(seq_hic_obsexp, 1,i)
 

@@ -389,13 +389,18 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
 
   # write SNP reference allele
   snp_refs = []
+  snp_alts = []
   for snp in snps:
     if snp.flipped:
       snp_refs.append(snp.alt_alleles[0])
+      snp_alts.append(snp.ref_allele)
     else:
       snp_refs.append(snp.ref_allele)
+      snp_alts.append(snp.alt_alleles[0])
   snp_refs = np.array(snp_refs, 'S')
+  snp_alts = np.array(snp_alts, 'S')
   sad_out.create_dataset('ref', data=snp_refs)
+  sad_out.create_dataset('alt', data=snp_alts)
 
   # write targets
   sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))

@@ -205,6 +205,9 @@ def main():
   valid_contigs = rejoin_large_contigs(valid_contigs)
   test_contigs = rejoin_large_contigs(test_contigs)
 
+  # quantify leakage across sets
+  quantify_leakage(options.align_net, train_contigs, valid_contigs, test_contigs, options.out_dir)
+
   ################################################################
   # define model sequences
   ################################################################
@@ -312,6 +315,125 @@ def main():
   else:
     slurm.multi_run(write_jobs, options.processes, verbose=True,
                     launch_sleep=1, update_sleep=5)
+
+
+################################################################################
+def quantify_leakage(align_net_file, train_contigs, valid_contigs, test_contigs, out_dir):
+  """Quanitfy the leakage across sequence sets."""
+
+  def split_genome(contigs):
+    genome_contigs = []
+    for ctg in contigs:
+      while len(genome_contigs) <= ctg.genome:
+        genome_contigs.append([])
+      genome_contigs[ctg.genome].append((ctg.chr,ctg.start,ctg.end))
+    genome_bedtools = [pybedtools.BedTool(ctgs) for ctgs in genome_contigs]
+    return genome_bedtools
+
+  def bed_sum(overlaps):
+    osum = 0
+    for overlap in overlaps:
+      osum += int(overlap[2]) - int(overlap[1])
+    return osum
+
+  train0_bt, train1_bt = split_genome(train_contigs)
+  valid0_bt, valid1_bt = split_genome(valid_contigs)
+  test0_bt, test1_bt = split_genome(test_contigs)
+
+  assign0_sums = {}
+  assign1_sums = {}
+
+  if os.path.splitext(align_net_file)[-1] == '.gz':
+    align_net_open = gzip.open(align_net_file, 'rt')
+  else:
+    align_net_open = open(align_net_file, 'r')
+
+  for net_line in align_net_open:
+    if net_line.startswith('net'):
+      net_a = net_line.split()
+      chrom0 = net_a[1]
+
+    elif net_line.startswith(' fill'):
+      net_a = net_line.split()
+
+      # extract genome1 interval
+      start0 = int(net_a[1])
+      size0 = int(net_a[2])
+      end0 = start0+size0
+      align0_bt = pybedtools.BedTool([(chrom0,start0,end0)]) 
+
+      # extract genome2 interval
+      chrom1 = net_a[3]
+      start1 = int(net_a[5])
+      size1 = int(net_a[6])
+      end1 = start1+size1
+      align1_bt = pybedtools.BedTool([(chrom1,start1,end1)])
+
+      # count interval overlap
+      align0_train_bp = bed_sum(align0_bt.intersect(train0_bt))
+      align0_valid_bp = bed_sum(align0_bt.intersect(valid0_bt))
+      align0_test_bp = bed_sum(align0_bt.intersect(test0_bt))
+      align0_max_bp = max(align0_train_bp, align0_valid_bp, align0_test_bp)
+
+      align1_train_bp = bed_sum(align1_bt.intersect(train1_bt))
+      align1_valid_bp = bed_sum(align1_bt.intersect(valid1_bt))
+      align1_test_bp = bed_sum(align1_bt.intersect(test1_bt))
+      align1_max_bp = max(align1_train_bp, align1_valid_bp, align1_test_bp)
+
+      # assign to class
+      if align0_max_bp == 0:
+        assign0 = None
+      elif align0_train_bp == align0_max_bp:
+        assign0 = 'train'
+      elif align0_valid_bp == align0_max_bp:
+        assign0 = 'valid'
+      elif align0_test_bp == align0_max_bp:
+        assign0 = 'test'
+      else:
+        print('Bad logic')
+        exit(1)
+
+      if align1_max_bp == 0:
+        assign1 = None
+      elif align1_train_bp == align1_max_bp:
+        assign1 = 'train'
+      elif align1_valid_bp == align1_max_bp:
+        assign1 = 'valid'
+      elif align1_test_bp == align1_max_bp:
+        assign1 = 'test'
+      else:
+        print('Bad logic')
+        exit(1)
+
+      # increment
+      assign0_sums[(assign0,assign1)] = assign0_sums.get((assign0,assign1),0) + align0_max_bp
+      assign1_sums[(assign0,assign1)] = assign1_sums.get((assign0,assign1),0) + align1_max_bp
+
+  # sum contigs
+  splits0_bp = {}
+  splits0_bp['train'] = bed_sum(train0_bt)
+  splits0_bp['valid'] = bed_sum(valid0_bt)
+  splits0_bp['test'] = bed_sum(test0_bt)
+  splits1_bp = {}
+  splits1_bp['train'] = bed_sum(train1_bt)
+  splits1_bp['valid'] = bed_sum(valid1_bt)
+  splits1_bp['test'] = bed_sum(test1_bt)
+
+  leakage_out = open('%s/leakage.txt' % options.out_dir, 'w')
+  print('Genome0', file=leakage_out)
+  for split0 in ['train','valid','test']:
+    print('  %5s: %10d nt' % (split0, splits0_bp[split0]), file=leakage_out)
+    for split1 in ['train','valid','test',None]:
+      ss_bp = assign0_sums.get((split0,split1),0)
+      print('    %5s: %10d (%.5f)' % (split1, ss_bp, ss_bp/splits0_bp[split0]), file=leakage_out)
+  print('\nGenome1', file=leakage_out)
+  for split1 in ['train','valid','test']:
+    print('  %5s: %10d nt' % (split1, splits1_bp[split1]), file=leakage_out)
+    for split0 in ['train','valid','test',None]:
+      ss_bp = assign1_sums.get((split0,split1),0)
+      print('    %5s: %10d (%.5f)' % (split0, ss_bp, ss_bp/splits1_bp[split1]), file=leakage_out)
+ leakage_out.close()
+
 
 
 ################################################################################

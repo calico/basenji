@@ -68,7 +68,8 @@ def main():
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
-  shutil.copy(params_file, '%s/params.json' % options.out_dir)
+  if params_file != '%s/params.json' % options.out_dir:
+    shutil.copy(params_file, '%s/params.json' % options.out_dir)
 
   # read model parameters
   with open(params_file) as params_open:

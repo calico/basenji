@@ -241,6 +241,38 @@ class SqueezeExcite(tf.keras.layers.Layer):
     })
     return config
 
+class GlobalContext(tf.keras.layers.Layer):
+  def __init__(self):
+    super(GlobalContext, self).__init__()
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+
+    self.context_key = tf.keras.layers.Dense(units=1, activation=None)
+
+    self.dense1 = tf.keras.layers.Dense(units=self.num_channels//4)
+    self.ln = tf.keras.layers.LayerNormalization()
+    self.dense2 = tf.keras.layers.Dense(units=self.num_channels)
+
+  def call(self, x):
+    # context attention
+    keys = self.context_key(x) # [batch x length x 1]
+    attention = tf.keras.activations.softmax(keys, axis=-2) # [batch x length x 1]
+
+    # context summary 
+    context = x * attention # [batch x length x channels]
+    context = tf.keras.backend.sum(context, axis=-2, keepdims=True) # [batch x 1 x channels]
+
+    # transform
+    transform = self.dense1(context) # [batch x 1 x channels/4]
+    transform = tf.keras.activations.relu(self.ln(transform)) # [batch x 1 x channels/4]
+    transform = self.dense2(transform) # [batch x 1 x channels]
+    # transform = tf.reshape(transform, [-1,1,self.num_channels])
+
+    # fusion
+    xs = x + transform # [batch x length x channels]
+
+    return xs
 
 ############################################################
 # Position

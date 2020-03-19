@@ -20,7 +20,7 @@ Requires:
 - *model_best.h5* -  Trained TensorFlow model weights.
 - *targets.txt* -  List of coolers the model was trained on.
 - *sequences.bed* - List of sequences used for model training.
-- *tfrecords/* - Folder with tfrecords.
+- *tfrecords* - Folder with tfrecords.
 
 In addition to Basenji dependencies, this notebook requires:
 - [cooltools](https://github.com/mirnylab/cooltools)

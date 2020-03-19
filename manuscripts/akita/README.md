@@ -15,12 +15,12 @@
 
 *explore_model.ipynb* - Load and visualize predictions for the trained model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/tf2_hic/manuscripts/akita/explore_model.ipynb)
 
-Requires:\
-- *params.json* - Model configuration parameters.\
-- *model_best.h5* -  Trained TensorFlow model weights.\ 
-- *targets.txt* -  List of coolers the model was trained on.\
-- *sequences.bed* - List of sequences used for model training.\
-- *tfrecords/* - Folder with tfrecords.\
+Requires:
+- *params.json* - Model configuration parameters.
+- *model_best.h5* -  Trained TensorFlow model weights.
+- *targets.txt* -  List of coolers the model was trained on.
+- *sequences.bed* - List of sequences used for model training.
+- *tfrecords/* - Folder with tfrecords.
 
 In addition to Basenji dependencies, this notebook requires:
 - [cooltools](https://github.com/mirnylab/cooltools)

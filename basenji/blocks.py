@@ -79,7 +79,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', strides=1
     current = tf.keras.layers.BatchNormalization(
       momentum=bn_momentum,
       gamma_initializer=bn_gamma,
-      fused=True)(current)
+      fused=None)(current)
 
   # dropout
   if dropout > 0:

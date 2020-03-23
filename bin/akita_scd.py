@@ -52,7 +52,7 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
+      default=None,
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-m', dest='plot_map',
       default=False, action='store_true',

@@ -60,6 +60,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('--stats', dest='sad_stats',
+      default='sum',
+      help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
@@ -112,7 +115,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.15-gpu;'
+      cmd += ' conda activate tf1.15-gpu2;'
 
       cmd += ' basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
@@ -131,13 +134,14 @@ def main():
   #######################################################
   # collect output
 
-  collect_h5(options.out_dir, options.processes)
+  sad_stat = options.sad_stats.split(',')[0]
+  collect_h5(options.out_dir, options.processes, sad_stat)
 
   # for pi in range(options.processes):
   #     shutil.rmtree('%s/job%d' % (options.out_dir,pi))
 
 
-def collect_h5(out_dir, num_procs):
+def collect_h5(out_dir, num_procs, sad_stat):
   h5_file = 'scores.h5'
 
   # count sequences
@@ -146,9 +150,9 @@ def collect_h5(out_dir, num_procs):
     # open job
     job_h5_file = '%s/job%d/%s' % (out_dir, pi, h5_file)
     job_h5_open = h5py.File(job_h5_file, 'r')
-    num_seqs += job_h5_open['scores'].shape[0]
-    seq_len = job_h5_open['scores'].shape[1]
-    num_targets = job_h5_open['scores'].shape[-1]
+    num_seqs += job_h5_open[sad_stat].shape[0]
+    seq_len = job_h5_open[sad_stat].shape[1]
+    num_targets = job_h5_open[sad_stat].shape[-1]
     job_h5_open.close()
 
   # initialize final h5

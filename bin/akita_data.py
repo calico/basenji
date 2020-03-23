@@ -162,7 +162,10 @@ def main():
     if np.mod(options.stride_test, options.snap) != 0:
       raise ValueError('stride_test must be a multiple of snap')
 
-  if not os.path.isdir(options.out_dir):
+  if os.path.isdir(options.out_dir) and not options.restart:
+    print('Remove output directory %s or use --restart option.' % options.out_dir)
+    exit(1)
+  elif not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
   # dump options

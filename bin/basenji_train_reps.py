@@ -149,7 +149,6 @@ def main():
   #######################################################
   # test best
 
-  jobs = []
   for pi in range(options.processes):
     rep_dir = '%s/%d' % (options.out_dir, pi)
     test_dir = '%s/test' % rep_dir
@@ -167,6 +166,33 @@ def main():
     sbf = os.path.abspath('%s/test.sb' % rep_dir)
     outf = os.path.abspath('%s/test.out' % rep_dir)
     errf = os.path.abspath('%s/test.err' % rep_dir)
+
+    j = slurm.Job(cmd, name,
+        outf, errf, sbf,
+        queue=options.queue, gpu=1,
+        mem=23000, time='4:0:0')
+    jobs.append(j)
+
+  #######################################################
+  # test best specificity
+
+  for pi in range(options.processes):
+    rep_dir = '%s/%d' % (options.out_dir, pi)
+    test_dir = '%s/test_spec' % rep_dir
+
+    cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+    cmd += ' conda activate %s;' % options.conda_env
+    cmd += ' echo $HOSTNAME;'
+
+    cmd += ' /home/drk/code/basenji2/bin/basenji_test_specificity.py' 
+    cmd += ' --rc --shifts "1,0,-1"'
+    cmd += ' -o %s' % test_dir
+    cmd += ' %s %s/train/model_best.h5 %s' % (params_file, rep_dir, data_dir)
+
+    name = '%s-spec%d' % (options.name, pi)
+    sbf = os.path.abspath('%s/test_spec.sb' % rep_dir)
+    outf = os.path.abspath('%s/test_spec.out' % rep_dir)
+    errf = os.path.abspath('%s/test_spec.err' % rep_dir)
 
     j = slurm.Job(cmd, name,
         outf, errf, sbf,

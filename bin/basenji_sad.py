@@ -132,7 +132,7 @@ def main():
 
 
   #################################################################
-  # read parameters and construct model
+  # read parameters and targets
 
   # read model parameters
   with open(params_file) as params_open:
@@ -140,47 +140,29 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # initialize model
-  seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(model_file)
-  seqnn_model.build_ensemble(options.rc, options.shifts)
-
-
-  #################################################################
-  # collet target information
-
-  num_targets = seqnn_model.num_targets()
-
   if options.targets_file is None:
-    target_ids = ['t%d' % ti for ti in range(num_targets)]
-    target_labels = ['']*len(target_ids)
-    target_subset = None
-
+    target_slice = None
   else:
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
-    target_subset = targets_df.index
-    if len(target_subset) == num_targets:
-        target_subset = None
+    target_slice = targets_df.index
 
   if options.penultimate:
     parser.error('Not implemented for TF2')
-  
-    # labels become inappropriate
-    # target_ids = ['']*model.hp.cnn_filters[-1]
-    # target_labels = target_ids
 
-  # read target normalization factors
-  target_norms = np.ones(len(target_labels))
-  if options.norm_file is not None:
-    ti = 0
-    for line in open(options.norm_file):
-      target_norms[ti] = float(line.strip())
-      ti += 1
+  #################################################################
+  # setup model
 
-  num_targets = len(target_ids)
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_slice(target_slice)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
 
+  num_targets = seqnn_model.num_targets()
+  if options.targets_file is None:
+    target_ids = ['t%d' % ti for ti in range(num_targets)]
+    target_labels = ['']*len(target_ids)
 
   #################################################################
   # load SNPs

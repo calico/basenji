@@ -48,5 +48,6 @@ In addition to Basenji dependencies, generating training data for Akita requires
 We recommend installing these dependencies via pip as well.
 
 *tutorial.ipynb* - prepare training dat and train a model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/tf2_hic/manuscripts/akita/explore_model.ipynb)
+
 Preparing training data and training models both follow the basenji syntax, albeit using *akita_data.py* and *akita_train.py*.
 

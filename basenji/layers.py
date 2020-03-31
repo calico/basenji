@@ -493,8 +493,7 @@ class UpperTri(tf.keras.layers.Layer):
     self.diagonal_offset = diagonal_offset
 
   def call(self, inputs):
-    print(inputs.shape)
-    seq_len = inputs.shape[1]
+    seq_len = inputs.shape[1].value
     output_dim = inputs.shape[-1]
 
     triu_tup = np.triu_indices(seq_len, self.diagonal_offset)
@@ -580,7 +579,7 @@ class SwitchReverseTriu(tf.keras.layers.Layer):
     reverse = x_reverse[1]
 
     # infer original sequence length
-    ut_len = x_ut.shape[1]
+    ut_len = x_ut.shape[1].value
     seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
     seq_len += self.diagonal_offset
 

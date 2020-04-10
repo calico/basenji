@@ -247,14 +247,14 @@ def summarize_write(batch_preds, scd_out, szi, stats, plot_dir, diagonal_offset)
     if 'SCD' in stats:
       # sum of squared diffs
       diff2_preds = (ref_preds - alt_preds)**2
-      sd2_preds = diff2_preds.sum(axis=0)
+      sd2_preds = np.sqrt(diff2_preds.sum(axis=0))
       scd_out['SCD'][szi,:] = sd2_preds.astype('float16')
 
     if 'SSD' in stats:
       # sum of squared diffs
       ref_ss = (ref_preds**2).sum(axis=0)
       alt_ss = (alt_preds**2).sum(axis=0)
-      s2d_preds = alt_ss - ref_ss
+      s2d_preds = np.sqrt(alt_ss - ref_ss)
       scd_out['SSD'][szi,:] = s2d_preds.astype('float16')
 
     if plot_dir is not None:

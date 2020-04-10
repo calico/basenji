@@ -130,8 +130,8 @@ def main():
     # read scores
     sat_scores = scores_h5[options.sad_stat][si,plot_start:plot_end,:,:]
 
-    # TEMP
-    sat_scores = np.log1p(np.sqrt(sat_scores))
+    # improved visualization
+    sat_scores = np.log1p(sat_scores)
 
     # TEMP while specificity lacks
     sat_scores = sat_scores.mean(axis=-1, dtype='float32', keepdims=True)

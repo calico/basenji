@@ -217,7 +217,7 @@ def main():
     # collect sequence predictions
     seq_preds_sum = []
     seq_preds_center = []
-    seq_preds_sqd = []
+    seq_preds_scd = []
     preds_mut0 = preds_stream[pi]
     for spi in range(preds_per_seq):
       preds_mut = preds_stream[pi]
@@ -226,22 +226,22 @@ def main():
       if 'center' in options.sad_stats:
         preds_center = preds_mut[center_start:center_end,:].sum(axis=0)
         seq_preds_center.append(preds_center)
-      elif 'sqdiff' in options.sad_stats:
-        preds_sqd = ((preds_mut-preds_mut0)**2).sum(axis=0)
-        seq_preds_sqd.append(preds_sqd)
+      elif 'scd' in options.sad_stats:
+        preds_scd = np.sqrt(((preds_mut-preds_mut0)**2).sum(axis=0))
+        seq_preds_scd.append(preds_scd)
       else:
           print('Unrecognized summary statistic "%s"' % options.sad_stat)
           exit(1)
       pi += 1
     seq_preds_sum = np.array(seq_preds_sum)
     seq_preds_center = np.array(seq_preds_center)
-    seq_preds_sqd = np.array(seq_preds_sqd)
+    seq_preds_scd = np.array(seq_preds_scd)
 
     # wait for previous to finish
     score_queue.join()
 
     # queue sequence for scoring
-    seq_pred_stats = (seq_preds_sum, seq_preds_center, seq_preds_sqd)
+    seq_pred_stats = (seq_preds_sum, seq_preds_center, seq_preds_scd)
     score_queue.put((seqs_dna[si], seq_pred_stats, si))
     
     # queue sequence for plotting
@@ -312,7 +312,7 @@ class ScoreWorker(Thread):
       try:
         # unload predictions
         seq_dna, seq_pred_stats, si = self.queue.get()
-        seq_preds_sum, seq_preds_center, seq_preds_sqd = seq_pred_stats
+        seq_preds_sum, seq_preds_center, seq_preds_scd = seq_pred_stats
         print('Writing %d' % si, flush=True)
 
         # seq_preds_sum is (1 + 3*mut_len) x (num_targets)
@@ -340,8 +340,8 @@ class ScoreWorker(Thread):
             seq_preds_stat = seq_preds_sum
           elif sad_stat == 'center':
             seq_preds_stat = seq_preds_center
-          elif sad_stat == 'sqdiff':
-            seq_preds_stat = seq_preds_sqd
+          elif sad_stat == 'scd':
+            seq_preds_stat = seq_preds_scd
           else:
             print('Unrecognized summary statistic "%s"' % options.sad_stat)
             exit(1)

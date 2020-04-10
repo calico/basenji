@@ -79,7 +79,7 @@ def main():
       default=None, type='int',
       help='Number parallel processes [Default: %default]')
   parser.add_option('-r', dest='seqs_per_tfr',
-      default=256, type='int',
+      default=128, type='int',
       help='Sequences per TFRecord file [Default: %default]')
   parser.add_option('--restart', dest='restart',
       default=False, action='store_true',

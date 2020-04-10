@@ -1,106 +1,724 @@
-"""Wrapper code for using commonly-used layers."""
+# Copyright 2019 Calico LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =========================================================================
+import sys
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
+import numpy as np
 import tensorflow as tf
 
-from basenji import ops
+# from tensor2tensor.layers.common_attention import attention_bias_proximal
+# from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings
+# from tensor2tensor.layers.common_attention import _relative_attention_inner
+
+############################################################
+# Basic
+############################################################
+
+class Clip(tf.keras.layers.Layer):
+  def __init__(self, min_value, max_value):
+    super(Clip, self).__init__()
+    self.min_value = min_value
+    self.max_value = max_value
+  def call(self, x):
+    return tf.clip_by_value(x, self.min_value, self.max_value)
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'min_value': self.min_value,
+      'max_value': self.max_value
+    })
+    return config
+
+class Exp(tf.keras.layers.Layer):
+    def __init__(self):
+        super(Exp, self).__init__()
+    def call(self, x):
+      return tf.keras.activations.exponential(x)
+
+class GELU(tf.keras.layers.Layer):
+    def __init__(self):
+        super(GELU, self).__init__()
+    def call(self, x):
+        return tf.keras.activations.sigmoid(1.702 * x) * x
+
+class SliceCenter(tf.keras.layers.Layer):
+  def __init__(self, left, right=None):
+    super(SliceCenter, self).__init__()
+    self.left = left
+    self.right = right if right is not None else -self.left
+  def call(self, x):
+    return x[:, self.left:self.right, :]
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'left': self.left,
+      'right': self.right
+    })
+    return config
+
+class Softplus(tf.keras.layers.Layer):
+  def __init__(self, exp_max=10000):
+    super(Softplus, self).__init__()
+    self.exp_max = exp_max
+  def call(self, x):
+    x = tf.clip_by_value(x, -self.exp_max, self.exp_max)
+    return tf.keras.activations.softplus(x)
+  def get_config(self):
+    config = super().get_config().copy()
+    config['exp_max'] = self.exp_max
+    return config
+
+############################################################
+# Attention
+############################################################
+class Attention(tf.keras.layers.Layer):
+  def __init__(self, max_relative_position, dropout=0):
+    super(Attention, self).__init__()
+    self.max_relative_position = max_relative_position
+    self.dropout = dropout
+
+  def build(self, input_shape):
+    # extract shapes
+    qs, vs, ks = input_shape
+    seq_length = qs[-2]
+    depth_kq = qs[-1]
+    depth_q = ks[-1]
+    assert(depth_kq == depth_q)
+    depth_v = vs[-1]
+
+    # initialize bias
+    self.attn_bias = attention_bias_proximal(seq_length)
+
+    # initialize relative positions
+    self.relations_keys = _generate_relative_positions_embeddings(
+      seq_length, seq_length, depth_kq, self.max_relative_position,
+      "relative_positions_keys")
+    self.relations_values = _generate_relative_positions_embeddings(
+      seq_length, seq_length, depth_v, self.max_relative_position,
+      "relative_positions_values")
+    # tf.contrib.summary.histogram('relations_keys', self.relations_keys)
+    # tf.contrib.summary.histogram('relations_values', self.relations_values)
+
+  def call(self, qvk):
+    query, value, key = qvk
+
+    # expand to fake multi-head
+    key = tf.expand_dims(key, axis=1)
+    query = tf.expand_dims(query, axis=1)
+    value = tf.expand_dims(value, axis=1)
+
+    # Compute self attention considering the relative position embeddings.
+    logits = _relative_attention_inner(query, key, self.relations_keys, True)
+    logits += self.attn_bias
+
+    weights = tf.nn.softmax(logits, name="attention_weights")
+    weights = tf.nn.dropout(weights, rate=self.dropout)
+
+    z = _relative_attention_inner(weights, value, self.relations_values, False)
+
+    # slice single head
+    z = z[:,0,:,:]
+
+    return z
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'max_relative_position': self.max_relative_position,
+      'dropout': self.dropout
+    })
+    return config
 
 
-def conv_block(seqs_repr, conv_params, is_training,
-               batch_norm, batch_norm_momentum,
-               batch_renorm, batch_renorm_momentum,
-               nonlinearity, l2_scale, layer_reprs, name=''):
-  """Construct a single (dilated) CNN block.
+class WheezeExcite(tf.keras.layers.Layer):
+  def __init__(self, pool_size):
+    super(WheezeExcite, self).__init__()
+    self.pool_size = pool_size
+    assert(self.pool_size % 2 == 1)
+    self.paddings = [[0,0], [self.pool_size//2, self.pool_size//2], [0,0]]
 
-  Args:
-    seqs_repr:    [batchsize, length, num_channels] input sequence
-    conv_params:  convolution parameters
-    is_training:  whether is a training graph or not
-    batch_norm:   whether to use batchnorm
-    bn_momentum:  batch norm momentum
-    batch_renorm: whether to use batch renormalization in batchnorm
-    nonlinearity: relu/gelu/etc
-    l2_scale:     L2 weight regularization scale
-    name:         optional name for the block
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
 
-  Returns:
-    updated representation for the sequence
-  """
-  # nonlinearity
-  if nonlinearity == 'relu':
-      seqs_repr_next = tf.nn.relu(seqs_repr)
-      tf.logging.info('ReLU')
-  elif nonlinearity == 'gelu':
-      seqs_repr_next = tf.nn.sigmoid(1.702 * seqs_repr) * seqs_repr
-      tf.logging.info('GELU')
-  else:
-      print('Unrecognized nonlinearity "%s"' % nonlinearity, file=sys.stderr)
+    self.wheeze = tf.keras.layers.AveragePooling1D(self.pool_size,
+        strides=1, padding='valid')
+
+    self.excite1 = tf.keras.layers.Dense(
+      units=self.num_channels//4,
+      activation='relu')
+    self.excite2 = tf.keras.layers.Dense(
+      units=self.num_channels,
+      activation='relu')
+
+  def call(self, x):
+    # pad
+    x_pad = tf.pad(x, self.paddings, 'SYMMETRIC')
+
+    # squeeze
+    x_squeeze = self.wheeze(x_pad)
+
+    # excite
+    x_excite = self.excite1(x_squeeze)
+    x_excite = self.excite2(x_excite)
+    x_excite = tf.keras.activations.sigmoid(x_excite)
+
+    # scale
+    xs = x * x_excite
+
+    return xs
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'pool_size': self.pool_size
+    })
+    return config
+
+
+class SqueezeExcite(tf.keras.layers.Layer):
+  def __init__(self, additive=False):
+    super(SqueezeExcite, self).__init__()
+    self.additive = additive
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+
+    if len(input_shape) == 3:
+      self.one_or_two = 'one'
+      self.gap = tf.keras.layers.GlobalAveragePooling1D()
+    elif len(input_shape) == 4:
+      self.one_or_two = 'two'
+      self.gap = tf.keras.layers.GlobalAveragePooling2D()
+    else:
+      print('SqueezeExcite: input dim %d unexpected' % len(input_shape), file=sys.stderr)
       exit(1)
 
-  # Convolution
-  seqs_repr_next = tf.layers.conv1d(
-      seqs_repr_next,
-      filters=conv_params.filters,
-      kernel_size=[conv_params.filter_size],
-      strides=conv_params.stride,
-      padding='same',
-      dilation_rate=[conv_params.dilation],
-      use_bias=False,
-      kernel_initializer=tf.variance_scaling_initializer(scale=2.0, mode='fan_in'),
-      kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
-  tf.logging.info('Convolution w/ %d %dx%d filters strided %d, dilated %d' %
-                  (conv_params.filters, seqs_repr.shape[2],
-                   conv_params.filter_size, conv_params.stride,
-                   conv_params.dilation))
+    self.dense1 = tf.keras.layers.Dense(
+      units=self.num_channels//4,
+      activation='relu')
+    self.dense2 = tf.keras.layers.Dense(
+      units=self.num_channels,
+      activation=None)
 
-  # Batch norm
-  if batch_norm:
-    if conv_params.skip_layers > 0:
-      gamma_init = tf.zeros_initializer()
+  def call(self, x):
+    # squeeze
+    squeeze = self.gap(x)
+
+    # excite
+    excite = self.dense1(squeeze)
+    excite = self.dense2(excite)
+
+    # scale
+    if self.one_or_two == 'one':
+      excite = tf.reshape(excite, [-1,1,self.num_channels])
     else:
-      gamma_init = tf.ones_initializer()
+      excite = tf.reshape(excite, [-1,1,1,self.num_channels])
 
-    seqs_repr_next = tf.layers.batch_normalization(
-        seqs_repr_next,
-        momentum=batch_norm_momentum,
-        training=is_training,
-        gamma_initializer=gamma_init,
-        renorm=batch_renorm,
-        renorm_clipping={'rmin': 1./4, 'rmax':4., 'dmax':6.},
-        renorm_momentum=batch_renorm_momentum,
-        fused=True)
-    tf.logging.info('Batch normalization')
+    if self.additive:
+      xs = x + excite
+      xs = tf.keras.activations.relu(xs)
+    else:
+      excite = tf.keras.activations.sigmoid(excite)
+      xs = x * excite
 
-  # Dropout
-  if conv_params.dropout > 0:
-    seqs_repr_next = tf.layers.dropout(
-        inputs=seqs_repr_next,
-        rate=conv_params.dropout,
-        training=is_training)
-    tf.logging.info('Dropout w/ probability %.3f' % conv_params.dropout)
+    return xs
 
-  # Skip
-  if conv_params.skip_layers > 0:
-    if conv_params.skip_layers > len(layer_reprs):
-      raise ValueError('Skip connection reaches back too far.')
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'additive': self.additive
+    })
+    return config
 
-    # Add
-    seqs_repr_next += layer_reprs[-conv_params.skip_layers]
+class GlobalContext(tf.keras.layers.Layer):
+  def __init__(self):
+    super(GlobalContext, self).__init__()
 
-  # Dense
-  elif conv_params.dense:
-    seqs_repr_next = tf.concat(values=[seqs_repr, seqs_repr_next], axis=2)
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
 
-  # Pool
-  if conv_params.pool > 1:
-    seqs_repr_next = tf.layers.max_pooling1d(
-        inputs=seqs_repr_next,
-        pool_size=conv_params.pool,
-        strides=conv_params.pool,
-        padding='same')
-    tf.logging.info('Max pool %d' % conv_params.pool)
+    self.context_key = tf.keras.layers.Dense(units=1, activation=None)
 
-  return seqs_repr_next
+    self.dense1 = tf.keras.layers.Dense(units=self.num_channels//4)
+    self.ln = tf.keras.layers.LayerNormalization()
+    self.dense2 = tf.keras.layers.Dense(units=self.num_channels)
+
+  def call(self, x):
+    # context attention
+    keys = self.context_key(x) # [batch x length x 1]
+    attention = tf.keras.activations.softmax(keys, axis=-2) # [batch x length x 1]
+
+    # context summary 
+    context = x * attention # [batch x length x channels]
+    context = tf.keras.backend.sum(context, axis=-2, keepdims=True) # [batch x 1 x channels]
+
+    # transform
+    transform = self.dense1(context) # [batch x 1 x channels/4]
+    transform = tf.keras.activations.relu(self.ln(transform)) # [batch x 1 x channels/4]
+    transform = self.dense2(transform) # [batch x 1 x channels]
+    # transform = tf.reshape(transform, [-1,1,self.num_channels])
+
+    # fusion
+    xs = x + transform # [batch x length x channels]
+
+    return xs
+
+############################################################
+# Position
+############################################################
+class ConcatPosition(tf.keras.layers.Layer):
+  ''' Concatenate position to 1d feature vectors.'''
+
+  def __init__(self, transform=None, power=1):
+    super(ConcatPosition, self).__init__()
+    self.transform = transform
+    self.power = power
+
+  def call(self, inputs):
+    input_shape = tf.shape(inputs)
+    batch_size, seq_len = input_shape[0], input_shape[1]
+
+    pos_range = tf.range(-seq_len//2, seq_len//2)
+    if self.transform is None:
+      pos_feature = pos_range
+    elif self.transform == 'abs':
+      pos_feature = tf.math.abs(pos_range)
+    elif self.transform == 'reversed':
+      pos_feature = pos_range[::-1]
+    else:
+      raise ValueError('Unknown ConcatPosition transform.')
+
+    if self.power != 1:
+      pos_feature = tf.pow(pos_feature, self.power)
+    pos_feature = tf.expand_dims(pos_feature, axis=0)
+    pos_feature = tf.expand_dims(pos_feature, axis=-1)
+    pos_feature = tf.tile(pos_feature, [batch_size, 1, 1])
+    pos_feature = tf.dtypes.cast(pos_feature, dtype=tf.float32)
+
+    return tf.concat([pos_feature, inputs], axis=-1)
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'transform': self.transform,
+      'power': self.power
+    })
+    return config
+
+
+############################################################
+# 2D
+############################################################
+class OneToTwo(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors operated on.'''
+  def __init__(self, operation='mean'):
+    super(OneToTwo, self).__init__()
+    self.operation = operation.lower()
+    valid_operations = ['concat','mean','max','multipy','multiply1']
+    assert self.operation in valid_operations
+
+  def call(self, oned):
+    _, seq_len, features = oned.shape
+
+    twod1 = tf.tile(oned, [1, seq_len, 1])
+    twod1 = tf.reshape(twod1, [-1, seq_len, seq_len, features])
+    twod2 = tf.transpose(twod1, [0,2,1,3])
+
+    if self.operation == 'concat':
+      twod  = tf.concat([twod1, twod2], axis=-1)
+
+    elif self.operation == 'multiply':
+      twod  = tf.multiply(twod1, twod2)
+
+    elif self.operation == 'multiply1':
+      twod = tf.multiply(twod1+1, twod2+1) - 1
+
+    else:
+      twod1 = tf.expand_dims(twod1, axis=-1)
+      twod2 = tf.expand_dims(twod2, axis=-1)
+      twod  = tf.concat([twod1, twod2], axis=-1)
+
+      if self.operation == 'mean':
+        twod = tf.reduce_mean(twod, axis=-1)
+
+      elif self.operation == 'max':
+        twod = tf.reduce_max(twod, axis=-1)
+
+    return twod
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config['operation'] = self.operation
+    return config
+
+# depracated: use OneToTwo
+class AverageTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors averaged.'''
+  def __init__(self):
+    super(AverageTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+
+    matrix_repr1 = tf.expand_dims(matrix_repr1, axis=-1)
+    matrix_repr2 = tf.expand_dims(matrix_repr2, axis=-1)
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
+    current = tf.reduce_mean(current, axis=-1)
+
+    return current
+
+# depracated: use OneToTwo
+class MaxTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors maxed.'''
+  def __init__(self):
+    super(MaxTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+
+    matrix_repr1 = tf.expand_dims(matrix_repr1, axis=-1)
+    matrix_repr2 = tf.expand_dims(matrix_repr2, axis=-1)
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
+    current = tf.reduce_max(current, axis=-1)
+
+    return current
+
+# depracated: use OneToTwo
+class DotTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors maxed.'''
+  def __init__(self):
+    super(DotTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+
+    current  = tf.multiply(matrix_repr1, matrix_repr2)
+
+    return current
+
+# depracated: use OneToTwo
+class GeoDotTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors maxed.'''
+  def __init__(self):
+    super(GeoDotTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+
+    current = tf.multiply(matrix_repr1+1, matrix_repr2+1)
+    current = tf.sqrt(current)-1
+
+    return current
+
+# depracated: use OneToTwo
+class ConcatTo2D(tf.keras.layers.Layer):
+  ''' Transform 1d to 2d with i,j vectors concatenated.'''
+  def __init__(self):
+    super(ConcatTo2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    assert len(inputs.shape)==3
+    batch_size, seq_len, output_dim = inputs.shape
+    # seq_len = seq_len.value
+    # batch_size  = batch_size.value
+    # output_dim = output_dim.value
+
+    matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
+    matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
+    matrix_repr2 = tf.transpose(matrix_repr1, [0,2,1,3])
+    current  = tf.concat([matrix_repr1, matrix_repr2], axis=-1)
+
+    return current
+
+class ConcatDist2D(tf.keras.layers.Layer):
+  ''' Concatenate the pairwise distance to 2d feature matrix.'''
+  def __init__(self):
+    super(ConcatDist2D, self).__init__()
+
+  def call(self,inputs):
+    input_shape = tf.shape(inputs)
+    batch_size, seq_len = input_shape[0], input_shape[1]
+
+    ## concat 2D distance ##
+    pos = tf.expand_dims(tf.range(0, seq_len), axis=-1)
+    matrix_repr1 = tf.tile(pos, [1,seq_len])
+    matrix_repr2 = tf.transpose(matrix_repr1, [1,0])
+    dist  = tf.math.abs( tf.math.subtract(matrix_repr1, matrix_repr2) )
+    dist = tf.dtypes.cast(dist, tf.float32)
+    dist = tf.expand_dims(dist, axis=-1)
+    dist = tf.expand_dims(dist, axis=0)
+    dist = tf.tile(dist, [batch_size, 1, 1, 1])
+    return tf.concat([inputs, dist], axis=-1)
+
+class UpperTri(tf.keras.layers.Layer):
+  ''' Unroll matrix to its upper triangular portion.'''
+  def __init__(self, diagonal_offset=2):
+    super(UpperTri, self).__init__()
+    self.diagonal_offset = diagonal_offset
+
+  def call(self, inputs):
+    seq_len = inputs.shape[1].value
+    output_dim = inputs.shape[-1]
+
+    triu_tup = np.triu_indices(seq_len, self.diagonal_offset)
+    triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
+    unroll_repr = tf.reshape(inputs, [-1, seq_len**2, output_dim])
+    return tf.gather(unroll_repr, triu_index, axis=1)
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config['diagonal_offset'] = self.diagonal_offset
+    return config
+
+class Symmetrize2D(tf.keras.layers.Layer):
+  '''Take the average of a matrix and its transpose to enforce symmetry.'''
+  def __init__(self):
+    super(Symmetrize2D, self).__init__()
+  def call(self, x):
+    x_t = tf.transpose(x,[0,2,1,3])
+    x_sym = (x+x_t)/2
+    return x_sym
+
+############################################################
+# Augmentation
+############################################################
+
+class EnsembleReverseComplement(tf.keras.layers.Layer):
+  """Expand tensor to include reverse complement of one hot encoded DNA sequence."""
+  def __init__(self):
+    super(EnsembleReverseComplement, self).__init__()
+  def call(self, seqs_1hot):
+    if not isinstance(seqs_1hot, list):
+      seqs_1hot = [seqs_1hot]
+
+    ens_seqs_1hot = []
+    for seq_1hot in seqs_1hot:
+      rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
+      rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])
+      ens_seqs_1hot += [(seq_1hot, tf.constant(False)), (rc_seq_1hot, tf.constant(True))]
+
+    return ens_seqs_1hot
+
+class StochasticReverseComplement(tf.keras.layers.Layer):
+  """Stochastically reverse complement a one hot encoded DNA sequence."""
+  def __init__(self):
+    super(StochasticReverseComplement, self).__init__()
+  def call(self, seq_1hot, training=None):
+    if training:
+      rc_seq_1hot = tf.gather(seq_1hot, [3, 2, 1, 0], axis=-1)
+      rc_seq_1hot = tf.reverse(rc_seq_1hot, axis=[1])
+      reverse_bool = tf.random.uniform(shape=[]) > 0.5
+      src_seq_1hot = tf.cond(reverse_bool, lambda: rc_seq_1hot, lambda: seq_1hot)
+      return src_seq_1hot, reverse_bool
+    else:
+      return seq_1hot, tf.constant(False)
+
+class SwitchReverse(tf.keras.layers.Layer):
+  """Reverse predictions if the inputs were reverse complemented."""
+  def __init__(self):
+    super(SwitchReverse, self).__init__()
+  def call(self, x_reverse):
+    x = x_reverse[0]
+    reverse = x_reverse[1]
+
+    xd = len(x.shape)
+    if xd == 3:
+      rev_axes = [1]
+    elif xd == 4:
+      rev_axes = [1,2]
+    else:
+      raise ValueError('Cannot recognize SwitchReverse input dimensions %d.' % xd)
+    
+    return tf.keras.backend.switch(reverse,
+                                   tf.reverse(x, axis=rev_axes),
+                                   x)
+
+class SwitchReverseTriu(tf.keras.layers.Layer):
+  def __init__(self, diagonal_offset):
+    super(SwitchReverseTriu, self).__init__()
+    self.diagonal_offset = diagonal_offset
+
+  def call(self, x_reverse):
+    x_ut = x_reverse[0]
+    reverse = x_reverse[1]
+
+    # infer original sequence length
+    ut_len = x_ut.shape[1].value
+    seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
+    seq_len += self.diagonal_offset
+
+    # get triu indexes
+    ut_indexes = np.triu_indices(seq_len, self.diagonal_offset)
+    assert(len(ut_indexes[0]) == ut_len)
+
+    # construct a ut matrix of ut indexes
+    mat_ut_indexes = np.zeros(shape=(seq_len,seq_len), dtype='int')
+    mat_ut_indexes[ut_indexes] = np.arange(ut_len)
+
+    # make lower diag mask
+    mask_ut = np.zeros(shape=(seq_len,seq_len), dtype='bool')
+    mask_ut[ut_indexes] = True
+    mask_ld = ~mask_ut
+
+    # construct a matrix of symmetric ut indexes
+    mat_indexes = mat_ut_indexes + np.multiply(mask_ld, mat_ut_indexes.T)
+
+    # reverse complement
+    mat_rc_indexes = mat_indexes[::-1,::-1]
+
+    # extract ut order
+    rc_ut_order = mat_rc_indexes[ut_indexes]
+
+    return tf.keras.backend.switch(reverse,
+                                   tf.gather(x_ut, rc_ut_order, axis=1),
+                                   x_ut)
+  def get_config(self):
+    config = super().get_config().copy()
+    config['diagonal_offset'] = self.diagonal_offset
+    return config
+    
+class EnsembleShift(tf.keras.layers.Layer):
+  """Expand tensor to include shifts of one hot encoded DNA sequence."""
+  def __init__(self, shifts=[0], pad='uniform'):
+    super(EnsembleShift, self).__init__()
+    self.shifts = shifts
+    self.pad = pad
+
+  def call(self, seqs_1hot):
+    if not isinstance(seqs_1hot, list):
+      seqs_1hot = [seqs_1hot]
+
+    ens_seqs_1hot = []
+    for seq_1hot in seqs_1hot:
+      for shift in self.shifts:
+        ens_seqs_1hot.append(shift_sequence(seq_1hot, shift))
+
+    return ens_seqs_1hot
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'shifts': self.shifts,
+      'pad': self.pad
+    })
+    return config
+
+class StochasticShift(tf.keras.layers.Layer):
+  """Stochastically shift a one hot encoded DNA sequence."""
+  def __init__(self, shift_max=0, pad='uniform'):
+    super(StochasticShift, self).__init__()
+    self.shift_max = shift_max
+    self.augment_shifts = tf.range(-self.shift_max, self.shift_max+1)
+    self.pad = pad
+
+  def call(self, seq_1hot, training=None):
+    if training:
+      shift_i = tf.random.uniform(shape=[], minval=0, dtype=tf.int64,
+                                  maxval=len(self.augment_shifts))
+      shift = tf.gather(self.augment_shifts, shift_i)
+      sseq_1hot = tf.cond(tf.not_equal(shift, 0),
+                          lambda: shift_sequence(seq_1hot, shift),
+                          lambda: seq_1hot)
+      return sseq_1hot
+    else:
+      return seq_1hot
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'shift_max': self.shift_max,
+      'pad': self.pad
+    })
+    return config
+
+def shift_sequence(seq, shift, pad_value=0.25):
+  """Shift a sequence left or right by shift_amount.
+
+  Args:
+  seq: [batch_size, seq_length, seq_depth] sequence
+  shift: signed shift value (tf.int32 or int)
+  pad_value: value to fill the padding (primitive or scalar tf.Tensor)
+  """
+  if seq.shape.ndims != 3:
+      raise ValueError('input sequence should be rank 3')
+  input_shape = seq.shape
+
+  pad = pad_value * tf.ones_like(seq[:, 0:tf.abs(shift), :])
+
+  def _shift_right(_seq):
+    # shift is positive
+    sliced_seq = _seq[:, :-shift:, :]
+    return tf.concat([pad, sliced_seq], axis=1)
+
+  def _shift_left(_seq):
+    # shift is negative
+    sliced_seq = _seq[:, -shift:, :]
+    return tf.concat([sliced_seq, pad], axis=1)
+
+  sseq = tf.cond(tf.greater(shift, 0),
+                 lambda: _shift_right(seq),
+                 lambda: _shift_left(seq))
+  sseq.set_shape(input_shape)
+
+  return sseq
+
+
+############################################################
+# helpers
+############################################################
+
+def activate(current, activation, verbose=False):
+  if verbose: print('activate:',activation)
+  if activation == 'relu':
+    current = tf.keras.layers.ReLU()(current)
+  elif activation == 'gelu':
+    current = GELU()(current)
+  elif activation == 'sigmoid':
+    current = tf.keras.layers.Activation('sigmoid')(current)
+  elif activation == 'tanh':
+    current = tf.keras.layers.Activation('tanh')(current)
+  elif activation == 'exp':
+    current = Exp()(current)
+  elif activation == 'softplus':
+    current = Softplus()(current)
+  else:
+    print('Unrecognized activation "%s"' % activation, file=sys.stderr)
+    exit(1)
+
+  return current

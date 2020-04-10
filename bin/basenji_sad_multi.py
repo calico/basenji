@@ -24,10 +24,6 @@ import sys
 
 import h5py
 import numpy as np
-try:
-  import zarr
-except ImportError:
-  pass
 
 import slurm
 
@@ -46,9 +42,6 @@ def main():
   parser = OptionParser(usage)
 
   # sad
-  parser.add_option('-c', dest='csv',
-      default=False, action='store_true',
-      help='Print table as CSV [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
@@ -79,15 +72,12 @@ def main():
   parser.add_option('--ti', dest='track_indexes',
       default=None, type='str',
       help='Comma-separated list of target indexes to output BigWig tracks')
-  parser.add_option('--txt', dest='out_txt',
-    default=False, action='store_true',
-    help='Output stats to text table [Default: %default]')
+  parser.add_option('--threads', dest='threads',
+      default=False, action='store_true',
+      help='Run CPU math and output in a separate thread [Default: %default]')
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
-  parser.add_option('-z', dest='out_zarr',
-      default=False, action='store_true',
-      help='Output stats to sad.zarr [Default: %default]')
 
   # multi
   parser.add_option('--cpu', dest='cpu',
@@ -141,9 +131,9 @@ def main():
         cmd = ''
       else:
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-        cmd += 'conda activate tf1.14-gpu;'
+        cmd += ' conda activate tf1.15-gpu2;'
 
-      cmd += ' basenji_sad.py %s %s %d' % (
+      cmd += ' /home/drk/code/basenji2/bin/basenji_sad.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
 
       name = '%s_p%d' % (options.name, pi)
@@ -155,7 +145,7 @@ def main():
       j = slurm.Job(cmd, name,
           outf, errf,
           queue=options.queue, gpu=num_gpu,
-          mem=15000, time='14-0:0:0')
+          mem=22000, time='14-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
@@ -164,14 +154,7 @@ def main():
   #######################################################
   # collect output
 
-  if options.out_txt:
-    collect_table('sad_table.txt', options.out_dir, options.processes)
-
-  elif options.out_zarr:
-    collect_zarr('sad.zarr', options.out_dir, options.processes)
-
-  else:
-    collect_h5('sad.h5', options.out_dir, options.processes)
+  collect_h5('sad.h5', options.out_dir, options.processes)
 
   # for pi in range(options.processes):
   #     shutil.rmtree('%s/job%d' % (options.out_dir,pi))
@@ -261,38 +244,6 @@ def collect_h5(file_name, out_dir, num_procs):
       data=np.array(final_strings[key], dtype='S'))
 
   final_h5_open.close()
-
-
-def collect_zarr(file_name, out_dir, num_procs):
-  final_zarr_file = '%s/%s' % (out_dir, file_name)
-
-  # seed w/ job0
-  job_zarr_file = '%s/job0/%s' % (out_dir, file_name)
-  shutil.copytree(job_zarr_file, final_zarr_file)
-
-  # open final
-  final_zarr_open = zarr.open_group(final_zarr_file)
-
-  for pi in range(1, num_procs):
-    # open job
-    job_zarr_file = '%s/job%d/%s' % (out_dir, pi, file_name)
-    job_zarr_open = zarr.open_group(job_zarr_file, 'r')
-
-    # append to final
-    for key in final_zarr_open.keys():
-      if key in ['percentiles', 'target_ids', 'target_labels']:
-        # once is enough
-        pass
-
-      elif key[-4:] == '_pct':
-        # average
-        u_k1 = np.array(final_zarr_open[key])
-        x_k = np.array(job_zarr_open[key])
-        final_zarr_open[key] = u_k1 + (x_k - u_k1) / (pi+1)
-
-      else:
-        # append
-        final_zarr_open[key].append(job_zarr_open[key])
 
 
 def job_completed(options, pi):

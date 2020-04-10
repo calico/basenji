@@ -337,8 +337,8 @@ def snps_seq1(snps, seq_len, genome_fasta, return_seqs=False):
 
       if not ref_found:
         print(
-            'WARNING: %s - reference genome does not match any allele; skipping'
-            % (snp.rsid),
+            'WARNING: %s - reference genome %s does not match any allele; skipping'
+            % (seq_ref, snp.rsid),
             file=sys.stderr)
         continue
 

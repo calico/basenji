@@ -4,14 +4,13 @@ import multiprocessing
 import os
 
 import h5py
+from natsort
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-from basenji import tfrecord_batcher
 
 '''
 tfr_qc.py
@@ -83,11 +82,12 @@ def plot_distr(targets_ti, out_pdf):
 
 
 def read_tfr(tfr_pattern, target_len):
-  tfr_files = tfrecord_batcher.order_tfrecords(tfr_pattern)
+  tfr_files = natsorted(glob.glob(self.tfr_pattern))
   if tfr_files:
     dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
   else:
-    dataset = tf.data.Dataset.list_files(tfr_pattern)
+    print('Cannot order TFRecords %s' % self.tfr_pattern, file=sys.stderr)
+    dataset = tf.data.Dataset.list_files(self.tfr_pattern)
   dataset = dataset.flat_map(file_to_records)
   dataset = dataset.batch(1)
   dataset = dataset.map(parse_proto)

@@ -3,6 +3,7 @@ from __future__ import print_function
 from optparse import OptionParser
 
 import gc
+import glob
 import joblib
 import multiprocessing
 import pdb
@@ -121,13 +122,19 @@ def main():
 
     hac_args = []
 
-    for ci in range(1,23):
-        chr_annot_file = '%s/sad.%s.%s' % (options.out_dir, ci, annot_ext)
+    chrms1 = range(1,12)
+    chrms2 = range(12,23)
+    chrms = [val for pair in zip(chrms1,chrms2) for val in pair]
+
+    for ci in chrms:
+        chr_annot_file = '%s/%s.%s.%s' % (options.out_dir, options.sad_stat.lower(), ci, annot_ext)
         if options.restart and os.path.isfile(chr_annot_file+'.gz'):
             print('%s.gz found.' % chr_annot_file)
         else:
             chr_bim_file = '%s.%d.bim' % (options.plink_stem, ci)
-            sad_chr_file = '%s/chr%d/sad.h5' % (sad_dir, ci)
+            sad_chr_file = glob.glob('%s/chr%d/s*.h5' % (sad_dir, ci))
+            assert(len(sad_chr_file) == 1)
+            sad_chr_file = sad_chr_file[0]
             if not os.path.isfile(sad_chr_file):
                 print('%s not found.' % sad_chr_file)
             else:
@@ -153,7 +160,7 @@ def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sa
     ref_sad = [nt.decode('UTF-8') for nt in sad_h5['ref']]
 
     if model is not None:
-        annot_labels = ['sad-%d' % (i+1) for i in range(model.n_components)]
+        annot_labels = ['%s-%d' % (sad_stat.lower(), i+1) for i in range(model.n_components)]
     elif targets_df is None:
         annot_labels = [tid.decode('UTF-8') for tid in sad_h5['target_ids']]
     else:
@@ -168,7 +175,7 @@ def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sa
         annot_files = []
         annot_outs = []
         for annot in annot_labels:
-            annot_files.append(annot_file.replace('/sad.', '/sad.%s.' % annot))
+            annot_files.append(annot_file.replace('/%s.' % sad_stat.lower(), '/%s.%s.' % (sad_stat.lower(),annot)))
             annot_outs.append(open(annot_files[-1], 'w'))
             header_cols = ['CHR', 'BP', 'SNP', 'CM', 'A1', 'A2', annot]
             print('\t'.join(header_cols), file=annot_outs[-1])
@@ -193,7 +200,7 @@ def h5_annot_chr(sad_file, bim_file, annot_file, model=None, targets_df=None, sa
             sad_si = -X_sad[si]
 
         else:
-            print("ERROR: %s SAD ref %s doesn't match A1 %s or A2 %s" % \
+            print("ERROR: %s ref %s doesn't match A1 %s or A2 %s" % \
                     (rsid, ref_sad[si], a1, a2), file=sys.stderr)
             exit(1)
 
@@ -235,7 +242,7 @@ def sample_sad(sad_dir, sad_max, sad_stat='SAD', targets_df=None):
     # count SNPs and targets
     num_snps = 0
     for ci in range(1,23):
-        sad_chr_file = '%s/chr%d/sad.h5' % (sad_dir, ci)
+        sad_chr_file = '%s/chr%d/%s.h5' % (sad_dir, ci, sad_stat.lower())
         if os.path.isfile(sad_chr_file):
             sad_chr_h5 = h5py.File(sad_chr_file, 'r')
             num_snps += sad_chr_h5[sad_stat].shape[0]
@@ -250,7 +257,7 @@ def sample_sad(sad_dir, sad_max, sad_stat='SAD', targets_df=None):
     # sample SNPs
     X_sad = None
     for ci in range(1,23):
-        sad_chr_file = '%s/chr%d/sad.h5' % (sad_dir, ci)
+        sad_chr_file = '%s/chr%d/%s.h5' % (sad_dir, ci, sad_stat.lower())
         if os.path.isfile(sad_chr_file):
             sad_chr_h5 = h5py.File(sad_chr_file, 'r')
 
@@ -282,7 +289,7 @@ def read_enough_sad(sad_dir, sad_max, sad_stat='SAD', targets_df=None):
     X_sad = None
 
     for ci in reversed(range(1,23)):
-        sad_chr_file = '%s/chr%d/sad.h5' % (sad_dir, ci)
+        sad_chr_file = '%s/chr%d/%s.h5' % (sad_dir, ci, sad_stat.lower())
         if os.path.isfile(sad_chr_file):
             sad_chr_h5 = h5py.File(sad_chr_file, 'r')
 
@@ -306,26 +313,6 @@ def read_enough_sad(sad_dir, sad_max, sad_stat='SAD', targets_df=None):
         ri = np.random.choice(np.arange(X_sad.shape[0]),
                               size=variants_max, replace=False)
         X_sad = X_sad[ri]
-
-    return X_sad
-
-
-def read_enough_sad_zarr(sad_dir, sad_max):
-    X_sad = None
-
-    for ci in reversed(range(1,23)):
-        sad_chr_file = '%s/chr%d/sad_table.zarr' % (sad_dir, ci)
-        sad_chr_zarr = zarr.open_group(sad_chr_file, 'r')
-
-        print('Reading SAD chr%d' % ci)
-        if X_sad is None:
-            X_sad = np.array(sad_chr_zarr['SAD'])
-        else:
-            X_sad = np.concatenate([X_sad, np.array(sad_chr_zarr['SAD'])], axis=0)
-
-        X_len = X_sad.shape[0]*X_sad.shape[1]
-        if X_len > sad_max:
-            break
 
     return X_sad
 

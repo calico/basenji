@@ -14,305 +14,138 @@
 # limitations under the License.
 # =========================================================================
 from __future__ import print_function
+from optparse import OptionParser
 
+import json
 import os
-import pdb
-from queue import Queue
+import shutil
 import sys
-from threading import Thread
 import time
 
 import numpy as np
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
+
 import tensorflow as tf
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
 
-from basenji import params
-from basenji import seqnn
-from basenji import shared_flags
 from basenji import dataset
+from basenji import seqnn
+from basenji import trainer
 
-FLAGS = tf.app.flags.FLAGS
+"""
+basenji_train.py
 
+Train Basenji model using given parameters and data.
+"""
 
-def main(_):
-  np.random.seed(FLAGS.seed)
+################################################################################
+# main
+################################################################################
+def main():
+  usage = 'usage: %prog [options] <params_file> <data_dir>'
+  parser = OptionParser(usage)
+  parser.add_option('-o', dest='out_dir',
+      default='train_out',
+      help='Output directory for test statistics [Default: %default]')
+  parser.add_option('--restore', dest='restore',
+      help='Restore model and continue training [Default: %default]')
+  parser.add_option('--trunk', dest='trunk',
+      default=False, action='store_true',
+      help='Restore only model trunk [Default: %default]')
+  parser.add_option('--tfr_train', dest='tfr_train_pattern',
+      default='train-*.tfr',
+      help='Training TFRecord pattern string appended to data_dir [Default: %default]')
+  parser.add_option('--tfr_eval', dest='tfr_eval_pattern',
+      default='valid-*.tfr',
+      help='Evaluation TFRecord pattern string appended to data_dir [Default: %default]')
+  (options, args) = parser.parse_args()
 
-  # split comma-separated files
-  train_files = FLAGS.train_data.split(',')
-  test_files = FLAGS.test_data.split(',')
+  if len(args) != 2:
+    parser.error('Must provide parameters and data directory.')
+  else:
+    params_file = args[0]
+    data_dir = args[1]
 
-  # determine whether to save predictions/targets
-  if not FLAGS.r2 and not FLAGS.r:
-    FLAGS.metrics_sample = 0.
+  if not os.path.isdir(options.out_dir):
+    os.mkdir(options.out_dir)
+  if params_file != '%s/params.json' % options.out_dir:
+    shutil.copy(params_file, '%s/params.json' % options.out_dir)
 
-  run(params_file=FLAGS.params,
-      train_files=train_files,
-      test_files=test_files,
-      train_epochs=FLAGS.train_epochs,
-      train_epoch_batches=FLAGS.train_epoch_batches,
-      test_epoch_batches=FLAGS.test_epoch_batches)
+  # read model parameters
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
 
-
-def run(params_file, train_files, test_files, train_epochs, train_epoch_batches,
-        test_epoch_batches):
-
-  # parse shifts
-  augment_shifts = [int(shift) for shift in FLAGS.augment_shifts.split(',')]
-  ensemble_shifts = [int(shift) for shift in FLAGS.ensemble_shifts.split(',')]
-
-  # read parameters
-  job = params.read_job_params(params_file)
-  job['num_genomes'] = job.get('num_genomes', 1)
-  if not isinstance(job['num_targets'], list):
-    job['num_targets'] = [job['num_targets']]
+  # read data parameters
+  data_stats_file = '%s/statistics.json' % data_dir
+  with open(data_stats_file) as data_stats_open:
+    data_stats = json.load(data_stats_open)
 
   # load data
-  data_ops, handle, train_dataseqs, test_dataseqs = make_data_ops(
-      job, train_files, test_files)
+  tfr_train_full = '%s/tfrecords/%s' % (data_dir, options.tfr_train_pattern)
+  train_data = dataset.SeqDataset(tfr_train_full,
+    params_train['batch_size'],
+    data_stats['seq_length'],
+    data_stats['target_length'],
+    tf.estimator.ModeKeys.TRAIN)
+  tfr_eval_full = '%s/tfrecords/%s' % (data_dir, options.tfr_eval_pattern)
+  eval_data = dataset.SeqDataset(tfr_eval_full,
+    params_train['batch_size'],
+    data_stats['seq_length'],
+    data_stats['target_length'],
+    tf.estimator.ModeKeys.EVAL)
 
-  # initialize model
-  model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops,
-                            FLAGS.augment_rc, augment_shifts,
-                            FLAGS.ensemble_rc, ensemble_shifts)
+  if params_train.get('num_gpu', 1) == 1:
+    ########################################
+    # one GPU
 
-  # launch accuracy metrics compute thread
-  if FLAGS.metrics_thread:
-    metrics_queue = Queue()
-    metrics_thread = MetricsWorker(metrics_queue)
-    metrics_thread.start()
+    # initialize model
+    seqnn_model = seqnn.SeqNN(params_model)
 
+    # restore
+    if options.restore:
+      seqnn_model.restore(options.restore, options.trunk)
 
-  # checkpoints
-  saver = tf.train.Saver()
+    # initialize trainer
+    seqnn_trainer = trainer.Trainer(params_train, train_data, 
+                                    eval_data, options.out_dir)
 
-  # specify CPU parallelism
-  session_conf = tf.ConfigProto(
-        intra_op_parallelism_threads=2,
-        inter_op_parallelism_threads=5)
+    # compile model
+    seqnn_trainer.compile(seqnn_model)
 
-  # with tf.Session(config=session_conf) as sess:
-  with tf.Session() as sess:
-    train_writer = tf.summary.FileWriter(FLAGS.logdir + '/train',
-                                         sess.graph) if FLAGS.logdir else None
+    # train model
+    seqnn_trainer.fit(seqnn_model)
 
-    # generate handles
-    for gi in range(job['num_genomes']):
-      train_dataseqs[gi].make_handle(sess)
-      test_dataseqs[gi].make_handle(sess)
+  else:
+    ########################################
+    # two GPU
 
-    if FLAGS.restart:
-      # load variables into session
-      saver.restore(sess, FLAGS.restart)
-    else:
-      # initialize variables
-      print('Initializing...')
-      sess.run(tf.local_variables_initializer())
-      sess.run(tf.global_variables_initializer())
+    mirrored_strategy = tf.distribute.MirroredStrategy()
+    with mirrored_strategy.scope():
 
-    train_loss = None
-    best_loss = None
-    early_stop_i = 0
+      # initialize model
+      seqnn_model = seqnn.SeqNN(params_model)
 
-    epoch = 0
+      # restore
+      if options.restore:
+        seqnn_model.restore(options.restore, options.trunk)
 
-    while (train_epochs is not None and epoch < train_epochs) or \
-          (train_epochs is None and early_stop_i < FLAGS.early_stop):
-      t0 = time.time()
+      # initialize trainer
+      seqnn_trainer = trainer.Trainer(params_train, train_data,
+                                      eval_data, options.out_dir)
 
-      # initialize training data epochs
-      for gi in range(job['num_genomes']):
-        if train_dataseqs[gi].iterator is not None:
-          sess.run(train_dataseqs[gi].iterator.initializer)
+      # compile model
+      seqnn_trainer.compile(seqnn_model.model, None)
 
-      # train epoch
-      train_losses, steps = model.train2_epoch_ops(sess, handle, train_dataseqs)
+    # train model
+    seqnn_trainer.fit(seqnn_model.model)
 
-      if FLAGS.metrics_thread:
-        # block for previous metrics compute
-        metrics_queue.join()
-
-      # test validation
-      valid_accs = []
-      valid_losses = []
-      for gi in range(job['num_genomes']):
-        if test_dataseqs[gi].iterator is None:
-          valid_accs.append(None)
-          valid_losses.append(np.nan)
-
-        else:
-          # initialize
-          sess.run(test_dataseqs[gi].iterator.initializer)
-
-          # compute
-          valid_acc = model.test_tfr(sess, test_dataseqs[gi], handle, test_epoch_batches, FLAGS.metrics_sample)
-
-          # save
-          valid_accs.append(valid_acc)
-          valid_losses.append(valid_acc.loss)
-
-      # summarize
-      train_loss = np.nanmean(train_losses)
-      valid_loss = np.nanmean(valid_losses)
-
-      # consider as best
-      best_str = ''
-      if best_loss is None or valid_loss < best_loss:
-        best_loss = valid_loss
-        best_str = ', best!'
-        early_stop_i = 0
-        saver.save(sess, '%s/model_best.tf' % FLAGS.logdir)
-      else:
-        early_stop_i += 1
-
-      # measure time
-      et = time.time() - t0
-      if et < 600:
-        time_str = '%3ds' % et
-      elif et < 6000:
-        time_str = '%3dm' % (et / 60)
-      else:
-        time_str = '%3.1fh' % (et / 3600)
-
-      # compute and write accuracy metrics update
-      update_args = (epoch, steps, train_losses, valid_losses, valid_accs, time_str, best_str)
-      if FLAGS.metrics_thread:
-        metrics_queue.put(update_args)
-      else:
-        metrics_update(*update_args)
-
-      # checkpoint
-      saver.save(sess, '%s/model_check.tf' % FLAGS.logdir)
-
-      # update epoch
-      epoch += 1
-
-    # block for final metrics compute
-    if FLAGS.metrics_thread:
-      metrics_queue.join()
-
-    if FLAGS.logdir:
-      train_writer.close()
-
-
-def make_data_ops(job, train_patterns, test_patterns):
-  """Make input data operations."""
-
-  def make_dataset(tfr_pattern, mode):
-    return dataset.DatasetSeq(
-        tfr_pattern,
-        job['batch_size'],
-        job['seq_length'],
-        job['target_length'],
-        mode=mode)
-
-  train_dataseqs = []
-  test_dataseqs = []
-
-  # make datasets and iterators for each genome's train/test
-  for gi in range(job['num_genomes']):
-    train_dataseq = make_dataset(train_patterns[gi], mode=tf.estimator.ModeKeys.TRAIN)
-    train_dataseq.make_iterator_initializable()
-    train_dataseqs.append(train_dataseq)
-
-    test_dataseq = make_dataset(test_patterns[gi], mode=tf.estimator.ModeKeys.EVAL)
-    test_dataseq.make_iterator_initializable()
-    test_dataseqs.append(test_dataseq)
-
-    # verify dataset shapes
-    if train_dataseq.num_targets_nonzero != job['num_targets'][gi]:
-      print('WARNING: %s nonzero targets found, but %d specified for genome %d.' % (train_dataseq.num_targets_nonzero, job['num_targets'][gi], gi), file=sys.stderr)
-
-    if train_dataseq.seq_depth is not None:
-      if 'seq_depth' in job:
-        assert(job['seq_depth'] == train_dataseq.seq_depth)
-      else:
-        job['seq_depth'] = train_dataseq.seq_depth
-
-  # create feedable iterator
-  handle = tf.placeholder(tf.string, shape=[])
-
-  for gi in range(job['num_genomes']):
-    # find a non-empty dataset
-    if train_dataseqs[gi].iterator is not None:
-      iterator = tf.data.Iterator.from_string_handle(handle,
-                                                     train_dataseqs[gi].dataset.output_types,
-                                                     train_dataseqs[gi].dataset.output_shapes)
-      break
-
-  data_ops = iterator.get_next()
-
-  return data_ops, handle, train_dataseqs, test_dataseqs
-
-
-def metrics_update(epoch, steps, train_losses, valid_losses, valid_accs, time_str, best_str):
-  """Compute and print accuracy metrics update."""
-  num_genomes = len(train_losses)
-
-  # summarize losses
-  train_loss = np.nanmean(train_losses)
-  valid_loss = np.nanmean(valid_losses)
-
-
-  # take means across targets within genoem
-  valid_rs = np.zeros(num_genomes)
-  valid_r2s = np.zeros(num_genomes)
-  for gi, valid_acc in enumerate(valid_accs):
-    if np.isnan(valid_losses[gi]):
-      valid_rs[gi] = np.nan
-      valid_r2s[gi] = np.nan
-    else:
-      if FLAGS.r:
-        valid_rs[gi] = valid_acc.pearsonr().mean()
-      if FLAGS.r2:
-        valid_r2s[gi] = valid_acc.r2().mean()
-  valid_r2_mean = np.nanmean(valid_r2s)
-  valid_r_mean = np.nanmean(valid_rs)
-
-  # print cross-genome update
-  print('Epoch: %3d,  Steps: %7d,  Train loss: %7.5f,' % (epoch+1, steps, train_loss), end='')
-  print(' Valid loss: %7.5f,' % valid_loss, end='')
-  if FLAGS.r2:
-    print(' Valid R2: %7.5f,' % valid_r2_mean, end='')
-  if FLAGS.r:
-    print(' Valid R: %7.5f,' % valid_r_mean, end='')
-  print(' Time: %s%s' % (time_str, best_str))
-
-  # print genome-specific updates
-  if num_genomes > 1:
-    for gi in range(num_genomes):
-      if not np.isnan(valid_losses[gi]):
-        print(' Genome:%d,                    Train loss: %7.5f,' % (gi, train_losses[gi]), end='')
-        print(' Valid loss: %7.5f,' % valid_losses[gi], end='')
-        if FLAGS.r2:
-          print(' Valid R2: %7.5f,' % valid_r2s[gi], end='')
-        if FLAGS.r:
-          print(' Valid R: %7.5f,' % valid_rs[gi], end='')
-        print('')
-  sys.stdout.flush()
-
-  # delete predictions and targets
-  for valid_acc in valid_accs:
-    if valid_acc is not None:
-      del valid_acc
-
-class MetricsWorker(Thread):
-  """Compute accuracy metrics and print update line."""
-  def __init__(self, metrics_queue):
-    Thread.__init__(self)
-    self.queue = metrics_queue
-    self.daemon = True
-
-  def run(self):
-    while True:
-      try:
-        metrics_update(*self.queue.get())
-
-      except:
-        # communicate error
-        print('ERROR: epoch accuracy and progress update failed.', flush=True)
-
-      # communicate finished task
-      self.queue.task_done()
-
+################################################################################
+# __main__
+################################################################################
 if __name__ == '__main__':
-  tf.app.run(main)
+  main()

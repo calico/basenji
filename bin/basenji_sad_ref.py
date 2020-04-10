@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import gc
+import json
 import pdb
 import pickle
 import os
@@ -30,14 +31,15 @@ import numpy as np
 import pandas as pd
 import pysam
 import tensorflow as tf
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
 
-import basenji.dna_io as dna_io
-import basenji.params as params
-import basenji.seqnn as seqnn
-import basenji.vcf as bvcf
-from basenji.stream import PredStream
+from basenji import dna_io
+from basenji import seqnn
+from basenji import vcf as bvcf
+from basenji import stream
 
-from basenji_sad import initialize_output_h5
+from basenji_sad import SNPWorker, initialize_output_h5, write_pct, write_snp
 
 '''
 basenji_sad_ref.py
@@ -92,6 +94,9 @@ def main():
   parser.add_option('--ti', dest='track_indexes',
       default=None, type='str',
       help='Comma-separated list of target indexes to output BigWig tracks')
+  parser.add_option('--threads', dest='threads',
+      default=False, action='store_true',
+      help='Run CPU math and output in a separate thread [Default: %default]')
   parser.add_option('-u', dest='penultimate',
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
@@ -137,23 +142,37 @@ def main():
 
 
   #################################################################
-  # read parameters and collet target information
+  # read parameters and targets
 
-  job = params.read_job_params(params_file, require=['seq_length','num_targets'])
+  # read model parameters
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
 
   if options.targets_file is None:
-    target_ids = ['t%d' % ti for ti in range(job['num_targets'])]
-    target_labels = ['']*len(target_ids)
-    target_subset = None
-
+    target_slice = None
   else:
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
-    target_subset = targets_df.index
-    if len(target_subset) == job['num_targets']:
-        target_subset = None
+    target_slice = targets_df.index
 
+  if options.penultimate:
+    parser.error('Not implemented for TF2')
+
+  #################################################################
+  # setup model
+
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_slice(target_slice)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  num_targets = seqnn_model.num_targets()
+  if options.targets_file is None:
+    target_ids = ['t%d' % ti for ti in range(num_targets)]
+    target_labels = ['']*len(target_ids)
 
   #################################################################
   # load SNPs
@@ -175,10 +194,10 @@ def main():
                          validate_ref_fasta=options.genome_fasta)
 
   # cluster SNPs by position
-  snp_clusters = cluster_snps(snps, job['seq_length'], options.center_pct)
+  snp_clusters = cluster_snps(snps, params_model['seq_length'], options.center_pct)
 
   # delimit sequence boundaries
-  [sc.delimit(job['seq_length']) for sc in snp_clusters]
+  [sc.delimit(params_model['seq_length']) for sc in snp_clusters]
 
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
@@ -188,47 +207,8 @@ def main():
     for sc in snp_clusters:
       snp_1hot_list = sc.get_1hots(genome_open)
       for snp_1hot in snp_1hot_list:
-        yield {'sequence':snp_1hot}
+        yield snp_1hot
 
-  snp_types = {'sequence': tf.float32}
-  snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(job['seq_length']),
-                                            tf.Dimension(4)])}
-
-  dataset = tf.data.Dataset.from_generator(snp_gen,
-                                          output_types=snp_types,
-                                          output_shapes=snp_shapes)
-  dataset = dataset.batch(job['batch_size'])
-  dataset = dataset.prefetch(2*job['batch_size'])
-  # dataset = dataset.apply(tf.contrib.data.prefetch_to_device('/device:GPU:0'))
-
-  iterator = dataset.make_one_shot_iterator()
-  data_ops = iterator.get_next()
-
-  #################################################################
-  # setup model
-
-  # build model
-  t0 = time.time()
-  model = seqnn.SeqNN()
-  model.build_sad(job, data_ops,
-                  ensemble_rc=options.rc, ensemble_shifts=options.shifts,
-                  embed_penultimate=options.penultimate, target_subset=target_subset)
-  print('Model building time %f' % (time.time() - t0), flush=True)
-
-  if options.penultimate:
-    # labels become inappropriate
-    target_ids = ['']*model.hp.cnn_filters[-1]
-    target_labels = target_ids
-
-  # read target normalization factors
-  target_norms = np.ones(len(target_labels))
-  if options.norm_file is not None:
-    ti = 0
-    for line in open(options.norm_file):
-      target_norms[ti] = float(line.strip())
-      ti += 1
-
-  num_targets = len(target_ids)
 
   #################################################################
   # setup output
@@ -238,54 +218,55 @@ def main():
   sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
                                  snps, target_ids, target_labels)
 
-  snp_threads = []
+  if options.threads:
+    snp_threads = []
+    snp_queue = Queue()
+    for i in range(1):
+      sw = SNPWorker(snp_queue, sad_out, options.sad_stats, options.log_pseudo)
+      sw.start()
+      snp_threads.append(sw)
 
-  snp_queue = Queue()
-  for i in range(1):
-    sw = SNPWorker(snp_queue, sad_out, options.sad_stats, options.log_pseudo)
-    sw.start()
-    snp_threads.append(sw)
 
   #################################################################
   # predict SNP scores, write output
 
-  # initialize saver
-  saver = tf.train.Saver()
-  with tf.Session() as sess:
-    # load variables into session
-    saver.restore(sess, model_file)
+  # initialize predictions stream
+  preds_stream = stream.PredStreamGen(seqnn_model, snp_gen(), params['train']['batch_size'])
 
-    # initialize predictions stream
-    preds_stream = PredStream(sess, model, 32)
+  # predictions index
+  pi = 0
 
-    # predictions index
-    pi = 0
+  # SNP index
+  si = 0
 
-    # SNP index
-    si = 0
+  for snp_cluster in snp_clusters:
+    ref_preds = preds_stream[pi]
+    pi += 1
 
-    for snp_cluster in snp_clusters:
-      ref_preds = preds_stream[pi]
+    for snp in snp_cluster.snps:
+      # print(snp, flush=True)
+
+      alt_preds = preds_stream[pi]
       pi += 1
 
-      for snp in snp_cluster.snps:
-        # print(snp, flush=True)
+      if snp_flips[si]:
+        ref_preds, alt_preds = alt_preds, ref_preds
 
-        alt_preds = preds_stream[pi]
-        pi += 1
-
+      if options.threads:
         # queue SNP
-        if snp_flips[si]:
-          snp_queue.put((alt_preds, ref_preds, si))
-        else:
           snp_queue.put((ref_preds, alt_preds, si))
+      else:
+        # process SNP
+        write_snp(ref_preds, alt_preds, sad_out, si,
+                  options.sad_stats, options.log_pseudo)
 
-        # update SNP index
-        si += 1
+      # update SNP index
+      si += 1
 
   # finish queue
-  print('Waiting for threads to finish.', flush=True)
-  snp_queue.join()
+  if options.threads:
+    print('Waiting for threads to finish.', flush=True)
+    snp_queue.join()
 
   # close genome
   genome_open.close()
@@ -293,27 +274,7 @@ def main():
   ###################################################
   # compute SAD distributions across variants
 
-  # define percentiles
-  d_fine = 0.001
-  d_coarse = 0.01
-  percentiles_neg = np.arange(d_fine, 0.1, d_fine)
-  percentiles_base = np.arange(0.1, 0.9, d_coarse)
-  percentiles_pos = np.arange(0.9, 1, d_fine)
-
-  percentiles = np.concatenate([percentiles_neg, percentiles_base, percentiles_pos])
-  sad_out.create_dataset('percentiles', data=percentiles)
-  pct_len = len(percentiles)
-
-  for sad_stat in options.sad_stats:
-    sad_stat_pct = '%s_pct' % sad_stat
-
-    # compute
-    sad_pct = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
-    sad_pct = sad_pct.astype('float16')
-
-    # save
-    sad_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')
-
+  write_pct(sad_out, options.sad_stats)
   sad_out.close()
 
 
@@ -394,50 +355,6 @@ class SNPCluster:
       seqs1_list.append(alt_1hot)
 
     return seqs1_list
-
-
-class SNPWorker(Thread):
-  """Compute summary statistics and write to HDF."""
-  def __init__(self, snp_queue, sad_out, stats, log_pseudo=1):
-    Thread.__init__(self)
-    self.queue = snp_queue
-    self.daemon = True
-    self.sad_out = sad_out
-    self.stats = stats
-    self.log_pseudo = log_pseudo
-
-  def run(self):
-    while True:
-      # unload predictions
-      ref_preds, alt_preds, szi = self.queue.get()
-
-      # sum across length
-      ref_preds_sum = ref_preds.sum(axis=0, dtype='float64')
-      alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
-
-      # compare reference to alternative via mean subtraction
-      if 'SAD' in self.stats:
-        sad = alt_preds_sum - ref_preds_sum
-        self.sad_out['SAD'][szi,:] = sad.astype('float16')
-
-      # compare reference to alternative via mean log division
-      if 'SAR' in self.stats:
-        sar = np.log2(alt_preds_sum + self.log_pseudo) \
-                       - np.log2(ref_preds_sum + self.log_pseudo)
-        self.sad_out['SAR'][szi,:] = sar.astype('float16')
-
-      # compare geometric means
-      if 'geoSAD' in self.stats:
-        sar_vec = np.log2(alt_preds.astype('float64') + self.log_pseudo) \
-                    - np.log2(ref_preds.astype('float64') + self.log_pseudo)
-        geo_sad = sar_vec.sum(axis=0)
-        self.sad_out['geoSAD'][szi,:] = geo_sad.astype('float16')
-
-      if szi % 32 == 0:
-        gc.collect()
-
-      # communicate finished task
-      self.queue.task_done()
 
 
 def make_alt_1hot(ref_1hot, snp_seq_pos, ref_allele, alt_allele):

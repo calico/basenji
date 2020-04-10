@@ -12,30 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-
 from __future__ import print_function
+import pdb
 
-import basenji
+import numpy as np
+import tensorflow as tf
 
-class PredStream:
+from basenji import dna_io
+
+
+class PredStreamGen:
   """ Interface to acquire predictions via a buffered stream mechanism
-         rather than getting them all at once and using excessive memory. """
-
-  def __init__(self, sess, model, stream_length, verbose=False):
-    self.sess = sess
+        rather than getting them all at once and using excessive memory.
+        Accepts generator and constructs stream batches from it. """
+  def __init__(self, model, seqs_gen, batch_size, stream_seqs=128, verbose=False):
     self.model = model
+    self.seqs_gen = seqs_gen
+    self.stream_seqs = stream_seqs
+    self.batch_size = batch_size
     self.verbose = verbose
 
     self.stream_start = 0
     self.stream_end = 0
 
-    if stream_length % self.model.hp.batch_size != 0:
-      print(
-          'Make the stream length a multiple of the batch size',
-          file=sys.stderr)
-      exit(1)
-    else:
-      self.stream_batches = stream_length // self.model.hp.batch_size
 
   def __getitem__(self, i):
     # acquire predictions, if needed
@@ -47,98 +46,65 @@ class PredStream:
         print('Predicting from %d' % self.stream_start, flush=True)
 
       # predict
-      self.stream_preds = self.model.predict_tfr(self.sess,
-                                                test_batches=self.stream_batches)
+      self.stream_preds = self.model.predict(self.make_dataset())
 
       # update end
       self.stream_end = self.stream_start + self.stream_preds.shape[0]
 
     return self.stream_preds[i - self.stream_start]
 
+  def make_dataset(self):
+    """ Construct Dataset object for this stream chunk. """
+    seqs_1hot = []
+    stream_end = self.stream_start+self.stream_seqs
+    for si in range(self.stream_start, stream_end):
+      try:
+        seqs_1hot.append(self.seqs_gen.__next__())
+      except StopIteration:
+        continue
 
-class PredStreamFeed:
+    seqs_1hot = np.array(seqs_1hot)
+
+    dataset = tf.data.Dataset.from_tensor_slices((seqs_1hot,))
+    dataset = dataset.batch(self.batch_size)
+    return dataset
+
+
+class PredStreamIter:
   """ Interface to acquire predictions via a buffered stream mechanism
-         rather than getting them all at once and using excessive memory. """
-
-  def __init__(self, sess, model, seqs_1hot, stream_length):
-    self.sess = sess
+        rather than getting them all at once and using excessive memory.
+        Accepts iterator and constructs stream batches from it.
+        [I don't recall whether I've ever gotten this one working."""
+  def __init__(self, model, dataset_iter, stream_seqs=128, verbose=False):
     self.model = model
+    self.dataset_iter = dataset_iter
+    self.stream_seqs = stream_seqs
+    self.verbose = verbose
 
-    self.seqs_1hot = seqs_1hot
-
-    self.stream_length = stream_length
     self.stream_start = 0
     self.stream_end = 0
 
-    if self.stream_length % self.model.hp.batch_size != 0:
-      print(
-          'Make the stream length a multiple of the batch size',
-          file=sys.stderr)
-      exit(1)
 
   def __getitem__(self, i):
     # acquire predictions, if needed
     if i >= self.stream_end:
+      # update start
       self.stream_start = self.stream_end
-      self.stream_end = min(self.stream_start + self.stream_length,
-                            self.seqs_1hot.shape[0])
 
-      # subset sequences
-      stream_seqs_1hot = self.seqs_1hot[self.stream_start:self.stream_end]
-
-      # initialize batcher
-      batcher = basenji.batcher.Batcher(
-          stream_seqs_1hot, batch_size=self.model.hp.batch_size)
+      if self.verbose:
+        print('Predicting from %d' % self.stream_start, flush=True)
 
       # predict
-      self.stream_preds = self.model.predict(self.sess, batcher, rc_avg=False)
+      self.stream_preds = self.model.predict(self.fetch_batch())
+
+      # update end
+      self.stream_end = self.stream_start + self.stream_preds.shape[0]
 
     return self.stream_preds[i - self.stream_start]
 
-
-class PredGradStream:
-  """ Interface to acquire predictions and gradients via a buffered stream
-
-         mechanism rather than getting them all at once and using excessive
-         memory.
-  """
-
-  def __init__(self, sess, model, seqs_1hot, stream_length):
-    self.sess = sess
-    self.model = model
-
-    self.seqs_1hot = seqs_1hot
-
-    self.stream_length = stream_length
-    self.stream_start = 0
-    self.stream_end = 0
-
-    if self.stream_length % self.model.hp.batch_size != 0:
-      print(
-          'Make the stream length a multiple of the batch size',
-          file=sys.stderr)
-      exit(1)
-
-  def __getitem__(self, i):
-    # acquire predictions, if needed
-    if i >= self.stream_end:
-      self.stream_start = self.stream_end
-      self.stream_end = min(self.stream_start + self.stream_length,
-                            self.seqs_1hot.shape[0])
-
-      # subset sequences
-      stream_seqs_1hot = self.seqs_1hot[self.stream_start:self.stream_end]
-
-      # initialize batcher
-      batcher = basenji.batcher.Batcher(
-          stream_seqs_1hot, batch_size=self.model.hp.batch_size)
-
-      # predict
-      self.stream_grads, self.stream_preds = self.model.gradients(
-          self.sess, batcher, layers=[0], return_preds=True)
-
-      # take first layer
-      self.stream_grads = self.stream_grads[0]
-
-    return self.stream_preds[i - self.stream_start], self.stream_grads[
-        i - self.stream_start]
+  def fetch_batch(self):
+    """Fetch a batch of data from the dataset iterator."""
+    x = [next(self.dataset_iter)]
+    while x[-1] and len(x) < self.stream_seqs:
+      x.append(next(self.dataset_iter))
+    return x

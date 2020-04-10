@@ -16,31 +16,33 @@
 
 from __future__ import print_function
 from optparse import OptionParser
-import pdb
+import json
 import os
-import random
+import pdb
 import sys
 import time
 
 import h5py
 import joblib
-import matplotlib
-matplotlib.use('PDF')
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pyBigWig
-from scipy.stats import spearmanr, poisson
-import seaborn as sns
+from scipy.stats import poisson
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.metrics import precision_recall_curve, average_precision_score
 import tensorflow as tf
 
-from basenji import batcher
+import matplotlib
+matplotlib.use('PDF')
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from basenji import dataset
-from basenji import params
 from basenji import plots
 from basenji import seqnn
+from basenji import trainer
+
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
 
 """
 basenji_test.py
@@ -56,17 +58,6 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('--ai', dest='accuracy_indexes',
       help='Comma-separated list of target indexes to make accuracy scatter plots.')
-  parser.add_option('-b', dest='track_bed',
-      help='BED file describing regions so we can output BigWig tracks')
-  parser.add_option('--clip', dest='target_clip',
-      default=None, type='float',
-      help='Clip targets and predictions to a maximum value [Default: %default]')
-  parser.add_option('-d', dest='down_sample',
-      default=1, type='int',
-      help='Down sample by taking uniformly spaced positions [Default: %default]')
-  parser.add_option('-g', dest='genome_file',
-      default=None,
-      help='Chromosome length information [Default: %default]')
   parser.add_option('--mc', dest='mc_n',
       default=0, type='int',
       help='Monte carlo test iterations [Default: %default]')
@@ -88,14 +79,9 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
-  parser.add_option('--ti', dest='track_indexes',
-      help='Comma-separated list of target indexes to output BigWig tracks')
   parser.add_option('--tfr', dest='tfr_pattern',
       default='test-*.tfr',
       help='TFR pattern string appended to data_dir [Default: %default]')
-  parser.add_option('-w', dest='pool_width',
-      default=1, type='int',
-      help='Max pool width for regressing nt preds to peak calls [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -111,177 +97,88 @@ def main():
   # parse shifts to integers
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
+  #######################################################
+  # inputs
+
   # read targets
   if options.targets_file is None:
     options.targets_file = '%s/targets.txt' % data_dir
-  targets_df = pd.read_table(options.targets_file, index_col=0)
+  targets_df = pd.read_csv(options.targets_file, index_col=0, sep='\t')
 
   # read model parameters
-  job = params.read_job_params(params_file)
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
+
+  # read data parameters
+  data_stats_file = '%s/statistics.json' % data_dir
+  with open(data_stats_file) as data_stats_open:
+    data_stats = json.load(data_stats_open)
 
   # construct data ops
   tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
-  data_ops, test_init_op, test_dataseq = make_data_ops(job, tfr_pattern_path)
+  eval_data = dataset.SeqDataset(tfr_pattern_path,
+    params_train['batch_size'],
+    data_stats['seq_length'],
+    data_stats['target_length'],
+    tf.estimator.ModeKeys.EVAL)
 
   # initialize model
-  model = seqnn.SeqNN()
-  model.build_from_data_ops(job, data_ops,
-                            ensemble_rc=options.rc,
-                            ensemble_shifts=options.shifts)
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
 
-  # initialize saver
-  saver = tf.train.Saver()
+  #######################################################
+  # evaluate
 
-  with tf.Session() as sess:
-    # start queue runners
-    coord = tf.train.Coordinator()
-    tf.train.start_queue_runners(coord=coord)
+  eval_loss = params_train.get('loss', 'poisson')
 
-    # load variables into session
-    saver.restore(sess, model_file)
+  # evaluate
+  test_loss, test_pr, test_r2 = seqnn_model.evaluate(eval_data, loss=eval_loss)
+  print('')
 
-    # test
-    t0 = time.time()
-    sess.run(test_init_op)
-    test_acc = model.test_tfr(sess, test_dataseq)
+  # print summary statistics
+  print('Test Loss:         %7.5f' % test_loss)
+  print('Test R2:           %7.5f' % test_r2.mean())
+  print('Test PearsonR:     %7.5f' % test_pr.mean())
 
-    test_preds = test_acc.preds
-    test_targets = test_acc.targets
-    print('SeqNN test: %ds' % (time.time() - t0))
+  # write target-level statistics
+  targets_acc_df = pd.DataFrame({
+      'index': targets_df.index,
+      'r2': test_r2,
+      'pearsonr': test_pr,
+      'identifier': targets_df.identifier,
+      'description': targets_df.description
+      })
+  targets_acc_df.to_csv('%s/acc.txt'%options.out_dir, sep='\t',
+                        index=False, float_format='%.5f')
 
-    if options.save:
-      preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
-      preds_h5.create_dataset('preds', data=test_preds)
-      preds_h5.close()
-      targets_h5 = h5py.File('%s/targets.h5' % options.out_dir, 'w')
-      targets_h5.create_dataset('targets', data=test_targets)
-      targets_h5.close()
+  #######################################################
+  # predict?
 
-    # compute stats
-    t0 = time.time()
-    test_r2 = test_acc.r2(clip=options.target_clip)
-    # test_log_r2 = test_acc.r2(log=True, clip=options.target_clip)
-    test_pcor = test_acc.pearsonr(clip=options.target_clip)
-    test_log_pcor = test_acc.pearsonr(log=True, clip=options.target_clip)
-    #test_scor = test_acc.spearmanr()  # too slow; mostly driven by low values
-    print('Compute stats: %ds' % (time.time()-t0))
+  if options.save or options.peaks or options.accuracy_indexes is not None:
+    # compute predictions
+    test_preds = seqnn_model.predict(eval_data)
 
-    # print
-    print('Test Loss:         %7.5f' % test_acc.loss)
-    print('Test R2:           %7.5f' % test_r2.mean())
-    # print('Test log R2:       %7.5f' % test_log_r2.mean())
-    print('Test PearsonR:     %7.5f' % test_pcor.mean())
-    print('Test log PearsonR: %7.5f' % test_log_pcor.mean())
-    # print('Test SpearmanR:    %7.5f' % test_scor.mean())
+    # read targets
+    test_targets = eval_data.numpy(return_inputs=False)
 
-    acc_out = open('%s/acc.txt' % options.out_dir, 'w')
-    for ti in range(len(test_r2)):
-      print('%4d  %7.5f  %.5f  %.5f  %.5f  %10s  %s' %
-              (ti, test_acc.target_losses[ti], test_r2[ti], test_pcor[ti], test_log_pcor[ti],
-               targets_df.identifier.iloc[ti], targets_df.description.iloc[ti]),
-            file=acc_out)
-    acc_out.close()
+  if options.save:
+    preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
+    preds_h5.create_dataset('preds', data=test_preds)
+    preds_h5.close()
+    targets_h5 = h5py.File('%s/targets.h5' % options.out_dir, 'w')
+    targets_h5.create_dataset('targets', data=test_targets)
+    targets_h5.close()
 
-    # print normalization factors
-    target_means = test_preds.mean(axis=(0,1), dtype='float64')
-    target_means_median = np.median(target_means)
-    # target_means /= target_means_median
-    norm_out = open('%s/normalization.txt' % options.out_dir, 'w')
-    # print('\n'.join([str(tu) for tu in target_means]), file=norm_out)
-    for ti in range(len(target_means)):
-      print(ti, target_means[ti], target_means_median/target_means[ti], file=norm_out)
-    norm_out.close()
-
-    # clean up
-    del test_acc
 
   #######################################################
   # peak call accuracy
 
   if options.peaks:
-    # sample every few bins to decrease correlations
-    ds_indexes = np.arange(0, test_preds.shape[1], 8)
-    # ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
-    # ds_indexes_targets = ds_indexes_preds + (model.hp.batch_buffer // model.hp.target_pool)
-
-    aurocs = []
-    auprcs = []
-
-    peaks_out = open('%s/peaks.txt' % options.out_dir, 'w')
-    for ti in range(test_targets.shape[2]):
-      test_targets_ti = test_targets[:, :, ti]
-
-      # subset and flatten
-      test_targets_ti_flat = test_targets_ti[:, ds_indexes].flatten(
-      ).astype('float32')
-      test_preds_ti_flat = test_preds[:, ds_indexes, ti].flatten().astype(
-          'float32')
-
-      # call peaks
-      test_targets_ti_lambda = np.mean(test_targets_ti_flat)
-      test_targets_pvals = 1 - poisson.cdf(
-          np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda)
-      test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
-      test_targets_peaks = test_targets_qvals < 0.01
-
-      if test_targets_peaks.sum() == 0:
-        aurocs.append(0.5)
-        auprcs.append(0)
-
-      else:
-        # compute prediction accuracy
-        aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
-        auprcs.append(
-            average_precision_score(test_targets_peaks, test_preds_ti_flat))
-
-      print('%4d  %6d  %.5f  %.5f' % (ti, test_targets_peaks.sum(),
-                                      aurocs[-1], auprcs[-1]),
-                                      file=peaks_out)
-
-    peaks_out.close()
-
-    print('Test AUROC:     %7.5f' % np.mean(aurocs))
-    print('Test AUPRC:     %7.5f' % np.mean(auprcs))
-
-
-  #######################################################
-  # BigWig tracks
-
-  # NOTE: THESE ASSUME THERE WAS NO DOWN-SAMPLING ABOVE
-
-  # print bigwig tracks for visualization
-  if options.track_bed:
-    if options.genome_file is None:
-      parser.error('Must provide genome file in order to print valid BigWigs')
-
-    if not os.path.isdir('%s/tracks' % options.out_dir):
-      os.mkdir('%s/tracks' % options.out_dir)
-
-    track_indexes = range(test_preds.shape[2])
-    if options.track_indexes:
-      track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
-
-    for ti in track_indexes:
-      test_targets_ti = test_targets[:, :, ti]
-
-      # make true targets bigwig
-      bw_file = '%s/tracks/t%d_true.bw' % (options.out_dir, ti)
-      bigwig_write(
-          bw_file,
-          test_targets_ti,
-          options.track_bed,
-          options.genome_file,
-          model.hp.batch_buffer)
-      # buffer unnecessary, but there are overlaps without it
-
-      # make predictions bigwig
-      bw_file = '%s/tracks/t%d_preds.bw' % (options.out_dir, ti)
-      bigwig_write(
-          bw_file,
-          test_preds[:, :, ti],
-          options.track_bed,
-          options.genome_file,
-          model.hp.batch_buffer)
+    peaks_out_file = '%s/peaks.txt' % options.out_dir
+    test_peaks(test_preds, test_targets, peaks_out_file)
 
 
   #######################################################
@@ -423,106 +320,50 @@ def ben_hoch(p_values):
   return q_values
 
 
-def bigwig_open(bw_file, genome_file):
-  """ Open the bigwig file for writing and write the header. """
+def test_peaks(test_preds, test_targets, peaks_out_file):
+    # sample every few bins to decrease correlations
+    ds_indexes = np.arange(0, test_preds.shape[1], 8)
+    # ds_indexes_preds = np.arange(0, test_preds.shape[1], 8)
+    # ds_indexes_targets = ds_indexes_preds + (model.hp.batch_buffer // model.hp.target_pool)
 
-  bw_out = pyBigWig.open(bw_file, 'w')
+    aurocs = []
+    auprcs = []
 
-  chrom_sizes = []
-  for line in open(genome_file):
-    a = line.split()
-    chrom_sizes.append((a[0], int(a[1])))
+    peaks_out = open(peaks_out_file, 'w')
+    for ti in range(test_targets.shape[2]):
+      test_targets_ti = test_targets[:, :, ti]
 
-  bw_out.addHeader(chrom_sizes)
+      # subset and flatten
+      test_targets_ti_flat = test_targets_ti[:, ds_indexes].flatten(
+      ).astype('float32')
+      test_preds_ti_flat = test_preds[:, ds_indexes, ti].flatten().astype(
+          'float32')
 
-  return bw_out
+      # call peaks
+      test_targets_ti_lambda = np.mean(test_targets_ti_flat)
+      test_targets_pvals = 1 - poisson.cdf(
+          np.round(test_targets_ti_flat) - 1, mu=test_targets_ti_lambda)
+      test_targets_qvals = np.array(ben_hoch(test_targets_pvals))
+      test_targets_peaks = test_targets_qvals < 0.01
 
+      if test_targets_peaks.sum() == 0:
+        aurocs.append(0.5)
+        auprcs.append(0)
 
-def bigwig_write(bw_file,
-                 signal_ti,
-                 track_bed,
-                 genome_file,
-                 buffer=0,
-                 bed_set=None):
-  """ Write a signal track to a BigWig file over the regions
-         specified by track_bed.
+      else:
+        # compute prediction accuracy
+        aurocs.append(roc_auc_score(test_targets_peaks, test_preds_ti_flat))
+        auprcs.append(
+            average_precision_score(test_targets_peaks, test_preds_ti_flat))
 
-    Args
-     bw_file:     BigWig filename
-     signal_ti:   Sequences X Length array for some target
-     track_bed:   BED file specifying sequence coordinates
-     genome_file: Chromosome lengths file
-     buffer:      Length skipped on each side of the region.
-     bed_set:     Filter BED file for train/valid/test
-    """
+      print('%4d  %6d  %.5f  %.5f' % (ti, test_targets_peaks.sum(),
+                                      aurocs[-1], auprcs[-1]),
+                                      file=peaks_out)
 
-  bw_out = bigwig_open(bw_file, genome_file)
+    peaks_out.close()
 
-  si = 0
-  bw_hash = {}
-
-  # set entries
-  for line in open(track_bed):
-    a = line.split()
-    if bed_set is None or a[3] == bed_set:
-      chrom = a[0]
-      start = int(a[1])
-      end = int(a[2])
-
-      preds_pool = (end - start - 2 * buffer) // signal_ti.shape[1]
-
-      bw_start = start + buffer
-      for li in range(signal_ti.shape[1]):
-        bw_end = bw_start + preds_pool
-        bw_hash.setdefault((chrom,bw_start,bw_end),[]).append(signal_ti[si,li])
-        bw_start = bw_end
-
-      si += 1
-
-  # average duplicates
-  bw_entries = []
-  for bw_key in bw_hash:
-    bw_signal = np.mean(bw_hash[bw_key])
-    bwe = tuple(list(bw_key)+[bw_signal])
-    bw_entries.append(bwe)
-
-  # sort entries
-  bw_entries.sort()
-
-  # add entries
-  for line in open(genome_file):
-    chrom = line.split()[0]
-
-    bw_entries_chroms = [be[0] for be in bw_entries if be[0] == chrom]
-    bw_entries_starts = [be[1] for be in bw_entries if be[0] == chrom]
-    bw_entries_ends = [be[2] for be in bw_entries if be[0] == chrom]
-    bw_entries_values = [float(be[3]) for be in bw_entries if be[0] == chrom]
-
-    if len(bw_entries_chroms) > 0:
-      bw_out.addEntries(
-          bw_entries_chroms,
-          bw_entries_starts,
-          ends=bw_entries_ends,
-          values=bw_entries_values)
-
-  bw_out.close()
-
-
-def make_data_ops(job, tfr_pattern):
-  def make_dataset(pat, mode):
-    return dataset.DatasetSeq(
-      tfr_pattern,
-      job['batch_size'],
-      job['seq_length'],
-      job['target_length'],
-      mode=mode)
-
-  test_dataseq = make_dataset(tfr_pattern, mode=tf.estimator.ModeKeys.EVAL)
-  test_dataseq.make_iterator_structure()
-  data_ops = test_dataseq.iterator.get_next()
-  test_init_op = test_dataseq.make_initializer()
-
-  return data_ops, test_init_op, test_dataseq
+    print('Test AUROC:     %7.5f' % np.mean(aurocs))
+    print('Test AUPRC:     %7.5f' % np.mean(auprcs))
 
 
 ################################################################################

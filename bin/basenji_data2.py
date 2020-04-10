@@ -17,8 +17,9 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import collections
-import heapq
 import gzip
+import heapq
+import json
 import math
 import pdb
 import os
@@ -59,9 +60,9 @@ def main():
   parser.add_option('--break', dest='break_t',
       default=None, type='int',
       help='Break in half contigs above length [Default: %default]')
-  # parser.add_option('-c', dest='clip',
-  #     default=None, type='float',
-  #     help='Clip target values to have minimum [Default: %default]')
+  parser.add_option('-c','--crop', dest='crop_bp',
+      default=0, type='int',
+      help='Crop bp off each end [Default: %default]')
   parser.add_option('-d', dest='sample_pct',
       default=1.0, type='float',
       help='Down-sample the segments')
@@ -141,7 +142,10 @@ def main():
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
 
-  if not os.path.isdir(options.out_dir):
+  if os.path.isdir(options.out_dir) and not options.restart:
+    print('Remove output directory %s or use --restart option.' % options.out_dir)
+    exit(1)
+  elif not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
   if options.gap_files is not None:
@@ -315,6 +319,25 @@ def main():
   else:
     slurm.multi_run(write_jobs, options.processes, verbose=True,
                     launch_sleep=1, update_sleep=5)
+
+  ################################################################
+  # stats
+  ################################################################
+  stats_dict = {}
+  # stats_dict['num_targets'] = targets_df.shape[0]
+  # stats_dict['train_seqs'] = len(train_mseqs)
+  # stats_dict['valid_seqs'] = len(valid_mseqs)
+  # stats_dict['test_seqs'] = len(test_mseqs)
+  stats_dict['seq_length'] = options.seq_length
+  stats_dict['pool_width'] = options.pool_width
+  stats_dict['crop_bp'] = options.crop_bp
+
+  target_length = options.seq_length - 2*options.crop_bp
+  target_length = target_length // options.pool_width
+  stats_dict['target_length'] = target_length
+
+  with open('%s/statistics.json' % options.out_dir, 'w') as stats_json_out:
+    json.dump(stats_dict, stats_json_out, indent=4)
 
 
 ################################################################################
@@ -761,6 +784,7 @@ def make_read_jobs(seqs_bed_file, targets_df, gi, seqs_cov_dir, options):
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
+      cmd += ' --crop %d' % options.crop_bp
       cmd += ' -u %s' % targets_df_gi['sum_stat'].iloc[ti]
       cmd += ' -w %d' % options.pool_width
       if clip_ti is not None:

@@ -60,11 +60,17 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('--stats', dest='sad_stats',
+      default='sum',
+      help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
 
   # _multi.py options
+  parser.add_option('--max_proc', dest='max_proc',
+      default=None, type='int',
+      help='Maximum concurrent processes [Default: %default]')
   parser.add_option('-n', dest='name',
       default='sat',
       help='SLURM job name prefix [Default: %default]')
@@ -109,7 +115,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.14-gpu;'
+      cmd += ' conda activate tf1.15-gpu2;'
 
       cmd += ' basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
@@ -122,19 +128,20 @@ def main():
           mem=30000, time='14-0:0:0')
       jobs.append(j)
 
-  slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
+  slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
   #######################################################
   # collect output
 
-  collect_h5(options.out_dir, options.processes)
+  sad_stat = options.sad_stats.split(',')[0]
+  collect_h5(options.out_dir, options.processes, sad_stat)
 
   # for pi in range(options.processes):
   #     shutil.rmtree('%s/job%d' % (options.out_dir,pi))
 
 
-def collect_h5(out_dir, num_procs):
+def collect_h5(out_dir, num_procs, sad_stat):
   h5_file = 'scores.h5'
 
   # count sequences
@@ -143,9 +150,9 @@ def collect_h5(out_dir, num_procs):
     # open job
     job_h5_file = '%s/job%d/%s' % (out_dir, pi, h5_file)
     job_h5_open = h5py.File(job_h5_file, 'r')
-    num_seqs += job_h5_open['scores'].shape[0]
-    seq_len = job_h5_open['scores'].shape[1]
-    num_targets = job_h5_open['scores'].shape[-1]
+    num_seqs += job_h5_open[sad_stat].shape[0]
+    seq_len = job_h5_open[sad_stat].shape[1]
+    num_targets = job_h5_open[sad_stat].shape[-1]
     job_h5_open.close()
 
   # initialize final h5

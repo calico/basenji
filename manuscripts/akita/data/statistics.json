@@ -1,0 +1,11 @@
+{
+    "num_targets": 5,
+    "train_seqs": 7008,
+    "valid_seqs": 419,
+    "test_seqs": 413,
+    "seq_length": 1048576,
+    "pool_width": 2048,
+    "crop_bp": 65536,
+    "diagonal_offset": 2,
+    "target_length": 99681
+}

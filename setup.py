@@ -1,3 +1,4 @@
+from pathlib import Path
 from setuptools import setup, find_packages
 
 with open('README.md') as f:
@@ -8,7 +9,7 @@ with open('LICENSE') as f:
 
 setup(
     name='basenji',
-    version='0.0.1',
+    version='0.1',
     description='Sequential regulatory activity machine learning',
     long_description=readme,
     author='David Kelley',
@@ -17,11 +18,7 @@ setup(
     license=license,
     packages=find_packages(exclude=('tests', 'docs')),
     install_requires=[
-        'h5py', 'joblib', 'matplotlib', 'networkx', 'numpy', 'pandas',
-        'pillow', 'pyBigWig', 'pysam', 'pybedtools', 'scipy', 'seaborn',
-        'scikit-learn', 'statsmodels', 'tensorflow'
-    ])
-
-# fetch
-# google-cloud-bigquery
-# pip install dash dash-renderer dash-html-components dash-core-components dash-table-experiments plotly
+        l.strip() for l in
+        Path('requirements.txt').read_text('utf-8').splitlines()
+    ]
+)

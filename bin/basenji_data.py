@@ -56,7 +56,7 @@ def main():
   parser.add_option('--break', dest='break_t',
       default=786432, type='int',
       help='Break in half contigs above length [Default: %default]')
-  parser.add_option('--crop', dest='crop_bp',
+  parser.add_option('-c','--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
   parser.add_option('-d', dest='sample_pct',
@@ -64,6 +64,9 @@ def main():
       help='Down-sample the segments')
   parser.add_option('-g', dest='gaps_file',
       help='Genome assembly gaps BED [Default: %default]')
+  parser.add_option('-i', dest='interp_nan',
+      default=False, action='store_true',
+      help='Interpolate NaNs [Default: %default]') 
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
@@ -113,6 +116,9 @@ def main():
   parser.add_option('-v', dest='valid_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for validation [Default: %default]')
+  parser.add_option('--snap', dest='snap',
+      default=None, type='int',
+      help='Snap sequences to multiple of the given value [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -136,7 +142,18 @@ def main():
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
 
-  if not os.path.isdir(options.out_dir):
+  if options.snap is not None:
+    if np.mod(options.seq_length, options.snap) != 0: 
+      raise ValueError('seq_length must be a multiple of snap')
+    if np.mod(options.stride_train, options.snap) != 0: 
+      raise ValueError('stride_train must be a multiple of snap')
+    if np.mod(options.stride_test, options.snap) != 0:
+      raise ValueError('stride_test must be a multiple of snap')
+
+  if os.path.isdir(options.out_dir) and not options.restart:
+    print('Remove output directory %s or use --restart option.' % options.out_dir)
+    exit(1)
+  elif not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
   ################################################################
@@ -201,12 +218,9 @@ def main():
   # define model sequences
   ################################################################
   # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length,
-                                 options.stride_train, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length,
-                                 options.stride_test, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length,
-                                options.stride_test, label='test')
+  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
+  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap, label='valid')
+  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap, label='test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -253,7 +267,7 @@ def main():
   # read sequence coverage values
   ################################################################
   # read target datasets
-  targets_df = pd.read_table(targets_file, index_col=0)
+  targets_df = pd.read_csv(targets_file, index_col=0, sep='\t')
 
   seqs_cov_dir = '%s/seqs_cov' % options.out_dir
   if not os.path.isdir(seqs_cov_dir):
@@ -278,7 +292,7 @@ def main():
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
-      cmd += ' --crop %d' % options.crop_bp
+      cmd += ' --crop %d' % options.crop_bp      
       cmd += ' -w %d' % options.pool_width
       cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
@@ -288,12 +302,15 @@ def main():
       cmd += ' -s %f' % scale_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
+      if options.interp_nan:
+        cmd += ' -i'
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file
 
       if options.run_local:
-        cmd += ' &> %s.err' % seqs_cov_stem
+        # breaks on some OS
+        # cmd += ' &> %s.err' % seqs_cov_stem
         read_jobs.append(cmd)
       else:
         j = slurm.Job(cmd,
@@ -348,7 +365,8 @@ def main():
       cmd += ' %s.tfr' % tfr_stem
 
       if options.run_local:
-        cmd += ' &> %s.err' % tfr_stem
+        # breaks on some OS
+        # cmd += ' &> %s.err' % tfr_stem
         write_jobs.append(cmd)
       else:
         j = slurm.Job(cmd,
@@ -508,12 +526,14 @@ def break_large_contigs(contigs, break_t, verbose=False):
 
 
 ################################################################################
-def contig_sequences(contigs, seq_length, stride, label=None):
+def contig_sequences(contigs, seq_length, stride, snap=None, label=None):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
-
   for ctg in contigs:
-    seq_start = ctg.start
+    if snap is None:
+      seq_start = ctg.start
+    else:
+      seq_start = int(np.ceil(ctg.start/snap)*snap)
     seq_end = seq_start + seq_length
 
     while seq_end < ctg.end:
@@ -523,7 +543,7 @@ def contig_sequences(contigs, seq_length, stride, label=None):
       # update
       seq_start += stride
       seq_end += stride
-
+      
   return mseqs
 
 

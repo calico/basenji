@@ -14,5 +14,5 @@ scipy
 seaborn
 scikit-learn
 statsmodels
-tensorflow==1.15
+tensorflow==1.15.2
 

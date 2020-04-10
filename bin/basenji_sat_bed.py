@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 
+import gc
 import json
 import os
 import pdb
@@ -72,6 +73,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('--stats', dest='sad_stats',
+      default='sum',
+      help='Comma-separated list of stats to save. [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
@@ -106,9 +110,10 @@ def main():
     os.mkdir(options.out_dir)
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
+  options.sad_stats = [sad_stat.lower() for sad_stat in options.sad_stats.split(',')]
 
   #################################################################
-  # read parameters and construct model
+  # read parameters and targets
 
   # read model parameters
   with open(params_file) as params_open:
@@ -116,28 +121,22 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # initialize model
-  seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(model_file)
-  seqnn_model.build_ensemble(options.rc, options.shifts)
-
-  #################################################################
-  # collet target information
-
-  num_targets = seqnn_model.num_targets()
-
+  # read targets
   if options.targets_file is None:
-    target_ids = ['t%d' % ti for ti in range(num_targets)]
-    target_labels = ['']*len(target_ids)
-    target_indexes = np.arange(num_targets)
-
+    target_slice = None
   else:
     targets_df = pd.read_table(options.targets_file, index_col=0)
-    target_ids = targets_df.identifier
-    target_labels = targets_df.description
-    target_indexes = np.array(targets_df.index)
+    target_slice = targets_df.index
 
-  num_targets = len(target_ids)
+  #################################################################
+  # setup model
+
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_slice(target_slice)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  num_targets = seqnn_model.num_targets()
 
   #################################################################
   # sequence dataset
@@ -169,10 +168,11 @@ def main():
   if os.path.isfile(scores_h5_file):
     os.remove(scores_h5_file)
   scores_h5 = h5py.File('%s/scores.h5' % options.out_dir)
-  scores_h5.create_dataset('scores', dtype='float16',
-      shape=(num_seqs, options.mut_len, 4, num_targets))
   scores_h5.create_dataset('seqs', dtype='bool',
       shape=(num_seqs, options.mut_len, 4))
+  for sad_stat in options.sad_stats:
+    scores_h5.create_dataset(sad_stat, dtype='float16',
+        shape=(num_seqs, options.mut_len, 4, num_targets))
 
   # store mutagenesis sequence coordinates
   seqs_chr, seqs_start, _, seqs_strand = zip(*seqs_coords)
@@ -190,12 +190,20 @@ def main():
   score_threads = []
   score_queue = Queue()
   for i in range(1):
-    sw = ScoreWorker(score_queue, scores_h5)
+    sw = ScoreWorker(score_queue, scores_h5, options.sad_stats)
     sw.start()
     score_threads.append(sw)
 
   #################################################################
   # predict scores, write output
+
+  # find center
+  preds_length = seqnn_model.target_lengths[0]
+  center_start = preds_length // 2
+  if preds_length % 2 == 0:
+    center_end = center_start + 2
+  else:
+    center_end = center_start + 1
 
   # initialize predictions stream
   preds_stream = stream.PredStreamGen(seqnn_model, seqs_gen, params['train']['batch_size'])
@@ -207,21 +215,40 @@ def main():
     print('Predicting %d' % si, flush=True)
 
     # collect sequence predictions
-    seq_preds = []
+    seq_preds_sum = []
+    seq_preds_center = []
+    seq_preds_scd = []
+    preds_mut0 = preds_stream[pi]
     for spi in range(preds_per_seq):
-      preds_subset = preds_stream[pi][...,target_indexes]
-      seq_preds.append(preds_subset)
+      preds_mut = preds_stream[pi]
+      preds_sum = preds_mut.sum(axis=0)
+      seq_preds_sum.append(preds_sum)
+      if 'center' in options.sad_stats:
+        preds_center = preds_mut[center_start:center_end,:].sum(axis=0)
+        seq_preds_center.append(preds_center)
+      elif 'scd' in options.sad_stats:
+        preds_scd = np.sqrt(((preds_mut-preds_mut0)**2).sum(axis=0))
+        seq_preds_scd.append(preds_scd)
+      else:
+          print('Unrecognized summary statistic "%s"' % options.sad_stat)
+          exit(1)
       pi += 1
+    seq_preds_sum = np.array(seq_preds_sum)
+    seq_preds_center = np.array(seq_preds_center)
+    seq_preds_scd = np.array(seq_preds_scd)
 
     # wait for previous to finish
     score_queue.join()
 
     # queue sequence for scoring
-    score_queue.put((seqs_dna[si], seq_preds, si))
-
+    seq_pred_stats = (seq_preds_sum, seq_preds_center, seq_preds_scd)
+    score_queue.put((seqs_dna[si], seq_pred_stats, si))
+    
     # queue sequence for plotting
     if options.plots:
-      plot_queue.put((seqs_dna[si], seq_preds, si))
+      plot_queue.put((seqs_dna[si], seq_preds_sum, si))
+
+    gc.collect()
 
   # finish queue
   print('Waiting for threads to finish.', flush=True)
@@ -273,23 +300,23 @@ class PlotWorker(Thread):
 
 class ScoreWorker(Thread):
   """Compute summary statistics and write to HDF."""
-  def __init__(self, score_queue, scores_h5):
+  def __init__(self, score_queue, scores_h5, sad_stats):
     Thread.__init__(self)
     self.queue = score_queue
     self.daemon = True
     self.scores_h5 = scores_h5
+    self.sad_stats = sad_stats
 
   def run(self):
     while True:
       try:
         # unload predictions
-        seq_dna, seq_preds, si = self.queue.get()
+        seq_dna, seq_pred_stats, si = self.queue.get()
+        seq_preds_sum, seq_preds_center, seq_preds_scd = seq_pred_stats
         print('Writing %d' % si, flush=True)
 
-        # seq_preds is (1 + 3*mut_len) x (target_len) x (num_targets)
-        seq_preds = np.array(seq_preds)
-        num_preds = seq_preds.shape[0]
-        num_targets = seq_preds.shape[-1]
+        # seq_preds_sum is (1 + 3*mut_len) x (num_targets)
+        num_preds, num_targets = seq_preds_sum.shape
 
         # reverse engineer mutagenesis position parameters
         mut_len = (num_preds - 1) // 3
@@ -301,33 +328,45 @@ class ScoreWorker(Thread):
         seq_dna_mut = seq_dna[mut_start:mut_end]
         seq_1hot_mut = dna_io.dna_1hot(seq_dna_mut)
 
-        # initialize scores
-        seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
-
-        # sum across length
-        seq_preds_sum = seq_preds.sum(axis=1, dtype='float32')
-
-        # predictions index (starting at first mutagenesis)
-        pi = 1
-
-        # for each mutated position
-        for mi in range(mut_len):
-          # for each nucleotide
-          for ni in range(4):
-            if seq_1hot_mut[mi,ni]:
-              # reference score
-              seq_scores[mi,ni,:] = seq_preds_sum[0,:]
-            else:
-              # mutation score
-              seq_scores[mi,ni,:] = seq_preds_sum[pi,:]
-              pi += 1
-
-        # normalize positions
-        seq_scores -= seq_scores.mean(axis=1, keepdims=True)
-
         # write to HDF5
-        self.scores_h5['scores'][si,:,:,:] = seq_scores.astype('float16')
         self.scores_h5['seqs'][si,:,:] = seq_1hot_mut
+
+        for sad_stat in self.sad_stats:
+          # initialize scores
+          seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
+
+          # summary stat
+          if sad_stat == 'sum':
+            seq_preds_stat = seq_preds_sum
+          elif sad_stat == 'center':
+            seq_preds_stat = seq_preds_center
+          elif sad_stat == 'scd':
+            seq_preds_stat = seq_preds_scd
+          else:
+            print('Unrecognized summary statistic "%s"' % options.sad_stat)
+            exit(1)
+
+          # predictions index (starting at first mutagenesis)
+          pi = 1
+
+          # for each mutated position
+          for mi in range(mut_len):
+            # for each nucleotide
+            for ni in range(4):
+              if seq_1hot_mut[mi,ni]:
+                # reference score
+                seq_scores[mi,ni,:] = seq_preds_stat[0,:]
+              else:
+                # mutation score
+                seq_scores[mi,ni,:] = seq_preds_stat[pi,:]
+                pi += 1
+
+          # normalize positions
+          if sad_stat != 'sqdiff':
+            seq_scores -= seq_scores.mean(axis=1, keepdims=True)
+
+          # write to HDF5
+          self.scores_h5[sad_stat][si,:,:,:] = seq_scores.astype('float16')
 
       except:
         # communicate error

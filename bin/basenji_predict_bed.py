@@ -132,18 +132,11 @@ def main():
     params = json.load(params_open)
   params_model = params['model']
 
-  """
-  num_targets = np.sum(job['num_targets'])
   if options.targets_file is None:
-    target_subset = None
+    target_slice = None
   else:
     targets_df = pd.read_table(options.targets_file, index_col=0)
-    target_subset = targets_df.index
-    if len(target_subset) == num_targets:
-      target_subset = None
-    else:
-      num_targets = len(target_subset)
-  """
+    target_slice = targets_df.index
 
   #################################################################
   # setup model
@@ -151,6 +144,7 @@ def main():
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
+  seqnn_model.build_slice(target_slice)
   seqnn_model.build_ensemble(options.rc, options.shifts)
 
   if options.embed_layer is not None:
@@ -163,8 +157,6 @@ def main():
 
   preds_window = seqnn_model.model_strides[0]
   seq_crop = seqnn_model.target_crops[0]*preds_window
-
-  # target_subset?
 
 
   #################################################################

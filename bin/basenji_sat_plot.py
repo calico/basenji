@@ -72,6 +72,9 @@ def main():
   parser.add_option('-s', dest='sample',
       default=None, type='int',
       help='Sample N sequences from the set [Default:%default]')
+  parser.add_option('--stat', dest='sad_stat',
+      default='sum',
+      help='SAD stat to display [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
@@ -93,15 +96,26 @@ def main():
 
   # open scores
   scores_h5 = h5py.File(scores_h5_file)
+
+  # check for stat
+  if options.sad_stat not in scores_h5:
+    print('%s does not have key %s' % (scores_h5_file, options.sad_stat), file=sys.stderr)
+    exit(1)
+
+  # extract shapes
   num_seqs = scores_h5['seqs'].shape[0]
-  mut_len = scores_h5['scores'].shape[1]
+  mut_len = scores_h5[options.sad_stat].shape[1]
+
+  if options.plot_len > mut_len:
+    print('Decreasing plot_len=%d to maximum %d' % (options.plot_len, mut_len), file=sys.stderr)
+    options.plot_len = mut_len
 
   # determine targets
   if options.targets_file is not None:
     targets_df = pd.read_table(options.targets_file, index_col=0)
     num_targets = targets_df.shape[0]
   else:
-    num_targets = scores_h5['scores'].shape[-1]
+    num_targets = scores_h5[options.sad_stat].shape[-1]
 
   # determine plot region
   mut_mid = mut_len // 2
@@ -123,7 +137,7 @@ def main():
     seq_1hot = scores_h5['seqs'][si,plot_start:plot_end]
 
     # read scores
-    scores = scores_h5['scores'][si,plot_start:plot_end,:,:]
+    scores = scores_h5[options.sad_stat][si,plot_start:plot_end,:,:]
 
     # reference scores
     ref_scores = scores[seq_1hot]
@@ -243,6 +257,7 @@ def plot_heat(ax, sat_delta_ti, min_limit):
         sat_delta_ti (4 x L_sm array): Single target delta matrix for saturated mutagenesis region,
         min_limit (float): Minimum heatmap limit.
     """
+
   vlim = max(min_limit, np.nanmax(np.abs(sat_delta_ti)))
   sns.heatmap(
       sat_delta_ti,

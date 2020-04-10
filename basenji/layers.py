@@ -141,6 +141,139 @@ class Attention(tf.keras.layers.Layer):
     return config
 
 
+class WheezeExcite(tf.keras.layers.Layer):
+  def __init__(self, pool_size):
+    super(WheezeExcite, self).__init__()
+    self.pool_size = pool_size
+    assert(self.pool_size % 2 == 1)
+    self.paddings = [[0,0], [self.pool_size//2, self.pool_size//2], [0,0]]
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+
+    self.wheeze = tf.keras.layers.AveragePooling1D(self.pool_size,
+        strides=1, padding='valid')
+
+    self.excite1 = tf.keras.layers.Dense(
+      units=self.num_channels//4,
+      activation='relu')
+    self.excite2 = tf.keras.layers.Dense(
+      units=self.num_channels,
+      activation='relu')
+
+  def call(self, x):
+    # pad
+    x_pad = tf.pad(x, self.paddings, 'SYMMETRIC')
+
+    # squeeze
+    x_squeeze = self.wheeze(x_pad)
+
+    # excite
+    x_excite = self.excite1(x_squeeze)
+    x_excite = self.excite2(x_excite)
+    x_excite = tf.keras.activations.sigmoid(x_excite)
+
+    # scale
+    xs = x * x_excite
+
+    return xs
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'pool_size': self.pool_size
+    })
+    return config
+
+
+class SqueezeExcite(tf.keras.layers.Layer):
+  def __init__(self, additive=False):
+    super(SqueezeExcite, self).__init__()
+    self.additive = additive
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+
+    if len(input_shape) == 3:
+      self.one_or_two = 'one'
+      self.gap = tf.keras.layers.GlobalAveragePooling1D()
+    elif len(input_shape) == 4:
+      self.one_or_two = 'two'
+      self.gap = tf.keras.layers.GlobalAveragePooling2D()
+    else:
+      print('SqueezeExcite: input dim %d unexpected' % len(input_shape), file=sys.stderr)
+      exit(1)
+
+    self.dense1 = tf.keras.layers.Dense(
+      units=self.num_channels//4,
+      activation='relu')
+    self.dense2 = tf.keras.layers.Dense(
+      units=self.num_channels,
+      activation=None)
+
+  def call(self, x):
+    # squeeze
+    squeeze = self.gap(x)
+
+    # excite
+    excite = self.dense1(squeeze)
+    excite = self.dense2(excite)
+
+    # scale
+    if self.one_or_two == 'one':
+      excite = tf.reshape(excite, [-1,1,self.num_channels])
+    else:
+      excite = tf.reshape(excite, [-1,1,1,self.num_channels])
+
+    if self.additive:
+      xs = x + excite
+      xs = tf.keras.activations.relu(xs)
+    else:
+      excite = tf.keras.activations.sigmoid(excite)
+      xs = x * excite
+
+    return xs
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'additive': self.additive
+    })
+    return config
+
+class GlobalContext(tf.keras.layers.Layer):
+  def __init__(self):
+    super(GlobalContext, self).__init__()
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+
+    self.context_key = tf.keras.layers.Dense(units=1, activation=None)
+
+    self.dense1 = tf.keras.layers.Dense(units=self.num_channels//4)
+    self.ln = tf.keras.layers.LayerNormalization()
+    self.dense2 = tf.keras.layers.Dense(units=self.num_channels)
+
+  def call(self, x):
+    # context attention
+    keys = self.context_key(x) # [batch x length x 1]
+    attention = tf.keras.activations.softmax(keys, axis=-2) # [batch x length x 1]
+
+    # context summary 
+    context = x * attention # [batch x length x channels]
+    context = tf.keras.backend.sum(context, axis=-2, keepdims=True) # [batch x 1 x channels]
+
+    # transform
+    transform = self.dense1(context) # [batch x 1 x channels/4]
+    transform = tf.keras.activations.relu(self.ln(transform)) # [batch x 1 x channels/4]
+    transform = self.dense2(transform) # [batch x 1 x channels]
+    # transform = tf.reshape(transform, [-1,1,self.num_channels])
+
+    # fusion
+    xs = x + transform # [batch x length x channels]
+
+    return xs
+
 ############################################################
 # Position
 ############################################################

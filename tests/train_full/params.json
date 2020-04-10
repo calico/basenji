@@ -36,6 +36,10 @@
                 "repeat": 6
             },
 	    {
+		"name": "wheeze_excite",
+		"pool_size": 129
+	    },
+	    {
                 "name": "dilated_residual",
                 "filters": 192,
                 "rate_mult": 1.75,

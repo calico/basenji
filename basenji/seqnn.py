@@ -211,17 +211,18 @@ class SeqNN():
 
   def build_slice(self, target_slice=None):
     if target_slice is not None:
-      # sequence input
-      sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+      if len(target_slice) < self.num_targets():
+        # sequence input
+        sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
 
-      # predict
-      predictions = self.model(sequence)
+        # predict
+        predictions = self.model(sequence)
 
-      # slice
-      predictions_slice = tf.gather(predictions, target_slice, axis=-1)
+        # slice
+        predictions_slice = tf.gather(predictions, target_slice, axis=-1)
 
-      # replace model
-      self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
+        # replace model
+        self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
 
 
   def evaluate(self, seq_data, head_i=0, loss='poisson'):
@@ -263,8 +264,11 @@ class SeqNN():
     return weights
 
 
-  def num_targets(self, head_i=0):
-    return self.models[head_i].output_shape[-1]
+  def num_targets(self, head_i=None):
+    if head_i is None:
+      return self.model.output_shape[-1]
+    else:
+      return self.models[head_i].output_shape[-1]
 
 
   def predict(self, seq_data, head_i=0, generator=False, **kwargs):

@@ -56,8 +56,8 @@ def main():
   parser.add_option('-l', dest='satmut_len',
       default=200, type='int',
       help='Length of centered sequence to mutate [Default: %default]')
-  parser.add_option('--min', dest='min_limit',
-      default=0.01, type='float',
+  parser.add_option('-m', dest='min_limit',
+      default=0.1, type='float',
       help='Minimum heatmap limit [Default: %default]')
   parser.add_option('-n', dest='load_sat_npy',
       default=False, action='store_true',
@@ -162,6 +162,7 @@ def main():
     # compute the matrix of prediction deltas: (L_sm x 4 x T) array
     sat_scores = score_matrix(seqs_1hot[si], sat_preds)
 
+    # plot max per position
     sat_max = sat_scores.max(axis=1)
 
     ##############################################
@@ -189,25 +190,32 @@ def main():
       plot_scd(ax_sad, sat_max[:, ti])
 
       # plot heat map
-      plot_heat(ax_heat, sat_scores[:,:,ti])
+      plot_heat(ax_heat, sat_scores[:,:,ti], options.min_limit)
       
       plt.savefig('%s/%s_t%d.pdf' % (options.out_dir, header_fs, ti), dpi=600)
       plt.close()
 
 
-def plot_heat(ax, sat_score_ti):
+def plot_heat(ax, sat_score_ti, min_limit=None):
   """ Plot satmut deltas.
 
     Args:
         ax (Axis): matplotlib axis to plot to.
         sat_delta_ti (L_sm x 4 array): Single target delta matrix for saturated mutagenesis region,
     """
+
+  if np.max(sat_score_ti) < min_limit:
+    vmax = min_limit
+  else:
+    vmax = None
+
   sns.heatmap(
       sat_score_ti.T,
       linewidths=0,
       xticklabels=False,
       yticklabels=False,
       cmap='Blues',
+      vmax=vmax,
       ax=ax)
 
   # yticklabels break the plot for some reason
@@ -260,7 +268,7 @@ def score_matrix(seq_1hot, sat_preds):
         seq_scores[mi,ni,:] = ((sat_preds[pi] - sat_preds[0])**2).sum(axis=0)
         pi += 1
 
-  # transforms
+  # transform
   seq_scores = np.log1p(np.sqrt(seq_scores))
 
   return seq_scores

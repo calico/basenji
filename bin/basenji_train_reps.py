@@ -55,10 +55,20 @@ def main():
       help='Evaluation TFRecord pattern string appended to data_dir [Default: %default]')
   parser.add_option_group(train_options)
 
+  # test
+  test_options = OptionGroup(parser, 'basenji_test.py options')
+  test_options.add_option('--rc', dest='rc',
+      default=False, action='store_true',
+      help='Average forward and reverse complement predictions [Default: %default]')
+  test_options.add_option('--shifts', dest='shifts',
+      default='0', type='str',
+      help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option_group(test_options)
+
   # multi
   rep_options = OptionGroup(parser, 'replication options')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf1.15-gpu2',
+      default='tf1.15-gpu',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('--name', dest='name',
       default='reps', help='SLURM name prefix [Default: %default]')
@@ -98,8 +108,7 @@ def main():
     cmd += ' conda activate %s;' % options.conda_env
     cmd += ' echo $HOSTNAME;'
 
-    # TEMP path!
-    cmd += ' /home/drk/code/basenji2/bin/basenji_train.py' 
+    cmd += ' basenji_train.py' 
     cmd += ' %s' % options_string(options, train_options, '%s/train'%rep_dir)
     cmd += ' %s %s' % (params_file, data_dir)
 
@@ -129,8 +138,11 @@ def main():
     cmd += ' conda activate %s;' % options.conda_env
     cmd += ' echo $HOSTNAME;'
 
-    cmd += ' /home/drk/code/basenji2/bin/basenji_test.py' 
-    cmd += ' --rc'
+    cmd += ' basenji_test.py'
+    if test_options.rc:
+      cmd += ' --rc'
+    if test_options.shifts:
+    	cmd += ' --shifts %s' % test_options.shifts
     cmd += ' -o %s' % test_dir
     cmd += ' --tfr "train-*.tfr"'
     cmd += ' %s %s/train/model_check.h5 %s' % (params_file, rep_dir, data_dir)
@@ -157,8 +169,11 @@ def main():
     cmd += ' conda activate %s;' % options.conda_env
     cmd += ' echo $HOSTNAME;'
 
-    cmd += ' /home/drk/code/basenji2/bin/basenji_test.py' 
-    cmd += ' --rc --shifts "1,0,-1"'
+    cmd += ' basenji_test.py'
+    if test_options.rc:
+      cmd += ' --rc'
+    if test_options.shifts:
+    	cmd += ' --shifts %s' % test_options.shifts
     cmd += ' -o %s' % test_dir
     cmd += ' %s %s/train/model_best.h5 %s' % (params_file, rep_dir, data_dir)
 
@@ -184,8 +199,11 @@ def main():
     cmd += ' conda activate %s;' % options.conda_env
     cmd += ' echo $HOSTNAME;'
 
-    cmd += ' /home/drk/code/basenji2/bin/basenji_test_specificity.py' 
-    cmd += ' --rc --shifts "1,0,-1"'
+    cmd += ' basenji_test_specificity.py'
+    if test_options.rc:
+      cmd += ' --rc'
+    if test_options.shifts:
+    	cmd += ' --shifts %s' % test_options.shifts
     cmd += ' -o %s' % test_dir
     cmd += ' %s %s/train/model_best.h5 %s' % (params_file, rep_dir, data_dir)
 

@@ -219,9 +219,9 @@ def main():
 
   except (ValueError, AssertionError):
     # divide by chr
-    valid_chr = options.valid_pct_or_chr
-    test_chr = options.test_pct_or_chr
-    contig_sets = divide_contigs_chr(contigs, test_chr, valid_chr)
+    valid_chrs = options.valid_pct_or_chr.split(',')
+    test_chrs = options.test_pct_or_chr.split(',')
+    contig_sets = divide_contigs_chr(contigs, test_chrs, valid_chrs)
 
   train_contigs, valid_contigs, test_contigs = contig_sets
 

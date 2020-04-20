@@ -203,9 +203,9 @@ def main():
 
   except (ValueError, AssertionError):
     # divide by chr
-    valid_chr = options.valid_pct_or_chr
-    test_chr = options.test_pct_or_chr
-    contig_sets = divide_contigs_chr(contigs, test_chr, valid_chr)
+    valid_chrs = options.valid_pct_or_chr.split(',')
+    test_chrs = options.test_pct_or_chr.split(',')
+    contig_sets = divide_contigs_chr(contigs, test_chrs, valid_chrs)
 
   train_contigs, valid_contigs, test_contigs = contig_sets
 
@@ -621,7 +621,7 @@ def divide_contigs_pct(contigs, test_pct, valid_pct, pct_abstain=0.2):
 
 
 ################################################################################
-def divide_contigs_chr(contigs, test_chr, valid_chr):
+def divide_contigs_chr(contigs, test_chrs, valid_chrs):
   """Divide list of contigs into train/valid/test lists
      by chromosome."""
 
@@ -639,10 +639,10 @@ def divide_contigs_chr(contigs, test_chr, valid_chr):
   for ctg in contigs:
     ctg_len = ctg.end - ctg.start
 
-    if ctg.chr == test_chr:
+    if ctg.chr in test_chrs:
       test_contigs.append(ctg)
       test_nt += ctg_len
-    elif ctg.chr == valid_chr:
+    elif ctg.chr in valid_chrs:
       valid_contigs.append(ctg)
       valid_nt += ctg_len
     else:

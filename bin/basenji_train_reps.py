@@ -139,10 +139,10 @@ def main():
     cmd += ' echo $HOSTNAME;'
 
     cmd += ' basenji_test.py'
-    if test_options.rc:
+    if options.rc:
       cmd += ' --rc'
-    if test_options.shifts:
-    	cmd += ' --shifts %s' % test_options.shifts
+    if options.shifts:
+    	cmd += ' --shifts %s' % options.shifts
     cmd += ' -o %s' % test_dir
     cmd += ' --tfr "train-*.tfr"'
     cmd += ' %s %s/train/model_check.h5 %s' % (params_file, rep_dir, data_dir)
@@ -170,10 +170,10 @@ def main():
     cmd += ' echo $HOSTNAME;'
 
     cmd += ' basenji_test.py'
-    if test_options.rc:
+    if options.rc:
       cmd += ' --rc'
-    if test_options.shifts:
-    	cmd += ' --shifts %s' % test_options.shifts
+    if options.shifts:
+    	cmd += ' --shifts %s' % options.shifts
     cmd += ' -o %s' % test_dir
     cmd += ' %s %s/train/model_best.h5 %s' % (params_file, rep_dir, data_dir)
 
@@ -200,10 +200,10 @@ def main():
     cmd += ' echo $HOSTNAME;'
 
     cmd += ' basenji_test_specificity.py'
-    if test_options.rc:
+    if options.rc:
       cmd += ' --rc'
-    if test_options.shifts:
-    	cmd += ' --shifts %s' % test_options.shifts
+    if options.shifts:
+    	cmd += ' --shifts %s' % options.shifts
     cmd += ' -o %s' % test_dir
     cmd += ' %s %s/train/model_best.h5 %s' % (params_file, rep_dir, data_dir)
 

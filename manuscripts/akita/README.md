@@ -28,8 +28,7 @@ Install Tensorflow:
 ```
 pip install tensorflow==1.15
 ```
-Install Basenji:
-https://github.com/calico/basenji/tree/master/#installation
+Install [Basenji](https://github.com/calico/basenji/tree/master/#installation)
 
 Install cooltools:
 ```

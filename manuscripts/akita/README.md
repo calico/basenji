@@ -22,16 +22,18 @@ Requires:
 - *sequences.bed* - List of sequences used for model training.
 - *tfrecords* - Folder with tfrecords.
 
-In addition to Basenji dependencies, this notebook requires:
-- [cooltools](https://github.com/mirnylab/cooltools)
-- [TensorFlow, v1.15](https://www.tensorflow.org/)
+In addition to Basenji dependencies, this notebook requires [cooltools](https://github.com/mirnylab/cooltools). We recommend creating a fresh conda environment with numpy, scipy, pandas, and installing dependencies as follows
 
-We recommend creating a fresh conda environment with numpy, scipy, pandas, and installing dependencies as follows:
+Install Tensorflow:
 ```
 pip install tensorflow==1.15
-hg clone https://github.com/mirnylab/cooltools.git
-cd cooltools
-pip install -e ./
+```
+Install Basenji:
+https://github.com/calico/basenji/tree/master/#installation
+
+Install cooltools:
+```
+pip install cooltools
 ```
 
 --------------------------------------------------------------------------------
@@ -42,7 +44,6 @@ In addition to Basenji dependencies, generating training data for Akita requires
 - [astropy](https://docs.astropy.org/en/stable/install.html)
 - [cooler](https://github.com/mirnylab/cooler/)
 - [cooltools](https://github.com/mirnylab/cooltools)
-- [tensorflow==1.15](https://www.tensorflow.org/)
 - [intervaltree](https://pypi.org/project/intervaltree/)
 
 We recommend installing these dependencies via pip as well.

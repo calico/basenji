@@ -15,7 +15,7 @@
 
 *browsable predictions for chr17*: https://resgen.io/gfudenberg/Akita-preds/views
 
-*explore_model.ipynb*: Load and visualize predictions for the trained model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/tf2_hic/manuscripts/akita/explore_model.ipynb)
+*explore_model.ipynb*: Load and visualize predictions for the trained model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/master/manuscripts/akita/explore_model.ipynb)
 
 Requires:
 - *params.json* - Model configuration parameters.
@@ -41,7 +41,7 @@ In addition to Basenji dependencies, generating training data for Akita requires
 
 We recommend installing these dependencies via pip as well.
 
-*tutorial.ipynb* - prepare training dat and train a model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/tf2_hic/manuscripts/akita/tutorial.ipynb)
+*tutorial.ipynb* - prepare training dat and train a model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/master/manuscripts/akita/tutorial.ipynb)
 
 Preparing training data and training models both follow the basenji syntax, albeit using *akita_data.py* and *akita_train.py*.
 

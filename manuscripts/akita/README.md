@@ -11,9 +11,11 @@
 
 --------------------------------------------------------------------------------
 
-### Explore predictions 
+### Browse predictions 
 
 *browsable predictions for chr17*: https://resgen.io/gfudenberg/Akita-preds/views
+
+### Explore predictions 
 
 *explore_model.ipynb*: Load and visualize predictions for the trained model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/master/manuscripts/akita/explore_model.ipynb)
 

@@ -24,7 +24,7 @@ Requires:
 - *sequences.bed* - List of sequences used for model training.
 - *tfrecords* - Folder with tfrecords.
 
-In addition to Basenji and its dependencies, this notebook requires [cooltools](https://github.com/mirnylab/cooltools). We recommend creating a fresh conda environment with numpy, scipy, pandas, jupyter, installing [Basenji](https://github.com/calico/basenji/tree/master/#installation), then installing cooltools:
+In addition to Basenji and its dependencies, this notebook requires [cooltools](https://github.com/mirnylab/cooltools). We recommend creating a fresh conda environment with numpy, scipy, pandas, jupyter, tensorflow, installing [Basenji](https://github.com/calico/basenji/tree/master/#installation), then installing cooltools:
 ```
 pip install cooltools
 ```

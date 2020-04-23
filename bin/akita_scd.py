@@ -169,14 +169,14 @@ def main():
   dataset = dataset.prefetch(2*params_train['batch_size'])
   dataset_iter = iter(dataset)
 
-  def get_chunk(chunk_size=32):
-    """Get a chunk of data from the dataset iterator."""
-    x = []
-    for ci in range(chunk_size):
-      try:
-        x.append(next(dataset_iter))
-      except StopIteration:
-        break
+  # def get_chunk(chunk_size=32):
+  #   """Get a chunk of data from the dataset iterator."""
+  #   x = []
+  #   for ci in range(chunk_size):
+  #     try:
+  #       x.append(next(dataset_iter))
+  #     except StopIteration:
+  #       break
 
   #################################################################
   # setup model
@@ -202,7 +202,7 @@ def main():
   # predict first
   # batch_seqs = get_chunk()
   # batch_preds = seqnn_model.predict(batch_seqs, steps=batch_seqs)
-  batch_preds = seqnn_model.predict(dataset_iter, steps=32)
+  batch_preds = seqnn_model.predict(dataset_iter, generator=True, steps=32)
 
   while len(batch_preds) > 0:
     # count predicted SNPs
@@ -222,8 +222,11 @@ def main():
     szi += num_snps
 
     # predict next
-    # batch_preds = seqnn_model.predict(get_chunk())
-    batch_preds = seqnn_model.predict(dataset_iter, steps=32)
+    try:
+      # batch_preds = seqnn_model.predict(get_chunk())
+      batch_preds = seqnn_model.predict(dataset_iter, generator=True, steps=32)
+    except ValueError:
+      batch_preds = []
 
   print('Waiting for threads to finish.', flush=True)
   sum_write_thread.join()
@@ -254,7 +257,7 @@ def summarize_write(batch_preds, scd_out, szi, stats, plot_dir, diagonal_offset)
       # sum of squared diffs
       ref_ss = (ref_preds**2).sum(axis=0)
       alt_ss = (alt_preds**2).sum(axis=0)
-      s2d_preds = np.sqrt(alt_ss - ref_ss)
+      s2d_preds = np.sqrt(alt_ss) - np.sqrt(ref_ss)
       scd_out['SSD'][szi,:] = s2d_preds.astype('float16')
 
     if plot_dir is not None:

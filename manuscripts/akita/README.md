@@ -11,9 +11,13 @@
 
 --------------------------------------------------------------------------------
 
+### Browse predictions 
+
+*browsable predictions for chr17*: https://resgen.io/gfudenberg/Akita-preds/views
+
 ### Explore predictions 
 
-*explore_model.ipynb* - Load and visualize predictions for the trained model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/tf2_hic/manuscripts/akita/explore_model.ipynb)
+*explore_model.ipynb*: Load and visualize predictions for the trained model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/master/manuscripts/akita/explore_model.ipynb)
 
 Requires:
 - *params.json* - Model configuration parameters.
@@ -22,16 +26,9 @@ Requires:
 - *sequences.bed* - List of sequences used for model training.
 - *tfrecords* - Folder with tfrecords.
 
-In addition to Basenji dependencies, this notebook requires:
-- [cooltools](https://github.com/mirnylab/cooltools)
-- [TensorFlow, v1.15](https://www.tensorflow.org/)
-
-We recommend creating a fresh conda environment with numpy, scipy, pandas, and installing dependencies as follows:
+In addition to Basenji and its dependencies, this notebook requires [cooltools](https://github.com/mirnylab/cooltools). We recommend creating a fresh conda environment with numpy, scipy, pandas, jupyter, tensorflow, installing [Basenji](https://github.com/calico/basenji/tree/master/#installation), then installing cooltools:
 ```
-pip install tensorflow==1.15
-hg clone https://github.com/mirnylab/cooltools.git
-cd cooltools
-pip install -e ./
+pip install cooltools
 ```
 
 --------------------------------------------------------------------------------
@@ -42,12 +39,11 @@ In addition to Basenji dependencies, generating training data for Akita requires
 - [astropy](https://docs.astropy.org/en/stable/install.html)
 - [cooler](https://github.com/mirnylab/cooler/)
 - [cooltools](https://github.com/mirnylab/cooltools)
-- [tensorflow==1.15](https://www.tensorflow.org/)
 - [intervaltree](https://pypi.org/project/intervaltree/)
 
 We recommend installing these dependencies via pip as well.
 
-*tutorial.ipynb* - prepare training dat and train a model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/tf2_hic/manuscripts/akita/tutorial.ipynb)
+*tutorial.ipynb* - prepare training dat and train a model. [link to nbviewer](https://nbviewer.jupyter.org/github/gfudenberg/basenji/blob/master/manuscripts/akita/tutorial.ipynb)
 
 Preparing training data and training models both follow the basenji syntax, albeit using *akita_data.py* and *akita_train.py*.
 

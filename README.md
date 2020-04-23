@@ -9,6 +9,14 @@ Basenji provides researchers with tools to:
 3. Annotate the distal regulatory elements that influence gene activity.
 4. Annotate the specific nucleotides that drive regulatory element function.
 
+## Akita
+#### 3D genome folding predictions with deep convolutional neural networks.
+
+Akita provides researchers with tools to:
+1. Train deep convolutional neural networks to predict 2D contact maps along very long chromosome-scale DNA sequences
+2. Score variants according to their predicted influence on contact maps across the sequence and/or for specific genes.
+3. Annotate the specific nucleotides that drive genome folding.
+
 ---------------------------------------------------------------------------------------------------
 ### Basset successor
 
@@ -22,14 +30,29 @@ This codebase offers numerous improvements and generalizations to its predecesso
 ---------------------------------------------------------------------------------------------------
 ### Installation
 
-Basenji was developed with Python3 and a variety of scientific computing dependencies, which you can see within the setup.py file. I highly recommend the [Anaconda python distribution](https://www.continuum.io/downloads), which contains most of them.
+Basenji/Akita were developed with Python3 and a variety of scientific computing dependencies, which you can see and install via requirements.txt for pip and environment.yml for [Anaconda](https://www.continuum.io/downloads). For each case, we kept TensorFlow separate to allow you to choose the install method that works best for you.
 
-Once you have the dependencies, run
+Run the following to install dependencies and Basenji with Anaconda.
+```
+    conda env create -f environment.yml
+    conda install tensorflow==1.15 (or tensorflow-gpu)
+    python setup.py develop --no-deps
+```
+
+Alternatively, if you want to guarantee working versions of each dependency, you can install via a fully pre-specified environment.
+```
+    conda env create -f prespecified.yml
+    conda install tensorflow==1.15 (or tensorflow-gpu)
+    python setup.py develop --no-deps
+```
+
+Or the following to install dependencies and Basenji with pip and setuptools.
 ```
     python setup.py develop
+    pip install tensorflow==1.15 (or tensorflow-gpu)
 ```
 
-Then I recommend setting the following environmental variables
+Then we recommend setting the following environmental variables.
 ```
   export BASENJIDIR=~/code/Basenji
   export PATH=$BASENJIDIR/bin:$PATH

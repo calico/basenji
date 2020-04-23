@@ -1,3 +1,6 @@
+astropy
+cooler
+cooltools
 h5py
 joblib
 intervaltree
@@ -7,11 +10,11 @@ networkx
 numpy
 pandas
 pillow
-pyBigWig
+pybigwig
 pysam
 pybedtools
-scipy
 seaborn
 scikit-learn
+scipy
 statsmodels
-tensorflow==1.15.2
+tabulate

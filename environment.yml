@@ -1,0 +1,29 @@
+name: basenji
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - astropy
+  - h5py
+  - intervaltree
+  - joblib
+  - matplotlib
+  - natsort
+  - networkx
+  - numpy
+  - pandas
+  - pillow
+  - pybedtools
+  - pybigwig
+  - pysam
+  - python=3.7
+  - scikit-learn
+  - scipy
+  - seaborn
+  - statsmodels
+  - tabulate
+  - pip:
+    - cooler
+    - cooltools
+    

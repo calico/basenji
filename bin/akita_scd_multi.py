@@ -118,7 +118,7 @@ def main():
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
         cmd += 'conda activate tf1.15-gpu;'
 
-      cmd += ' /home/drk/code/basenji2/bin/akita_scd.py %s %s %d' % (
+      cmd += ' akita_scd.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
 
       name = '%s_p%d' % (options.name, pi)

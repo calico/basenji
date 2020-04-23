@@ -115,7 +115,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.15-gpu2;'
+      cmd += ' conda activate tf1.15-gpu;'
 
       cmd += ' basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)

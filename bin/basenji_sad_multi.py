@@ -131,7 +131,7 @@ def main():
         cmd = ''
       else:
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-        cmd += ' conda activate tf1.15-gpu;'
+        cmd += ' conda activate tf2-gpu;'
 
       cmd += ' basenji_sad.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)

@@ -455,9 +455,6 @@ class ConcatTo2D(tf.keras.layers.Layer):
     input_shape = tf.shape(inputs)
     assert len(inputs.shape)==3
     batch_size, seq_len, output_dim = inputs.shape
-    # seq_len = seq_len.value
-    # batch_size  = batch_size.value
-    # output_dim = output_dim.value
 
     matrix_repr1 = tf.tile(inputs, [1, seq_len, 1])
     matrix_repr1 = tf.reshape(matrix_repr1, [-1, seq_len, seq_len, output_dim])
@@ -493,7 +490,7 @@ class UpperTri(tf.keras.layers.Layer):
     self.diagonal_offset = diagonal_offset
 
   def call(self, inputs):
-    seq_len = inputs.shape[1].value
+    seq_len = inputs.shape[1]
     output_dim = inputs.shape[-1]
 
     triu_tup = np.triu_indices(seq_len, self.diagonal_offset)
@@ -579,7 +576,7 @@ class SwitchReverseTriu(tf.keras.layers.Layer):
     reverse = x_reverse[1]
 
     # infer original sequence length
-    ut_len = x_ut.shape[1].value
+    ut_len = x_ut.shape[1]
     seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
     seq_len += self.diagonal_offset
 

@@ -161,8 +161,8 @@ class SeqNN():
       for layer in self.model.layers:
         if hasattr(layer, 'strides'):
           self.model_strides[-1] *= layer.strides[0]
-      target_full_length = sequence.shape[1].value // self.model_strides[-1]
-      self.target_lengths.append(model.outputs[0].shape[1].value)
+      target_full_length = sequence.shape[1] // self.model_strides[-1]
+      self.target_lengths.append(model.outputs[0].shape[1])
       self.target_crops.append((target_full_length - self.target_lengths[-1])//2)
     print('model_strides', self.model_strides)
     print('target_lengths', self.target_lengths)

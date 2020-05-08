@@ -14,7 +14,7 @@ if tf.__version__[0] == '1':
 '''
 tfr_hdf5.py
 
-Convert HDF5 training file to TFRecords.
+Convert TFRecords to HDF5.
 '''
 
 ################################################################################

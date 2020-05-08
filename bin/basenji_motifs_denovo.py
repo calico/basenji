@@ -230,7 +230,7 @@ def annotate_motifs(motifs_dir, background_fasta, meme_db):
 def fasta_pwm(motif_fasta_file):
     # read sequences
     seqs_dna = [line.rstrip() for line in open(motif_fasta_file) if line[0] != '>']
-    seqs_1hot = np.array([dna_io.dna_1hot_float(sd) for sd in seqs_dna])
+    seqs_1hot = np.array([dna_io.dna_1hot(sd, n_uniform=True) for sd in seqs_dna])
     num_seqs = seqs_1hot.shape[0]
 
     # compute PWM

@@ -53,7 +53,8 @@ class Trainer:
     # compute batches/epoch
     self.train_epoch_batches = [td.batches_per_epoch() for td in self.train_data]
     self.eval_epoch_batches = [ed.batches_per_epoch() for ed in self.eval_data]
-    self.train_epochs = self.params.get('train_epochs', 1000)
+    self.train_epochs_min = self.params.get('train_epochs_min', 1)
+    self.train_epochs_max = self.params.get('train_epochs_max', 10000)
 
     # dataset
     self.num_datasets = len(self.train_data)
@@ -75,14 +76,16 @@ class Trainer:
       self.compile(seqnn_model)
 
     callbacks = [
-      tf.keras.callbacks.EarlyStopping(patience=self.patience, verbose=1),
+      EarlyStoppingMin(monitor='val_pearsonr', mode='max', verbose=1,
+                       patience=self.patience, min_epoch=self.train_epochs_min),
       tf.keras.callbacks.TensorBoard(self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
-      tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir, save_best_only=True, monitor='val_loss', verbose=1)]
+      tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir, save_best_only=True,
+                                         monitor='val_pearsonr', mode='max', verbose=1)]
 
     seqnn_model.model.fit(
       self.train_data[0].dataset,
-      epochs=self.train_epochs,
+      epochs=self.train_epochs_max,
       steps_per_epoch=self.train_epoch_batches[0],
       callbacks=callbacks,
       validation_data=self.eval_data[0].dataset,
@@ -154,8 +157,8 @@ class Trainer:
     ################################################################
     # training loop
 
-    for ei in range(self.train_epochs):
-      if np.min(unimproved) > self.patience:
+    for ei in range(self.train_epochs_max):
+      if ei >= self.train_epochs_min and np.min(unimproved) > self.patience:
         break
       else:
         # shuffle datasets
@@ -189,15 +192,16 @@ class Trainer:
           print(' - valid_loss: %.4f' % valid_stats[0], end='')
           print(' - valid_r: %.4f' % valid_stats[1], end='')
           print(' - valid_r2: %.4f' % valid_stats[2], end='')
+          early_stop_stat = valid_stats[1]
 
           # checkpoint
           model.save('%s/model%d_check.h5' % (self.out_dir, di))
 
           # check best
-          if valid_stats[0] < valid_best[di]:
+          if early_stop_stat > valid_best[di]:
             print(' - best!', end='')
             unimproved[di] = 0
-            valid_best[di] = valid_stats[0]
+            valid_best[di] = early_stop_stat
             model.save('%s/model%d_best.h5' % (self.out_dir, di))
           else:
             unimproved[di] += 1
@@ -234,8 +238,8 @@ class Trainer:
     unimproved = 0
 
     # training loop
-    for ei in range(self.train_epochs):
-      if unimproved > self.patience:
+    for ei in range(self.train_epochs_max):
+      if ei >= self.train_epochs_min and unimproved > self.patience:
         break
       else:
         # train
@@ -258,10 +262,10 @@ class Trainer:
         print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), end='')
 
         # check best
-        if valid_loss < valid_best:
+        if valid_pr > valid_best:
           print(' - best!', end='')
           unimproved = 0
-          valid_best = valid_loss
+          valid_best = valid_pr
           model.save('%s/model_best.h5'%self.out_dir)
         else:
           unimproved += 1
@@ -304,26 +308,28 @@ class Trainer:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)
       exit(1)
 
-
-class EarlyStoppingBest(tf.keras.callbacks.EarlyStopping):
-  """Adds printing "best" in verbose mode."""
-  def __init__(self, **kwargs):
-    super(EarlyStoppingBest, self).__init__(**kwargs)
+class EarlyStoppingMin(tf.keras.callbacks.EarlyStopping):
+  """Stop training when a monitored quantity has stopped improving.
+  Arguments:
+      min_epoch: Minimum number of epochs before considering stopping.
+      
+  """
+  def __init__(self, min_epoch=0, **kwargs):
+    super(EarlyStoppingMin, self).__init__(**kwargs)
+    self.min_epoch = min_epoch
 
   def on_epoch_end(self, epoch, logs=None):
     current = self.get_monitor_value(logs)
     if current is None:
       return
     if self.monitor_op(current - self.min_delta, self.best):
-      if self.verbose > 0:
-        print(' - best!', end='')
       self.best = current
       self.wait = 0
       if self.restore_best_weights:
         self.best_weights = self.model.get_weights()
     else:
       self.wait += 1
-      if self.wait >= self.patience:
+      if epoch >= self.min_epoch and self.wait >= self.patience:
         self.stopped_epoch = epoch
         self.model.stop_training = True
         if self.restore_best_weights:

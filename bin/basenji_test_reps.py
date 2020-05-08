@@ -36,6 +36,8 @@ Train Basenji model replicates using given parameters and data.
 def main():
   usage = 'usage: %prog [options] <exp_dir> <params_file> <data_dir>'
   parser = OptionParser(usage)
+  parser.add_option('-a', '--alt', dest='alternative',
+      default='two-sided', help='Statistical test alternative [Default: %default]')
   parser.add_option('-e', dest='conda_env',
       default='tf1.15-gpu',
       help='Anaconda environment [Default: %default]')
@@ -149,7 +151,7 @@ def main():
       it_dir = '%s/%d' % (exp_dir, i)
 
       # check if done
-      acc_file = '%s/test/acc.txt' % it_dir
+      acc_file = '%s/test_spec/acc.txt' % it_dir
       if os.path.isfile(acc_file):
         print('%s already generated.' % acc_file)
       else:
@@ -185,21 +187,17 @@ def main():
     # compare checkpoint on training set
     ################################################################
     if options.train:
-      ref_cors = []
-      for acc_file in glob.glob('%s/*/test_train/acc.txt' % options.ref_dir):
-        acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-        ref_cors.append(acc_df.pearsonr.mean())
+      ref_glob_str = '%s/*/test_train/acc.txt' % options.ref_dir
+      ref_cors, ref_mean, ref_stdm = read_cors(ref_glob_str)
 
-      exp_cors = []
-      for acc_file in glob.glob('%s/*/test_train/acc.txt' % exp_dir):
-        acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-        exp_cors.append(acc_df.pearsonr.mean())
+      exp_glob_str = '%s/*/test_train/acc.txt' % exp_dir
+      exp_cors, exp_mean, exp_stdm = read_cors(exp_glob_str)
 
-      _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
-      _, tp = ttest_ind(ref_cors, exp_cors)
+      mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
+
       print('\nTrain:')
-      print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
-      print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
+      print('Reference  PearsonR: %.4f (%.4f)' % (ref_mean, ref_stdm))
+      print('Experiment PearsonR: %.4f (%.4f)' % (exp_mean, exp_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
 
@@ -207,21 +205,17 @@ def main():
     ################################################################
     # compare best on test set
     ################################################################
-    ref_cors = []
-    for acc_file in glob.glob('%s/*/test/acc.txt' % options.ref_dir):
-      acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-      ref_cors.append(acc_df.pearsonr.mean())
+    ref_glob_str = '%s/*/test/acc.txt' % options.ref_dir
+    ref_cors, ref_mean, ref_stdm = read_cors(ref_glob_str)
 
-    exp_cors = []
-    for acc_file in glob.glob('%s/*/test/acc.txt' % exp_dir):
-      acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-      exp_cors.append(acc_df.pearsonr.mean())
+    exp_glob_str = '%s/*/test/acc.txt' % exp_dir
+    exp_cors, exp_mean, exp_stdm = read_cors(exp_glob_str)
 
-    _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
-    _, tp = ttest_ind(ref_cors, exp_cors)
+    mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
+
     print('\nTest:')
-    print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
-    print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
+    print('Reference  PearsonR: %.4f (%.4f)' % (ref_mean, ref_stdm))
+    print('Experiment PearsonR: %.4f (%.4f)' % (exp_mean, exp_stdm))
     print('Mann-Whitney U p-value: %.3g' % mwp)
     print('T-test p-value: %.3g' % tp)
 
@@ -229,24 +223,48 @@ def main():
     # compare best on test set specificity
     ################################################################
     if options.specificity:
-      ref_cors = []
-      for acc_file in glob.glob('%s/*/test_spec/acc.txt' % options.ref_dir):
-        acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-        ref_cors.append(acc_df.pearsonr.mean())
+      ref_glob_str = '%s/*/test_spec/acc.txt' % options.ref_dir
+      ref_cors, ref_mean, ref_stdm = read_cors(ref_glob_str)
 
-      exp_cors = []
-      for acc_file in glob.glob('%s/*/test_spec/acc.txt' % exp_dir):
-        acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-        exp_cors.append(acc_df.pearsonr.mean())
+      exp_glob_str = '%s/*/test_spec/acc.txt' % exp_dir
+      exp_cors, exp_mean, exp_stdm = read_cors(exp_glob_str)
 
-      _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative='two-sided')
-      _, tp = ttest_ind(ref_cors, exp_cors)
+      mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
+
       print('\nTest:')
-      print('Reference  PearsonR: %.4f (%.4f)' % (np.mean(ref_cors), np.std(ref_cors)))
-      print('Experiment PearsonR: %.4f (%.4f)' % (np.mean(exp_cors), np.std(exp_cors)))
+      print('Reference  PearsonR: %.4f (%.4f)' % (ref_mean, ref_stdm))
+      print('Experiment PearsonR: %.4f (%.4f)' % (exp_mean, exp_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
     
+def read_cors(acc_glob_str):
+  rep_cors = []
+  for acc_file in glob.glob(acc_glob_str):
+    acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
+    rep_cors.append(acc_df.pearsonr.mean())
+  
+  cors_mean = np.mean(rep_cors)
+  cors_stdm = np.std(rep_cors) / np.sqrt(len(rep_cors))
+
+  return rep_cors, cors_mean, cors_stdm
+
+
+def stat_tests(ref_cors, exp_cors, alternative):
+  _, mwp = mannwhitneyu(ref_cors, exp_cors, alternative=alternative)
+  tt, tp = ttest_ind(ref_cors, exp_cors)
+
+  if alternative == 'less':
+    if tt > 0:
+      tp = 1 - (1-tp)/2
+    else:
+      tp /= 2
+  elif alternative == 'greater':
+    if tt <= 0:
+      tp /= 2
+    else:
+      tp = 1 - (1-tp)/2
+
+  return mwp, tp
 
 ################################################################################
 # __main__

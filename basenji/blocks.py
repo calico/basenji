@@ -552,6 +552,17 @@ def dilated_residual_2d(inputs, filters, kernel_size=3, rate_mult=2,
 
   return current
 
+############################################################
+# Center ops
+############################################################
+
+def center_average(inputs, center, **kwargs):
+  current = layers.CenterAverage(center)(inputs)
+  return current
+
+def center_slice(inputs, center, **kwargs):
+  current = layers.CenterSlice(center)(inputs)
+  return current
 
 ############################################################
 # 2D
@@ -632,14 +643,14 @@ def concat_to_2d(inputs, **kwargs):
   current = layers.ConcatTo2D()(inputs)
   return current
 
-# not sure
-def slice_center(inputs, center=1, **kwargs):
-  crop_len = inputs.shape[1].value - center
-  crop_start = crop_len // 2
-  crop_end = crop_len - crop_start
-  current = inputs
-  current = tf.keras.layers.Cropping1D((crop_start,crop_end))(current)
-  return current
+# depracated: use cropping
+# def slice_center(inputs, center=1, **kwargs):
+#   crop_len = inputs.shape[1] - center
+#   crop_start = crop_len // 2
+#   crop_end = crop_len - crop_start
+#   current = inputs
+#   current = tf.keras.layers.Cropping1D((crop_start,crop_end))(current)
+#   return current
 
 
 ############################################################
@@ -647,32 +658,28 @@ def slice_center(inputs, center=1, **kwargs):
 ############################################################
 name_func = {
   'attention': attention,
+  'center_slice': center_slice,
+  'center_average': center_average,
+  'concat_dist_2d': concat_dist_2d,
+  'concat_position': concat_position,
+  'concat_to_2d': concat_to_2d,
   'conv_block': conv_block,  
+  'conv_block_2d': conv_block_2d,
   'conv_tower': conv_tower,
-  'res_tower': res_tower,
-  'xception_block': xception_block,
-  'xception_tower': xception_tower,
   'cropping_2d': cropping_2d,
   'dense': dense,
   'dilated_residual': dilated_residual,
-  'dilated_dense': dilated_dense,
-  'average_pooling': average_pooling,
-  'one_to_two': one_to_two,
-  'concat_position': concat_position,
-  'concat_to_2d': concat_to_2d,
-  'average_to_2d': average_to_2d,
-  'max_to_2d': max_to_2d,
-  'dot_to_2d': dot_to_2d,
-  'geodot_to_2d': geodot_to_2d,
-  'concat_dist_2d': concat_dist_2d,
-  'upper_tri': upper_tri,
-  'conv_block_2d': conv_block_2d,
   'dilated_residual_2d': dilated_residual_2d,
+  'dilated_dense': dilated_dense,
+  'global_context': global_context,
+  'one_to_two': one_to_two,
   'symmetrize_2d':symmetrize_2d,
-  'slice_center': slice_center,
   'squeeze_excite': squeeze_excite,
+  'res_tower': res_tower,
+  'upper_tri': upper_tri,
   'wheeze_excite': wheeze_excite,
-  'global_context': global_context
+  'xception_block': xception_block,
+  'xception_tower': xception_tower,
 }
 
 keras_func = {

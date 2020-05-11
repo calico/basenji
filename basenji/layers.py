@@ -52,21 +52,6 @@ class GELU(tf.keras.layers.Layer):
     def call(self, x):
         return tf.keras.activations.sigmoid(1.702 * x) * x
 
-class SliceCenter(tf.keras.layers.Layer):
-  def __init__(self, left, right=None):
-    super(SliceCenter, self).__init__()
-    self.left = left
-    self.right = right if right is not None else -self.left
-  def call(self, x):
-    return x[:, self.left:self.right, :]
-  def get_config(self):
-    config = super().get_config().copy()
-    config.update({
-      'left': self.left,
-      'right': self.right
-    })
-    return config
-
 class Softplus(tf.keras.layers.Layer):
   def __init__(self, exp_max=10000):
     super(Softplus, self).__init__()
@@ -77,6 +62,40 @@ class Softplus(tf.keras.layers.Layer):
   def get_config(self):
     config = super().get_config().copy()
     config['exp_max'] = self.exp_max
+    return config
+
+############################################################
+# Center ops
+############################################################
+
+class CenterSlice(tf.keras.layers.Layer):
+  def __init__(self, center):
+    super(CenterSlice, self).__init__()
+    self.center = center
+  def call(self, x):
+    seq_len = x.shape[1]
+    center_start = (seq_len - self.center) // 2
+    center_end = center_start + self.center
+    return x[:, center_start:center_end, :]
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'center': self.center
+    })
+    return config
+
+class CenterAverage(tf.keras.layers.Layer):
+  def __init__(self, center):
+    super(CenterAverage, self).__init__()
+    self.center = center
+    self.slice = CenterSlice(self.center)
+  def call(self, x):
+    return tf.keras.backend.mean(self.slice(x), axis=1, keepdims=True) 
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'center': self.center
+    })
     return config
 
 ############################################################

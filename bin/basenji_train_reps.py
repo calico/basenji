@@ -69,7 +69,7 @@ def main():
   # multi
   rep_options = OptionGroup(parser, 'replication options')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf1.15-gpu',
+      default='tf2-gpu',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('--name', dest='name',
       default='reps', help='SLURM name prefix [Default: %default]')
@@ -80,7 +80,7 @@ def main():
       default='gtx1080ti',
       help='SLURM queue on which to run the jobs [Default: %default]')
   rep_options.add_option('-r', dest='restart',
-  		default=False, action='store_true')
+      default=False, action='store_true')
   parser.add_option_group(rep_options)
 
   (options, args) = parser.parse_args()
@@ -112,7 +112,7 @@ def main():
   for pi in range(options.processes):
     rep_dir = '%s/%d' % (options.out_dir, pi)
     if options.restart and os.path.isdir(rep_dir):
-    	print('%s found and skipped.' % rep_dir)
+      print('%s found and skipped.' % rep_dir)
     else:
       os.mkdir(rep_dir)
 
@@ -156,7 +156,7 @@ def main():
       cmd += ' conda activate %s;' % options.conda_env
       cmd += ' echo $HOSTNAME;'
 
-      md += ' basenji_test.py'
+      cmd += ' basenji_test.py'
       if options.rc:
         cmd += ' --rc'
       if options.shifts:
@@ -208,10 +208,10 @@ def main():
       errf = os.path.abspath('%s/test.err' % rep_dir)
 
       j = slurm.Job(cmd, name,
-	            outf, errf, sbf,
-	            queue=options.queue,
+              outf, errf, sbf,
+              queue=options.queue,
                     gpu=params_train.get('num_gpu',1),
-	            mem=23000, time='4:0:0')
+              mem=23000, time='4:0:0')
       jobs.append(j)
 
   #######################################################
@@ -232,9 +232,9 @@ def main():
       
       cmd += ' basenji_test_specificity.py'
       if options.rc:
-	cmd += ' --rc'
+        cmd += ' --rc'
       if options.shifts:
-	cmd += ' --shifts %s' % options.shifts
+        cmd += ' --shifts %s' % options.shifts
       cmd += ' -o %s' % test_dir
       cmd += ' %s %s/train/model_best.h5 %s' % (params_file, rep_dir, data_dir)
 
@@ -246,9 +246,9 @@ def main():
       # sticking to one gpu because the normalization time dominates
       # better would be to save predictions above.
       j = slurm.Job(cmd, name,
-	            outf, errf, sbf,
-	            queue=options.queue, gpu=1,
-	            mem=45000, time='4:0:0')
+              outf, errf, sbf,
+              queue=options.queue, gpu=1,
+              mem=45000, time='4:0:0')
       jobs.append(j)
       
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

@@ -159,110 +159,132 @@ def main():
   ################################################################
   # define genomic contigs
   ################################################################
-  chrom_contigs = genome.load_chromosomes(fasta_file)
+  if not options.restart:
+    chrom_contigs = genome.load_chromosomes(fasta_file)
 
-  # remove gaps
-  if options.gaps_file:
-    chrom_contigs = genome.split_contigs(chrom_contigs,
-                                         options.gaps_file)
+    # remove gaps
+    if options.gaps_file:
+      chrom_contigs = genome.split_contigs(chrom_contigs,
+                                           options.gaps_file)
 
-  # ditch the chromosomes for contigs
-  contigs = []
-  for chrom in chrom_contigs:
-    contigs += [Contig(chrom, ctg_start, ctg_end)
-                 for ctg_start, ctg_end in chrom_contigs[chrom]]
+    # ditch the chromosomes for contigs
+    contigs = []
+    for chrom in chrom_contigs:
+      contigs += [Contig(chrom, ctg_start, ctg_end)
+                   for ctg_start, ctg_end in chrom_contigs[chrom]]
 
-  # limit to a BED file
-  if options.limit_bed is not None:
-    contigs = limit_contigs(contigs, options.limit_bed)
+    # limit to a BED file
+    if options.limit_bed is not None:
+      contigs = limit_contigs(contigs, options.limit_bed)
 
-  # filter for large enough
-  contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
+    # filter for large enough
+    contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
 
-  # break up large contigs
-  if options.break_t is not None:
-    contigs = break_large_contigs(contigs, options.break_t)
+    # break up large contigs
+    if options.break_t is not None:
+      contigs = break_large_contigs(contigs, options.break_t)
 
-  # print contigs to BED file
-  ctg_bed_file = '%s/contigs.bed' % options.out_dir
-  write_seqs_bed(ctg_bed_file, contigs)
+    # print contigs to BED file
+    ctg_bed_file = '%s/contigs.bed' % options.out_dir
+    write_seqs_bed(ctg_bed_file, contigs)
 
 
   ################################################################
   # divide between train/valid/test
   ################################################################
-  try:
-    # convert to float pct
-    valid_pct = float(options.valid_pct_or_chr)
-    test_pct = float(options.test_pct_or_chr)
-    assert(0 <= valid_pct <= 1)
-    assert(0 <= test_pct <= 1)
+  if not options.restart:
+    try:
+      # convert to float pct
+      valid_pct = float(options.valid_pct_or_chr)
+      test_pct = float(options.test_pct_or_chr)
+      assert(0 <= valid_pct <= 1)
+      assert(0 <= test_pct <= 1)
 
-    # divide by pct
-    contig_sets = divide_contigs_pct(contigs, test_pct, valid_pct)
+      # divide by pct
+      contig_sets = divide_contigs_pct(contigs, test_pct, valid_pct)
 
-  except (ValueError, AssertionError):
-    # divide by chr
-    valid_chrs = options.valid_pct_or_chr.split(',')
-    test_chrs = options.test_pct_or_chr.split(',')
-    contig_sets = divide_contigs_chr(contigs, test_chrs, valid_chrs)
+    except (ValueError, AssertionError):
+      # divide by chr
+      valid_chrs = options.valid_pct_or_chr.split(',')
+      test_chrs = options.test_pct_or_chr.split(',')
+      contig_sets = divide_contigs_chr(contigs, test_chrs, valid_chrs)
 
-  train_contigs, valid_contigs, test_contigs = contig_sets
+    train_contigs, valid_contigs, test_contigs = contig_sets
 
-  # rejoin broken contigs within set
-  train_contigs = rejoin_large_contigs(train_contigs)
-  valid_contigs = rejoin_large_contigs(valid_contigs)
-  test_contigs = rejoin_large_contigs(test_contigs)
+    # rejoin broken contigs within set
+    train_contigs = rejoin_large_contigs(train_contigs)
+    valid_contigs = rejoin_large_contigs(valid_contigs)
+    test_contigs = rejoin_large_contigs(test_contigs)
 
   ################################################################
   # define model sequences
   ################################################################
-  # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap, label='test')
+  if not options.restart:
+    # stride sequences across contig
+    train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
+    valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap, label='valid')
+    test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap, label='test')
 
-  # shuffle
-  random.shuffle(train_mseqs)
-  random.shuffle(valid_mseqs)
-  random.shuffle(test_mseqs)
+    # shuffle
+    random.shuffle(train_mseqs)
+    random.shuffle(valid_mseqs)
+    random.shuffle(test_mseqs)
 
-  # down-sample
-  if options.sample_pct < 1.0:
-    train_mseqs = random.sample(train_mseqs, int(options.sample_pct*len(train_mseqs)))
-    valid_mseqs = random.sample(valid_mseqs, int(options.sample_pct*len(valid_mseqs)))
-    test_mseqs = random.sample(test_mseqs, int(options.sample_pct*len(test_mseqs)))
+    # down-sample
+    if options.sample_pct < 1.0:
+      train_mseqs = random.sample(train_mseqs, int(options.sample_pct*len(train_mseqs)))
+      valid_mseqs = random.sample(valid_mseqs, int(options.sample_pct*len(valid_mseqs)))
+      test_mseqs = random.sample(test_mseqs, int(options.sample_pct*len(test_mseqs)))
 
-  # merge
-  mseqs = train_mseqs + valid_mseqs + test_mseqs
+    # merge
+    mseqs = train_mseqs + valid_mseqs + test_mseqs
 
 
   ################################################################
   # mappability
   ################################################################
-  if options.umap_bed is not None:
-    if shutil.which('bedtools') is None:
-      print('Install Bedtools to annotate unmappable sites', file=sys.stderr)
-      exit(1)
+  if not options.restart:
+    if options.umap_bed is not None:
+      if shutil.which('bedtools') is None:
+        print('Install Bedtools to annotate unmappable sites', file=sys.stderr)
+        exit(1)
 
-    # annotate unmappable positions
-    mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
-                                 options.seq_length, options.pool_width)
+      # annotate unmappable positions
+      mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
+                                   options.seq_length, options.pool_width)
 
-    # filter unmappable
-    mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
-    mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
+      # filter unmappable
+      mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
+      mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
+      mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
 
-    # write to file
+      # write to file
+      unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
+      np.save(unmap_npy, mseqs_unmap)
+
+    # write sequences to BED
+    seqs_bed_file = '%s/sequences.bed' % options.out_dir
+    write_seqs_bed(seqs_bed_file, mseqs, True)
+
+  else:
+    # read from directory
+    seqs_bed_file = '%s/sequences.bed' % options.out_dir
     unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
-    np.save(unmap_npy, mseqs_unmap)
-
-  # write sequences to BED
-  seqs_bed_file = '%s/sequences.bed' % options.out_dir
-  write_seqs_bed(seqs_bed_file, mseqs, True)
-
-
+    mseqs = []
+    train_mseqs = []
+    valid_mseqs = []
+    test_mseqs = []
+    for line in open(seqs_bed_file):
+      a = line.split()
+      msg = ModelSeq(a[0], int(a[1]), int(a[2]), a[3])
+      mseqs.append(msg)
+      if a[3] == 'train':
+        train_mseqs.append(msg)
+      elif a[3] == 'valid':
+        valid_mseqs.append(msg)
+      else:
+        test_mseqs.append(msg)
+        
   ################################################################
   # read sequence coverage values
   ################################################################

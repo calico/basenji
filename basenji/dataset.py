@@ -40,7 +40,7 @@ def file_to_records(filename):
 
 class SeqDataset:
   def __init__(self, tfr_pattern, batch_size, seq_length,
-               target_length, mode, seq_end_ignore=0):
+               target_length, mode):
     """Initialize basic parameters; run compute_stats; run make_dataset."""
 
     self.tfr_pattern = tfr_pattern
@@ -48,7 +48,6 @@ class SeqDataset:
     self.num_seqs = None
     self.batch_size = batch_size
     self.seq_length = seq_length
-    self.seq_end_ignore = seq_end_ignore
     self.seq_depth = None
     self.target_length = target_length
     self.num_targets = None
@@ -88,13 +87,6 @@ class SeqDataset:
       targets = tf.io.decode_raw(parsed_features[TFR_OUTPUT], tf.float16)
       if not raw:
         targets = tf.reshape(targets, [self.target_length, self.num_targets])
-
-        if self.seq_end_ignore > 0:
-          target_pool = self.seq_length // self.target_length
-          slice_left = self.seq_end_ignore // target_pool
-          slice_right = self.target_length - slice_left
-          targets = targets[slice_left:slice_right, :]
-
         targets = tf.cast(targets, tf.float32)
       # return (sequence, genome), targets
       return sequence, targets

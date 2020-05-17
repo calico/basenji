@@ -64,20 +64,11 @@ class SeqDataset:
   def generate_parser(self, raw=False):
     def parse_proto(example_protos):
       """Parse TFRecord protobuf."""
-
-      # features = {
-      #   TFR_GENOME: tf.io.FixedLenFeature([1], tf.int64),
-      #   TFR_INPUT: tf.io.FixedLenFeature([], tf.string),
-      #   TFR_OUTPUT: tf.io.FixedLenFeature([], tf.string)
-      # }
-
       features = {
         TFR_INPUT: tf.io.FixedLenFeature([], tf.string),
         TFR_OUTPUT: tf.io.FixedLenFeature([], tf.string)
       }
       parsed_features = tf.io.parse_single_example(example_protos, features=features)
-
-      # genome = parsed_features[TFR_GENOME]
 
       sequence = tf.io.decode_raw(parsed_features[TFR_INPUT], tf.uint8)
       if not raw:
@@ -88,8 +79,9 @@ class SeqDataset:
       if not raw:
         targets = tf.reshape(targets, [self.target_length, self.num_targets])
         targets = tf.cast(targets, tf.float32)
-      # return (sequence, genome), targets
+
       return sequence, targets
+
     return parse_proto
 
   def make_dataset(self):
@@ -137,7 +129,6 @@ class SeqDataset:
   def compute_stats(self):
     """ Iterate over the TFRecords to count sequences, and infer
         seq_depth and num_targets."""
-
     with tf.name_scope('stats'):
       # read TF Records
       dataset = tf.data.Dataset.list_files(self.tfr_pattern)
@@ -150,7 +141,6 @@ class SeqDataset:
     for seq_raw, targets_raw in dataset:
       # infer seq_depth
       seq_1hot = seq_raw.numpy().reshape((self.seq_length,-1))
-      #print('seq_raw', seq_raw.numpy().shape, seq_1hot.shape)
       if self.seq_depth is None:
         self.seq_depth = seq_1hot.shape[-1]
       else:
@@ -158,7 +148,6 @@ class SeqDataset:
 
       # infer num_targets
       targets1 = targets_raw.numpy().reshape(self.target_length,-1)
-      #print('targets_raw', targets_raw.numpy().shape, targets1.shape)
       if self.num_targets is None:
         self.num_targets = targets1.shape[-1]
         targets_nonzero = ((targets1 != 0).sum(axis=0) > 0)
@@ -179,7 +168,6 @@ class SeqDataset:
 
   def numpy(self, return_inputs=True, return_outputs=True):
     """ Convert TFR inputs and/or outputs to numpy arrays."""
-
     with tf.name_scope('numpy'):
       # initialize dataset from TFRecords glob
       tfr_files = natsorted(glob.glob(self.tfr_pattern))

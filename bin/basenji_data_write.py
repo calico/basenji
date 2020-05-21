@@ -144,7 +144,7 @@ def main():
   fasta_open = pysam.Fastafile(fasta_file)
 
   # define options
-  tf_opts = tf.io.TFRecordOptions(tf.compat.v1.python_io.TFRecordCompressionType.ZLIB)
+  tf_opts = tf.io.TFRecordOptions(compression_type='ZLIB')
 
   with tf.io.TFRecordWriter(tfr_file, tf_opts) as writer:
     for si in range(num_seqs):

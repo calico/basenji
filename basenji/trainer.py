@@ -287,7 +287,7 @@ class Trainer:
     else:
       lr_schedule = initial_learning_rate
 
-    clip_norm = self.params.get('clipnorm', None)
+    clip_norm = self.params.get('clipnorm', 1000)
 
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()

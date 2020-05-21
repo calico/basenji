@@ -32,15 +32,16 @@ NUM_FILES_TO_PARALLEL_INTERLEAVE = 4
 # TFRecord constants
 TFR_INPUT = 'sequence'
 TFR_OUTPUT = 'target'
-TFR_GENOME = 'genome'
 
 def file_to_records(filename):
   return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
 
 
 class SeqDataset:
-  def __init__(self, tfr_pattern, batch_size, seq_length,
-               target_length, mode):
+  def __init__(self, tfr_pattern, seq_length, seq_depth=4,
+               target_length=None, num_targets=None,
+               batch_size=1, mode=tf.estimator.ModeKeys.EVAL,
+               compute_stats=True):
     """Initialize basic parameters; run compute_stats; run make_dataset."""
 
     self.tfr_pattern = tfr_pattern
@@ -48,13 +49,14 @@ class SeqDataset:
     self.num_seqs = None
     self.batch_size = batch_size
     self.seq_length = seq_length
-    self.seq_depth = None
+    self.seq_depth = seq_depth
     self.target_length = target_length
-    self.num_targets = None
+    self.num_targets = num_targets
 
     self.mode = mode
 
-    self.compute_stats()
+    if compute_stats:
+      self.compute_stats()
     self.make_dataset()
 
 
@@ -115,9 +117,11 @@ class SeqDataset:
       # flat mix files
       dataset = dataset.flat_map(file_to_records)
 
+    # (no longer necessary in tf2?)
     # helper for training on single genomes in a multiple genome mode
-    if self.num_seqs > 0:
-      dataset = dataset.map(self.generate_parser())
+    # if self.num_seqs > 0:
+    #  dataset = dataset.map(self.generate_parser())
+    dataset = dataset.map(self.generate_parser())
 
     # batch
     dataset = dataset.batch(self.batch_size)
@@ -166,7 +170,8 @@ class SeqDataset:
       self.num_targets_nonzero = None
       print('%s has %d sequences with 0 targets' % (self.tfr_pattern, self.num_seqs), flush=True)
 
-  def numpy(self, return_inputs=True, return_outputs=True):
+
+  def numpy(self, return_inputs=True, return_outputs=True, step=1):
     """ Convert TFR inputs and/or outputs to numpy arrays."""
     with tf.name_scope('numpy'):
       # initialize dataset from TFRecords glob
@@ -193,6 +198,9 @@ class SeqDataset:
         seqs_1hot.append(seq_1hot)
       if return_outputs:
         targets1 = targets_raw.numpy().reshape((self.target_length,-1))
+        if step > 1:
+          step_i = np.arange(0, self.target_length, step)
+          targets1 = targets1[step_i,:]
         targets.append(targets1)
 
     # make arrays

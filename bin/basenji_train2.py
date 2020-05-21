@@ -66,6 +66,8 @@ def main():
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
+  if params_file != '%s/params.json' % options.out_dir:
+    shutil.copy(params_file, '%s/params.json' % options.out_dir)
 
   # read model parameters
   with open(params_file) as params_open:
@@ -87,18 +89,18 @@ def main():
     # load train data
     tfr_train_full = '%s/tfrecords/%s' % (data_dir, options.tfr_train_pattern)
     train_data.append(dataset.SeqDataset(tfr_train_full,
-      params_train['batch_size'],
-      params_model['seq_length'],
-      data_stats[-1]['target_length'],
-      tf.estimator.ModeKeys.TRAIN))
+      seq_length=data_stats[0]['seq_length'],
+      target_length=data_stats[0]['target_length'],
+      batch_size=params_train['batch_size'],
+      mode=tf.estimator.ModeKeys.TRAIN))
 
     # load eval data
     tfr_eval_full = '%s/tfrecords/%s' % (data_dir, options.tfr_eval_pattern)
     eval_data.append(dataset.SeqDataset(tfr_eval_full,
-      params_train['batch_size'],
-      params_model['seq_length'],
-      data_stats[-1]['target_length'],
-      tf.estimator.ModeKeys.EVAL))
+      seq_length=data_stats[0]['seq_length'],
+      target_length=data_stats[0]['target_length'],
+      batch_size=params_train['batch_size'],
+      mode=tf.estimator.ModeKeys.EVAL))
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################
@@ -125,6 +127,9 @@ def main():
     ########################################
     # two GPU
 
+    print('Multiple GPUs untested for joint genome training.', file=sys.stderr)
+    exit(1)
+
     mirrored_strategy = tf.distribute.MirroredStrategy()
     with mirrored_strategy.scope():
 
@@ -140,10 +145,10 @@ def main():
                                       eval_data, options.out_dir)
 
       # compile model
-      seqnn_trainer.compile(seqnn_model.model, None)
+      seqnn_trainer.compile(seqnn_model)
 
     # train model
-    seqnn_trainer.fit(seqnn_model.model)
+    seqnn_trainer.fit2(seqnn_model)
 
 ################################################################################
 # __main__

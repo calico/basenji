@@ -118,10 +118,10 @@ def main():
   # construct data ops
   tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
   eval_data = dataset.SeqDataset(tfr_pattern_path,
-    params_train['batch_size'],
-    data_stats['seq_length'],
-    data_stats['target_length'],
-    tf.estimator.ModeKeys.EVAL)
+    seq_length=data_stats['seq_length'],
+    target_length=data_stats['target_length'],
+    batch_size=params_train['batch_size'],
+    mode=tf.estimator.ModeKeys.EVAL)
 
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)

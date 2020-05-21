@@ -28,7 +28,7 @@ def main():
   usage = 'usage: %prog [options] <fasta> <tss_gff> <expr_file>'
   parser = OptionParser(usage)
   parser.add_option('-c', dest='cluster_gene_distance',
-      default=1000, type='int',
+      default=2000, type='int',
       help='Cluster genes into the same split within this distance [Default: %default]')
   parser.add_option('-g', dest='gene_index',
       default='gene_name',
@@ -48,10 +48,10 @@ def main():
       default=False, action='store_true',
       help='Square root the expression values [Default: %default]')
   parser.add_option('-t', dest='test_pct_or_chr',
-      default=0.05, type='str',
+      default=0.1, type='str',
       help='Proportion of the data for testing [Default: %default]')
   parser.add_option('-v', dest='valid_pct_or_chr',
-      default=0.05, type='str',
+      default=0.1, type='str',
       help='Proportion of the data for validation [Default: %default]')
   (options, args) = parser.parse_args()
 
@@ -71,28 +71,39 @@ def main():
   ################################################################
   # read genes and targets
 
-  genes_df = gff_df(tss_gff_file, options.gene_index)
-  expr_df = pd.read_csv(expr_file, index_col=0)
+  genes_raw_df = gff_df(tss_gff_file, options.gene_index)
+  expr_raw_df = pd.read_csv(expr_file, index_col=0)
+  if options.sqrt:
+    expr_raw_df = np.sqrt(expr_raw_df)
 
   # filter for shared genes
-  shared_genes = set(genes_df.index) & set(expr_df.index)
+  shared_genes = set(genes_raw_df.index) & set(expr_raw_df.index)
+  shared_genes = sorted(shared_genes)
   print('Shared %d genes of %d described and %d quantified' %  \
-    (len(shared_genes), genes_df.shape[0], expr_df.shape[0]))
+    (len(shared_genes), genes_raw_df.shape[0], expr_raw_df.shape[0]))
 
-  genes_mask = np.array([gene in shared_genes for gene in genes_df.index])
-  genes_df = genes_df.loc[genes_mask].copy()
-  expr_mask = np.array([gene in shared_genes for gene in expr_df.index])
-  expr_df = expr_df.loc[expr_mask].copy()
+  # align gene info and expression
+  genes_df = genes_raw_df.loc[shared_genes]
+  expr_df = expr_raw_df.loc[shared_genes]
+  assert(genes_df.shape[0] == expr_df.shape[0])
 
-  if options.sqrt:
-    expr_df = np.sqrt(expr_df)
+  ################################################################
+  # filter genes from chromosome ends
+
+  gene_valid_mask = sufficient_sequence(fasta_file, genes_df, options.seq_length, options.n_allowed_pct)
+  genes_df = genes_df.loc[gene_valid_mask]
+  expr_df = expr_df.loc[gene_valid_mask]
 
   ################################################################
   # divide between train/valid/test
 
   # permute genes
-  genes_df = genes_df.sample(frac=1)
-  
+  np.random.seed(44)
+  permute_order = np.random.permutation(genes_df.shape[0])
+  genes_df = genes_df.iloc[permute_order]
+  expr_df = expr_df.iloc[permute_order]
+  assert((genes_df.index == expr_df.index).all())
+
   try:
     # convert to float pct
     valid_pct = float(options.valid_pct_or_chr)
@@ -131,21 +142,24 @@ def main():
   fasta_open = pysam.Fastafile(fasta_file)
 
   # define options
-  tf_opts = tf.io.TFRecordOptions('ZLIB')
+  tf_opts = tf.io.TFRecordOptions(compression='ZLIB')
 
   tvt_tuples = [('train',train_index), ('valid',valid_index), ('test',test_index)]
   for set_label, set_index in tvt_tuples:
-    genes_set_df = genes_df.iloc[set_index].copy()
-    expr_set_df = expr_df.iloc[set_index].copy()
+    genes_set_df = genes_df.iloc[set_index]
+    expr_set_df = expr_df.iloc[set_index]
 
     num_set = genes_set_df.shape[0]
     num_set_tfrs = int(np.ceil(num_set / options.seqs_per_tfr))
 
+    # gene sequence index
     si = 0
+
     for tfr_i in range(num_set_tfrs):
       tfr_file = '%s/%s-%d.tfr' % (tfr_dir, set_label, tfr_i)
       print(tfr_file)
       with tf.io.TFRecordWriter(tfr_file, tf_opts) as writer:
+        # TFR index
         ti = 0
         while ti < options.seqs_per_tfr and si < num_set:
           gene = genes_set_df.iloc[si]
@@ -154,49 +168,42 @@ def main():
           seq_start = mid_pos - options.seq_length//2
           seq_end = seq_start + options.seq_length
 
-          # left over
           if seq_start < 0:
+            # fill left side first
             n_requested = -seq_start
-            if n_requested/options.seq_length < options.n_allowed_pct:
-              seq_dna = ''.join([random.choice('ACGT') for i in range(n_requested)])
-              seq_dna += fasta_open.fetch(seq_chrm, 0, seq_end)
-              print('Allowing %s with %d left Ns' % (gene.name, n_requested))
-            else:
-              seq_dna = ''
+            seq_dna = ''.join([random.choice('ACGT') for i in range(n_requested)])
+            seq_dna += fasta_open.fetch(seq_chrm, 0, seq_end)
           else:
             seq_dna = fasta_open.fetch(seq_chrm, seq_start, seq_end)
 
-          # right over
-          if len(seq_dna) < options.seq_length:
-            if len(seq_dna) > 0:
-              n_requested = options.seq_length - len(seq_dna)
-            if n_requested/options.seq_length < options.n_allowed_pct:
-              seq_dna += ''.join([random.choice('ACGT') for i in range(n_requested)])
-              print('Allowing %s with %d right Ns' % (gene.name, n_requested))
-            else:
-              print('Skipping %s with %d Ns' % (gene.name, n_requested))
+          # fill out right side          
+          if len(seq_dna) > 0:
+            n_requested = options.seq_length - len(seq_dna)
+            seq_dna += ''.join([random.choice('ACGT') for i in range(n_requested)])
+
+          # verify length
+          assert(len(seq_dna) == options.seq_length)
+
+          # orient
+          if gene.strand == '-':
+            seq_dna = rc(seq_dna)
+
+          # one hot code
+          seq_1hot = dna_1hot(seq_dna)
+
+          # get targets
+          targets = expr_set_df.iloc[si].values
+          targets = targets.reshape((1,-1)).astype('float16')
+          
+          # make example
+          example = tf.train.Example(features=tf.train.Features(feature={
+            'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
+            'target': _bytes_feature(targets.flatten().tostring())}))
 
           # write
-          if len(seq_dna) == options.seq_length:
-            if gene.strand == '-':
-              seq_dna = rc(seq_dna)
+          writer.write(example.SerializeToString())
 
-            # one hot code
-            seq_1hot = dna_1hot(seq_dna)
-
-            # get targets
-            targets = expr_set_df.iloc[si].values
-            targets = targets.reshape((1,-1))
-            targets = targets.astype('float16')
-
-            # make example
-            example = tf.train.Example(features=tf.train.Features(feature={
-              'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-              'target': _bytes_feature(targets.flatten().tostring())}))
-
-            # write
-            writer.write(example.SerializeToString())
-
+          # advance indexes
           ti += 1
           si += 1
 
@@ -336,6 +343,15 @@ def divide_genes_pct(genes_df, test_pct, valid_pct, cluster_gene_distance):
 
   return train_index, valid_index, test_index
 
+################################################################################
+def genes_bed(genes_df, bed_file):
+  """Write BED file representing gene sequencs."""
+  bed_open = open(bed_file, 'w')
+  for gene in genes_df.itertuples():
+    cols = [gene.chr, gene.start-1, gene.end]
+
+    # ...
+  bed_open.close()
 
 ################################################################################
 def gff_df(gff_file, gene_index):
@@ -368,6 +384,43 @@ def gff_df(gff_file, gene_index):
   df.set_index(gene_index, inplace=True)
 
   return df
+
+################################################################################
+def sufficient_sequence(fasta_file, genes_df, seq_length, n_allowed_pct):
+  """Return boolean mask specifying genes with sufficient sequence."""
+
+  # open FASTA
+  fasta_open = pysam.Fastafile(fasta_file)
+
+  # initialize gene boolean
+  gene_valid = np.ones(genes_df.shape[0], dtype='bool')
+
+  gi = 0
+  for gene in genes_df.itertuples():
+    chr_len = fasta_open.get_reference_length(gene.chr)
+    mid_pos = (gene.start + gene.end) // 2
+    seq_start = mid_pos - seq_length//2
+    seq_end = seq_start + seq_length
+
+    # count requested N's
+    n_requested = 0
+    if seq_start < 0:
+      n_requested += -seq_start
+    if seq_end > chr_len:
+      n_requested += seq_end - chr_len
+
+    if n_requested > 0:
+      if n_requested/seq_length < n_allowed_pct:                
+        print('Allowing %s with %d Ns' % (gene.Index, n_requested))
+      else:
+        print('Skipping %s with %d Ns' % (gene.Index, n_requested))
+        gene_valid[gi] = False
+
+    gi += 1
+
+  fasta_open.close()
+
+  return gene_valid
 
 
 def rc(seq):

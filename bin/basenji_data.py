@@ -221,9 +221,12 @@ def main():
   ################################################################
   if not options.restart:
     # stride sequences across contig
-    train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
-    valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, options.snap, label='valid')
-    test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test, options.snap, label='test')
+    train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train,
+                                   options.snap, label='train')
+    valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test, 
+                                   options.snap, label='valid')
+    test_mseqs = contig_sequences(test_contigs, options.seq_length, options.stride_test,
+                                  options.snap, label='test')
 
     # shuffle
     random.shuffle(train_mseqs)
@@ -485,13 +488,13 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
     first_start = seq_start + pool_seq_unmap_start * pool_width
     first_end = first_start + pool_width
     first_overlap = first_end - overlap_start
-    if first_overlap < 0.2 * pool_width:
+    if first_overlap < 0.1 * pool_width:
       pool_seq_unmap_start += 1
 
     # skip minor overlaps to the last
     last_start = seq_start + (pool_seq_unmap_end - 1) * pool_width
     last_overlap = overlap_end - last_start
-    if last_overlap < 0.2 * pool_width:
+    if last_overlap < 0.1 * pool_width:
       pool_seq_unmap_end -= 1
 
     seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end] = True

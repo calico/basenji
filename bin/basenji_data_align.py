@@ -19,51 +19,35 @@ from optparse import OptionParser
 import collections
 import gzip
 import heapq
-import json
-import math
 import pdb
 import os
 import random
-import subprocess
 import sys
-import tempfile
 import time
 
-import h5py
 import networkx as nx
 import numpy as np
-import pandas as pd
 import pybedtools
 
 from basenji import genome
-from basenji import util
-from basenji_data import annotate_unmap, rejoin_large_contigs
-
-try:
-  import slurm
-except ModuleNotFoundError:
-  pass
+from basenji_data import annotate_unmap, rejoin_large_contigs, write_seqs_bed
 
 '''
-basenji_data2.py
+basenji_data_align.py
 
-Compute model sequences from the genome, extracting DNA coverage values.
+Partition sequences from multiple aligned genomes into train/valid/test splits
+that respect homology.
 '''
 
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <fasta0_file,fasta1_file> <targets_file>'
+  usage = 'usage: %prog [options] <align_net> <fasta0_file,fasta1_file>'
   parser = OptionParser(usage)
-  parser.add_option('-a', dest='align_net',
-  	  help='Alignment .net file')
-  parser.add_option('-b', dest='blacklist_beds',
-      help='Set blacklist nucleotides to a baseline value.')
+  parser.add_option('-a', dest='genome_labels',
+      default=None, help='Genome labels in output')
   parser.add_option('--break', dest='break_t',
       default=None, type='int',
       help='Break in half contigs above length [Default: %default]')
-  parser.add_option('-c','--crop', dest='crop_bp',
-      default=0, type='int',
-      help='Crop bp off each end [Default: %default]')
   parser.add_option('-d', dest='sample_pct',
       default=1.0, type='float',
       help='Down-sample the segments')
@@ -75,21 +59,9 @@ def main():
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
-  parser.add_option('--local', dest='run_local',
-      default=False, action='store_true',
-      help='Run jobs locally as opposed to on SLURM [Default: %default]')
   parser.add_option('-o', dest='out_dir',
-      default='data_out',
+      default='align_out',
       help='Output directory [Default: %default]')
-  parser.add_option('-p', dest='processes',
-      default=None, type='int',
-      help='Number parallel processes [Default: %default]')
-  parser.add_option('-r', dest='seqs_per_tfr',
-      default=256, type='int',
-      help='Sequences per TFRecord file [Default: %default]')
-  parser.add_option('--restart', dest='restart',
-      default=False, action='store_true',
-      help='Skip already read HDF5 coverage values. [Default: %default]')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -99,9 +71,6 @@ def main():
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: %default]')
-  parser.add_option('--soft', dest='soft_clip',
-      default=False, action='store_true',
-      help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
   parser.add_option('-t', dest='test_pct',
       default=0.1, type='float',
       help='Proportion of the data for testing [Default: %default]')
@@ -110,9 +79,6 @@ def main():
   parser.add_option('--umap_t', dest='umap_t',
       default=0.5, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
-  parser.add_option('--umap_set', dest='umap_set',
-      default=None, type='float',
-      help='Set unmappable regions to this percentile in the sequences\' distribution of values')
   parser.add_option('-w', dest='pool_width',
       default=128, type='int',
       help='Sum pool width [Default: %default]')
@@ -122,10 +88,10 @@ def main():
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
-    parser.error('Must provide FASTA and sample coverage label and path files for two genomes.')
+    parser.error('Must provide alignment and FASTA files.')
   else:
-    fasta_files = args[0].split(',')
-    targets_file = args[1]
+    align_net_file = args[0]
+    fasta_files = args[1].split(',')
 
   # there is still some source of stochasticity
   random.seed(options.seed)
@@ -143,24 +109,35 @@ def main():
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
 
-  if os.path.isdir(options.out_dir) and not options.restart:
-    print('Remove output directory %s or use --restart option.' % options.out_dir)
-    exit(1)
-  elif not os.path.isdir(options.out_dir):
-    os.mkdir(options.out_dir)
+  # count genomes
+  num_genomes = len(fasta_files)
 
+  # parse gap files
   if options.gap_files is not None:
     options.gap_files = options.gap_files.split(',')
+    assert(len(options.gap_files) == num_genomes)
 
-  if options.blacklist_beds is not None:
-    options.blacklist_beds = options.blacklist_beds.split(',')
+  # parse unmappable files
+  if options.umap_beds is not None:
+    options.umap_beds = options.umap_beds.split(',')
+    assert(len(options.umap_beds) == num_genomes)
 
-  # read targets
-  targets_df = pd.read_table(targets_file, index_col=0)
+  # label genomes
+  if options.genome_labels is None:
+    options.genome_labels = ['genome%d' % (gi+1) for gi in range(num_genomes)]
+  else:
+    options.genome_labels = options.genome_labels.split(',')
+    assert(len(options.genome_labels) == num_genomes)
 
-  # verify genomes
-  num_genomes = len(fasta_files)
-  assert(len(set(targets_df.genome)) == num_genomes)
+  # create output directorys
+  if not os.path.isdir(options.out_dir):
+    os.mkdir(options.out_dir)
+  genome_out_dirs = []
+  for gi in range(num_genomes):
+    gout_dir = '%s/%s' % (options.out_dir, options.genome_labels[gi])
+    if not os.path.isdir(gout_dir):
+      os.mkdir(gout_dir)
+    genome_out_dirs.append(gout_dir)
 
   ################################################################
   # define genomic contigs
@@ -191,7 +168,7 @@ def main():
   # print contigs to BED file
   for gi in range(num_genomes):
     contigs_i = [ctg for ctg in contigs if ctg.genome == gi]
-    ctg_bed_file = '%s/contigs%d.bed' % (options.out_dir, gi)
+    ctg_bed_file = '%s/contigs.bed' % genome_out_dirs[gi]
     write_seqs_bed(ctg_bed_file, contigs_i)
 
   ################################################################
@@ -199,10 +176,12 @@ def main():
   ################################################################
 
   # connect contigs across genomes by alignment
-  contig_components = connect_contigs(contigs, options.align_net, options.fill_min, options.out_dir)
+  contig_components = connect_contigs(contigs, align_net_file, options.fill_min,
+                                      options.out_dir, genome_out_dirs)
 
   # divide contig connected components between train/valid/test
-  contig_sets = divide_contig_components(contig_components, options.test_pct, options.valid_pct)
+  contig_sets = divide_contig_components(contig_components, options.test_pct,
+                                         options.valid_pct)
   train_contigs, valid_contigs, test_contigs = contig_sets
 
   # rejoin broken contigs within set
@@ -211,7 +190,8 @@ def main():
   test_contigs = rejoin_large_contigs(test_contigs)
 
   # quantify leakage across sets
-  quantify_leakage(options.align_net, train_contigs, valid_contigs, test_contigs, options.out_dir)
+  quantify_leakage(align_net_file, train_contigs, valid_contigs,
+                   test_contigs, options.out_dir)
 
   ################################################################
   # define model sequences
@@ -248,12 +228,8 @@ def main():
     mseqs_genome.append(mseqs_gi)
 
   ################################################################
-  # mappability
+  # filter for sufficient mappability
   ################################################################
-
-  options.umap_beds = options.umap_beds.split(',')
-  unmap_npys = [None, None]
-
   for gi in range(num_genomes):
     if options.umap_beds[gi] is not None:
       # annotate unmappable positions
@@ -266,79 +242,15 @@ def main():
       mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
 
       # write to file
-      unmap_npys[gi] = '%s/mseqs%d_unmap.npy' % (options.out_dir, gi)
-      np.save(unmap_npys[gi], mseqs_unmap)
+      unmap_npy_file = '%s/mseqs_unmap.npy' % genome_out_dirs[gi]
+      np.save(unmap_npy_file, mseqs_unmap)
 
   seqs_bed_files = []
   for gi in range(num_genomes):
     # write sequences to BED
-    seqs_bed_files.append('%s/sequences%d.bed' % (options.out_dir, gi))
+    seqs_bed_files.append('%s/sequences.bed' % genome_out_dirs[gi])
     write_seqs_bed(seqs_bed_files[gi], mseqs_genome[gi], True)
 
-  ################################################################
-  # read sequence coverage values
-  ################################################################
-  seqs_cov_dir = '%s/seqs_cov' % options.out_dir
-  if not os.path.isdir(seqs_cov_dir):
-    os.mkdir(seqs_cov_dir)
-
-  read_jobs = []
-  for gi in range(num_genomes):
-    read_jobs += make_read_jobs(seqs_bed_files[gi], targets_df,
-                                gi, seqs_cov_dir, options)
-
-  if options.run_local:
-    util.exec_par(read_jobs, options.processes, verbose=True)
-  else:
-    slurm.multi_run(read_jobs, options.processes, verbose=True,
-                    launch_sleep=1, update_sleep=5)
-
-  ################################################################
-  # write TF Records
-  ################################################################
-
-  tfr_dir = '%s/tfrecords' % options.out_dir
-  if not os.path.isdir(tfr_dir):
-    os.mkdir(tfr_dir)
-
-  # set genome target index starts
-  sum_targets = 0
-  genome_targets_start = []
-  for gi in range(num_genomes):
-    genome_targets_start.append(sum_targets)
-    targets_df_gi = targets_df[targets_df.genome == gi]
-    sum_targets += targets_df_gi.shape[0]
-
-  write_jobs = []
-  for gi in range(num_genomes):
-    write_jobs += make_write_jobs(mseqs_genome[gi], fasta_files[gi], seqs_bed_files[gi],
-                                  seqs_cov_dir, tfr_dir, gi, unmap_npys[gi],
-                                  genome_targets_start[gi], sum_targets, options)
-
-  if options.run_local:
-    util.exec_par(write_jobs, options.processes, verbose=True)
-  else:
-    slurm.multi_run(write_jobs, options.processes, verbose=True,
-                    launch_sleep=1, update_sleep=5)
-
-  ################################################################
-  # stats
-  ################################################################
-  stats_dict = {}
-  # stats_dict['num_targets'] = targets_df.shape[0]
-  # stats_dict['train_seqs'] = len(train_mseqs)
-  # stats_dict['valid_seqs'] = len(valid_mseqs)
-  # stats_dict['test_seqs'] = len(test_mseqs)
-  stats_dict['seq_length'] = options.seq_length
-  stats_dict['pool_width'] = options.pool_width
-  stats_dict['crop_bp'] = options.crop_bp
-
-  target_length = options.seq_length - 2*options.crop_bp
-  target_length = target_length // options.pool_width
-  stats_dict['target_length'] = target_length
-
-  with open('%s/statistics.json' % options.out_dir, 'w') as stats_json_out:
-    json.dump(stats_dict, stats_json_out, indent=4)
 
 
 ################################################################################
@@ -443,7 +355,7 @@ def quantify_leakage(align_net_file, train_contigs, valid_contigs, test_contigs,
   splits1_bp['valid'] = bed_sum(valid1_bt)
   splits1_bp['test'] = bed_sum(test1_bt)
 
-  leakage_out = open('%s/leakage.txt' % options.out_dir, 'w')
+  leakage_out = open('%s/leakage.txt' % out_dir, 'w')
   print('Genome0', file=leakage_out)
   for split0 in ['train','valid','test']:
     print('  %5s: %10d nt' % (split0, splits0_bp[split0]), file=leakage_out)
@@ -456,7 +368,7 @@ def quantify_leakage(align_net_file, train_contigs, valid_contigs, test_contigs,
     for split0 in ['train','valid','test',None]:
       ss_bp = assign1_sums.get((split0,split1),0)
       print('    %5s: %10d (%.5f)' % (split0, ss_bp, ss_bp/splits1_bp[split1]), file=leakage_out)
- leakage_out.close()
+  leakage_out.close()
 
 
 
@@ -528,7 +440,7 @@ def contig_sequences(contigs, seq_length, stride, label=None):
 
 
 ################################################################################
-def connect_contigs(contigs, align_net_file, fill_min, out_dir):
+def connect_contigs(contigs, align_net_file, fill_min, out_dir, genome_out_dirs):
   """Connect contigs across genomes by forming a graph that includes
      net format aligning regions and contigs. Compute contig components
      as connected components of that graph."""
@@ -545,8 +457,8 @@ def connect_contigs(contigs, align_net_file, fill_min, out_dir):
     graph_contigs_nets.add_node(ctg_node)
 
   # intersect contigs BED w/ nets BED, adding graph edges.
-  intersect_contigs_nets(graph_contigs_nets, 0, out_dir)
-  intersect_contigs_nets(graph_contigs_nets, 1, out_dir)
+  intersect_contigs_nets(graph_contigs_nets, 0, out_dir, genome_out_dirs[0])
+  intersect_contigs_nets(graph_contigs_nets, 1, out_dir, genome_out_dirs[1])
 
   # find connected components
   contig_components = []
@@ -676,11 +588,11 @@ def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain
 
 
 ################################################################################
-def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir):
+def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir, genome_out_dir):
   """Intersect the contigs and nets from genome_i, adding the
      overlaps as edges to graph_contigs_nets."""
 
-  contigs_file = '%s/contigs%d.bed' % (out_dir, genome_i)
+  contigs_file = '%s/contigs.bed' % genome_out_dir
   nets_file = '%s/nets%d.bed' % (out_dir, genome_i)
 
   contigs_bed = pybedtools.BedTool(contigs_file)
@@ -760,113 +672,6 @@ def make_net_graph(align_net_file, fill_min, out_dir):
 
 
 ################################################################################
-def make_read_jobs(seqs_bed_file, targets_df, gi, seqs_cov_dir, options):
-  """Make basenji_data_read.py jobs for one genome."""
-
-  # filter targets
-  targets_df_gi = targets_df[targets_df.genome == gi]
-
-  read_jobs = []
-
-  for ti in range(targets_df_gi.shape[0]):
-    genome_cov_file = targets_df_gi['file'].iloc[ti]
-    seqs_cov_stem = '%s/%d-%d' % (seqs_cov_dir, gi, ti)
-    seqs_cov_file = '%s.h5' % seqs_cov_stem
-
-    clip_ti = None
-    if 'clip' in targets_df_gi.columns:
-      clip_ti = targets_df_gi['clip'].iloc[ti]
-
-    scale_ti = 1
-    if 'scale' in targets_df_gi.columns:
-      scale_ti = targets_df_gi['scale'].iloc[ti]
-
-    if options.restart and os.path.isfile(seqs_cov_file):
-      print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
-    else:
-      cmd = 'basenji_data_read.py'
-      cmd += ' --crop %d' % options.crop_bp
-      cmd += ' -u %s' % targets_df_gi['sum_stat'].iloc[ti]
-      cmd += ' -w %d' % options.pool_width
-      if clip_ti is not None:
-        cmd += ' -c %f' % clip_ti
-      if options.soft_clip:
-        cmd += ' --soft'
-      cmd += ' -s %f' % scale_ti
-      if options.blacklist_beds[gi]:
-        cmd += ' -b %s' % options.blacklist_beds[gi]
-      cmd += ' %s' % genome_cov_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_file
-
-      if options.run_local:
-        cmd += ' &> %s.err' % seqs_cov_stem
-        read_jobs.append(cmd)
-      else:
-        j = slurm.Job(cmd,
-            name='read_t%d' % ti,
-            out_file='%s.out' % seqs_cov_stem,
-            err_file='%s.err' % seqs_cov_stem,
-            queue='standard', mem=15000, time='12:0:0')
-        read_jobs.append(j)
-
-  return read_jobs
-
-################################################################################
-def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
-                    unmap_npy, targets_start, sum_targets, options):
-  """Make basenji_data_write.py jobs for one genome."""
-
-  write_jobs = []
-
-  for tvt_set in ['train', 'valid', 'test']:
-    tvt_set_indexes = [i for i in range(len(mseqs)) if mseqs[i].label == tvt_set]
-    tvt_set_start = tvt_set_indexes[0]
-    tvt_set_end = tvt_set_indexes[-1] + 1
-
-    tfr_i = 0
-    tfr_start = tvt_set_start
-    tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
-
-    while tfr_start <= tvt_set_end:
-      tfr_stem = '%s/%s-%d-%d' % (tfr_dir, tvt_set, gi, tfr_i)
-
-      cmd = 'basenji_data_write.py'
-      cmd += ' -s %d' % tfr_start
-      cmd += ' -e %d' % tfr_end
-      cmd += ' -g %d' % gi
-      cmd += ' --ts %d' % targets_start
-      cmd += ' --te %d' % sum_targets
-      if unmap_npy is not None:
-        cmd += ' -u %s' % unmap_npy
-      if options.umap_set is not None:
-        cmd += ' --umap_set %f' % options.umap_set
-
-      cmd += ' %s' % fasta_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_dir
-      cmd += ' %s.tfr' % tfr_stem
-
-      if options.run_local:
-        cmd += ' &> %s.err' % tfr_stem
-        write_jobs.append(cmd)
-      else:
-        j = slurm.Job(cmd,
-              name='write_%s-%d' % (tvt_set, tfr_i),
-              out_file='%s.out' % tfr_stem,
-              err_file='%s.err' % tfr_stem,
-              queue='standard', mem=15000, time='12:0:0')
-        write_jobs.append(j)
-
-      # update
-      tfr_i += 1
-      tfr_start += options.seqs_per_tfr
-      tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
-
-  return write_jobs
-
-
-################################################################################
 def rejoin_large_contigs(contigs):
   """ Rejoin large contigs that were broken up before alignment comparison."""
 
@@ -943,18 +748,6 @@ def report_divide_stats(train_contigs, valid_contigs, test_contigs):
   for gi in range(num_genomes):
     print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
          (gi, test_count_genome[gi], test_nt_genome[gi], test_nt_genome[gi]/total_nt_genome[gi]))
-
-
-################################################################################
-def write_seqs_bed(bed_file, seqs, labels=False):
-  '''Write sequences to BED file.'''
-  bed_out = open(bed_file, 'w')
-  for i in range(len(seqs)):
-    line = '%s\t%d\t%d' % (seqs[i].chr, seqs[i].start, seqs[i].end)
-    if labels:
-      line += '\t%s' % seqs[i].label
-    print(line, file=bed_out)
-  bed_out.close()
 
 
 ################################################################################

@@ -26,7 +26,6 @@ import numpy as np
 # Methods to load the training data.
 ################################################################################
 
-
 def dna_1hot(seq, seq_len=None, n_uniform=False):
   """ dna_1hot
 
@@ -76,6 +75,37 @@ def dna_1hot(seq, seq_len=None, n_uniform=False):
         else:
           ni = random.randint(0,3)
           seq_code[i, ni] = 1          
+
+  return seq_code
+
+
+def dna_1hot_index(seq):
+  """ dna_1hot_index
+
+    Args:
+      seq:       nucleotide sequence.
+
+    Returns:
+      seq_code:  index int array representation.
+    """
+  seq_len = len(seq)
+  seq = seq.upper()
+
+  # map nt's to a len(seq) of 0,1,2,3
+  seq_code = np.zeros(seq_len, dtype='uint8')
+    
+  for i in range(seq_len):
+    nt = seq[i]
+    if nt == 'A':
+      seq_code[i] = 0
+    elif nt == 'C':
+      seq_code[i] = 1
+    elif nt == 'G':
+      seq_code[i] = 2
+    elif nt == 'T':
+      seq_code[i] = 3
+    else:
+      seq_code[i] = random.randint(0,3)         
 
   return seq_code
 

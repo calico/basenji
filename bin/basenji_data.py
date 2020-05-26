@@ -105,11 +105,14 @@ def main():
   parser.add_option('-u', dest='umap_bed',
       help='Unmappable regions in BED format')
   parser.add_option('--umap_t', dest='umap_t',
-      default=0.3, type='float',
+      default=0.5, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
-  parser.add_option('--umap_set', dest='umap_set',
-      default=None, type='float',
-      help='Set unmappable regions to this percentile in the sequences\' distribution of values')
+  parser.add_option('--umap_clip', dest='umap_clip',
+      default=1, type='float',
+      help='Clip values at unmappable positions to distribution quantiles, eg 0.25. [Default: %default]')
+  parser.add_option('--umap_tfr', dest='umap_tfr',
+      default=False, action='store_true',
+      help='Save umap array into TFRecords [Default: %default]')
   parser.add_option('-w', dest='pool_width',
       default=128, type='int',
       help='Sum pool width [Default: %default]')
@@ -253,8 +256,8 @@ def main():
         exit(1)
 
       # annotate unmappable positions
-      mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
-                                   options.seq_length, options.pool_width)
+      mseqs_unmap = annotate_unmap(mseqs, options.umap_bed, options.seq_length,
+                                   options.pool_width, options.crop_bp)
 
       # filter unmappable
       mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
@@ -379,10 +382,11 @@ def main():
       cmd = 'basenji_data_write.py'
       cmd += ' -s %d' % tfr_start
       cmd += ' -e %d' % tfr_end
+      cmd += ' --umap_clip %f' % options.umap_clip
+      if options.umap_tfr:
+        cmd += ' --umap_tfr'
       if options.umap_bed is not None:
         cmd += ' -u %s' % unmap_npy
-      if options.umap_set is not None:
-        cmd += ' --umap_set %f' % options.umap_set
 
       cmd += ' %s' % fasta_file
       cmd += ' %s' % seqs_bed_file
@@ -434,7 +438,7 @@ def main():
 
 
 ################################################################################
-def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
+def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width, crop_bp):
   """ Intersect the sequence segments with unmappable regions
          and annoate the segments as NaN to possible be ignored.
 
@@ -443,6 +447,7 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
       unmap_bed: unmappable regions BED file
       seq_length: sequence length
       pool_width: pooled bin width
+      crop_bp: nucleotides cropped off ends
 
     Returns:
       seqs_unmap: NxL binary NA indicators
@@ -499,6 +504,11 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
 
     seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end] = True
     assert(seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end].sum() == pool_seq_unmap_end-pool_seq_unmap_start)
+
+  # crop
+  if crop_bp > 0:
+    pool_crop = crop_bp // pool_width
+    seqs_unmap = seqs_unmap[:, pool_crop:-pool_crop]
 
   return seqs_unmap
 

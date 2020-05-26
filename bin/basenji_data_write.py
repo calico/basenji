@@ -23,7 +23,7 @@ import pdb
 import pysam
 
 from basenji_data import ModelSeq
-from basenji.dna_io import dna_1hot
+from basenji.dna_io import dna_1hot, dna_1hot_index
 
 import tensorflow as tf
 
@@ -31,6 +31,10 @@ import tensorflow as tf
 basenji_data_write.py
 
 Write TF Records for batches of model sequences.
+
+Notes:
+-I think target_start and target_end are remnants of my previous data2 pipeline.
+ If I see this again beyond 8/2020, remove it.
 """
 
 ################################################################################
@@ -39,8 +43,6 @@ Write TF Records for batches of model sequences.
 def main():
   usage = 'usage: %prog [options] <fasta_file> <seqs_bed_file> <seqs_cov_dir> <tfr_file>'
   parser = OptionParser(usage)
-  parser.add_option('-g', dest='genome_index',
-      default=None, type='int', help='Genome index')
   parser.add_option('-s', dest='start_i',
       default=0, type='int',
       help='Sequence start index [Default: %default]')
@@ -53,9 +55,12 @@ def main():
       default=0, type='int', help='Write targets into vector starting at index [Default: %default')
   parser.add_option('-u', dest='umap_npy',
       help='Unmappable array numpy file')
-  parser.add_option('--umap_set', dest='umap_set',
-      default=None, type='float',
-      help='Sequence distribution value to set unmappable positions to, eg 0.25.')
+  parser.add_option('--umap_clip', dest='umap_clip',
+      default=1, type='float',
+      help='Clip values at unmappable positions to distribution quantiles, eg 0.25. [Default: %default]')
+  parser.add_option('--umap_tfr', dest='umap_tfr',
+      default=False, action='store_true',
+      help='Save umap array into TFRecords [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 4:
@@ -84,17 +89,11 @@ def main():
 
   seqs_cov_files = []
   ti = 0
-  if options.genome_index is None:
-    seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
-  else:
-    seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
+  seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
   while os.path.isfile(seqs_cov_file):
     seqs_cov_files.append(seqs_cov_file)
     ti += 1
-    if options.genome_index is None:
-      seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
-    else:
-      seqs_cov_file = '%s/%d-%d.h5' % (seqs_cov_dir, options.genome_index, ti)
+    seqs_cov_file = '%s/%d.h5' % (seqs_cov_dir, ti)
 
   if len(seqs_cov_files) == 0:
     print('Sequence coverage files not found, e.g. %s' % seqs_cov_file, file=sys.stderr)
@@ -125,17 +124,20 @@ def main():
   ################################################################
   # modify unmappable
 
-  if options.umap_npy is not None and options.umap_set is not None:
+  if options.umap_npy is not None and options.umap_clip < 1:
     unmap_mask = np.load(options.umap_npy)
 
     for si in range(num_seqs):
       msi = options.start_i + si
 
       # determine unmappable null value
-      seq_target_null = np.percentile(targets[si], q=[100*options.umap_set], axis=0)[0]
+      seq_target_null = np.percentile(targets[si], q=[100*options.umap_clip], axis=0)[0]
 
       # set unmappable positions to null
       targets[si,unmap_mask[msi,:],:] = np.minimum(targets[si,unmap_mask[msi,:],:], seq_target_null)
+
+  elif options.umap_npy is not None and options.umap_tfr:
+    unmap_mask = np.load(options.umap_npy)
 
   ################################################################
   # write TFRecords
@@ -156,28 +158,37 @@ def main():
 
       # one hot code
       seq_1hot = dna_1hot(seq_dna)
+      # seq_1hot = dna_1hot_index(seq_dna) # more efficient, but fighting inertia
 
-      if options.genome_index is None:
-        example = tf.train.Example(features=tf.train.Features(feature={
-            'genome': _int_feature(0),
-            'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-            'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
-      else:
-        example = tf.train.Example(features=tf.train.Features(feature={
-            'genome': _int_feature(options.genome_index),
-            'sequence': _bytes_feature(seq_1hot.flatten().tostring()),
-            'target': _bytes_feature(targets[si,:,:].flatten().tostring())}))
+      # hash to bytes
+      features_dict = {
+        'sequence': feature_bytes(seq_1hot),
+        'target': feature_bytes(targets[si,:,:])
+        }
 
+      # add unmappability
+      if options.umap_tfr:
+        features_dict['umap'] = feature_bytes(unmap_mask[msi,:])
+
+      # write example
+      example = tf.train.Example(features=tf.train.Features(feature=features_dict))
       writer.write(example.SerializeToString())
 
     fasta_open.close()
 
 
-def _bytes_feature(value):
-  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+def feature_bytes(values):
+  """Convert numpy arrays to bytes features."""
+  values = values.flatten().tostring()
+  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[values]))
 
-def _int_feature(value):
-  return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+def feature_floats(values):
+  """Convert numpy arrays to floats features.
+     Requires more space than bytes."""
+  values = values.flatten().tolist()
+  return tf.train.Feature(float_list=tf.train.FloatList(value=values))
+
 
 ################################################################################
 # __main__

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2020 Calico LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,9 +26,9 @@ if tf.__version__[0] == '1':
 from basenji import seqnn
 
 """
-save_trunk.py
+save_model.py
 
-Restore a model, and then save the trunk only.
+Restore a model, and then re-save in a different format and/or with the trunk only.
 """
 
 ################################################################################
@@ -37,6 +37,9 @@ Restore a model, and then save the trunk only.
 def main():
   usage = 'usage: %prog [options] <params_file> <in_model_file> <out_model_file>'
   parser = OptionParser(usage)
+  parser.add_option('-t','--trunk', dest='trunk',
+    default=False, action='store_true',
+    help='Save only trunk [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
@@ -56,8 +59,8 @@ def main():
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(in_model_file)
 
-  # save trunk
-  seqnn_model.save(out_model_file, trunk=True)
+  # save
+  seqnn_model.save(out_model_file, trunk=options.trunk)
 
 ################################################################################
 # __main__

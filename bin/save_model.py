@@ -53,7 +53,6 @@ def main():
   with open(params_file) as params_open:
     params = json.load(params_open)
   params_model = params['model']
-  params_train = params['train']
 
   # restore model
   seqnn_model = seqnn.SeqNN(params_model)

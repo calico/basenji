@@ -56,7 +56,8 @@ def main():
 
   # restore model
   seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(in_model_file)
+  if os.path.isfile(in_model_file):
+  	seqnn_model.restore(in_model_file)
 
   # save
   seqnn_model.save(out_model_file, trunk=options.trunk)

@@ -512,6 +512,10 @@ class UpperTri(tf.keras.layers.Layer):
     seq_len = inputs.shape[1]
     output_dim = inputs.shape[-1]
 
+    if type(seq_len) == tf.compat.v1.Dimension:
+      seq_len = seq_len.value
+      output_dim = output_dim.value
+
     triu_tup = np.triu_indices(seq_len, self.diagonal_offset)
     triu_index = list(triu_tup[0]+ seq_len*triu_tup[1])
     unroll_repr = tf.reshape(inputs, [-1, seq_len**2, output_dim])
@@ -596,6 +600,8 @@ class SwitchReverseTriu(tf.keras.layers.Layer):
 
     # infer original sequence length
     ut_len = x_ut.shape[1]
+    if type(ut_len) == tf.compat.v1.Dimension:
+      ut_len = ut_len.value
     seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
     seq_len += self.diagonal_offset
 

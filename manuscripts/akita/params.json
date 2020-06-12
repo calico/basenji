@@ -49,7 +49,8 @@
         ],
         "head_hic": [
             {
-                "name": "average_to_2d"
+                "name": "one_to_two",
+		"operation": "mean"
             },
             {
                 "name": "concat_dist_2d"

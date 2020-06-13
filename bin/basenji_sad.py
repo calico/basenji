@@ -98,6 +98,24 @@ def main():
     model_file = args[1]
     vcf_file = args[2]
 
+  elif len(args) == 4:
+    # multi separate
+    options_pkl_file = args[0]
+    params_file = args[1]
+    model_file = args[2]
+    vcf_file = args[3]
+
+    # save out dir
+    out_dir = options.out_dir
+
+    # load options
+    options_pkl = open(options_pkl_file, 'rb')
+    options = pickle.load(options_pkl)
+    options_pkl.close()
+
+    # update output directory
+    options.out_dir = out_dir
+
   elif len(args) == 5:
     # multi worker
     options_pkl_file = args[0]

@@ -164,33 +164,33 @@ def main():
 
 
 def interp_nan(x, kind='linear'):
-    '''Linearly interpolate to fill NaN.'''
+  '''Linearly interpolate to fill NaN.'''
 
-    # pad zeroes
-    xp = np.zeros(len(x)+2)
-    xp[1:-1] = x
+  # pad zeroes
+  xp = np.zeros(len(x)+2)
+  xp[1:-1] = x
 
-    # find NaN
-    x_nan = np.isnan(xp)
+  # find NaN
+  x_nan = np.isnan(xp)
 
-    if np.sum(x_nan) == 0:
-        # unnecessary
-        return x
+  if np.sum(x_nan) == 0:
+    # unnecessary
+    return x
 
-    else:
-        # interpolate
-        inds = np.arange(len(xp))
-        interpolator = scipy.interpolate.interp1d(
-            inds[~x_nan],
-            xp[~x_nan],
-            kind=kind,
-            bounds_error=False)
+  else:
+    # interpolate
+    inds = np.arange(len(xp))
+    interpolator = scipy.interpolate.interp1d(
+        inds[~x_nan],
+        xp[~x_nan],
+        kind=kind,
+        bounds_error=False)
 
-        loc = np.where(x_nan)
-        xp[loc] = interpolator(loc)
+    loc = np.where(x_nan)
+    xp[loc] = interpolator(loc)
 
-        # slice off pad
-        return xp[1:-1]
+    # slice off pad
+    return xp[1:-1]
 
 def read_blacklist(blacklist_bed, black_buffer=20):
   """Construct interval trees of blacklist

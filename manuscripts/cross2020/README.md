@@ -9,4 +9,6 @@ Download the training/validation/test TFRecords	(319 Gb) from https://console.cl
 Scikit-learn random forest SNP classifiers for Mendelian disease and GWAS complex traits available from https://console.cloud.google.com/storage/browser/basenji_barnyard/sad/classifiers/.
 Restore models using joblib.load.
 
+All 1000 Genomes variant scores for human and mouse available from https://console.cloud.google.com/storage/browser/basenji_barnyard/sad/human/ and https://console.cloud.google.com/storage/browser/basenji_barnyard/sad/mouse/.
+
 Autism variant scores available from https://console.cloud.google.com/storage/browser/basenji_barnyard/sad/autism/.

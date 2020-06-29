@@ -149,11 +149,13 @@ def main():
 
   if options.embed_layer is not None:
     seqnn_model.build_embed(options.embed_layer)
-    preds_length = seqnn_model.embed.output.shape[1].value
-    preds_depth = seqnn_model.embed.output.shape[2].value
+    _, preds_length, preds_depth  = seqnn_model.embed.output.shape
   else:
-    preds_length = seqnn_model.model.output.shape[1].value
-    preds_depth = seqnn_model.model.output.shape[2].value
+    _, preds_length, preds_depth = seqnn_model.model.output.shape
+    
+  if type(preds_length) == tf.compat.v1.Dimension:
+    preds_length = preds_length.value
+    preds_depth = preds_depth.value
 
   preds_window = seqnn_model.model_strides[0]
   seq_crop = seqnn_model.target_crops[0]*preds_window

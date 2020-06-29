@@ -5,15 +5,15 @@
 
 [Predicting 3D genome folding from DNA sequence. bioRxiv 10/2019.](https://www.biorxiv.org/content/10.1101/800060v1)
 
-*get_model.sh* - Download the saved TensorFlow model.
+*get_model.sh* - Download the saved TensorFlow model, trained on human Hi-C and Micro-C data mapped to hg38 and processed at 2048bp resolution.
 
-*get_data.sh* - Download the training/validation/test TFRecords	(~10 Gb).
+*get_data.sh* - Download the training/validation/test TFRecords	(~10 Gb), used to train and assess this model.
 
 --------------------------------------------------------------------------------
 
 ### Browse predictions 
 
-*browsable predictions for chr17*: https://resgen.io/gfudenberg/Akita-preds/views
+*browsable predictions for chr17*: for the human-trained model above https://resgen.io/gfudenberg/Akita-preds/views
 
 ### Explore predictions 
 

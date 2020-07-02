@@ -39,8 +39,10 @@ def main():
   parser.add_option('-a', '--alt', dest='alternative',
       default='two-sided', help='Statistical test alternative [Default: %default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf1.15-gpu',
+      default='tf2-gpu',
       help='Anaconda environment [Default: %default]')
+  parser.add_option('--name', dest='name',
+      default='test', help='SLURM name prefix [Default: %default]')
   parser.add_option('-q', dest='queue',
       default='gtx1080ti')
   parser.add_option('-r', dest='ref_dir',
@@ -96,8 +98,9 @@ def main():
         basenji_cmd += ' %s/train/model_check.h5' % it_dir
         basenji_cmd += ' %s' % data_dir
 
+        name = '%s-testtr%d' % (options.name, i)
         basenji_job = slurm.Job(basenji_cmd,
-                        name='test_train%d' % i,
+                        name=name,
                         out_file='%s/test_train.out'%it_dir,
                         err_file='%s/test_train.err'%it_dir,
                         queue=options.queue,
@@ -132,8 +135,9 @@ def main():
       basenji_cmd += ' %s/train/model_best.h5' % it_dir
       basenji_cmd += ' %s' % data_dir
 
+      name = '%s-test%d' % (options.name, i)
       basenji_job = slurm.Job(basenji_cmd,
-                      name='test_test%d' % i,
+                      name=name,
                       out_file='%s/test.out'%it_dir,
                       err_file='%s/test.err'%it_dir,
                       queue=options.queue,
@@ -168,15 +172,16 @@ def main():
         basenji_cmd += ' %s/train/model_best.h5' % it_dir
         basenji_cmd += ' %s' % data_dir
 
+        name = '%s-spec%d' % (options.name, i)
         basenji_job = slurm.Job(basenji_cmd,
-                        name='test_spec%d' % i,
+                        name=name,
                         out_file='%s/test_spec.out'%it_dir,
                         err_file='%s/test_spec.err'%it_dir,
                         queue=options.queue,
                         cpu=1,
                         gpu=1,
-                        mem=23000,
-                        time='4:00:00')
+                        mem=60000,
+                        time='6:00:00')
         jobs.append(basenji_job)
 
   slurm.multi_run(jobs, verbose=True)

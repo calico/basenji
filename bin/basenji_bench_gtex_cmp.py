@@ -11,15 +11,14 @@ import pandas as pd
 from scipy.stats import combine_pvalues, pearsonr, ttest_rel, wilcoxon
 from tabulate import tabulate
 
-import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 
 '''
-Name
+basenji_bench_gtex_cmp.py
 
-Description...
+Compare multiple variant score sets on the GTEx fine mapped eQTL benchmark.
 '''
 
 ################################################################################
@@ -223,6 +222,7 @@ def ttest_alt(a, b, alternative='two-sided'):
             tp = 1 - (1-tp)/2
 
     return tt, tp
+
 
 ################################################################################
 # __main__

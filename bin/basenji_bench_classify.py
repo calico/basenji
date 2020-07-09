@@ -42,6 +42,9 @@ def main():
             help='Parallel threads passed to scikit-learn n_jobs [Default: %default]')
     parser.add_option('-r', dest='random_seed',
             default=None, type='int')
+    parser.add_option('-s', dest='save_preds',
+            default=False, action='store_true',
+            help='Save predictions across iterations [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -81,9 +84,13 @@ def main():
         aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean = fold_roc(X, y, folds=8)
     else:
         # aurocs, fpr_folds, tpr_folds, fpr_full, tpr_full = ridge_roc(X, y, folds=8, alpha=10000)
-        aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean = randfor_roc(X, y, folds=8,
+        aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds = randfor_roc(X, y, folds=8,
                 iterations=options.iterations, random_state=options.random_seed,
                 n_jobs=options.parallel_threads)
+
+        # save preds
+        if options.save_preds:
+            np.save('%s/preds.npy' % options.out_dir, preds)
 
         # save full model
         model = randfor_full(X, y)
@@ -175,6 +182,7 @@ def randfor_roc(X, y, folds=8, iterations=1, random_state=None, n_jobs=1):
     tpr_folds = []
     fpr_fulls = []
     tpr_fulls = []
+    preds_return = []
 
     fpr_mean = np.linspace(0, 1, 256)
     tpr_mean = []
@@ -217,11 +225,13 @@ def randfor_roc(X, y, folds=8, iterations=1, random_state=None, n_jobs=1):
         fpr_full, tpr_full, _ = roc_curve(y, preds_full)
         fpr_fulls.append(fpr_full)
         tpr_fulls.append(tpr_full)
+        preds_return.append(preds_full)
 
     aurocs = np.array(aurocs)
     tpr_mean = np.array(tpr_mean).mean(axis=0)
+    preds_return = np.array(preds_return).T
 
-    return aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean
+    return aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds_return
 
 
 def read_sad(sad_file):

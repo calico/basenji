@@ -165,7 +165,7 @@ def main():
   #######################################################
   # classify
 
-  cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44'
+  cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44 -s'
 
   jobs = []
   for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):

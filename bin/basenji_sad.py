@@ -358,14 +358,14 @@ def write_snp(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
   if 'SAR' in sad_stats:
     sar = np.log2(alt_preds_sum + log_pseudo) \
                    - np.log2(ref_preds_sum + log_pseudo)
-    sad_out['SAR'][szi,:] = sar.astype('float16')
+    sad_out['SAR'][si,:] = sar.astype('float16')
 
   # compare geometric means
   if 'geoSAD' in sad_stats:
     sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
                 - np.log2(ref_preds.astype('float64') + log_pseudo)
     geo_sad = sar_vec.sum(axis=0)
-    sad_out['geoSAD'][szi,:] = geo_sad.astype('float16')
+    sad_out['geoSAD'][si,:] = geo_sad.astype('float16')
 
 
 class SNPWorker(Thread):

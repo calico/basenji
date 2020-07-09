@@ -245,8 +245,16 @@ def main():
 def read_cors(acc_glob_str):
   rep_cors = []
   for acc_file in glob.glob(acc_glob_str):
-    acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-    rep_cors.append(acc_df.pearsonr.mean())
+    try:
+      acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
+      rep_cors.append(acc_df.pearsonr.mean())
+    except:
+      #read tf1 version
+      cors = []
+      for line in open(acc_file):
+        a = line.split()
+        cors.append(float(a[3]))
+      rep_cors.append(np.mean(cors))
   
   cors_mean = np.mean(rep_cors)
   cors_stdm = np.std(rep_cors) / np.sqrt(len(rep_cors))

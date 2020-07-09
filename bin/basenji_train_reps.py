@@ -40,6 +40,9 @@ def main():
 
   # train
   train_options = OptionGroup(parser, 'basenji_train.py options')
+  train_options.add_option('-k', dest='keras_fit',
+      default=False, action='store_true',
+      help='Train with Keras fit method [Default: %default]')
   train_options.add_option('-o', dest='out_dir',
       default='train_out',
       help='Output directory for test statistics [Default: %default]')

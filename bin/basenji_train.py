@@ -43,6 +43,9 @@ Train Basenji model using given parameters and data.
 def main():
   usage = 'usage: %prog [options] <params_file> <data_dir>'
   parser = OptionParser(usage)
+  parser.add_option('-k', dest='keras_fit',
+      default=False, action='store_true',
+      help='Train with Keras fit method [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='train_out',
       help='Output directory for test statistics [Default: %default]')
@@ -115,9 +118,6 @@ def main():
     # compile model
     seqnn_trainer.compile(seqnn_model)
 
-    # train model
-    seqnn_trainer.fit(seqnn_model)
-
   else:
     ########################################
     # two GPU
@@ -139,8 +139,11 @@ def main():
       # compile model
       seqnn_trainer.compile(seqnn_model)
 
-    # train model
-    seqnn_trainer.fit(seqnn_model)
+  # train model
+  if options.keras_fit:
+    seqnn_trainer.fit_keras(seqnn_model)
+  else:
+    seqnn_trainer.fit_tape(seqnn_model)
 
 ################################################################################
 # __main__

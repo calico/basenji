@@ -71,7 +71,7 @@ class Trainer:
                     metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
     self.compiled = True
 
-  def fit(self, seqnn_model):
+  def fit_keras(self, seqnn_model):
     if not self.compiled:
       self.compile(seqnn_model)
 
@@ -213,10 +213,11 @@ class Trainer:
           train_r2[di].reset_states()
 
         
-  def fit_tape(self, model):
+  def fit_tape(self, seqnn_model):
     if not self.compiled:
-      self.compile(model)
-
+      self.compile(seqnn_model)
+    model = seqnn_model.model
+    
     # metrics
     num_targets = model.output_shape[-1]
     train_loss = tf.keras.metrics.Mean()
@@ -234,7 +235,7 @@ class Trainer:
       self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
     # improvement variables
-    valid_best = np.inf
+    valid_best = -np.inf
     unimproved = 0
 
     # training loop
@@ -244,8 +245,8 @@ class Trainer:
       else:
         # train
         t0 = time.time()
-        train_iter = iter(self.train_data.dataset)
-        for si in range(self.train_epoch_batches):
+        train_iter = iter(self.train_data[0].dataset)
+        for si in range(self.train_epoch_batches[0]):
           x, y = next(train_iter)
           train_step(x, y)
 
@@ -255,10 +256,10 @@ class Trainer:
         print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f' % (ei, (time.time()-t0), train_loss_epoch, train_r_epoch), end='')
 
         # checkpoint
-        model.save('%s/model_check.h5'%self.out_dir)
+        seqnn_model.save('%s/model_check.h5'%self.out_dir)
 
         # print validation accuracy
-        valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data.dataset, verbose=0)
+        valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data[0].dataset, verbose=0)
         print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), end='')
 
         # check best
@@ -266,7 +267,7 @@ class Trainer:
           print(' - best!', end='')
           unimproved = 0
           valid_best = valid_pr
-          model.save('%s/model_best.h5'%self.out_dir)
+          seqnn_model.save('%s/model_best.h5'%self.out_dir)
         else:
           unimproved += 1
         print('', flush=True)
@@ -287,7 +288,7 @@ class Trainer:
     else:
       lr_schedule = initial_learning_rate
 
-    clip_norm = self.params.get('clipnorm', None)
+    clip_norm = self.params.get('clip_norm', None)
 
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()

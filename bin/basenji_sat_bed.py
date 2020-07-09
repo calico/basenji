@@ -87,6 +87,18 @@ def main():
     model_file = args[1]
     bed_file = args[2]
 
+  elif len(args) == 4:
+    # master script
+    options_pkl_file = args[0]
+    params_file = args[1]
+    model_file = args[2]
+    bed_file = args[3]
+
+    # load options
+    options_pkl = open(options_pkl_file, 'rb')
+    options = pickle.load(options_pkl)
+    options_pkl.close()
+
   elif len(args) == 5:
     # multi worker
     options_pkl_file = args[0]
@@ -226,12 +238,9 @@ def main():
       if 'center' in options.sad_stats:
         preds_center = preds_mut[center_start:center_end,:].sum(axis=0)
         seq_preds_center.append(preds_center)
-      elif 'scd' in options.sad_stats:
+      if 'scd' in options.sad_stats:
         preds_scd = np.sqrt(((preds_mut-preds_mut0)**2).sum(axis=0))
         seq_preds_scd.append(preds_scd)
-      else:
-          print('Unrecognized summary statistic "%s"' % options.sad_stat)
-          exit(1)
       pi += 1
     seq_preds_sum = np.array(seq_preds_sum)
     seq_preds_center = np.array(seq_preds_center)

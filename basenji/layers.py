@@ -41,10 +41,27 @@ class Clip(tf.keras.layers.Layer):
     return config
 
 class Exp(tf.keras.layers.Layer):
-    def __init__(self):
-        super(Exp, self).__init__()
+    def __init__(self, base=None, minus=None):
+      super(Exp, self).__init__()
+      if base is None:
+        self.base = None
+      else:
+        self.base = tf.constant(base, dtype=tf.float32)
+      if minus is None:
+        self.minus is None
+      else:
+        self.minus = tf.constant(minus, dtype=tf.float32)
+
     def call(self, x):
-      return tf.keras.activations.exponential(x)
+      if self.base is None:
+        y = tf.keras.activations.exponential(x)
+      else:
+        y = tf.math.pow(self.base, x)
+
+      if self.minus is not None:
+        y -= self.minus
+
+      return y
 
 class GELU(tf.keras.layers.Layer):
     def __init__(self):
@@ -720,6 +737,26 @@ def shift_sequence(seq, shift, pad_value=0.25):
 
   return sseq
 
+############################################################
+# Factorization
+############################################################
+
+class FactorInverse(tf.keras.layers.Layer):
+  """Inverse a target matrix factorization."""
+  def __init__(self, components_npy):
+    super(FactorInverse, self).__init__()
+    self.components_npy = components_npy
+    self.components = tf.constant(np.load(components_npy), dtype=tf.float32)
+
+  def call(self, W):
+    return tf.keras.backend.dot(W, self.components)
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'components_npy': self.components_npy
+    })
+    return config
 
 ############################################################
 # helpers

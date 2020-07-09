@@ -553,6 +553,14 @@ def dilated_residual_2d(inputs, filters, kernel_size=3, rate_mult=2,
   return current
 
 ############################################################
+# Activations
+############################################################
+
+def exp(inputs, base=None, minus=None, **kwargs):
+  current = layers.Exp(base, minus)(inputs)
+  return current
+
+############################################################
 # Center ops
 ############################################################
 
@@ -591,11 +599,18 @@ def upper_tri(inputs, diagonal_offset=2, **kwargs):
   current = layers.UpperTri(diagonal_offset)(inputs)
   return current
 
+############################################################
+# Factorization
+############################################################
+
+def factor_inverse(inputs, components_file, **kwargs):
+  current = layers.FactorInverse(components_file)(inputs)
+  return current
 
 ############################################################
 # Keras defaults
 ############################################################
-def dense(inputs, units, activation='softplus', kernel_initializer='he_normal',
+def dense(inputs, units, activation='linear', kernel_initializer='he_normal',
     l2_scale=0, l1_scale=0, **kwargs):
   current = tf.keras.layers.Dense(
     units=units,
@@ -671,6 +686,8 @@ name_func = {
   'dilated_residual': dilated_residual,
   'dilated_residual_2d': dilated_residual_2d,
   'dilated_dense': dilated_dense,
+  'exp': exp,
+  'factor_inverse': factor_inverse,
   'global_context': global_context,
   'one_to_two': one_to_two,
   'symmetrize_2d':symmetrize_2d,

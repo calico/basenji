@@ -108,20 +108,21 @@ def main():
         # scatter plot versions' fold AUROCss
         for i in range(num_benches):
             for j in range(i+1, num_benches):
-                plt.figure(figsize=(6,6))
-                sns.scatterplot(bench_aurocs[i], bench_aurocs[j],
-                                color='black', linewidth=0, alpha=0.5)
-                ax = plt.gca()
+                if len(bench_aurocs[i]) == len(bench_aurocs[j]):
+                    plt.figure(figsize=(6,6))
+                    sns.scatterplot(bench_aurocs[i], bench_aurocs[j],
+                                    color='black', linewidth=0, alpha=0.5)
+                    ax = plt.gca()
 
-                vmin = min(bench_aurocs[i].min(), bench_aurocs[j].min())
-                vmax = max(bench_aurocs[i].max(), bench_aurocs[j].max())
-                ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='gold')
-                ax.set_xlabel('%s fold AUROC' % options.labels[i])
-                ax.set_ylabel('%s fold AUROC' % options.labels[j])
-                sns.despine()
-                plt.tight_layout()
-                plt.savefig('%s/auroc_%s_%s.pdf' % (tissue_out_dir, options.labels[i], options.labels[j]))
-                plt.close()
+                    vmin = min(bench_aurocs[i].min(), bench_aurocs[j].min())
+                    vmax = max(bench_aurocs[i].max(), bench_aurocs[j].max())
+                    ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='gold')
+                    ax.set_xlabel('%s fold AUROC' % options.labels[i])
+                    ax.set_ylabel('%s fold AUROC' % options.labels[j])
+                    sns.despine()
+                    plt.tight_layout()
+                    plt.savefig('%s/auroc_%s_%s.pdf' % (tissue_out_dir, options.labels[i], options.labels[j]))
+                    plt.close()
 
                 # append lists
                 df_tissues.append(tissue)
@@ -130,10 +131,14 @@ def main():
                 df_label2.append(options.labels[j])
                 df_auroc1.append(bench_aurocs[i].mean())
                 df_auroc2.append(bench_aurocs[j].mean())
-                df_mwp.append(wilcoxon(bench_aurocs[i], bench_aurocs[j],
-                                       alternative=options.alternative)[1])
-                df_tp.append(ttest_alt(bench_aurocs[i], bench_aurocs[j],
-                                       alternative=options.alternative)[1])
+                if len(bench_aurocs[i]) == len(bench_aurocs[j]):
+                    df_mwp.append(wilcoxon(bench_aurocs[i], bench_aurocs[j],
+                                           alternative=options.alternative)[1])
+                    df_tp.append(ttest_alt(bench_aurocs[i], bench_aurocs[j],
+                                           alternative=options.alternative)[1])
+                else:
+                    df_mwp.append(0)
+                    df_tp.append(0)
 
     df_cmp = pd.DataFrame({
         'tissue':df_tissues,

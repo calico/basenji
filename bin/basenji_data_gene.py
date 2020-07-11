@@ -142,7 +142,7 @@ def main():
   fasta_open = pysam.Fastafile(fasta_file)
 
   # define options
-  tf_opts = tf.io.TFRecordOptions(compression='ZLIB')
+  tf_opts = tf.io.TFRecordOptions(compression_type='ZLIB')
 
   tvt_tuples = [('train',train_index), ('valid',valid_index), ('test',test_index)]
   for set_label, set_index in tvt_tuples:

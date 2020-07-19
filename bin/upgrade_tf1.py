@@ -77,7 +77,7 @@ def main():
     model_tf2_h5 = h5py.File(model_tf2_h5_file, 'r+')
 
     for weight1_name, weight1_val in zip(model1_vars, model1_weights):
-        print(weight1_name.name, weight1_val.shape)
+        print(weight1_name.name, weight1_val.shape, weight1_val.dtype)
 
         # skip step
         if weight1_name.name == 'global_step:0':
@@ -99,7 +99,7 @@ def main():
         weight2_split.append(weight1_split[-1])
 
         weight2_name = '/'.join(weight2_split)
-        print(weight2_name, model_tf2_h5[weight2_name].shape, '\n')
+        print(weight2_name, model_tf2_h5[weight2_name].shape, model_tf2_h5[weight2_name].dtype, '\n')
 
         if weight1_split[0] == 'final' and options.final_slice is not None:
             fs, fe = options.final_slice.split(':')

@@ -48,6 +48,10 @@ except ModuleNotFoundError:
 basenji_data2.py
 
 Compute model sequences from the genome, extracting DNA coverage values.
+
+DEPRACATED
+-Use basenji_data_align.py and basenji_data.py --restart.
+-See farm/analysis/5-22 for example.
 '''
 
 ################################################################################
@@ -55,7 +59,7 @@ def main():
   usage = 'usage: %prog [options] <fasta0_file,fasta1_file> <targets_file>'
   parser = OptionParser(usage)
   parser.add_option('-a', dest='align_net',
-  	  help='Alignment .net file')
+      help='Alignment .net file')
   parser.add_option('-b', dest='blacklist_beds',
       help='Set blacklist nucleotides to a baseline value.')
   parser.add_option('--break', dest='break_t',
@@ -67,17 +71,20 @@ def main():
   parser.add_option('-d', dest='sample_pct',
       default=1.0, type='float',
       help='Down-sample the segments')
-  parser.add_option('-f', dest='fill_min',
-    default=100000, type='int',
-    help='Alignment net fill size minimum [Default: %default]')
   parser.add_option('-g', dest='gap_files',
       help='Comma-separated list of assembly gaps BED files [Default: %default]')
+  parser.add_option('-i', dest='interp_nan',
+      default=False, action='store_true',
+      help='Interpolate NaNs [Default: %default]') 
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
   parser.add_option('--local', dest='run_local',
       default=False, action='store_true',
       help='Run jobs locally as opposed to on SLURM [Default: %default]')
+  parser.add_option('-n', dest='net_fill_min',
+    default=100000, type='int',
+    help='Alignment net fill size minimum [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='data_out',
       help='Output directory [Default: %default]')
@@ -93,9 +100,12 @@ def main():
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
-  parser.add_option('--stride_train', dest='stride_train',
+  parser.add_option('--snap', dest='snap',
+      default=None, type='int',
+      help='Snap sequences to multiple of the given value [Default: %default]')
+  parser.add_option('--stride', '--stride_train', dest='stride_train',
       default=1., type='float',
-      help='Stride to advance train sequences [Default: %default]')
+      help='Stride to advance train sequences [Default: seq_length]')
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: %default]')
@@ -110,9 +120,9 @@ def main():
   parser.add_option('--umap_t', dest='umap_t',
       default=0.5, type='float',
       help='Remove sequences with more than this unmappable bin % [Default: %default]')
-  parser.add_option('--umap_set', dest='umap_set',
+  parser.add_option('--umap_clip', dest='umap_clip',
       default=None, type='float',
-      help='Set unmappable regions to this percentile in the sequences\' distribution of values')
+      help='Clip unmappable regions to this percentile in the sequences\' distribution of values')
   parser.add_option('-w', dest='pool_width',
       default=128, type='int',
       help='Sum pool width [Default: %default]')
@@ -142,6 +152,15 @@ def main():
     options.stride_test = options.stride_test*options.seq_length
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
+
+  # check snap
+  if options.snap is not None:
+    if np.mod(options.seq_length, options.snap) != 0: 
+      raise ValueError('seq_length must be a multiple of snap')
+    if np.mod(options.stride_train, options.snap) != 0: 
+      raise ValueError('stride_train must be a multiple of snap')
+    if np.mod(options.stride_test, options.snap) != 0:
+      raise ValueError('stride_test must be a multiple of snap')
 
   if os.path.isdir(options.out_dir) and not options.restart:
     print('Remove output directory %s or use --restart option.' % options.out_dir)
@@ -199,7 +218,7 @@ def main():
   ################################################################
 
   # connect contigs across genomes by alignment
-  contig_components = connect_contigs(contigs, options.align_net, options.fill_min, options.out_dir)
+  contig_components = connect_contigs(contigs, options.align_net, options.net_fill_min, options.out_dir)
 
   # divide contig connected components between train/valid/test
   contig_sets = divide_contig_components(contig_components, options.test_pct, options.valid_pct)
@@ -219,11 +238,11 @@ def main():
 
   # stride sequences across contig
   train_mseqs = contig_sequences(train_contigs, options.seq_length,
-                                 options.stride_train, label='train')
+                                 options.stride_train, options.snap, 'train')
   valid_mseqs = contig_sequences(valid_contigs, options.seq_length,
-                                 options.stride_test, label='valid')
+                                 options.stride_test, options.snap, 'valid')
   test_mseqs = contig_sequences(test_contigs, options.seq_length,
-                                options.stride_test, label='test')
+                                options.stride_test, options.snap, 'test')
 
   # shuffle
   random.shuffle(train_mseqs)
@@ -456,8 +475,7 @@ def quantify_leakage(align_net_file, train_contigs, valid_contigs, test_contigs,
     for split0 in ['train','valid','test',None]:
       ss_bp = assign1_sums.get((split0,split1),0)
       print('    %5s: %10d (%.5f)' % (split0, ss_bp, ss_bp/splits1_bp[split1]), file=leakage_out)
- leakage_out.close()
-
+  leakage_out.close()
 
 
 ################################################################################
@@ -507,13 +525,16 @@ def break_large_contigs(contigs, break_t, verbose=False):
   return contigs
 
 ################################################################################
-def contig_sequences(contigs, seq_length, stride, label=None):
+def contig_sequences(contigs, seq_length, stride, snap=None, label=None):
   ''' Break up a list of Contig's into a list of model length
        and stride sequence contigs.'''
   mseqs = []
 
   for ctg in contigs:
-    seq_start = ctg.start
+    if snap is None:
+      seq_start = ctg.start
+    else:
+      seq_start = int(np.ceil(ctg.start/snap)*snap)
     seq_end = seq_start + seq_length
 
     while seq_end < ctg.end:
@@ -528,7 +549,7 @@ def contig_sequences(contigs, seq_length, stride, label=None):
 
 
 ################################################################################
-def connect_contigs(contigs, align_net_file, fill_min, out_dir):
+def connect_contigs(contigs, align_net_file, net_fill_min, out_dir):
   """Connect contigs across genomes by forming a graph that includes
      net format aligning regions and contigs. Compute contig components
      as connected components of that graph."""
@@ -537,7 +558,7 @@ def connect_contigs(contigs, align_net_file, fill_min, out_dir):
   if align_net_file is None:
     graph_contigs_nets = nx.Graph()
   else:
-    graph_contigs_nets = make_net_graph(align_net_file, fill_min, out_dir)
+    graph_contigs_nets = make_net_graph(align_net_file, net_fill_min, out_dir)
 
   # add contig nodes
   for ctg in contigs:
@@ -706,7 +727,7 @@ def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir):
 
 
 ################################################################################
-def make_net_graph(align_net_file, fill_min, out_dir):
+def make_net_graph(align_net_file, net_fill_min, out_dir):
   """Construct a Graph with aligned net intervals connected
      by edges."""
 
@@ -739,7 +760,7 @@ def make_net_graph(align_net_file, fill_min, out_dir):
       size2 = int(net_a[6])
       end2 = start2+size2
 
-      if min(size1, size2) >= fill_min:
+      if min(size1, size2) >= net_fill_min:
         # add edge
         net1_node = GraphSeq(0, True, chrom1, start1, end1)
         net2_node = GraphSeq(1, True, chrom2, start2, end2)
@@ -795,6 +816,8 @@ def make_read_jobs(seqs_bed_file, targets_df, gi, seqs_cov_dir, options):
       cmd += ' -s %f' % scale_ti
       if options.blacklist_beds[gi]:
         cmd += ' -b %s' % options.blacklist_beds[gi]
+      if options.interp_nan:
+        cmd += ' -i'
       cmd += ' %s' % genome_cov_file
       cmd += ' %s' % seqs_bed_file
       cmd += ' %s' % seqs_cov_file
@@ -837,10 +860,11 @@ def make_write_jobs(mseqs, fasta_file, seqs_bed_file, seqs_cov_dir, tfr_dir, gi,
       cmd += ' -g %d' % gi
       cmd += ' --ts %d' % targets_start
       cmd += ' --te %d' % sum_targets
+      cmd += ' --umap_clip %f' % options.umap_clip
+      if options.umap_tfr:
+        cmd += ' --umap_tfr'
       if unmap_npy is not None:
         cmd += ' -u %s' % unmap_npy
-      if options.umap_set is not None:
-        cmd += ' --umap_set %f' % options.umap_set
 
       cmd += ' %s' % fasta_file
       cmd += ' %s' % seqs_bed_file

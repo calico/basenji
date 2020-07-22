@@ -93,6 +93,9 @@ def main():
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
+  parser.add_option('--snap', dest='snap',
+      default=1, type='int',
+      help='Snap sequences to multiple of the given value [Default: %default]')
   parser.add_option('--stride', '--stride_train', dest='stride_train',
       default=1., type='float',
       help='Stride to advance train sequences [Default: seq_length]')
@@ -122,9 +125,6 @@ def main():
   parser.add_option('-v', dest='valid_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for validation [Default: %default]')
-  parser.add_option('--snap', dest='snap',
-      default=None, type='int',
-      help='Snap sequences to multiple of the given value [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -148,6 +148,7 @@ def main():
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
 
+  # check snap
   if options.snap is not None:
     if np.mod(options.seq_length, options.snap) != 0: 
       raise ValueError('seq_length must be a multiple of snap')
@@ -246,8 +247,8 @@ def main():
         stride_fold = options.stride_train
 
       # stride sequences across contig
-      fold_mseqs_fi = contig_sequences(fold_contigs[fi], options.seq_length, stride_fold,
-                                        options.snap, label=fold_labels[fi])
+      fold_mseqs_fi = contig_sequences(fold_contigs[fi], options.seq_length,
+                                       stride_fold, options.snap, fold_labels[fi])
       fold_mseqs.append(fold_mseqs_fi)
 
       # shuffle
@@ -579,14 +580,11 @@ def break_large_contigs(contigs, break_t, verbose=False):
 
 
 ################################################################################
-def contig_sequences(contigs, seq_length, stride, snap=None, label=None):
+def contig_sequences(contigs, seq_length, stride, snap=1, label=None):
   ''' Break up a list of Contig's into a list of ModelSeq's. '''
   mseqs = []
   for ctg in contigs:
-    if snap is None:
-      seq_start = ctg.start
-    else:
-      seq_start = int(np.ceil(ctg.start/snap)*snap)
+    seq_start = int(np.ceil(ctg.start/snap)*snap)
     seq_end = seq_start + seq_length
 
     while seq_end < ctg.end:

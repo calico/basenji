@@ -179,7 +179,7 @@ def main():
   scores_h5_file = '%s/scores.h5' % options.out_dir
   if os.path.isfile(scores_h5_file):
     os.remove(scores_h5_file)
-  scores_h5 = h5py.File('%s/scores.h5' % options.out_dir)
+  scores_h5 = h5py.File('%s/scores.h5' % options.out_dir, 'w')
   scores_h5.create_dataset('seqs', dtype='bool',
       shape=(num_seqs, options.mut_len, 4))
   for sad_stat in options.sad_stats:

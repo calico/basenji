@@ -131,7 +131,6 @@ def main():
     seqnn_model.restore(model_file)
     seqnn_model.build_ensemble(options.rc, options.shifts)
 
-
   #################################################################
   # predict and process
    

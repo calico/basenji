@@ -54,23 +54,32 @@ def main():
   parser.add_option('-d', dest='sample_pct',
       default=1.0, type='float',
       help='Down-sample the segments')
-  parser.add_option('-f', dest='fill_min',
-    default=100000, type='int',
-    help='Alignment net fill size minimum [Default: %default]')
+  parser.add_option('-f', dest='folds',
+      default=None, type='int',
+      help='Generate cross fold split [Default: %default]')
   parser.add_option('-g', dest='gap_files',
       help='Comma-separated list of assembly gaps BED files [Default: %default]')
   parser.add_option('-l', dest='seq_length',
       default=131072, type='int',
       help='Sequence length [Default: %default]')
+  parser.add_option('--nf', dest='net_fill_min',
+    default=100000, type='int',
+    help='Alignment net fill size minimum [Default: %default]')
+  parser.add_option('--no', dest='net_olap_min',
+    default=1024, type='int',
+    help='Alignment net and contig overlap minimum [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='align_out',
       help='Output directory [Default: %default]')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
-  parser.add_option('--stride_train', dest='stride_train',
+  parser.add_option('--snap', dest='snap',
+      default=1, type='int',
+      help='Snap sequences to multiple of the given value [Default: %default]')
+  parser.add_option('--stride', '--stride_train', dest='stride_train',
       default=1., type='float',
-      help='Stride to advance train sequences [Default: %default]')
+      help='Stride to advance train sequences [Default: seq_length]')
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: %default]')
@@ -111,6 +120,15 @@ def main():
     options.stride_test = options.stride_test*options.seq_length
     print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
+
+  # check snap
+  if options.snap is not None:
+    if np.mod(options.seq_length, options.snap) != 0: 
+      raise ValueError('seq_length must be a multiple of snap')
+    if np.mod(options.stride_train, options.snap) != 0: 
+      raise ValueError('stride_train must be a multiple of snap')
+    if np.mod(options.stride_test, options.snap) != 0:
+      raise ValueError('stride_test must be a multiple of snap')
 
   # count genomes
   num_genomes = len(fasta_files)
@@ -179,52 +197,62 @@ def main():
   ################################################################
 
   # connect contigs across genomes by alignment
-  contig_components = connect_contigs(contigs, align_net_file, options.fill_min,
-                                      options.out_dir, genome_out_dirs)
+  contig_components = connect_contigs(contigs, align_net_file, options.net_fill_min,
+                                      options.net_olap_min, options.out_dir, genome_out_dirs)
 
-  # divide contig connected components between train/valid/test
-  contig_sets = divide_contig_components(contig_components, options.test_pct,
+  if options.folds is not None:
+    # divide by fold
+    fold_contigs = divide_components_folds(contig_components, options.folds)
+
+  else:
+    # divide by train/valid/test pct
+    fold_contigs = divide_components_pct(contig_components, options.test_pct,
                                          options.valid_pct)
-  train_contigs, valid_contigs, test_contigs = contig_sets
 
   # rejoin broken contigs within set
-  train_contigs = rejoin_large_contigs(train_contigs)
-  valid_contigs = rejoin_large_contigs(valid_contigs)
-  test_contigs = rejoin_large_contigs(test_contigs)
+  for fi in range(len(fold_contigs)):
+    fold_contigs[fi] = rejoin_large_contigs(fold_contigs[fi])
 
-  # quantify leakage across sets
-  quantify_leakage(align_net_file, train_contigs, valid_contigs,
-                   test_contigs, options.out_dir)
+  # label folds
+  if options.folds is not None:
+    fold_labels = ['fold%d' % fi for fi in range(options.folds)]
+    num_folds = options.folds
+  else:
+    fold_labels = ['train', 'valid', 'test']
+    num_folds = 3
+
+  if options.folds is None:
+    # quantify leakage across sets
+    quantify_leakage(align_net_file, fold_contigs[0], fold_contigs[1],
+                     fold_contigs[2], options.out_dir)
 
   ################################################################
   # define model sequences
   ################################################################
 
-  # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length,
-                                 options.stride_train, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length,
-                                 options.stride_test, label='valid')
-  test_mseqs = contig_sequences(test_contigs, options.seq_length,
-                                options.stride_test, label='test')
+  fold_mseqs = []
+  for fi in range(num_folds):
+    if fold_labels[fi] in ['valid','test']:
+      stride_fold = options.stride_test
+    else:
+      stride_fold = options.stride_train
 
-  # shuffle
-  random.shuffle(train_mseqs)
-  random.shuffle(valid_mseqs)
-  random.shuffle(test_mseqs)
+    # stride sequences across contig
+    fold_mseqs_fi = contig_sequences(fold_contigs[fi], options.seq_length,
+                                     stride_fold, options.snap, fold_labels[fi])
+    fold_mseqs.append(fold_mseqs_fi)
 
-  # down-sample
-  if options.sample_pct < 1.0:
-    train_mseqs = random.sample(train_mseqs, int(options.sample_pct*len(train_mseqs)))
-    valid_mseqs = random.sample(valid_mseqs, int(options.sample_pct*len(valid_mseqs)))
-    test_mseqs = random.sample(test_mseqs, int(options.sample_pct*len(test_mseqs)))
+    # shuffle
+    random.shuffle(fold_mseqs[fi])
 
-  # merge
-  mseqs = train_mseqs + valid_mseqs + test_mseqs
+    # down-sample
+    if options.sample_pct < 1.0:
+      fold_mseqs[fi] = random.sample(fold_mseqs[fi], int(options.sample_pct*len(fold_mseqs[fi])))
 
-  ################################################################
-  # separate sequences by genome
-  ################################################################
+  # merge into one list
+  mseqs = [ms for fm in fold_mseqs for ms in fm]
+
+  # separate by genome
   mseqs_genome = []
   for gi in range(num_genomes):
     mseqs_gi = [mseqs[si] for si in range(len(mseqs)) if mseqs[si].genome == gi]
@@ -422,13 +450,13 @@ def break_large_contigs(contigs, break_t, verbose=False):
   return contigs
 
 ################################################################################
-def contig_sequences(contigs, seq_length, stride, label=None):
+def contig_sequences(contigs, seq_length, stride, snap=1, label=None):
   ''' Break up a list of Contig's into a list of model length
        and stride sequence contigs.'''
   mseqs = []
 
   for ctg in contigs:
-    seq_start = ctg.start
+    seq_start = int(np.ceil(ctg.start/snap)*snap)
     seq_end = seq_start + seq_length
 
     while seq_end < ctg.end:
@@ -443,7 +471,7 @@ def contig_sequences(contigs, seq_length, stride, label=None):
 
 
 ################################################################################
-def connect_contigs(contigs, align_net_file, fill_min, out_dir, genome_out_dirs):
+def connect_contigs(contigs, align_net_file, net_fill_min, net_olap_min, out_dir, genome_out_dirs):
   """Connect contigs across genomes by forming a graph that includes
      net format aligning regions and contigs. Compute contig components
      as connected components of that graph."""
@@ -452,7 +480,7 @@ def connect_contigs(contigs, align_net_file, fill_min, out_dir, genome_out_dirs)
   if align_net_file is None:
     graph_contigs_nets = nx.Graph()
   else:
-    graph_contigs_nets = make_net_graph(align_net_file, fill_min, out_dir)
+    graph_contigs_nets = make_net_graph(align_net_file, net_fill_min, out_dir)
 
   # add contig nodes
   for ctg in contigs:
@@ -460,8 +488,8 @@ def connect_contigs(contigs, align_net_file, fill_min, out_dir, genome_out_dirs)
     graph_contigs_nets.add_node(ctg_node)
 
   # intersect contigs BED w/ nets BED, adding graph edges.
-  intersect_contigs_nets(graph_contigs_nets, 0, out_dir, genome_out_dirs[0])
-  intersect_contigs_nets(graph_contigs_nets, 1, out_dir, genome_out_dirs[1])
+  intersect_contigs_nets(graph_contigs_nets, 0, out_dir, genome_out_dirs[0], net_olap_min)
+  intersect_contigs_nets(graph_contigs_nets, 1, out_dir, genome_out_dirs[1], net_olap_min)
 
   # find connected components
   contig_components = []
@@ -516,7 +544,53 @@ def contig_stats_genome(contigs):
 
 
 ################################################################################
-def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain=0.5):
+def divide_components_folds(contig_components, folds):
+  """Divide contig connected components into cross fold lists."""
+
+  # sort contig components descending by length
+  length_contig_components = []
+  for cc_contigs in contig_components:
+    cc_len = sum([ctg.end-ctg.start for ctg in cc_contigs])
+    length_contig_components.append((cc_len, cc_contigs))
+  length_contig_components.sort(reverse=True)
+
+  # compute total nucleotides
+  total_nt = sum([lc[0] for lc in length_contig_components])
+
+  # compute aimed fold nucleotides
+  fold_nt_aim = int(np.ceil(total_nt / folds))
+
+  # initialize current fold nucleotides
+  fold_nt = np.zeros(folds)
+
+  # initialize fold contig lists
+  fold_contigs = []
+  for fi in range(folds):
+    fold_contigs.append([])
+
+  # process contigs
+  for ctg_comp_len, ctg_comp in length_contig_components:
+    # compute gap between current and aim
+    fold_nt_gap = fold_nt_aim - fold_nt
+    fold_nt_gap = np.clip(fold_nt_gap, 0, np.inf)
+
+    # compute sample probability
+    fold_prob = fold_nt_gap / fold_nt_gap.sum()
+
+    # sample train/valid/test
+    fi = np.random.choice(folds, p=fold_prob)
+    fold_nt[fi] += ctg_comp_len
+    for ctg in ctg_comp:
+      fold_contigs[fi].append(ctg)
+    
+  # report genome-specific train/valid/test stats
+  report_divide_stats(fold_contigs)
+
+  return fold_contigs
+
+
+################################################################################
+def divide_components_pct(contig_components, test_pct, valid_pct, pct_abstain=0.5):
   """Divide contig connected components into train/valid/test,
      and aiming for the specified nucleotide percentages."""
 
@@ -585,13 +659,13 @@ def divide_contig_components(contig_components, test_pct, valid_pct, pct_abstain
       exit(1)
 
   # report genome-specific train/valid/test stats
-  report_divide_stats(train_contigs, valid_contigs, test_contigs)
+  report_divide_stats([train_contigs, valid_contigs, test_contigs])
 
   return train_contigs, valid_contigs, test_contigs
 
 
 ################################################################################
-def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir, genome_out_dir):
+def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir, genome_out_dir, min_olap=128):
   """Intersect the contigs and nets from genome_i, adding the
      overlaps as edges to graph_contigs_nets."""
 
@@ -608,20 +682,22 @@ def intersect_contigs_nets(graph_contigs_nets, genome_i, out_dir, genome_out_dir
     net_chr = overlap[3]
     net_start = int(overlap[4])
     net_end = int(overlap[5])
+    olap_len = int(overlap[6])
 
-    # create node objects
-    ctg_node = GraphSeq(genome_i, False, ctg_chr, ctg_start, ctg_end)
-    net_node = GraphSeq(genome_i, True, net_chr, net_start, net_end)
+    if olap_len > min_olap:
+      # create node objects
+      ctg_node = GraphSeq(genome_i, False, ctg_chr, ctg_start, ctg_end)
+      net_node = GraphSeq(genome_i, True, net_chr, net_start, net_end)
 
-    # add edge / verify we found nodes
-    gcn_size_pre = graph_contigs_nets.number_of_nodes()
-    graph_contigs_nets.add_edge(ctg_node, net_node)
-    gcn_size_post = graph_contigs_nets.number_of_nodes()
-    assert(gcn_size_pre == gcn_size_post)
+      # add edge / verify we found nodes
+      gcn_size_pre = graph_contigs_nets.number_of_nodes()
+      graph_contigs_nets.add_edge(ctg_node, net_node)
+      gcn_size_post = graph_contigs_nets.number_of_nodes()
+      assert(gcn_size_pre == gcn_size_post)
 
 
 ################################################################################
-def make_net_graph(align_net_file, fill_min, out_dir):
+def make_net_graph(align_net_file, net_fill_min, out_dir):
   """Construct a Graph with aligned net intervals connected
      by edges."""
 
@@ -654,7 +730,7 @@ def make_net_graph(align_net_file, fill_min, out_dir):
       size2 = int(net_a[6])
       end2 = start2+size2
 
-      if min(size1, size2) >= fill_min:
+      if min(size1, size2) >= net_fill_min:
         # add edge
         net1_node = GraphSeq(0, True, chrom1, start1, end1)
         net2_node = GraphSeq(1, True, chrom2, start2, end2)
@@ -711,7 +787,48 @@ def rejoin_large_contigs(contigs):
 
 
 ################################################################################
-def report_divide_stats(train_contigs, valid_contigs, test_contigs):
+def report_divide_stats(fold_contigs):
+  """ Report genome-specific statistics about the division of contigs
+      between sets."""
+
+  fold_counts_genome = []
+  fold_nts_genome = [] 
+  for fi in range(len(fold_contigs)):
+    fcg, fng = contig_stats_genome(fold_contigs[fi])
+    fold_counts_genome.append(fcg)
+    fold_nts_genome.append(fng)
+  num_genomes = len(fold_counts_genome[0])  
+
+  # sum nt across genomes
+  fold_nts = [sum(fng) for fng in fold_nts_genome]
+  total_nt = sum(fold_nts)
+
+  # compute total sum nt per genome
+  total_nt_genome = []
+  print('Total nt')
+  for gi in range(num_genomes):
+    total_nt_gi = sum([fng[gi] for fng in fold_nts_genome])
+    total_nt_genome.append(total_nt_gi)
+    print('  Genome%d: %10d nt' % (gi, total_nt_gi))
+
+  # label folds and guess that 3 is train/valid/test
+  fold_labels = []
+  if len(fold_contigs) == 3:
+    fold_labels = ['Train','Valid','Test']
+  else:
+    fold_labels = ['Fold%d' % fi for fi in range(len(fold_contigs))]
+
+  print('Contigs divided into')
+  for fi in range(len(fold_contigs)):
+    print(' %s: %5d contigs, %10d nt (%.4f)' % \
+         (fold_labels[fi], len(fold_contigs[fi]), fold_nts[fi], fold_nts[fi]/total_nt))
+    for gi in range(num_genomes):
+      print('  Genome%d: %5d contigs, %10d nt (%.4f)' % \
+           (gi, fold_counts_genome[fi][gi], fold_nts_genome[fi][gi], fold_nts_genome[fi][gi]/total_nt_genome[gi]))
+
+
+################################################################################
+def report_divide_stats_v1(train_contigs, valid_contigs, test_contigs):
   """ Report genome-specific statistics about the division of contigs
       between train/valid/test sets."""
 

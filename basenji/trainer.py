@@ -14,6 +14,7 @@
 # =========================================================================
 """SeqNN trainer"""
 import time
+from packaging import version
 import pdb
 
 import numpy as np
@@ -288,7 +289,11 @@ class Trainer:
     else:
       lr_schedule = initial_learning_rate
 
-    clip_norm = self.params.get('clip_norm', None)
+    if version.parse(tf.__version__) < version.parse('2.2'):
+      clip_norm_default = 1000000
+    else:
+      clip_norm_default = None
+    clip_norm = self.params.get('clip_norm', clip_norm_default)
 
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()

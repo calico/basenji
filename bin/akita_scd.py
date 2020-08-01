@@ -20,8 +20,8 @@ import json
 import os
 import pdb
 import pickle
+import random
 import sys
-import threading
 import time
 
 import h5py
@@ -29,6 +29,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import pysam
+from skimage.measure import block_reduce
 import seaborn as sns
 sns.set(style='ticks', font_scale=1.3)
 
@@ -37,6 +38,7 @@ if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
 
 from basenji import seqnn
+from basenji import stream
 from basenji import vcf as bvcf
 
 '''
@@ -54,6 +56,9 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default=None,
       help='Genome FASTA for sequences [Default: %default]')
+  parser.add_option('-l', dest='plot_lim_min',
+      default=0.1, type='float',
+      help='Heatmap plot limit [Default: %default]')
   parser.add_option('-m', dest='plot_map',
       default=False, action='store_true',
       help='Plot contact map for each allele [Default: %default]')
@@ -112,9 +117,10 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.scd_stats = options.scd_stats.split(',')
 
+  random.seed(44)
 
   #################################################################
-  # read parameters
+  # read parameters and targets
 
   # read model parameters
   with open(params_file) as params_open:
@@ -122,14 +128,24 @@ def main():
   params_train = params['train']
   params_model = params['model']
 
-  if options.targets_file is None:
-    target_ids = ['t%d' % ti for ti in range(params_model['num_targets'])]
-    target_labels = ['']*len(target_ids)
-
-  else:
+  if options.targets_file is not None:
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
     target_ids = targets_df.identifier
     target_labels = targets_df.description
+
+  #################################################################
+  # setup model
+
+  # load model
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
+  seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  # dummy target info
+  if options.targets_file is None:
+    num_targets = seqnn_model.num_targets()
+    target_ids = ['t%d' % ti for ti in range(num_targets)]
+    target_labels = ['']*len(target_ids)
 
   #################################################################
   # load SNPs
@@ -147,6 +163,8 @@ def main():
     # read SNPs form VCF
     snps = bvcf.vcf_snps(vcf_file)
 
+  num_snps = len(snps)
+
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
 
@@ -154,38 +172,9 @@ def main():
     for snp in snps:
       # get SNP sequences
       snp_1hot_list = bvcf.snp_seq1(snp, params_model['seq_length'], genome_open)
-
       for snp_1hot in snp_1hot_list:
-        yield {'sequence':snp_1hot}
+        yield snp_1hot
 
-  snp_types = {'sequence': tf.float32}
-  snp_shapes = {'sequence': tf.TensorShape([tf.Dimension(params_model['seq_length']),
-                                            tf.Dimension(4)])}
-
-  dataset = tf.data.Dataset.from_generator(snp_gen,
-                                           output_types=snp_types,
-                                           output_shapes=snp_shapes)
-  dataset = dataset.batch(params_train['batch_size'])
-  dataset = dataset.prefetch(2*params_train['batch_size'])
-  dataset_iter = iter(dataset)
-
-  # def get_chunk(chunk_size=32):
-  #   """Get a chunk of data from the dataset iterator."""
-  #   x = []
-  #   for ci in range(chunk_size):
-  #     try:
-  #       x.append(next(dataset_iter))
-  #     except StopIteration:
-  #       break
-
-  #################################################################
-  # setup model
-
-  # load model
-  seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(model_file)
-  seqnn_model.build_ensemble(options.rc, options.shifts)
-  
 
   #################################################################
   # setup output
@@ -194,119 +183,30 @@ def main():
                                  snps, target_ids, target_labels)
 
   #################################################################
-  # process
+  # predict SNP scores, write output
 
-  szi = 0
-  sum_write_thread = None
+  write_thread = None
 
-  # predict first
-  # batch_seqs = get_chunk()
-  # batch_preds = seqnn_model.predict(batch_seqs, steps=batch_seqs)
-  batch_preds = seqnn_model.predict(dataset_iter, generator=True, steps=32)
+  # initialize predictions stream
+  preds_stream = stream.PredStreamGen(seqnn_model, snp_gen(), params_train['batch_size'])
 
-  while len(batch_preds) > 0:
-    # count predicted SNPs
-    num_snps = batch_preds.shape[0] // 2
+  # predictions index
+  pi = 0
 
-    # block for last thread
-    if sum_write_thread is not None:
-      sum_write_thread.join()
+  for si in range(num_snps):
+    # get predictions
+    ref_preds = preds_stream[pi]
+    pi += 1
+    alt_preds = preds_stream[pi]
+    pi += 1
 
-    # summarize and write
-    sum_write_thread = threading.Thread(target=summarize_write,
-          args=(batch_preds, scd_out, szi, options.scd_stats,
-                plot_dir, seqnn_model.diagonal_offset))
-    sum_write_thread.start()
+    # process SNP
+    write_snp(ref_preds, alt_preds, scd_out, si, options.scd_stats,
+              plot_dir, seqnn_model.diagonal_offset, options.plot_lim_min)
 
-    # update SNP index
-    szi += num_snps
-
-    # predict next
-    try:
-      # batch_preds = seqnn_model.predict(get_chunk())
-      batch_preds = seqnn_model.predict(dataset_iter, generator=True, steps=32)
-    except ValueError:
-      batch_preds = []
-
-  print('Waiting for threads to finish.', flush=True)
-  sum_write_thread.join()
-  
+  genome_open.close()  
   scd_out.close()
 
-
-def summarize_write(batch_preds, scd_out, szi, stats, plot_dir, diagonal_offset):
-  num_targets = batch_preds.shape[-1]
-
-  pi = 0
-  while pi < batch_preds.shape[0]:
-  	# get reference prediction (LxT)
-    ref_preds = batch_preds[pi].astype('float32')
-    pi += 1
-
-    # get alternate prediction (LxT)
-    alt_preds = batch_preds[pi].astype('float32')
-    pi += 1
-
-    if 'SCD' in stats:
-      # sum of squared diffs
-      diff2_preds = (ref_preds - alt_preds)**2
-      sd2_preds = np.sqrt(diff2_preds.sum(axis=0))
-      scd_out['SCD'][szi,:] = sd2_preds.astype('float16')
-
-    if 'SSD' in stats:
-      # sum of squared diffs
-      ref_ss = (ref_preds**2).sum(axis=0)
-      alt_ss = (alt_preds**2).sum(axis=0)
-      s2d_preds = np.sqrt(alt_ss) - np.sqrt(ref_ss)
-      scd_out['SSD'][szi,:] = s2d_preds.astype('float16')
-
-    if plot_dir is not None:
-      # TEMP
-      ref_preds = ref_preds.mean(axis=-1, keepdims=True)
-      alt_preds = alt_preds.mean(axis=-1, keepdims=True)
-
-      # convert back to dense
-      ref_map = ut_dense(ref_preds, diagonal_offset)
-      alt_map = ut_dense(alt_preds, diagonal_offset)
-
-      for ti in range(ref_preds.shape[-1]):
-        vmin = min(ref_preds[...,ti].min(), alt_preds[...,ti].min())
-        vmax = max(ref_preds[...,ti].max(), alt_preds[...,ti].max())
-
-        _, (ax_ref, ax_alt, ax_diff) = plt.subplots(1, 3, figsize=(21,6))
-        sns.heatmap(ref_map[...,ti], ax=ax_ref, center=0, vmin=vmin, vmax=vmax,
-                    cmap='RdBu_r', xticklabels=False, yticklabels=False)
-        sns.heatmap(alt_map[...,ti], ax=ax_alt, center=0, vmin=vmin, vmax=vmax,
-                    cmap='RdBu_r', xticklabels=False, yticklabels=False)
-        sns.heatmap(ref_map[...,ti]-alt_map[...,ti], ax=ax_diff, center=0,
-                    cmap='PRGn', xticklabels=False, yticklabels=False)
-        plt.tight_layout()
-        plt.savefig('%s/s%d_t%d.pdf' % (plot_dir, szi, ti))
-        plt.close()
-
-    szi += 1
-
-
-def ut_dense(preds_ut, diagonal_offset):
-  """Construct dense prediction matrix from upper triangular."""
-  ut_len, num_targets = preds_ut.shape
-
-  # infer original sequence length
-  seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
-  seq_len += diagonal_offset
-
-  # get triu indexes
-  ut_indexes = np.triu_indices(seq_len, diagonal_offset)
-  assert(len(ut_indexes[0]) == ut_len)
-
-  # assign to dense matrix
-  preds_dense = np.zeros(shape=(seq_len,seq_len,num_targets), dtype=preds_ut.dtype)
-  preds_dense[ut_indexes] = preds_ut
-
-  # symmetrize
-  preds_dense += np.transpose(preds_dense, axes=[1,0,2])
-
-  return preds_dense
 
 def initialize_output_h5(out_dir, scd_stats, snps, target_ids, target_labels):
   """Initialize an output HDF5 file for SCD stats."""
@@ -353,6 +253,93 @@ def initialize_output_h5(out_dir, scd_stats, snps, target_ids, target_labels):
         compression=None)
 
   return scd_out
+
+
+def ut_dense(preds_ut, diagonal_offset):
+  """Construct dense prediction matrix from upper triangular."""
+  ut_len, num_targets = preds_ut.shape
+
+  # infer original sequence length
+  seq_len = int(np.sqrt(2*ut_len + 0.25) - 0.5)
+  seq_len += diagonal_offset
+
+  # get triu indexes
+  ut_indexes = np.triu_indices(seq_len, diagonal_offset)
+  assert(len(ut_indexes[0]) == ut_len)
+
+  # assign to dense matrix
+  preds_dense = np.zeros(shape=(seq_len,seq_len,num_targets), dtype=preds_ut.dtype)
+  preds_dense[ut_indexes] = preds_ut
+
+  # symmetrize
+  preds_dense += np.transpose(preds_dense, axes=[1,0,2])
+
+  return preds_dense
+
+
+def write_snp(ref_preds, alt_preds, scd_out, si, scd_stats,
+              plot_dir, diagonal_offset, plot_lim_min=0.1):
+  """Write SNP predictions to HDF."""
+
+  # increase dtype
+  ref_preds = ref_preds.astype('float32')
+  alt_preds = alt_preds.astype('float32')
+
+  # sum across length
+  ref_preds_sum = ref_preds.sum(axis=0)
+  alt_preds_sum = alt_preds.sum(axis=0)
+
+  # compare reference to alternative via mean subtraction
+  if 'SCD' in scd_stats:
+    # sum of squared diffs
+    diff2_preds = (ref_preds - alt_preds)**2
+    sd2_preds = np.sqrt(diff2_preds.sum(axis=0))
+    scd_out['SCD'][si,:] = sd2_preds.astype('float16')
+
+  if 'SSD' in scd_stats:
+      # sum of squared diffs
+      ref_ss = (ref_preds**2).sum(axis=0)
+      alt_ss = (alt_preds**2).sum(axis=0)
+      s2d_preds = np.sqrt(alt_ss) - np.sqrt(ref_ss)
+      scd_out['SSD'][si,:] = s2d_preds.astype('float16')
+
+  if plot_dir is not None:
+      # TEMP: average across targets
+      ref_preds = ref_preds.mean(axis=-1, keepdims=True)
+      alt_preds = alt_preds.mean(axis=-1, keepdims=True)
+
+      # convert back to dense
+      ref_map = ut_dense(ref_preds, diagonal_offset)
+      alt_map = ut_dense(alt_preds, diagonal_offset)
+
+      with h5py.File('%s/s%d_maps.h5' % (plot_dir, si), 'w') as map_h5:
+        map_h5.create_dataset('ref', data=ref_map, dtype='float16')
+        map_h5.create_dataset('alt', data=alt_map, dtype='float16')
+
+      for ti in range(ref_preds.shape[-1]):
+        ref_map_ti = ref_map[...,ti]
+        alt_map_ti = alt_map[...,ti]
+
+        # TEMP: reduce resolution
+        ref_map_ti = block_reduce(ref_map_ti, (2,2), np.mean)
+        alt_map_ti = block_reduce(alt_map_ti, (2,2), np.mean)
+
+        vmin = min(ref_map_ti.min(), ref_map_ti.min())
+        vmax = max(alt_map_ti.max(), alt_map_ti.max())
+
+        vmin = min(-plot_lim_min, vmin)
+        vmax = max(plot_lim_min, vmax)
+
+        _, (ax_ref, ax_alt, ax_diff) = plt.subplots(1, 3, figsize=(21,6))
+        sns.heatmap(ref_map_ti, ax=ax_ref, center=0, vmin=vmin, vmax=vmax,
+                    cmap='RdBu_r', xticklabels=False, yticklabels=False)
+        sns.heatmap(alt_map_ti, ax=ax_alt, center=0, vmin=vmin, vmax=vmax,
+                    cmap='RdBu_r', xticklabels=False, yticklabels=False)
+        sns.heatmap(alt_map_ti-ref_map_ti, ax=ax_diff, center=0,
+                    cmap='PRGn', xticklabels=False, yticklabels=False)
+        plt.tight_layout()
+        plt.savefig('%s/s%d_t%d.pdf' % (plot_dir, si, ti))
+        plt.close()
 
 
 ################################################################################

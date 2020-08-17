@@ -190,7 +190,7 @@ def main():
         cmd += ' --tfr "train-*.tfr"'
         cmd += ' %s %s/train/model_check.h5 %s/data' % (params_file, rep_dir, rep_dir)
 
-        name = '%s-testtr%d' % (options.name, pi)
+        name = '%s-testtr-f%dc%d' % (options.name, fi, ci)
         sbf = os.path.abspath('%s/test_train.sb' % rep_dir)
         outf = os.path.abspath('%s/test_train.out' % rep_dir)
         errf = os.path.abspath('%s/test_train.err' % rep_dir)
@@ -229,7 +229,7 @@ def main():
         cmd += ' -o %s' % test_dir
         cmd += ' %s %s/train/model_best.h5 %s/data' % (params_file, rep_dir, rep_dir)
 
-        name = '%s-test%d' % (options.name, pi)
+        name = '%s-test-f%dc%d' % (options.name, fi, ci)
         sbf = os.path.abspath('%s/test.sb' % rep_dir)
         outf = os.path.abspath('%s/test.out' % rep_dir)
         errf = os.path.abspath('%s/test.err' % rep_dir)
@@ -267,7 +267,7 @@ def main():
         cmd += ' -o %s' % test_dir
         cmd += ' %s %s/train/model_best.h5 %s/data' % (params_file, rep_dir, rep_dir)
 
-        name = '%s-spec%d' % (options.name, pi)
+        name = '%s-spec-f%dc%d' % (options.name, fi, ci)
         sbf = os.path.abspath('%s/test_spec.sb' % rep_dir)
         outf = os.path.abspath('%s/test_spec.out' % rep_dir)
         errf = os.path.abspath('%s/test_spec.err' % rep_dir)

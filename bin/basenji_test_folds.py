@@ -20,6 +20,7 @@ import os
 import shutil
 import sys
 
+from natsort import natsorted
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon, ttest_rel
@@ -80,7 +81,7 @@ def main():
 
   # count folds
   num_folds = len([dkey for dkey in data_stats if dkey.startswith('fold')])
-
+  
   ################################################################
   # test check
   ################################################################
@@ -261,7 +262,8 @@ def main():
     
 def read_cors(acc_glob_str):
   rep_cors = []
-  for acc_file in glob.glob(acc_glob_str):
+  acc_files = natsorted(glob.glob(acc_glob_str))
+  for acc_file in acc_files:
     try:
       acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
       rep_cors.append(acc_df.pearsonr.mean())

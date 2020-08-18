@@ -96,15 +96,15 @@ def main():
   parser.add_option('--snap', dest='snap',
       default=1, type='int',
       help='Snap sequences to multiple of the given value [Default: %default]')
+  parser.add_option('--st', '--split_test', dest='split_test',
+      default=False, action='store_true',
+      help='Exit after split. [Default: %default]')
   parser.add_option('--stride', '--stride_train', dest='stride_train',
       default=1., type='float',
       help='Stride to advance train sequences [Default: seq_length]')
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: seq_length]')
-  parser.add_option('--soft', dest='soft_clip',
-      default=False, action='store_true',
-      help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
   parser.add_option('-t', dest='test_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for testing [Default: %default]')
@@ -233,6 +233,8 @@ def main():
     fold_labels = ['train', 'valid', 'test']
     num_folds = 3
 
+  if options.split_test:
+    exit()
 
   ################################################################
   # define model sequences
@@ -331,6 +333,10 @@ def main():
     if 'clip' in targets_df.columns:
       clip_ti = targets_df['clip'].iloc[ti]
 
+    clipsoft_ti = None
+    if 'clip_soft' in targets_df.columns:
+      clipsoft_ti = targets_df['clip_soft'].iloc[ti]
+
     scale_ti = 1
     if 'scale' in targets_df.columns:
       scale_ti = targets_df['scale'].iloc[ti]
@@ -344,8 +350,8 @@ def main():
       cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
         cmd += ' -c %f' % clip_ti
-      if options.soft_clip:
-        cmd += ' --soft'
+      if clipsoft_ti is not None:
+        cmd += ' --clip_soft %f' % clipsoft_ti
       cmd += ' -s %f' % scale_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed

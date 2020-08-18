@@ -45,6 +45,9 @@ def main():
     parser.add_option('-s', dest='save_preds',
             default=False, action='store_true',
             help='Save predictions across iterations [Default: %default]')
+    parser.add_option('--stat', dest='sad_stat',
+            default='SAD',
+            help='HDF5 key stat to consider. [Default: %default]')
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -63,8 +66,8 @@ def main():
         model = joblib.load(options.model_pkl)
 
     # read positive/negative variants
-    Xp = read_sad(sadp_file)
-    Xn = read_sad(sadn_file)
+    Xp = read_sad(sadp_file, options.sad_stat)
+    Xn = read_sad(sadn_file, options.sad_stat)
     if options.log:
         Xp = np.arcsinh(Xp)
         Xn = np.arcsinh(Xn)
@@ -234,9 +237,9 @@ def randfor_roc(X, y, folds=8, iterations=1, random_state=None, n_jobs=1):
     return aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds_return
 
 
-def read_sad(sad_file):
-    with h5py.File(sad_file) as sad_open:
-        sad = np.array(sad_open['SAD'], dtype='float64')
+def read_sad(sad_file, sad_stat):
+    with h5py.File(sad_file, 'r') as sad_open:
+        sad = np.array(sad_open[sad_stat], dtype='float64')
     return sad
 
 

@@ -345,27 +345,46 @@ def write_pct(sad_out, sad_stats):
 def write_snp(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
   """Write SNP predictions to HDF."""
 
+  ref_preds = ref_preds.astype('float64')
+  alt_preds = alt_preds.astype('float64')
+  num_targets = ref_preds.shape[-1]
+
   # sum across length
-  ref_preds_sum = ref_preds.sum(axis=0, dtype='float64')
-  alt_preds_sum = alt_preds.sum(axis=0, dtype='float64')
+  ref_preds_sum = ref_preds.sum(axis=0)
+  alt_preds_sum = alt_preds.sum(axis=0)
 
   # compare reference to alternative via mean subtraction
   if 'SAD' in sad_stats:
     sad = alt_preds_sum - ref_preds_sum
     sad_out['SAD'][si,:] = sad.astype('float16')
 
+  # compare reference to alternative via max subtraction
+  if 'SAX' in sad_stats:
+    sad_vec = (alt_preds - ref_preds)
+    max_i = np.argmax(np.abs(sad_vec), axis=0)
+    sax = sad_vec[max_i, np.arange(num_targets)]
+    sad_out['SAX'][si,:] = sax.astype('float16')
+
   # compare reference to alternative via mean log division
-  if 'SAR' in sad_stats:
+  if 'SADR' in sad_stats:
     sar = np.log2(alt_preds_sum + log_pseudo) \
                    - np.log2(ref_preds_sum + log_pseudo)
-    sad_out['SAR'][si,:] = sar.astype('float16')
+    sad_out['SADR'][si,:] = sar.astype('float16')
+
+  # compare reference to alternative via max subtraction
+  if 'SAXR' in sad_stats:
+    sar_vec = np.log2(alt_preds + log_pseudo) \
+                - np.log2(ref_preds + log_pseudo)
+    max_i = np.argmax(np.abs(sar_vec), axis=0)
+    saxr = sar_vec[max_i, np.arange(num_targets)]
+    sad_out['SAXR'][si,:] = saxr.astype('float16')
 
   # compare geometric means
-  if 'geoSAD' in sad_stats:
-    sar_vec = np.log2(alt_preds.astype('float64') + log_pseudo) \
-                - np.log2(ref_preds.astype('float64') + log_pseudo)
+  if 'SAR' in sad_stats:
+    sar_vec = np.log2(alt_preds + log_pseudo) \
+                - np.log2(ref_preds + log_pseudo)
     geo_sad = sar_vec.sum(axis=0)
-    sad_out['geoSAD'][si,:] = geo_sad.astype('float16')
+    sad_out['SAR'][si,:] = geo_sad.astype('float16')
 
 
 class SNPWorker(Thread):

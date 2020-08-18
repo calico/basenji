@@ -25,13 +25,15 @@ Compare multiple variant score sets on the GTEx fine mapped eQTL benchmark.
 # main
 ################################################################################
 def main():
-    usage = 'usage: %prog [options] arg'
+    usage = 'usage: %prog [options] <bench1_dir> <bench2_dir> ...'
     parser = OptionParser(usage)
     parser.add_option('-a', '--alt', dest='alternative',
       default='two-sided', help='Statistical test alternative [Default: %default]')
     parser.add_option('-l', dest='labels')
     parser.add_option('-o', dest='out_dir',
             default='compare_scores')
+    parser.add_option('--stats', dest='stats',
+            default='SAD')
     parser.add_option('-v', dest='min_variants',
             default=0, type='int',
             help='Minimum variants to include tissue [Default: %default]')
@@ -45,9 +47,12 @@ def main():
     if not os.path.isdir(options.out_dir):
         os.mkdir(options.out_dir)
 
-    sns.set(font_scale=1.2, style='ticks')
-
     num_benches = len(bench_dirs)
+    sad_stats = [stat.lower() for stat in options.stats.split(',')]
+    if len(sad_stats) == 1:
+        sad_stats = sad_stats*num_benches
+
+    sns.set(font_scale=1.2, style='ticks')
 
     if options.labels is None:
         options.labels = [os.path.split(bd)[1] for bd in bench_dirs]
@@ -66,8 +71,13 @@ def main():
     df_tp = []
 
     # determine tissues
-    tissue_bench_dirs0 = glob.glob('%s/*_class' % bench_dirs[0])
-    tissues = [tbd.split('/')[-1].replace('_class','') for tbd in tissue_bench_dirs0]
+    tissue_bench_dirs0 = glob.glob('%s/*_class-%s' % (bench_dirs[0], sad_stats[0]))
+    if len(tissue_bench_dirs0) == 0:
+        # TEMP during transition
+        tissue_bench_dirs0 = glob.glob('%s/*_class' % bench_dirs[0])
+    # tissues = [tbd.split('/')[-1].replace('_class','') for tbd in tissue_bench_dirs0]
+    tissue_class_dirs = [tbd.split('/')[-1] for tbd in tissue_bench_dirs0]
+    tissues = [tcd[:tcd.find('_class')] for tcd in tissue_class_dirs]
 
     for tissue in tissues:
         tissue_out_dir = '%s/%s' % (options.out_dir, tissue)
@@ -75,17 +85,23 @@ def main():
             os.mkdir(tissue_out_dir)
 
         # count variants
-        with h5py.File('%s/%s_pos/sad.h5' % (bench_dirs[0],tissue)) as tissue_sad_h5:
-            num_variants = tissue_sad_h5['SAD'].shape[0]
+        with h5py.File('%s/%s_pos/sad.h5' % (bench_dirs[0],tissue), 'r') as tissue_sad_h5:
+            sad_stat_up = sad_stats[0].upper()
+            num_variants = tissue_sad_h5[sad_stat_up].shape[0]
 
         # read TPRs and FPRs
         bench_tpr_mean = []
         bench_fpr_mean = []
         bench_aurocs = []
         for i in range(num_benches):
-            tpr_mean = np.load('%s/%s_class/tpr_mean.npy' % (bench_dirs[i],tissue))
-            fpr_mean = np.load('%s/%s_class/fpr_mean.npy' % (bench_dirs[i],tissue))
-            aurocs = np.load('%s/%s_class/aurocs.npy' % (bench_dirs[i],tissue))
+            tissue_class_dir_i = '%s/%s_class-%s' % (bench_dirs[i],tissue,sad_stats[i])
+            if not os.path.isdir(tissue_class_dir_i):
+                # TEMP during transition
+                tissue_class_dir_i = '%s/%s_class' % (bench_dirs[i],tissue)
+
+            tpr_mean = np.load('%s/tpr_mean.npy' % tissue_class_dir_i)
+            fpr_mean = np.load('%s/fpr_mean.npy' % tissue_class_dir_i)
+            aurocs = np.load('%s/aurocs.npy' % tissue_class_dir_i)
             bench_tpr_mean.append(tpr_mean)
             bench_fpr_mean.append(fpr_mean)
             bench_aurocs.append(aurocs)

@@ -38,10 +38,9 @@ def file_to_records(filename):
 
 
 class SeqDataset:
-  def __init__(self, tfr_pattern, seq_length, seq_depth=4,
-               target_length=None, num_targets=None,
-               batch_size=1, mode=tf.estimator.ModeKeys.EVAL,
-               compute_stats=True):
+  def __init__(self, tfr_pattern, seq_length, seq_depth=4, seq_length_crop=None,
+               target_length=None, num_targets=None, batch_size=1,
+               mode=tf.estimator.ModeKeys.EVAL, compute_stats=True):
     """Initialize basic parameters; run compute_stats; run make_dataset."""
 
     self.tfr_pattern = tfr_pattern
@@ -49,6 +48,7 @@ class SeqDataset:
     self.num_seqs = None
     self.batch_size = batch_size
     self.seq_length = seq_length
+    self.seq_length_crop = seq_length_crop
     self.seq_depth = seq_depth
     self.target_length = target_length
     self.num_targets = num_targets
@@ -66,17 +66,26 @@ class SeqDataset:
   def generate_parser(self, raw=False):
     def parse_proto(example_protos):
       """Parse TFRecord protobuf."""
+
+      # define features
       features = {
         TFR_INPUT: tf.io.FixedLenFeature([], tf.string),
         TFR_OUTPUT: tf.io.FixedLenFeature([], tf.string)
       }
+
+      # parse example into features
       parsed_features = tf.io.parse_single_example(example_protos, features=features)
 
+      # decode sequence
       sequence = tf.io.decode_raw(parsed_features[TFR_INPUT], tf.uint8)
       if not raw:
         sequence = tf.reshape(sequence, [self.seq_length, self.seq_depth])
+        if self.seq_length_crop is not None:
+          crop_len = (self.seq_length - self.seq_length_crop) // 2
+          sequence = sequence[crop_len:-crop_len,:]
         sequence = tf.cast(sequence, tf.float32)
 
+      # decode targets
       targets = tf.io.decode_raw(parsed_features[TFR_OUTPUT], tf.float16)
       if not raw:
         targets = tf.reshape(targets, [self.target_length, self.num_targets])
@@ -193,9 +202,15 @@ class SeqDataset:
 
     # collect inputs and outputs
     for seq_raw, targets_raw in dataset:
+      # sequence
       if return_inputs:
         seq_1hot = seq_raw.numpy().reshape((self.seq_length,-1))
+        if self.seq_length_crop is not None:
+          crop_len = (self.seq_length - self.seq_length_crop) // 2
+          seq_1hot = seq_1hot[crop_len:-crop_len,:]
         seqs_1hot.append(seq_1hot)
+
+      # targets
       if return_outputs:
         targets1 = targets_raw.numpy().reshape((self.target_length,-1))
         if step > 1:

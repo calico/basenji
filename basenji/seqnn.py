@@ -62,7 +62,7 @@ class SeqNN():
       block_varnames = block_func.__init__.__code__.co_varnames
 
     # set global defaults
-    global_vars = ['activation', 'batch_norm', 'bn_momentum',
+    global_vars = ['activation', 'batch_norm', 'bn_momentum', 'bn_type',
       'l2_scale', 'l1_scale']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
@@ -143,7 +143,6 @@ class SeqNN():
     ###################################################
     # compile model(s)
     ###################################################
-    # self.model = tf.keras.Model(inputs=sequence, outputs=self.preds)
     self.models = []
     for ho in self.head_output:
         self.models.append(tf.keras.Model(inputs=sequence, outputs=ho))
@@ -250,19 +249,19 @@ class SeqNN():
     return model.evaluate(seq_data.dataset)
 
 
-  def get_bn_layer(self, bn_layer_i):
+  def get_bn_layer(self, bn_layer_i=0):
     """ Return specified batch normalization layer. """
     bn_layers = [layer for layer in self.model.layers if layer.name.startswith('batch_normalization')]
     return bn_layers[bn_layer_i]
 
 
-  def get_conv_layer(self, conv_layer_i):
+  def get_conv_layer(self, conv_layer_i=0):
     """ Return specified convolution layer. """
     conv_layers = [layer for layer in self.model.layers if layer.name.startswith('conv')]
     return conv_layers[conv_layer_i]
 
 
-  def get_conv_weights(self, conv_layer_i):
+  def get_conv_weights(self, conv_layer_i=0):
     """ Return kernel weights for specified convolution layer. """
     conv_layer = self.get_conv_layer(conv_layer_i)
     weights = conv_layer.weights[0].numpy()

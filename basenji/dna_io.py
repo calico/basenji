@@ -110,7 +110,7 @@ def dna_1hot_index(seq):
   return seq_code
 
 
-def hot1_augment(Xb, fwdrc, shift):
+def hot1_augment(Xb, fwdrc=True, shift=0):
   """ Transform a batch of one hot coded sequences to augment training.
 
     Args:

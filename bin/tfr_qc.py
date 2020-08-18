@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 from optparse import OptionParser
+import glob
 import multiprocessing
 import os
+import pdb
+import sys
 
-import glob
 import h5py
 from natsort import natsorted
 import numpy as np
@@ -59,6 +61,7 @@ def main():
     cols = (ti, target_means[ti], target_max[ti], targets_df.identifier[ti], targets_df.description[ti])
     print('%-4d  %8.3f  %7.3f  %16s  %s' % cols, file=table_out)
   table_out.close()
+  exit()
 
   # plot distributions for each target
   distr_dir = '%s/distr' % options.out_dir
@@ -90,25 +93,15 @@ def read_tfr(tfr_pattern, target_len):
     print('Cannot order TFRecords %s' % tfr_pattern, file=sys.stderr)
     dataset = tf.data.Dataset.list_files(tfr_pattern)
   dataset = dataset.flat_map(file_to_records)
-  dataset = dataset.batch(1)
   dataset = dataset.map(parse_proto)
-
-  iterator = dataset.make_one_shot_iterator()
-
-  next_op = iterator.get_next()
+  dataset = dataset.batch(1)
 
   targets = []
 
-  with tf.Session() as sess:
-    next_datum = sess.run(next_op)
-    while next_datum:
-      targets1 = next_datum['targets'].reshape(target_len,-1)
-      targets.append(targets1)
-
-      try:
-        next_datum = sess.run(next_op)
-      except tf.errors.OutOfRangeError:
-        next_datum = False
+  # collect inputs and outputs
+  for seq_raw, targets_raw in dataset:
+    targets1 = targets_raw.numpy().reshape((target_len,-1))
+    targets.append(targets1)
 
   return np.array(targets)
 
@@ -118,14 +111,13 @@ def file_to_records(filename):
 
 def parse_proto(example_protos):
   features = {
-    'genome': tf.FixedLenFeature([1], tf.int64),
-    'sequence': tf.FixedLenFeature([], tf.string),
-    'target': tf.FixedLenFeature([], tf.string)
+    'sequence': tf.io.FixedLenFeature([], tf.string),
+    'target': tf.io.FixedLenFeature([], tf.string)
   }
-  parsed_features = tf.parse_example(example_protos, features=features)
-  seq = tf.decode_raw(parsed_features['sequence'], tf.uint8)
-  targets = tf.decode_raw(parsed_features['target'], tf.float16)
-  return {'sequence': seq, 'targets': targets}
+  parsed_features = tf.io.parse_example(example_protos, features=features)
+  seq = tf.io.decode_raw(parsed_features['sequence'], tf.uint8)
+  targets = tf.io.decode_raw(parsed_features['target'], tf.float16)
+  return seq, targets
 
 
 ################################################################################

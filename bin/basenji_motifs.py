@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
-
+# Copyright 2020 Calico LLC
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     https://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,20 +16,28 @@
 from __future__ import print_function
 
 from optparse import OptionParser
-import copy, os, pdb, random, shutil, subprocess, time
+import json
+import multiprocessing
+import os
+import pdb
+import subprocess
+import time
 
 import h5py
-import matplotlib
-matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 import seaborn as sns
 from sklearn import preprocessing
-import tensorflow as tf
 
-import basenji
+import tensorflow as tf
+if tf.__version__[0] == '1':
+  tf.compat.v1.enable_eager_execution()
+
+from basenji import dataset
+from basenji import dna_io
+from basenji import seqnn
 
 '''
 basenji_motifs.py
@@ -48,155 +56,115 @@ weblogo_opts += ' -C "#0C8040" T T'
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <model_file> <data_file>'
+  usage = 'usage: %prog [options] <params_file> <model_file> <data_dir>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-a',
-      dest='act_t',
-      default=0.5,
-      type='float',
-      help=
-      'Activation threshold (as proportion of max) to consider for PWM [Default: %default]'
-  )
-  parser.add_option(
-      '-d',
-      dest='model_hdf5_file',
-      default=None,
-      help='Pre-computed model output as HDF5.')
-  parser.add_option('-o', dest='out_dir', default='.')
-  parser.add_option(
-      '-m',
-      dest='meme_db',
-      default='%s/data/motifs/Homo_sapiens.meme' % os.environ['BASENJIDIR'],
+  parser.add_option('-a', dest='act_t',
+      default=0.5, type='float',
+      help='Activation threshold (as proportion of max) to consider for PWM [Default: %default]')
+  parser.add_option('-d', dest='plot_density',
+                    default=False, action='store_true',
+                    help='Plot filter activation density [Default: %default]')
+  parser.add_option('--heat', dest='plot_heats',
+      default=False, action='store_true',
+      help='Plot heat maps describing filter activations in the test sequences [Default: %default]')
+  parser.add_option('-l', dest='seq_length_crop',
+      default=None, type='int',
+      help='Crop sequences to shorter length [Default: %default]')
+  parser.add_option('-o', dest='out_dir',
+      default='basenji_motifs')
+  parser.add_option('-m', dest='meme_db',
+      default='%s/cisbp/Homo_sapiens.meme' % os.environ['HG38'],
       help='MEME database used to annotate motifs')
-  parser.add_option(
-      '-p',
-      dest='plot_heats',
-      default=False,
-      action='store_true',
-      help=
-      'Plot heat maps describing filter activations in the test sequences [Default: %default]'
-  )
-  parser.add_option(
-      '-s',
-      dest='sample',
-      default=None,
-      type='int',
+  parser.add_option('-p', dest='parallel_threads',
+      default=1, type='int',
+      help='Generate weblogos in parallal threads [Default: %default]')
+  parser.add_option('-s', dest='sample',
+      default=None, type='int',
       help='Sample sequences from the test set [Default:%default]')
-  parser.add_option(
-      '-t',
-      dest='trim_filters',
-      default=False,
-      action='store_true',
-      help='Trim uninformative positions off the filter ends [Default: %default]'
-  )
+  parser.add_option('-t', dest='trim_filters',
+      default=False, action='store_true',
+      help='Trim uninformative positions off the filter ends [Default: %default]')
+  parser.add_option('--tfr', dest='tfr_pattern',
+      default='test-*.tfr',
+      help='TFR pattern string appended to data_dir [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 3:
-    parser.error(
-        'Must provide Basenji parameters and model files and test data in HDF5'
-        ' format.'
-    )
+    parser.error('Must provide Basenji params and model files and data directory')
   else:
     params_file = args[0]
     model_file = args[1]
-    data_file = args[2]
+    data_dir = args[2]
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
-  #################################################################
-  # load data
+  #######################################################
+  # inputs
 
-  data_open = h5py.File(data_file)
+  # read model parameters
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
+  if options.seq_length_crop is not None:
+    params_model['seq_length'] = options.seq_length_crop
 
-  test_seqs1 = data_open['test_in']
-  test_targets = data_open['test_out']
+  # read data parameters
+  data_stats_file = '%s/statistics.json' % data_dir
+  with open(data_stats_file) as data_stats_open:
+    data_stats = json.load(data_stats_open)
 
-  try:
-    target_names = list(data_open['target_labels'])
-  except KeyError:
-    target_names = ['t%d' % ti for ti in range(test_targets.shape[1])]
+  # construct data ops
+  tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
+  eval_data = dataset.SeqDataset(tfr_pattern_path,
+    seq_length=data_stats['seq_length'],
+    seq_length_crop=options.seq_length_crop,
+    target_length=data_stats['target_length'],
+    batch_size=params_train['batch_size'],
+    mode=tf.estimator.ModeKeys.EVAL)
 
-  if options.sample is not None:
-    # choose sampled indexes
-    sample_i = sorted(random.sample(range(test_seqs1.shape[0]), options.sample))
-
-    # filter
-    test_seqs1 = test_seqs1[sample_i]
-    test_targets = test_targets[sample_i]
-
-  # convert to letters
-  test_seqs = basenji.dna_io.hot1_dna(test_seqs1)
-
-  #################################################################
-  # model parameters and placeholders
-
-  job = basenji.dna_io.read_job_params(params_file)
-
-  job['seq_length'] = test_seqs1.shape[1]
-  job['seq_depth'] = test_seqs1.shape[2]
-  job['num_targets'] = test_targets.shape[2]
-  job['target_pool'] = int(np.array(data_open.get('pool_width', 1)))
-
-  t0 = time.time()
-  dr = basenji.seqnn.SeqNN()
-  dr.build(job)
-  print('Model building time %ds' % (time.time() - t0))
-
-  # adjust for fourier
-  job['fourier'] = 'train_out_imag' in data_open
-  if job['fourier']:
-    test_targets_imag = data_open['test_out_imag']
-    if options.valid:
-      test_targets_imag = data_open['valid_out_imag']
+  # obtain sequences
+  eval_seqs_1hot = eval_data.numpy(return_inputs=True, return_outputs=False)
+  eval_seqs_dna = dna_io.hot1_dna(eval_seqs_1hot)
+  del eval_seqs_1hot
 
   #################################################################
-  # predict
+  # model
 
-  # initialize batcher
-  if job['fourier']:
-    batcher_test = basenji.batcher.BatcherF(
-        test_seqs1,
-        test_targets,
-        test_targets_imag,
-        batch_size=dr.batch_size,
-        pool_width=job['target_pool'])
-  else:
-    batcher_test = basenji.batcher.Batcher(
-        test_seqs1,
-        test_targets,
-        batch_size=dr.batch_size,
-        pool_width=job['target_pool'])
+  # initialize model
+  seqnn_model = seqnn.SeqNN(params_model)
+  seqnn_model.restore(model_file)
 
-  # initialize saver
-  saver = tf.train.Saver()
+  # first layer embedding
+  seqnn_model.build_embed(0)
+  _, preds_length, preds_depth  = seqnn_model.embed.output.shape 
 
-  with tf.Session() as sess:
-    # load variables into session
-    saver.restore(sess, model_file)
+  # get weights
+  filter_weights = seqnn_model.get_conv_weights()
+  print(filter_weights.shape)
+  num_filters, _, filter_size = filter_weights.shape
 
-    # get weights
-    filter_weights = sess.run(dr.filter_weights[0])
-    filter_weights = np.transpose(np.squeeze(filter_weights), [2, 1, 0])
-    print(filter_weights.shape)
-
-    # test
-    t0 = time.time()
-    layer_filter_outs, _ = dr.hidden(sess, batcher_test, layers=[0])
-    filter_outs = layer_filter_outs[0]
-    print(filter_outs.shape)
-
-  # store useful variables
-  num_filters = filter_weights.shape[0]
-  filter_size = filter_weights.shape[2]
+  # compute filter activations
+  filter_outs = seqnn_model.predict(eval_data)
+  print(filter_outs.shape)
 
   #################################################################
   # individual filter plots
-  #################################################################
-  # also save information contents
+
+  # save information contents
   filters_ic = []
-  meme_out = meme_intro('%s/filters_meme.txt' % options.out_dir, test_seqs)
+  meme_out = meme_intro('%s/filters_meme.txt' % options.out_dir, eval_seqs_dna)
+
+  # plot weblogo of high scoring outputs (in parallel)
+  if options.parallel_threads > 1:
+    pfl_args = []
+    for f in range(num_filters):
+      pfl_args.append((filter_outs[:, :, f], filter_size,
+          eval_seqs_dna, '%s/filter%d_logo'%(options.out_dir,f),
+          options.act_t))
+    with multiprocessing.get_context('spawn').Pool(options.parallel_threads) as pool:
+      pool.starmap(plot_filter_logo, pfl_args)
 
   for f in range(num_filters):
     print('Filter %d' % f)
@@ -205,18 +173,15 @@ def main():
     plot_filter_heat(filter_weights[f, :, :],
                      '%s/filter%d_heat.pdf' % (options.out_dir, f))
 
-    # write possum motif file
-    filter_possum(filter_weights[f, :, :], 'filter%d' % f,
-                  '%s/filter%d_possum.txt' % (options.out_dir,
-                                              f), options.trim_filters)
+    if options.parallel_threads == 1:
+      plot_filter_logo(filter_outs[:, :, f], filter_size,
+          eval_seqs_dna, '%s/filter%d_logo'%(options.out_dir,f),
+          options.act_t)
 
-    # plot weblogo of high scoring outputs
-    plot_filter_logo(
-        filter_outs[:, :, f],
-        filter_size,
-        test_seqs,
-        '%s/filter%d_logo' % (options.out_dir, f),
-        maxpct_t=options.act_t)
+    # write possum motif file
+    # filter_possum(filter_weights[f, :, :], 'filter%d' % f,
+    #               '%s/filter%d_possum.txt' % (options.out_dir,
+    #                                           f), options.trim_filters)
 
     # make a PWM for the filter
     filter_pwm, nsites = make_filter_pwm('%s/filter%d_logo.fa' %
@@ -245,7 +210,7 @@ def main():
 
   # read in annotations
   filter_names = name_filters(
-      num_filters, '%s/tomtom/tomtom.txt' % options.out_dir, options.meme_db)
+      num_filters, '%s/tomtom/tomtom.tsv' % options.out_dir, options.meme_db)
 
   #################################################################
   # print a table of information
@@ -266,10 +231,12 @@ def main():
     if len(name_pieces) > 1:
       annotation = name_pieces[1]
 
-    # plot density of filter output scores
-    fmean, fstd = plot_score_density(
-        np.ravel(filter_outs[:, :, f]),
-        '%s/filter%d_dens.pdf' % (options.out_dir, f))
+    f_scores = np.ravel(filter_outs[:, :, f])
+    fmean, fstd = f_scores.mean(), f_scores.std()
+    if options.plot_density:
+      # plot density of filter output scores
+      plot_score_density(f_scores,
+          '%s/filter%d_dens.pdf' % (options.out_dir, f))      
 
     row_cols = (f, consensus, annotation, filters_ic[f], fmean, fstd)
     print('%-3d  %19s  %10s  %5.2f  %6.4f  %6.4f' % row_cols, file=table_out)
@@ -279,6 +246,10 @@ def main():
   #################################################################
   # global filter plots
   #################################################################
+
+  # these methods make less sense for longer sequences;
+  # I should fragment the sequences first.
+
   if options.plot_heats:
     # plot filter-sequence heatmap
     plot_filter_seq_heat(filter_outs, '%s/filter_seqs.pdf' % options.out_dir)
@@ -465,11 +436,11 @@ def name_filters(num_filters, tomtom_file, meme_db_file):
     tt_in.readline()
     for line in tt_in:
       a = line.split()
-      fi = int(a[0][6:])
-      motif_id = a[1]
-      qval = float(a[5])
-
-      filter_motifs.setdefault(fi, []).append((qval, motif_id))
+      if line[0] != '#' and len(a) > 0:
+        fi = int(a[0][6:])
+        motif_id = a[1]
+        qval = float(a[5])
+        filter_motifs.setdefault(fi, []).append((qval, motif_id))
 
     tt_in.close()
 
@@ -747,8 +718,10 @@ def plot_filter_heat(param_matrix, out_pdf):
 #  param_matrix: np.array of the filter's parameter matrix
 #  out_pdf:
 ################################################################################
-def plot_filter_logo(filter_outs, filter_size, seqs, out_prefix, raw_t=0, maxpct_t=None):
-  if maxpct_t:
+def plot_filter_logo(filter_outs, filter_size, seqs, out_prefix, maxpct_t=None, raw_t=0):
+  print(out_prefix)
+
+  if maxpct_t is not None:
     all_outs = np.ravel(filter_outs)
     all_outs_mean = all_outs.mean()
     all_outs_norm = all_outs - all_outs_mean
@@ -762,31 +735,30 @@ def plot_filter_logo(filter_outs, filter_size, seqs, out_prefix, raw_t=0, maxpct
   filter_count = 0
 
   for i in range(filter_outs.shape[0]):
-    for j in range(filter_outs.shape[1]):
-      if filter_outs[i, j] > raw_t:
-        # construct kmer
-        kmer = ''
+    for j in np.where(filter_outs[i] > raw_t)[0]:
+      # construct kmer
+      kmer = ''
 
-        # determine boundaries, considering padding
-        fstart = j - left_pad
-        fend = fstart + filter_size
+      # determine boundaries, considering padding
+      fstart = j - left_pad
+      fend = fstart + filter_size
 
-        # if it starts in left_pad
-        if fstart < 0:
-          kmer += 'N' * (-fstart)
-          fstart = 0
+      # if it starts in left_pad
+      if fstart < 0:
+        kmer += 'N' * (-fstart)
+        fstart = 0
 
-        # add primary sequence
-        kmer += seqs[i][fstart:fend]
+      # add primary sequence
+      kmer += seqs[i][fstart:fend]
 
-        # if it ends in right_pad
-        if fend > len(seqs[i]):
-          kmer += 'N' * (fend - len(seqs[i]))
+      # if it ends in right_pad
+      if fend > len(seqs[i]):
+        kmer += 'N' * (fend - len(seqs[i]))
 
-        # output
-        print('>%d_%d' % (i, j), file=filter_fasta_out)
-        print(kmer, file=filter_fasta_out)
-        filter_count += 1
+      # output
+      print('>%d_%d' % (i, j), file=filter_fasta_out)
+      print(kmer, file=filter_fasta_out)
+      filter_count += 1
 
   filter_fasta_out.close()
 
@@ -813,8 +785,6 @@ def plot_score_density(f_scores, out_pdf):
   plt.xlabel('ReLU output')
   plt.savefig(out_pdf)
   plt.close()
-
-  return f_scores.mean(), f_scores.std()
 
 
 ################################################################################

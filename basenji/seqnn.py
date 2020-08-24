@@ -173,12 +173,17 @@ class SeqNN():
     print('target_lengths', self.target_lengths)
     print('target_crops', self.target_crops)
 
-  def build_embed(self, conv_layer_i):
+
+  def build_embed(self, conv_layer_i, batch_norm=True):
     if conv_layer_i == -1:
       self.embed = tf.keras.Model(inputs=self.model.inputs,
                                   outputs=self.model.inputs)
     else:
-      conv_layer = self.get_bn_layer(conv_layer_i)
+      if batch_norm:
+        conv_layer = self.get_bn_layer(conv_layer_i)
+      else:
+        conv_layer = self.get_conv_layer(conv_layer_i)
+
       self.embed = tf.keras.Model(inputs=self.model.inputs,
                                   outputs=conv_layer.output)
 

@@ -61,6 +61,9 @@ def main():
   parser.add_option('-a', dest='act_t',
       default=0.5, type='float',
       help='Activation threshold (as proportion of max) to consider for PWM [Default: %default]')
+  parser.add_option('-c', dest='post_conv',
+                    default=False, action='store_true',
+                    help='Embed first layer post-convolution rather than batch norm [Default: %default]')
   parser.add_option('-d', dest='plot_density',
                     default=False, action='store_true',
                     help='Plot filter activation density [Default: %default]')
@@ -137,7 +140,7 @@ def main():
   seqnn_model.restore(model_file)
 
   # first layer embedding
-  seqnn_model.build_embed(0)
+  seqnn_model.build_embed(0, batch_norm=(~options.post_conv))
   _, preds_length, preds_depth  = seqnn_model.embed.output.shape 
 
   # get weights

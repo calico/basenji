@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2020 Calico LLC
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,10 +28,11 @@ import numpy as np
 import slurm
 
 """
-basenji_sad_multi.py
+basenji_bench_gtex.py
 
-Compute SNP expression difference scores for variants in a VCF file,
-using multiple processes.
+Compute SNP expression difference scores for variants in VCF files of
+fine-mapped GTEx variants to benchmark as features in a classification
+task.
 """
 
 ################################################################################

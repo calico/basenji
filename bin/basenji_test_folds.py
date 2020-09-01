@@ -24,6 +24,8 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon, ttest_rel
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 import slurm
 
@@ -47,8 +49,14 @@ def main():
   parser.add_option('-e', dest='conda_env',
       default='tf2-gpu',
       help='Anaconda environment [Default: %default]')
+  parser.add_option('--l1', dest='label1',
+      default='Reference', help='Reference label [Default: %default]')
+  parser.add_option('--l2', dest='label2',
+      default='Experiment', help='Experiment label [Default: %default]')
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')
+  parser.add_option('-o', dest='out_stem',
+      default=None, help='Outplut plot stem [Default: %default]')
   parser.add_option('-q', dest='queue',
       default='gtx1080ti')
   parser.add_option('-r', dest='ref_dir',
@@ -93,7 +101,7 @@ def main():
         it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
 
         # TEMP
-        shutil.copy('%s/targets.txt'%data_dir, '%s/data/targets.txt'%it_dir)
+        # shutil.copy('%s/targets.txt'%data_dir, '%s/data/targets.txt'%it_dir)
         
         # check if done
         acc_file = '%s/test_train/acc.txt' % it_dir
@@ -219,10 +227,15 @@ def main():
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
       print('\nTrain:')
-      print('Reference  PearsonR: %.4f (%.4f)' % (ref_mean, ref_stdm))
-      print('Experiment PearsonR: %.4f (%.4f)' % (exp_mean, exp_stdm))
+      print('%12s PearsonR: %.4f (%.4f)' % (options.label1, ref_mean, ref_stdm))
+      print('%12s PearsonR: %.4f (%.4f)' % (options.label2, exp_mean, exp_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
+
+      if options.out_stem is not None:
+        jointplot(ref_cors, exp_cors,
+          '%s_train.pdf' % options.out_stem,
+          options.label1, options.label2)
 
 
     ################################################################
@@ -237,10 +250,15 @@ def main():
     mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
     print('\nTest:')
-    print('Reference  PearsonR: %.4f (%.4f)' % (ref_mean, ref_stdm))
-    print('Experiment PearsonR: %.4f (%.4f)' % (exp_mean, exp_stdm))
+    print('%12s PearsonR: %.4f (%.4f)' % (options.label1, ref_mean, ref_stdm))
+    print('%12s PearsonR: %.4f (%.4f)' % (options.label2, exp_mean, exp_stdm))
     print('Mann-Whitney U p-value: %.3g' % mwp)
     print('T-test p-value: %.3g' % tp)
+
+    if options.out_stem is not None:
+      jointplot(ref_cors, exp_cors,
+          '%s_test.pdf' % options.out_stem,
+          options.label1, options.label2)
 
     ################################################################
     # compare best on test set specificity
@@ -255,11 +273,41 @@ def main():
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
       print('\nSpecificity:')
-      print('Reference  PearsonR: %.4f (%.4f)' % (ref_mean, ref_stdm))
-      print('Experiment PearsonR: %.4f (%.4f)' % (exp_mean, exp_stdm))
+      print('%12s PearsonR: %.4f (%.4f)' % (options.label1, ref_mean, ref_stdm))
+      print('%12s PearsonR: %.4f (%.4f)' % (options.label2, exp_mean, exp_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
+
+      if options.out_stem is not None:
+        jointplot(ref_cors, exp_cors,
+          '%s_spec.pdf' % options.out_stem,
+          options.label1, options.label2)
     
+
+def jointplot(ref_cors, exp_cors, out_pdf, label1, label2):
+  vmin = min(np.min(ref_cors), np.min(exp_cors))
+  vmax = max(np.max(ref_cors), np.max(exp_cors))
+  vspan = vmax - vmin
+  vbuf = vspan * 0.1
+  vmin -= vbuf
+  vmax += vbuf
+
+  g = sns.jointplot(ref_cors, exp_cors, space=0)
+
+  eps = 0.05
+  g.ax_joint.text(1-eps, eps, 'Mean: %.4f' % np.mean(ref_cors),
+    horizontalalignment='right', transform=g.ax_joint.transAxes)
+  g.ax_joint.text(eps, 1-eps, 'Mean: %.4f' % np.mean(exp_cors),
+    verticalalignment='top', transform=g.ax_joint.transAxes)
+
+  g.ax_joint.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='orange')
+  g.ax_joint.set_xlabel(label1)
+  g.ax_joint.set_ylabel(label2)
+  
+  plt.tight_layout(w_pad=0, h_pad=0)
+  plt.savefig(out_pdf)
+
+
 def read_cors(acc_glob_str):
   rep_cors = []
   acc_files = natsorted(glob.glob(acc_glob_str))

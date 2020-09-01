@@ -130,33 +130,36 @@ def main():
 
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      # make rep dir
       rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
-      os.mkdir(rep_dir)
+      if options.restart and os.path.isdir(rep_dir):
+        print('%s found and skipped.' % rep_dir)
+      else:
+        # make rep dir
+        os.mkdir(rep_dir)
 
-      # make rep data
-      make_rep_data(data_dir, rep_dir, fi, ci)
+        # make rep data
+        make_rep_data(data_dir, rep_dir, fi, ci)
 
-      # train command
-      cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate %s;' % options.conda_env
-      cmd += ' echo $HOSTNAME;'
+        # train command
+        cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+        cmd += ' conda activate %s;' % options.conda_env
+        cmd += ' echo $HOSTNAME;'
 
-      cmd += ' basenji_train.py' 
-      cmd += ' %s' % options_string(options, train_options, '%s/train'%rep_dir)
-      cmd += ' %s %s/data' % (params_file, rep_dir)
+        cmd += ' basenji_train.py' 
+        cmd += ' %s' % options_string(options, train_options, '%s/train'%rep_dir)
+        cmd += ' %s %s/data' % (params_file, rep_dir)
 
-      name = '%s-train-f%dc%d' % (options.name, fi, ci)
-      sbf = os.path.abspath('%s/train.sb' % rep_dir)
-      outf = os.path.abspath('%s/train.out' % rep_dir)
-      errf = os.path.abspath('%s/train.err' % rep_dir)
+        name = '%s-train-f%dc%d' % (options.name, fi, ci)
+        sbf = os.path.abspath('%s/train.sb' % rep_dir)
+        outf = os.path.abspath('%s/train.out' % rep_dir)
+        errf = os.path.abspath('%s/train.err' % rep_dir)
 
-      j = slurm.Job(cmd, name,
-                    outf, errf, sbf,
-                    queue=options.queue,
-                    gpu=params_train.get('num_gpu',1),
-                    mem=23000, time='28-0:0:0')
-      jobs.append(j)
+        j = slurm.Job(cmd, name,
+                      outf, errf, sbf,
+                      queue=options.queue,
+                      gpu=params_train.get('num_gpu',1),
+                      mem=23000, time='28-0:0:0')
+        jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)

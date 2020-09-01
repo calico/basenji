@@ -30,6 +30,9 @@ def main():
   parser.add_option('-c', dest='cluster_gene_distance',
       default=2000, type='int',
       help='Cluster genes into the same split within this distance [Default: %default]')
+  parser.add_option('-f', dest='folds',
+      default=None, type='int',
+      help='Generate cross fold split [Default: %default]')
   parser.add_option('-g', dest='gene_index',
       default='gene_name',
       help='Key to match TSS GFF to expression table [Default: %default]')
@@ -104,27 +107,38 @@ def main():
   expr_df = expr_df.iloc[permute_order]
   assert((genes_df.index == expr_df.index).all())
 
-  try:
-    # convert to float pct
-    valid_pct = float(options.valid_pct_or_chr)
-    test_pct = float(options.test_pct_or_chr)
-    assert(0 <= valid_pct <= 1)
-    assert(0 <= test_pct <= 1)
+  if options.folds is not None:
+    fold_indexes = divide_genes_folds(genes_df, options.folds, options.cluster_gene_distance)
 
-    # divide by pct
-    tvt_indexes = divide_genes_pct(genes_df, test_pct, valid_pct, options.cluster_gene_distance)
+  else:
+    try:
+      # convert to float pct
+      valid_pct = float(options.valid_pct_or_chr)
+      test_pct = float(options.test_pct_or_chr)
+      assert(0 <= valid_pct <= 1)
+      assert(0 <= test_pct <= 1)
 
-  except (ValueError, AssertionError):
-    # divide by chr
-    valid_chrs = options.valid_pct_or_chr.split(',')
-    test_chrs = options.test_pct_or_chr.split(',')
-    tvt_indexes = divide_genes_chr(genes_df, test_chrs, valid_chrs)
+      # divide by pct
+      fold_indexes = divide_genes_pct(genes_df, test_pct, valid_pct, options.cluster_gene_distance)
+
+    except (ValueError, AssertionError):
+      # divide by chr
+      valid_chrs = options.valid_pct_or_chr.split(',')
+      test_chrs = options.test_pct_or_chr.split(',')
+      fold_indexes = divide_genes_chr(genes_df, test_chrs, valid_chrs)
+
+  # label folds
+  if options.folds is not None:
+    fold_labels = ['fold%d' % fi for fi in range(options.folds)]
+    num_folds = options.folds
+  else:
+    fold_labels = ['train', 'valid', 'test']
+    num_folds = 3
 
   # write gene sets
-  train_index, valid_index, test_index = tvt_indexes
-  genes_df.iloc[train_index].to_csv('%s/genes_train.csv' % options.out_dir, sep='\t')
-  genes_df.iloc[valid_index].to_csv('%s/genes_valid.csv' % options.out_dir, sep='\t')
-  genes_df.iloc[test_index].to_csv('%s/genes_test.csv' % options.out_dir, sep='\t')
+  for fi in range(num_folds):
+    fold_csv_file = '%s/genes_%s.csv' % (options.out_dir, fold_labels[fi])
+    genes_df.iloc[fold_indexes[fi]].to_csv(fold_csv_file, sep='\t')
 
   # write targets
   targets_df = pd.DataFrame({'identifier':expr_df.columns,
@@ -144,10 +158,9 @@ def main():
   # define options
   tf_opts = tf.io.TFRecordOptions(compression_type='ZLIB')
 
-  tvt_tuples = [('train',train_index), ('valid',valid_index), ('test',test_index)]
-  for set_label, set_index in tvt_tuples:
-    genes_set_df = genes_df.iloc[set_index]
-    expr_set_df = expr_df.iloc[set_index]
+  for fi in range(num_folds):
+    genes_set_df = genes_df.iloc[fold_indexes[fi]]
+    expr_set_df = expr_df.iloc[fold_indexes[fi]]
 
     num_set = genes_set_df.shape[0]
     num_set_tfrs = int(np.ceil(num_set / options.seqs_per_tfr))
@@ -156,7 +169,7 @@ def main():
     si = 0
 
     for tfr_i in range(num_set_tfrs):
-      tfr_file = '%s/%s-%d.tfr' % (tfr_dir, set_label, tfr_i)
+      tfr_file = '%s/%s-%d.tfr' % (tfr_dir, fold_labels[fi], tfr_i)
       print(tfr_file)
       with tf.io.TFRecordWriter(tfr_file, tf_opts) as writer:
         # TFR index
@@ -214,11 +227,11 @@ def main():
 
   stats_dict = {}
   stats_dict['num_targets'] = targets_df.shape[0]
-  stats_dict['train_seqs'] = len(train_index)
-  stats_dict['valid_seqs'] = len(valid_index)
-  stats_dict['test_seqs'] = len(test_index)
   stats_dict['seq_length'] = options.seq_length
   stats_dict['target_length'] = 1
+
+  for fi in range(num_folds):
+    stats_dict['%s_seqs' % fold_labels[fi]] = len(fold_indexes[fi])
 
   with open('%s/statistics.json' % options.out_dir, 'w') as stats_json_out:
     json.dump(stats_dict, stats_json_out, indent=4)
@@ -258,7 +271,6 @@ def divide_genes_chr(genes_df, test_chrs, valid_chrs):
       (test_n, test_n/genes_n))
 
   return train_index, valid_index, test_index
-
 
 ################################################################################
 def cluster_genes(genes_df, cluster_gene_distance):
@@ -305,6 +317,43 @@ def cluster_genes(genes_df, cluster_gene_distance):
 
   return genes_graph
 
+################################################################################
+def divide_genes_folds(genes_df, folds, cluster_gene_distance):
+  """Divide genes into train/valid/test lists by percentage."""
+
+  # make gene graph
+  genes_graph = cluster_genes(genes_df, cluster_gene_distance)
+
+  # initialize fold gene lists
+  fold_size = np.zeros(folds)
+  fold_genes = []
+  for fi in range(folds):
+    fold_genes.append([])
+
+  # determine aimed genes/fold
+  num_genes = genes_df.shape[0]
+  fold_gene_aim = int(np.ceil(num_genes/folds))
+
+  # process connected componenets
+  for genes_cc in nx.connected_components(genes_graph):
+    # compute gap between current and aim
+    fold_gene_gap = fold_gene_aim - fold_size
+    fold_gene_gap = np.clip(fold_gene_gap, 0, np.inf)
+
+    # compute sample probability
+    fold_prob = fold_gene_gap / fold_gene_gap.sum()
+
+    # sample train/valid/test
+    fi = np.random.choice(folds, p=fold_prob)
+    fold_genes[fi] += genes_cc
+    fold_size[fi] += len(genes_cc)
+
+  print('Genes divided into')
+  for fi in range(folds):
+    print(' Fold%d: %5d genes, (%.4f)' % \
+      (fi, fold_size[fi], fold_size[fi]/num_genes))
+
+  return fold_genes
 
 ################################################################################
 def divide_genes_pct(genes_df, test_pct, valid_pct, cluster_gene_distance):
@@ -341,7 +390,7 @@ def divide_genes_pct(genes_df, test_pct, valid_pct, cluster_gene_distance):
   print(' Test:  %5d genes, (%.4f)' % \
       (test_n, test_n/genes_n))
 
-  return train_index, valid_index, test_index
+  return [train_index, valid_index, test_index]
 
 ################################################################################
 def genes_bed(genes_df, bed_file):

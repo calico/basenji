@@ -23,7 +23,7 @@ from basenji import layers
 def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activation_end=None,
     strides=1, dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
     pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
-    kernel_initializer='he_normal'):
+    kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block.
 
   Args:
@@ -66,7 +66,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
     filters=filters,
     kernel_size=kernel_size,
     strides=strides,
-    padding='same',
+    padding=padding,
     use_bias=False,
     dilation_rate=dilation_rate,
     kernel_initializer=kernel_initializer,
@@ -623,15 +623,32 @@ def factor_inverse(inputs, components_file, **kwargs):
 ############################################################
 # Keras defaults
 ############################################################
-def dense(inputs, units, activation='linear', kernel_initializer='he_normal',
-    l2_scale=0, l1_scale=0, **kwargs):
+def final(inputs, units, activation='linear', kernel_initializer='he_normal',
+          l2_scale=0, l1_scale=0, **kwargs):
+
   current = tf.keras.layers.Dense(
     units=units,
-    activation=activation,
     use_bias=True,
+    activation=activation,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
     )(inputs)
+
+  return current
+
+# depracated, poorly named
+def dense(inputs, units, activation='linear', kernel_initializer='he_normal',
+          l2_scale=0, l1_scale=0, **kwargs):
+
+  # apply dense layer
+  current = tf.keras.layers.Dense(
+    units=units,
+    use_bias=True,
+    activation=activation,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
+    )(inputs)
+
   return current
 
 
@@ -716,5 +733,6 @@ keras_func = {
   'Conv1D': tf.keras.layers.Conv1D,
   'Cropping1D': tf.keras.layers.Cropping1D,
   'Cropping2D': tf.keras.layers.Cropping2D,
-  'Dense': tf.keras.layers.Dense
+  'Dense': tf.keras.layers.Dense,
+  'Flatten': tf.keras.layers.Flatten
 }

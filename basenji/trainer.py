@@ -39,9 +39,11 @@ class Trainer:
     self.compiled = False
 
     # loss
-    self.loss = self.params.get('loss','poisson')
-    if self.loss.lower() == 'mse':
+    self.loss = self.params.get('loss','poisson').lower()
+    if self.loss == 'mse':
       self.loss_fn = tf.keras.losses.MSE
+    elif self.loss == 'bce':
+      self.loss_fn = tf.keras.losses.BinaryCrossentropy()
     else:
       self.loss_fn = tf.keras.losses.Poisson()
 
@@ -65,20 +67,32 @@ class Trainer:
     self.dataset_indexes = np.array(self.dataset_indexes)
 
   def compile(self, seqnn_model):
+    if self.loss == 'bce':
+      metrics = [tf.keras.metrics.AUC(curve='ROC', multi_label=False),
+                 tf.keras.metrics.AUC(curve='PR', multi_label=False)]
+    else:
+      metrics = [metrics.PearsonR(num_targets), metrics.R2(num_targets)]
+
     for model in seqnn_model.models:
       num_targets = model.output_shape[-1]
       model.compile(loss=self.loss_fn,
                     optimizer=self.optimizer,
-                    metrics=[metrics.PearsonR(num_targets), metrics.R2(num_targets)])
+                    metrics=metrics)
     self.compiled = True
 
   def fit_keras(self, seqnn_model):
     if not self.compiled:
       self.compile(seqnn_model)
 
+    if self.loss == 'bce':
+      early_stop = EarlyStoppingMin(monitor='val_loss', mode='min', verbose=1,
+                       patience=self.patience, min_epoch=self.train_epochs_min)
+    else:
+      early_stop = EarlyStoppingMin(monitor='val_pearsonr', mode='max', verbose=1,
+                       patience=self.patience, min_epoch=self.train_epochs_min)
+
     callbacks = [
-      EarlyStoppingMin(monitor='val_pearsonr', mode='max', verbose=1,
-                       patience=self.patience, min_epoch=self.train_epochs_min),
+      early_stop,
       tf.keras.callbacks.TensorBoard(self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir, save_best_only=True,

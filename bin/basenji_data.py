@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import collections
+import gzip
 import heapq
 import json
 import math
@@ -84,6 +85,9 @@ def main():
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number parallel processes [Default: %default]')
+  parser.add_option('--peaks', dest='peaks_only',
+      default=False, action='store_true',
+      help='Create contigs only from peaks [Default: %default]') 
   parser.add_option('-r', dest='seqs_per_tfr',
       default=256, type='int',
       help='Sequences per TFRecord file [Default: %default]')
@@ -157,11 +161,15 @@ def main():
     if np.mod(options.stride_test, options.snap) != 0:
       raise ValueError('stride_test must be a multiple of snap')
 
+  # setup output directory
   if os.path.isdir(options.out_dir) and not options.restart:
     print('Remove output directory %s or use --restart option.' % options.out_dir)
     exit(1)
   elif not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
+
+  # read target datasets
+  targets_df = pd.read_csv(targets_file, index_col=0, sep='\t')
 
   ################################################################
   # define genomic contigs
@@ -183,6 +191,11 @@ def main():
     # limit to a BED file
     if options.limit_bed is not None:
       contigs = limit_contigs(contigs, options.limit_bed)
+
+    # limit to peaks
+    if options.peaks_only:
+      peaks_bed = curate_peaks(targets_df, options.out_dir, options.pool_width, options.crop_bp)
+      contigs = limit_contigs(contigs, peaks_bed)
 
     # filter for large enough
     contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
@@ -315,9 +328,6 @@ def main():
   ################################################################
   # read sequence coverage values
   ################################################################
-  # read target datasets
-  targets_df = pd.read_csv(targets_file, index_col=0, sep='\t')
-
   seqs_cov_dir = '%s/seqs_cov' % options.out_dir
   if not os.path.isdir(seqs_cov_dir):
     os.mkdir(seqs_cov_dir)
@@ -593,7 +603,7 @@ def contig_sequences(contigs, seq_length, stride, snap=1, label=None):
     seq_start = int(np.ceil(ctg.start/snap)*snap)
     seq_end = seq_start + seq_length
 
-    while seq_end < ctg.end:
+    while seq_end <= ctg.end:
       # record sequence
       mseqs.append(ModelSeq(ctg.chr, seq_start, seq_end, label))
 
@@ -602,6 +612,78 @@ def contig_sequences(contigs, seq_length, stride, snap=1, label=None):
       seq_end += stride
       
   return mseqs
+
+
+################################################################################
+def curate_peaks(targets_df, out_dir, pool_width, crop_bp):
+  """Merge all peaks, round to nearest pool_width, and add cropped bp."""
+
+  # concatenate and extend peaks
+  cat_bed_file = '%s/peaks_cat.bed' % out_dir
+  cat_bed_out = open(cat_bed_file, 'w')
+  for bed_file in targets_df.file:
+    if bed_file[-3:] == '.gz':
+      bed_in = gzip.open(bed_file, 'rt')
+    else:
+      bed_in = open(bed_file, 'r')
+
+    for line in bed_in:
+      a = line.rstrip().split('\t')
+      chrm = a[0]
+      start = int(a[1])
+      end = int(a[2])
+      
+      # extend to pool width
+      length = end - start
+      if length < pool_width:
+        mid = (start + end) // 2
+        start = mid - pool_width//2
+        end = start + pool_width
+
+      # add cropped bp
+      start = max(0, start-crop_bp)
+      end += crop_bp
+
+      # print
+      print('%s\t%d\t%d' % (chrm,start,end), file=cat_bed_out)
+
+    bed_in.close()
+  cat_bed_out.close()
+
+  # merge
+  merge_bed_file = '%s/peaks_merge.bed' % out_dir
+  bedtools_cmd = 'bedtools sort -i %s' % cat_bed_file
+  bedtools_cmd += ' | bedtools merge -i - > %s' % merge_bed_file
+  subprocess.call(bedtools_cmd, shell=True)
+
+  # round and add crop_bp
+  full_bed_file = '%s/peaks_full.bed' % out_dir
+  full_bed_out = open(full_bed_file, 'w')
+
+  for line in open(merge_bed_file):
+    a = line.rstrip().split('\t')
+    chrm = a[0]
+    start = int(a[1])
+    end = int(a[2])
+    mid = (start + end) // 2
+    length = end - start
+
+    # round length to nearest pool_width
+    bins = int(np.round(length/pool_width))
+    assert(bins > 0)
+    start = mid - (bins*pool_width)//2
+    end = start + (bins*pool_width)
+
+    # add cropped bp
+    # start = max(0, start-crop_bp)
+    # end += crop_bp
+
+    # write
+    print('%s\t%d\t%d' % (chrm,start,end), file=full_bed_out)
+
+  full_bed_out.close()
+
+  return full_bed_file
 
 
 ################################################################################
@@ -780,13 +862,13 @@ def limit_contigs(contigs, filter_bed):
   ctg_fd, ctg_bed_file = tempfile.mkstemp()
   ctg_bed_out = open(ctg_bed_file, 'w')
   for ctg in contigs:
-    print('%s\t%d\t%d' % (ctg.chrom, ctg.start, ctg.end), file=ctg_bed_out)
+    print('%s\t%d\t%d' % (ctg.chr, ctg.start, ctg.end), file=ctg_bed_out)
   ctg_bed_out.close()
 
   # intersect w/ filter_bed
   fcontigs = []
   p = subprocess.Popen(
-      'bedtools intersect -u -a %s -b %s' % (ctg_bed_file, filter_bed),
+      'bedtools intersect -a %s -b %s' % (ctg_bed_file, filter_bed),
       shell=True,
       stdout=subprocess.PIPE)
   for line in p.stdout:

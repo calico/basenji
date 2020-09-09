@@ -56,11 +56,11 @@ def main():
       default=False, action='store_true',
       help='Restore only model trunk [Default: %default]')
   train_options.add_option('--tfr_train', dest='tfr_train_pattern',
-      default='train-*.tfr',
-      help='Training TFRecord pattern string appended to data_dir [Default: %default]')
+      default=None,
+      help='Training TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
   train_options.add_option('--tfr_eval', dest='tfr_eval_pattern',
-      default='valid-*.tfr',
-      help='Evaluation TFRecord pattern string appended to data_dir [Default: %default]')
+      default=None,
+      help='Evaluation TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
   parser.add_option_group(train_options)
 
   # test
@@ -190,7 +190,7 @@ def main():
         if options.shifts:
           cmd += ' --shifts %s' % options.shifts
         cmd += ' -o %s' % test_dir
-        cmd += ' --tfr "train-*.tfr"'
+        cmd += ' --split train'
         cmd += ' %s %s/train/model_check.h5 %s/data' % (params_file, rep_dir, rep_dir)
 
         name = '%s-testtr-f%dc%d' % (options.name, fi, ci)

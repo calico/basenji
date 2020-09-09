@@ -63,9 +63,12 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
+  parser.add_option('--split', dest='split_label',
+      default='test',
+      help='Dataset split label for eg TFR pattern [Default: %default]')
   parser.add_option('--tfr', dest='tfr_pattern',
-      default='test-*.tfr',
-      help='TFR pattern string appended to data_dir [Default: %default]')
+      default=None,
+      help='TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
   parser.add_option('-v', dest='high_var_pct',
       default=1.0, type='float',
       help='Highly variable site proportion to take [Default: %default]')
@@ -99,18 +102,12 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # read data parameters
-  data_stats_file = '%s/statistics.json' % data_dir
-  with open(data_stats_file) as data_stats_open:
-    data_stats = json.load(data_stats_open)
-
-  # construct data ops
-  tfr_pattern_path = '%s/tfrecords/%s' % (data_dir, options.tfr_pattern)
-  eval_data = dataset.SeqDataset(tfr_pattern_path,
-    seq_length=data_stats['seq_length'],
-    target_length=data_stats['target_length'],
+  # construct eval data
+  eval_data = dataset.SeqDataset(data_dir,
+    split_label=options.split_label,
     batch_size=params_train['batch_size'],
-    mode=tf.estimator.ModeKeys.EVAL)
+    mode=tf.estimator.ModeKeys.EVAL,
+    tfr_pattern=options.tfr_pattern)
 
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)

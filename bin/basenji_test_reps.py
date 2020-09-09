@@ -93,7 +93,7 @@ def main():
           basenji_cmd += ' --rc'
         if options.shifts:
           basenji_cmd += ' --shifts %s' % options.shifts
-        basenji_cmd += ' --tfr "train-*.tfr"'
+        basenji_cmd += ' --split train'
         basenji_cmd += ' %s' % params_file
         basenji_cmd += ' %s/train/model_check.h5' % it_dir
         basenji_cmd += ' %s' % data_dir

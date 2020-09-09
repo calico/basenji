@@ -14,6 +14,7 @@
 # =========================================================================
 from __future__ import print_function
 import glob
+import json
 import os
 import pdb
 import sys
@@ -37,28 +38,58 @@ def file_to_records(filename):
   return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
 
 
+# class SeqDataset:
+#   def __init__(self, tfr_pattern, seq_length, seq_depth=4, seq_length_crop=None,
+#                target_length=None, num_targets=None, batch_size=1,
+#                mode=tf.estimator.ModeKeys.EVAL, compute_stats=True):
+#     """Initialize basic parameters; run compute_stats; run make_dataset."""
+
+#     self.tfr_pattern = tfr_pattern
+
+#     self.num_seqs = None
+#     self.batch_size = batch_size
+#     self.seq_length = seq_length
+#     self.seq_length_crop = seq_length_crop
+#     self.seq_depth = seq_depth
+#     self.target_length = target_length
+#     self.num_targets = num_targets
+
+#     self.mode = mode
+
+#     if compute_stats:
+#       self.compute_stats()
+#     self.make_dataset()
+
 class SeqDataset:
-  def __init__(self, tfr_pattern, seq_length, seq_depth=4, seq_length_crop=None,
-               target_length=None, num_targets=None, batch_size=1,
-               mode=tf.estimator.ModeKeys.EVAL, compute_stats=True):
+  def __init__(self, data_dir, split_label, batch_size, seq_length_crop=None,
+               mode=tf.estimator.ModeKeys.EVAL, tfr_pattern=None):
     """Initialize basic parameters; run compute_stats; run make_dataset."""
 
+    self.data_dir = data_dir
+    self.split_label = split_label
+    self.batch_size = batch_size
+    self.seq_length_crop = seq_length_crop
+    self.mode = mode
     self.tfr_pattern = tfr_pattern
 
-    self.num_seqs = None
-    self.batch_size = batch_size
-    self.seq_length = seq_length
-    self.seq_length_crop = seq_length_crop
-    self.seq_depth = seq_depth
-    self.target_length = target_length
-    self.num_targets = num_targets
-
-    self.mode = mode
-
-    if compute_stats:
+    # read data parameters
+    data_stats_file = '%s/statistics.json' % self.data_dir
+    with open(data_stats_file) as data_stats_open:
+      data_stats = json.load(data_stats_open)
+    self.seq_length = data_stats['seq_length']
+    
+    self.seq_depth = data_stats.get('seq_depth',4)
+    self.target_length = data_stats['target_length']
+    self.num_targets = data_stats['num_targets']
+    
+    if self.tfr_pattern is None:
+      self.tfr_path = '%s/tfrecords/%s-*.tfr' % (self.data_dir, self.split_label)
+      self.num_seqs = data_stats['%s_seqs' % self.split_label]
+    else:
+      self.tfr_path = '%s/tfrecords/%s' % (self.data_dir, self.tfr_pattern)
       self.compute_stats()
-    self.make_dataset()
 
+    self.make_dataset()
 
   def batches_per_epoch(self):
     return self.num_seqs // self.batch_size
@@ -99,12 +130,12 @@ class SeqDataset:
     """Make Dataset w/ transformations."""
 
     # initialize dataset from TFRecords glob
-    tfr_files = natsorted(glob.glob(self.tfr_pattern))
+    tfr_files = natsorted(glob.glob(self.tfr_path))
     if tfr_files:
       dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
     else:
-      print('Cannot order TFRecords %s' % self.tfr_pattern, file=sys.stderr)
-      dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+      print('Cannot order TFRecords %s' % self.tfr_path, file=sys.stderr)
+      dataset = tf.data.Dataset.list_files(self.tfr_path)
 
     # train
     if self.mode == tf.estimator.ModeKeys.TRAIN:
@@ -144,12 +175,15 @@ class SeqDataset:
         seq_depth and num_targets."""
     with tf.name_scope('stats'):
       # read TF Records
-      dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+      dataset = tf.data.Dataset.list_files(self.tfr_path)
       dataset = dataset.flat_map(file_to_records)
       dataset = dataset.map(self.generate_parser(raw=True))
       dataset = dataset.batch(1)
 
     self.num_seqs = 0
+    if self.num_targets is not None:
+      targets_nonzero = np.zeros(self.num_targets, dtype='bool')
+
     # for (seq_raw, genome), targets_raw in dataset:
     for seq_raw, targets_raw in dataset:
       # infer seq_depth
@@ -174,22 +208,22 @@ class SeqDataset:
     # warn user about nonzero targets
     if self.num_seqs > 0:
       self.num_targets_nonzero = (targets_nonzero > 0).sum()
-      print('%s has %d sequences with %d/%d targets' % (self.tfr_pattern, self.num_seqs, self.num_targets_nonzero, self.num_targets), flush=True)
+      print('%s has %d sequences with %d/%d targets' % (self.tfr_path, self.num_seqs, self.num_targets_nonzero, self.num_targets), flush=True)
     else:
       self.num_targets_nonzero = None
-      print('%s has %d sequences with 0 targets' % (self.tfr_pattern, self.num_seqs), flush=True)
+      print('%s has %d sequences with 0 targets' % (self.tfr_path, self.num_seqs), flush=True)
 
 
   def numpy(self, return_inputs=True, return_outputs=True, step=1):
     """ Convert TFR inputs and/or outputs to numpy arrays."""
     with tf.name_scope('numpy'):
       # initialize dataset from TFRecords glob
-      tfr_files = natsorted(glob.glob(self.tfr_pattern))
+      tfr_files = natsorted(glob.glob(self.tfr_path))
       if tfr_files:
         dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
       else:
-        print('Cannot order TFRecords %s' % self.tfr_pattern, file=sys.stderr)
-        dataset = tf.data.Dataset.list_files(self.tfr_pattern)
+        print('Cannot order TFRecords %s' % self.tfr_path, file=sys.stderr)
+        dataset = tf.data.Dataset.list_files(self.tfr_path)
 
       # read TF Records
       dataset = dataset.flat_map(file_to_records)

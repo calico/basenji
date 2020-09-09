@@ -55,11 +55,11 @@ def main():
       default=False, action='store_true',
       help='Restore only model trunk [Default: %default]')
   parser.add_option('--tfr_train', dest='tfr_train_pattern',
-      default='train-*.tfr',
-      help='Training TFRecord pattern string appended to data_dir [Default: %default]')
+      default=None,
+      help='Training TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
   parser.add_option('--tfr_eval', dest='tfr_eval_pattern',
-      default='valid-*.tfr',
-      help='Evaluation TFRecord pattern string appended to data_dir [Default: %default]')
+      default=None,
+      help='Evaluation TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 2:
@@ -79,26 +79,19 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # read data parameters
-  data_stats_file = '%s/statistics.json' % data_dir
-  with open(data_stats_file) as data_stats_open:
-    data_stats = json.load(data_stats_open)
-
   # load train data
-  tfr_train_full = '%s/tfrecords/%s' % (data_dir, options.tfr_train_pattern)
-  train_data = dataset.SeqDataset(tfr_train_full,
-    seq_length=data_stats['seq_length'],
-    target_length=data_stats['target_length'],
+  train_data = dataset.SeqDataset(data_dir,
+    split_label='train',
     batch_size=params_train['batch_size'],
-    mode=tf.estimator.ModeKeys.TRAIN)
+    mode=tf.estimator.ModeKeys.TRAIN,
+    tfr_pattern=options.tfr_train_pattern)
 
   # load eval data
-  tfr_eval_full = '%s/tfrecords/%s' % (data_dir, options.tfr_eval_pattern)
-  eval_data = dataset.SeqDataset(tfr_eval_full,
-    seq_length=data_stats['seq_length'],
-    target_length=data_stats['target_length'],
+  eval_data = dataset.SeqDataset(data_dir,
+    split_label='valid',
     batch_size=params_train['batch_size'],
-    mode=tf.estimator.ModeKeys.EVAL)
+    mode=tf.estimator.ModeKeys.EVAL,
+    tfr_pattern=options.tfr_eval_pattern)
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################

@@ -99,9 +99,6 @@ def main():
     for ci in range(options.crosses):
       for fi in range(num_folds):
         it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
-
-        # TEMP
-        # shutil.copy('%s/targets.txt'%data_dir, '%s/data/targets.txt'%it_dir)
         
         # check if done
         acc_file = '%s/test_train/acc.txt' % it_dir
@@ -117,7 +114,7 @@ def main():
             basenji_cmd += ' --rc'
           if options.shifts:
             basenji_cmd += ' --shifts %s' % options.shifts
-          basenji_cmd += ' --tfr "train-*.tfr"'
+          basenji_cmd += ' --split train'
           basenji_cmd += ' %s' % params_file
           basenji_cmd += ' %s/train/model_check.h5' % it_dir
           basenji_cmd += ' %s/data' % it_dir

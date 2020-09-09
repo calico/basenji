@@ -67,17 +67,16 @@ class Trainer:
     self.dataset_indexes = np.array(self.dataset_indexes)
 
   def compile(self, seqnn_model):
-    if self.loss == 'bce':
-      metrics = [tf.keras.metrics.AUC(curve='ROC', multi_label=False),
-                 tf.keras.metrics.AUC(curve='PR', multi_label=False)]
-    else:
-      metrics = [metrics.PearsonR(num_targets), metrics.R2(num_targets)]
-
     for model in seqnn_model.models:
-      num_targets = model.output_shape[-1]
+      if self.loss == 'bce':
+        model_metrics = [metrics.SeqAUC(curve='ROC'), metrics.SeqAUC(curve='PR')]
+      else:
+        num_targets = model.output_shape[-1]
+        model_metrics = [metrics.PearsonR(num_targets), metrics.R2(num_targets)]
+      
       model.compile(loss=self.loss_fn,
                     optimizer=self.optimizer,
-                    metrics=metrics)
+                    metrics=model_metrics)
     self.compiled = True
 
   def fit_keras(self, seqnn_model):
@@ -87,16 +86,21 @@ class Trainer:
     if self.loss == 'bce':
       early_stop = EarlyStoppingMin(monitor='val_loss', mode='min', verbose=1,
                        patience=self.patience, min_epoch=self.train_epochs_min)
+      save_best = tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir,
+                                                     save_best_only=True, mode='min',
+                                                     monitor='val_loss', verbose=1)
     else:
       early_stop = EarlyStoppingMin(monitor='val_pearsonr', mode='max', verbose=1,
                        patience=self.patience, min_epoch=self.train_epochs_min)
+      save_best = tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir,
+                                                     save_best_only=True, mode='max',
+                                                     monitor='val_pearsonr', verbose=1)
 
     callbacks = [
       early_stop,
       tf.keras.callbacks.TensorBoard(self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
-      tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir, save_best_only=True,
-                                         monitor='val_pearsonr', mode='max', verbose=1)]
+      save_best]
 
     seqnn_model.model.fit(
       self.train_data[0].dataset,

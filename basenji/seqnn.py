@@ -245,10 +245,17 @@ class SeqNN():
 
     # compile with dense metrics
     num_targets = self.model.output_shape[-1]
-    model.compile(optimizer=tf.keras.optimizers.SGD(),
-                  loss=loss,
-                  metrics=[metrics.PearsonR(num_targets, summarize=False),
-                           metrics.R2(num_targets, summarize=False)])
+
+    if loss == 'bce':
+      model.compile(optimizer=tf.keras.optimizers.SGD(),
+                    loss=loss,
+                    metrics=[metrics.SeqAUC(curve='ROC', summarize=False),
+                             metrics.SeqAUC(curve='PR', summarize=False)])
+    else:      
+      model.compile(optimizer=tf.keras.optimizers.SGD(),
+                    loss=loss,
+                    metrics=[metrics.PearsonR(num_targets, summarize=False),
+                             metrics.R2(num_targets, summarize=False)])
 
     # evaluate
     return model.evaluate(seq_data.dataset)

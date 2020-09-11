@@ -131,13 +131,17 @@ def main():
   eval_loss = params_train.get('loss', 'poisson')
 
   # evaluate
-  test_loss, test_pr, test_r2 = seqnn_model.evaluate(eval_data, loss=eval_loss)
+  test_loss, test_metric1, test_metric2 = seqnn_model.evaluate(eval_data, loss=eval_loss)
   print('')
 
   # print summary statistics
   print('Test Loss:         %7.5f' % test_loss)
-  print('Test R2:           %7.5f' % test_r2.mean())
-  print('Test PearsonR:     %7.5f' % test_pr.mean())
+  if eval_loss == 'bce':
+  	print('Test AUROC:     %7.5f' % test_metric1.mean())
+    print('Test AUPRC:           %7.5f' % test_metric2.mean())
+  else:
+  	print('Test PearsonR:     %7.5f' % test_metric1.mean())
+    print('Test R2:           %7.5f' % test_metric2.mean())
 
   # write target-level statistics
   targets_acc_df = pd.DataFrame({

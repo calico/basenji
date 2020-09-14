@@ -94,7 +94,8 @@ def main():
 
   # initialize sequences coverage file
   seqs_cov_open = h5py.File(seqs_cov_file, 'w')
-  seqs_cov_open.create_dataset('targets', shape=(num_seqs, target_length), dtype='float16')
+  # seqs_cov_open.create_dataset('targets', shape=(num_seqs, target_length), dtype='float16')
+  targets_list = []
 
   # open genome coverage file
   genome_cov_open = CovFace(genome_cov_file)
@@ -108,11 +109,14 @@ def main():
 
     # interpolate NaN
     if options.interp_nan:
-        seq_cov_nt = interp_nan(seq_cov_nt)
+      seq_cov_nt = interp_nan(seq_cov_nt)
 
     # determine baseline coverage
-    baseline_cov = np.percentile(seq_cov_nt, 10)
-    baseline_cov = np.nan_to_num(baseline_cov)
+    if target_length >= 8:
+      baseline_cov = np.percentile(seq_cov_nt, 10)
+      baseline_cov = np.nan_to_num(baseline_cov)
+    else:
+      baseline_cov = 0
 
     # set blacklist to baseline
     if mseq.chr in black_chr_trees:
@@ -124,8 +128,8 @@ def main():
 
     # set NaN's to baseline
     if not options.interp_nan:
-        nan_mask = np.isnan(seq_cov_nt)
-        seq_cov_nt[nan_mask] = baseline_cov
+      nan_mask = np.isnan(seq_cov_nt)
+      seq_cov_nt[nan_mask] = baseline_cov
 
     # crop
     if options.crop_bp > 0:
@@ -159,8 +163,15 @@ def main():
     # scale
     seq_cov = options.scale * seq_cov
 
+    # save
+    targets_list.append(seq_cov.astype('float16'))
+
     # write
-    seqs_cov_open['targets'][si,:] = seq_cov.astype('float16')
+    # seqs_cov_open['targets'][si,:] = seq_cov.astype('float16')
+
+  # write all
+  seqs_cov_open.create_dataset('targets', dtype='float16',
+    data=np.array(targets_list, dtype='float16'))
 
   # close genome coverage file
   genome_cov_open.close()

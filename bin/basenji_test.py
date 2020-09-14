@@ -132,25 +132,36 @@ def main():
 
   # evaluate
   test_loss, test_metric1, test_metric2 = seqnn_model.evaluate(eval_data, loss=eval_loss)
-  print('')
 
   # print summary statistics
-  print('Test Loss:         %7.5f' % test_loss)
-  if eval_loss == 'bce':
-  	print('Test AUROC:     %7.5f' % test_metric1.mean())
-    print('Test AUPRC:           %7.5f' % test_metric2.mean())
-  else:
-  	print('Test PearsonR:     %7.5f' % test_metric1.mean())
-    print('Test R2:           %7.5f' % test_metric2.mean())
+  print('\nTest Loss:         %7.5f' % test_loss)
 
-  # write target-level statistics
-  targets_acc_df = pd.DataFrame({
+  if eval_loss == 'bce':
+    print('Test AUROC:        %7.5f' % test_metric1.mean())
+    print('Test AUPRC:        %7.5f' % test_metric2.mean())
+
+    # write target-level statistics
+    targets_acc_df = pd.DataFrame({
       'index': targets_df.index,
-      'r2': test_r2,
-      'pearsonr': test_pr,
+      'auroc': test_metric1,
+      'auprc': test_metric2,
       'identifier': targets_df.identifier,
       'description': targets_df.description
       })
+
+  else:
+    print('Test PearsonR:     %7.5f' % test_metric1.mean())
+    print('Test R2:           %7.5f' % test_metric2.mean())
+
+    # write target-level statistics
+    targets_acc_df = pd.DataFrame({
+      'index': targets_df.index,
+      'pearsonr': test_metric1,
+      'r2': test_metric2,
+      'identifier': targets_df.identifier,
+      'description': targets_df.description
+      })
+
   targets_acc_df.to_csv('%s/acc.txt'%options.out_dir, sep='\t',
                         index=False, float_format='%.5f')
 

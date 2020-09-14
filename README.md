@@ -26,30 +26,32 @@ This codebase offers numerous improvements and generalizations to its predecesso
 2. Basenji intends to predict quantitative signal using regression loss functions, rather than binary signal using classification loss functions.
 3. Basenji is built on [TensorFlow](https://www.tensorflow.org/), which offers myriad benefits, including distributed computing and a large and adaptive developer community.
 
+However, this codebase is general enough to implement the Basset model, too. I have instructions for how to do that [here](manuscripts/basset).
+
 
 ---------------------------------------------------------------------------------------------------
 ### Installation
 
-Basenji/Akita were developed with Python3 and a variety of scientific computing dependencies, which you can see and install via requirements.txt for pip and environment.yml for [Anaconda](https://www.continuum.io/downloads). For each case, we kept TensorFlow separate to allow you to choose the install method that works best for you.
+Basenji/Akita were developed with Python3 and a variety of scientific computing dependencies, which you can see and install via requirements.txt for pip and environment.yml for [Anaconda](https://www.continuum.io/downloads). For each case, we kept TensorFlow separate to allow you to choose the install method that works best for you. The codebase is compatible with the latest TensorFlow 2, but should also work with 1.15.
 
 Run the following to install dependencies and Basenji with Anaconda.
 ```
     conda env create -f environment.yml
-    conda install tensorflow==1.15 (or tensorflow-gpu)
+    conda install tensorflow (or tensorflow-gpu)
     python setup.py develop --no-deps
 ```
 
 Alternatively, if you want to guarantee working versions of each dependency, you can install via a fully pre-specified environment.
 ```
     conda env create -f prespecified.yml
-    conda install tensorflow==1.15 (or tensorflow-gpu)
+    conda install tensorflow (or tensorflow-gpu)
     python setup.py develop --no-deps
 ```
 
 Or the following to install dependencies and Basenji with pip and setuptools.
 ```
     python setup.py develop
-    pip install tensorflow==1.15 (or tensorflow-gpu)
+    pip install tensorflow (or tensorflow-gpu)
 ```
 
 Then we recommend setting the following environmental variables.

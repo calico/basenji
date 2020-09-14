@@ -147,9 +147,10 @@ def main():
     print(' converted to %f' % options.stride_train)
   options.stride_train = int(np.round(options.stride_train))
   if options.stride_test <= 1:
-    print('stride_test %.f'%options.stride_test, end='')
-    options.stride_test = options.stride_test*options.seq_length
-    print(' converted to %f' % options.stride_test)
+    if options.folds is None:
+      print('stride_test %.f'%options.stride_test, end='')
+      options.stride_test = options.stride_test*options.seq_length
+      print(' converted to %f' % options.stride_test)
   options.stride_test = int(np.round(options.stride_test))
 
   # check snap
@@ -672,6 +673,7 @@ def curate_peaks(targets_df, out_dir, pool_width, crop_bp):
     bins = int(np.round(length/pool_width))
     assert(bins > 0)
     start = mid - (bins*pool_width)//2
+    start = max(0, start)
     end = start + (bins*pool_width)
 
     # add cropped bp

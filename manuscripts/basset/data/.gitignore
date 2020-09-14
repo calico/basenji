@@ -1,0 +1,4 @@
+encode/
+hg19.ml.fa*
+roadmap/
+wgEncodeHg19ConsensusSignalArtifactRegions.bed

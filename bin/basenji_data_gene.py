@@ -34,7 +34,7 @@ def main():
       default=None, type='int',
       help='Generate cross fold split [Default: %default]')
   parser.add_option('-g', dest='gene_index',
-      default='gene_name',
+      default='gene_id',
       help='Key to match TSS GFF to expression table [Default: %default]')
   parser.add_option('-l', dest='seq_length',
       default=65536, type='int',

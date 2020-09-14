@@ -23,13 +23,6 @@ from natsort import natsorted
 import numpy as np
 import tensorflow as tf
 
-# Multiplier for how many items to have in the shuffle buffer, invariant
-# of how many files we're parallel-interleaving for our input datasets.
-SHUFFLE_BUFFER_DEPTH_PER_FILE = 8
-# Number of files to concurrently read from, and interleave,
-# for our input datasets.
-NUM_FILES_TO_PARALLEL_INTERLEAVE = 4
-
 # TFRecord constants
 TFR_INPUT = 'sequence'
 TFR_OUTPUT = 'target'
@@ -61,13 +54,14 @@ def file_to_records(filename):
 #     self.make_dataset()
 
 class SeqDataset:
-  def __init__(self, data_dir, split_label, batch_size, seq_length_crop=None,
-               mode=tf.estimator.ModeKeys.EVAL, tfr_pattern=None):
+  def __init__(self, data_dir, split_label, batch_size, shuffle_buffer=32,
+               seq_length_crop=None, mode=tf.estimator.ModeKeys.EVAL, tfr_pattern=None):
     """Initialize basic parameters; run compute_stats; run make_dataset."""
 
     self.data_dir = data_dir
     self.split_label = split_label
     self.batch_size = batch_size
+    self.shuffle_buffer = shuffle_buffer
     self.seq_length_crop = seq_length_crop
     self.mode = mode
     self.tfr_pattern = tfr_pattern
@@ -126,7 +120,7 @@ class SeqDataset:
 
     return parse_proto
 
-  def make_dataset(self):
+  def make_dataset(self, cycle_length=4):
     """Make Dataset w/ transformations."""
 
     # initialize dataset from TFRecords glob
@@ -143,14 +137,13 @@ class SeqDataset:
       dataset = dataset.repeat()
 
       # interleave files
-      dataset = dataset.interleave(
-        map_func=file_to_records,
-        cycle_length=NUM_FILES_TO_PARALLEL_INTERLEAVE,
+      dataset = dataset.interleave(map_func=file_to_records,
+        cycle_length=cycle_length,
         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
       # shuffle
-      shuffle_buffer_size = NUM_FILES_TO_PARALLEL_INTERLEAVE * SHUFFLE_BUFFER_DEPTH_PER_FILE
-      dataset = dataset.shuffle(buffer_size=shuffle_buffer_size)
+      dataset = dataset.shuffle(buffer_size=self.shuffle_buffer,
+        reshuffle_each_iteration=True)
 
     # valid/test
     else:

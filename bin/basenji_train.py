@@ -83,6 +83,7 @@ def main():
   train_data = dataset.SeqDataset(data_dir,
     split_label='train',
     batch_size=params_train['batch_size'],
+    shuffle_buffer=params_train.get('shuffle_buffer',32),
     mode=tf.estimator.ModeKeys.TRAIN,
     tfr_pattern=options.tfr_train_pattern)
 

@@ -53,11 +53,14 @@ Perform an in silico saturation mutagenesis of sequences in a BED file.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <bed_file>'
   parser = OptionParser(usage)
+  parser.add_option('-d', dest='mut_down',
+      default=0, type='int',
+      help='Nucleotides downstream of center sequence to mutate [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default=None,
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-l', dest='mut_len',
-      default=200, type='int',
+      default=0, type='int',
       help='Length of center sequence to mutate [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='sat_mut', help='Output directory [Default: %default]')
@@ -79,6 +82,9 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
+  parser.add_option('-u', dest='mut_up',
+      default=0, type='int',
+      help='Nucleotides upstream of center sequence to mutate [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -124,6 +130,13 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.sad_stats = [sad_stat.lower() for sad_stat in options.sad_stats.split(',')]
 
+  if options.mut_up > 0 or options.mut_down > 0:
+    options.mut_len = options.mut_up + options.mut_down
+  else:
+    assert(options.mut_len > 0)
+    options.mut_up = options.mut_len // 2
+    options.mut_down = options.mut_len - options.mut_up
+
   #################################################################
   # read parameters and targets
 
@@ -167,7 +180,7 @@ def main():
 
   # determine mutation region limits
   seq_mid = params_model['seq_length'] // 2
-  mut_start = seq_mid - options.mut_len // 2
+  mut_start = seq_mid - options.mut_up
   mut_end = mut_start + options.mut_len
 
   # make sequence generator

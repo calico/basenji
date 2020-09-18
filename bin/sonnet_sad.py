@@ -148,9 +148,6 @@ def main():
     target_labels = targets_df.description
     target_slice = targets_df.index
 
-  if options.penultimate:
-    parser.error('Not implemented for TF2')
-
   #################################################################
   # setup model
 

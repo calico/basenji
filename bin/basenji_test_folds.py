@@ -17,6 +17,7 @@ from optparse import OptionParser, OptionGroup
 import glob
 import json
 import os
+import pdb
 import shutil
 import sys
 
@@ -211,21 +212,29 @@ def main():
 
 
   if options.ref_dir is not None:
+    # classification or regression
+    with open('%s/f0_c0/test/acc.txt' % exp_dir) as test0_open:
+      header = test0_open.readline().split()
+      if 'pearsonr' in header:
+        metric = 'pearsonr'
+      else:
+        metric = 'auprc'
+
     ################################################################
     # compare checkpoint on training set
     ################################################################
     if options.train:
       ref_glob_str = '%s/*/test_train/acc.txt' % options.ref_dir
-      ref_cors, ref_mean, ref_stdm = read_cors(ref_glob_str)
+      ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
       exp_glob_str = '%s/*/test_train/acc.txt' % exp_dir
-      exp_cors, exp_mean, exp_stdm = read_cors(exp_glob_str)
+      exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
 
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
       print('\nTrain:')
-      print('%12s PearsonR: %.4f (%.4f)' % (options.label1, ref_mean, ref_stdm))
-      print('%12s PearsonR: %.4f (%.4f)' % (options.label2, exp_mean, exp_stdm))
+      print('%12s %s: %.4f (%.4f)' % (options.label1, metric, ref_mean, ref_stdm))
+      print('%12s %s: %.4f (%.4f)' % (options.label2, metric, exp_mean, exp_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
 
@@ -239,16 +248,16 @@ def main():
     # compare best on test set
     ################################################################
     ref_glob_str = '%s/*/test/acc.txt' % options.ref_dir
-    ref_cors, ref_mean, ref_stdm = read_cors(ref_glob_str)
+    ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
     exp_glob_str = '%s/*/test/acc.txt' % exp_dir
-    exp_cors, exp_mean, exp_stdm = read_cors(exp_glob_str)
+    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
 
     mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
     print('\nTest:')
-    print('%12s PearsonR: %.4f (%.4f)' % (options.label1, ref_mean, ref_stdm))
-    print('%12s PearsonR: %.4f (%.4f)' % (options.label2, exp_mean, exp_stdm))
+    print('%12s %s: %.4f (%.4f)' % (options.label1, metric, ref_mean, ref_stdm))
+    print('%12s %s: %.4f (%.4f)' % (options.label2, metric, exp_mean, exp_stdm))
     print('Mann-Whitney U p-value: %.3g' % mwp)
     print('T-test p-value: %.3g' % tp)
 
@@ -262,16 +271,16 @@ def main():
     ################################################################
     if options.specificity:
       ref_glob_str = '%s/*/test_spec/acc.txt' % options.ref_dir
-      ref_cors, ref_mean, ref_stdm = read_cors(ref_glob_str)
+      ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
       exp_glob_str = '%s/*/test_spec/acc.txt' % exp_dir
-      exp_cors, exp_mean, exp_stdm = read_cors(exp_glob_str)
+      exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
 
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
       print('\nSpecificity:')
-      print('%12s PearsonR: %.4f (%.4f)' % (options.label1, ref_mean, ref_stdm))
-      print('%12s PearsonR: %.4f (%.4f)' % (options.label2, exp_mean, exp_stdm))
+      print('%12s %s: %.4f (%.4f)' % (options.label1, metric, ref_mean, ref_stdm))
+      print('%12s %s: %.4f (%.4f)' % (options.label2, metric, exp_mean, exp_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
 
@@ -305,15 +314,17 @@ def jointplot(ref_cors, exp_cors, out_pdf, label1, label2):
   plt.savefig(out_pdf)
 
 
-def read_cors(acc_glob_str):
+def read_metrics(acc_glob_str, metric='pearsonr'):
   rep_cors = []
   acc_files = natsorted(glob.glob(acc_glob_str))
   for acc_file in acc_files:
     try:
+      # tf2 version
       acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-      rep_cors.append(acc_df.pearsonr.mean())
+      rep_cors.append(acc_df.loc[:,metric].mean())
+
     except:
-      #read tf1 version
+      # tf1 version
       cors = []
       for line in open(acc_file):
         a = line.split()

@@ -88,15 +88,35 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   #######################################################
-  # inputs
+  # targets
 
-  # read targets
+  # read table
   if options.targets_file is None:
     options.targets_file = '%s/targets.txt' % data_dir
   targets_df = pd.read_csv(options.targets_file, index_col=0, sep='\t')
   num_targets = targets_df.shape[0]
 
-  # read model parameters
+  # classify
+  target_classes = []
+  for ti in range(num_targets):
+    description = targets_df.iloc[ti].description
+    if description.find(':') == -1:
+      tc = '*'
+    else:
+      desc_split = description.split(':')
+      if desc_split[0] == 'CHIP':
+        tc = '/'.join(desc_split[:2])
+      else:
+        tc = desc_split[0]
+    target_classes.append(tc)
+  targets_df['class'] = target_classes
+  target_classes = sorted(set(target_classes))
+  print(target_classes)
+
+  #######################################################
+  # model
+
+  # read parameters
   with open(params_file) as params_open:
     params = json.load(params_open)
   params_model = params['model']
@@ -129,23 +149,6 @@ def main():
   # flatten
   eval_preds = np.reshape(eval_preds, (-1,num_targets))
   eval_targets = np.reshape(eval_targets, (-1,num_targets))
-
-  #######################################################
-  # classify targets
-
-  target_classes = []
-  for ti in range(num_targets):
-    try:
-      desc_split = targets_df.iloc[ti].description.split(':')
-      if desc_split[0] == 'CHIP':
-        tc = '/'.join(desc_split[:2])
-      else:
-        tc = desc_split[0]
-    except AttributeError:
-      tc = '*'
-    target_classes.append(tc)
-  targets_df['class'] = target_classes
-  target_classes = sorted(set(target_classes))
 
   #######################################################
   # process classes

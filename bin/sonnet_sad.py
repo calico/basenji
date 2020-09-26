@@ -153,8 +153,14 @@ def main():
 
   seqnn_model = tf.saved_model.load(model_file).model
 
+  # query num model targets 
+  seq_length = seqnn_model.predict_on_batch.input_signature[0].shape[1]
+  null_1hot = np.zeros((1,seq_length,4))
+  null_preds = seqnn_model.predict_on_batch(null_1hot)
+  null_preds = null_preds[options.species].numpy()
+  num_targets = null_preds.shape[-1]
+
   if options.targets_file is None:
-    num_targets = 5313
     target_ids = ['t%d' % ti for ti in range(num_targets)]
     target_labels = ['']*len(target_ids)
 
@@ -179,7 +185,7 @@ def main():
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
 
-  seq_length = seqnn_model.predict_on_batch.input_signature[0].shape[1]
+  # create SNP sequence generator
   def snp_gen():
     for snp in snps:
       # get SNP sequences

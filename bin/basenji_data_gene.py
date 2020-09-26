@@ -6,6 +6,7 @@ import pdb
 import random
 import sys
 
+from intervaltree import IntervalTree
 import networkx as nx
 import numpy as np
 import pysam
@@ -27,6 +28,8 @@ Write TF Records for gene TSS with expression measurements.
 def main():
   usage = 'usage: %prog [options] <fasta> <tss_gff> <expr_file>'
   parser = OptionParser(usage)
+  parser.add_option('-b', dest='split_bed',
+      default=None, help='BED file to restrict data splitting.')
   parser.add_option('-c', dest='cluster_gene_distance',
       default=2000, type='int',
       help='Cluster genes into the same split within this distance [Default: %default]')
@@ -93,7 +96,8 @@ def main():
   ################################################################
   # filter genes from chromosome ends
 
-  gene_valid_mask = sufficient_sequence(fasta_file, genes_df, options.seq_length, options.n_allowed_pct)
+  gene_valid_mask = sufficient_sequence(fasta_file, genes_df, 
+      options.seq_length, options.n_allowed_pct)
   genes_df = genes_df.loc[gene_valid_mask]
   expr_df = expr_df.loc[gene_valid_mask]
 
@@ -108,7 +112,12 @@ def main():
   assert((genes_df.index == expr_df.index).all())
 
   if options.folds is not None:
-    fold_indexes = divide_genes_folds(genes_df, options.folds, options.cluster_gene_distance)
+    if options.split_bed is None:
+      fold_indexes = divide_genes_folds(genes_df, options.folds,
+                                        options.cluster_gene_distance)
+    else:
+      fold_indexes = divide_genes_folds_bed(genes_df, options.split_bed,
+                                            options.cluster_gene_distance)
 
   else:
     try:
@@ -135,10 +144,16 @@ def main():
     fold_labels = ['train', 'valid', 'test']
     num_folds = 3
 
-  # write gene sets
+  # write genes BED
+  genes_bed_file = '%s/genes.bed' % options.out_dir
+  genes_bed_open = open(genes_bed_file, 'w')
   for fi in range(num_folds):
-    fold_csv_file = '%s/genes_%s.csv' % (options.out_dir, fold_labels[fi])
-    genes_df.iloc[fold_indexes[fi]].to_csv(fold_csv_file, sep='\t')
+    for gi in fold_indexes[fi]:
+      gene = genes_df.iloc[gi]
+      name_col = '%s;%s' % (gene.name, fold_labels[fi])
+      cols = [gene.chr, str(gene.start), str(gene.end), name_col, '.', gene.strand]
+      print('\t'.join(cols), file=genes_bed_open)
+  genes_bed_open.close()
 
   # write targets
   targets_df = pd.DataFrame({'identifier':expr_df.columns,
@@ -319,7 +334,7 @@ def cluster_genes(genes_df, cluster_gene_distance):
 
 ################################################################################
 def divide_genes_folds(genes_df, folds, cluster_gene_distance):
-  """Divide genes into train/valid/test lists by percentage."""
+  """Divide genes uniformly into folds."""
 
   # make gene graph
   genes_graph = cluster_genes(genes_df, cluster_gene_distance)
@@ -347,6 +362,93 @@ def divide_genes_folds(genes_df, folds, cluster_gene_distance):
     fi = np.random.choice(folds, p=fold_prob)
     fold_genes[fi] += genes_cc
     fold_size[fi] += len(genes_cc)
+
+  print('Genes divided into')
+  for fi in range(folds):
+    print(' Fold%d: %5d genes, (%.4f)' % \
+      (fi, fold_size[fi], fold_size[fi]/num_genes))
+
+  return fold_genes
+
+################################################################################
+def divide_genes_folds_bed(genes_df, split_bed_file, cluster_gene_distance):
+  """Divide genes into folds according to an existing split."""
+
+  # make gene graph
+  genes_graph = cluster_genes(genes_df, cluster_gene_distance)
+
+  # create interval trees for existing splits
+  split_trees = {}
+  fold_labels = set()
+  for line in open(split_bed_file):
+    a = line.split()
+    chrm = a[0]
+    start = int(a[1])
+    end = int(a[2])
+    fold_label = a[3]
+    fold_labels.add(fold_label)
+    fold_index = int(fold_label.replace('fold',''))
+    if chrm not in split_trees:
+      split_trees[chrm] = IntervalTree()
+    split_trees[chrm][start:end] = fold_index
+
+  # initialize fold gene lists
+  folds = len(fold_labels)
+  fold_size = np.zeros(folds)
+  fold_genes = []
+  for fi in range(folds):
+    fold_genes.append([])
+
+  # determine aimed genes/fold
+  num_genes = genes_df.shape[0]
+  fold_gene_aim = int(np.ceil(num_genes/folds))
+
+  # process connected componenets
+  for genes_cc in nx.connected_components(genes_graph):
+    # maintain order with list
+    genes_cc = list(genes_cc)
+
+    # map genes to folds
+    genes_cc_splits = []
+    for gi in genes_cc:
+      gene = genes_df.iloc[gi]
+      if gene.chr not in split_trees:
+        genes_cc_splits.append(-1)
+      else:
+        split_intervals = list(split_trees[gene.chr][gene.start])
+        if len(split_intervals) == 0:
+          genes_cc_splits.append(-1)
+        elif len(split_intervals) == 1:
+          genes_cc_splits.append(split_intervals[0].data)
+        else:
+          print('Multiple overlapping contigs for gene.', file=sys.stderr)
+          exit(1)
+
+    # if component is unmapped    
+    genes_cc_splits_set = sorted(set(genes_cc_splits))
+    if len(genes_cc_splits_set) == 1 and genes_cc_splits_set[0] == -1:
+      # compute gap between current and aim
+      fold_gene_gap = fold_gene_aim - fold_size
+      fold_gene_gap = np.clip(fold_gene_gap, 0, np.inf)
+      
+      # sample split
+      # fi = np.random.choice(folds, p=fold_prob)
+      fi = np.argmax(fold_gene_gap)
+      fold_genes[fi] += genes_cc
+      fold_size[fi] += len(genes_cc)
+      print('Unmapped to fold%d' % fi)
+
+    else:
+      # map according to overlap
+      for ci, gi in enumerate(genes_cc):
+        fi = genes_cc_splits[ci]
+
+        # set unmapped to next split
+        if fi == -1:
+          fi = genes_cc_splits_set[1]
+
+        fold_genes[fi].append(gi)
+        fold_size[fi] += 1
 
   print('Genes divided into')
   for fi in range(folds):
@@ -416,7 +518,7 @@ def gff_df(gff_file, gene_index):
     chrms.append(a[0])
     starts.append(int(a[3]))
     ends.append(int(a[3]))
-    strands.append(a[5])
+    strands.append(a[6])
     for kv in gff.gtf_kv(a[-1]).items():
       gtf_lists.setdefault(kv[0],[]).append(kv[1])
 

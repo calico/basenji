@@ -215,7 +215,8 @@ def main():
   score_threads = []
   score_queue = Queue()
   for i in range(1):
-    sw = ScoreWorker(score_queue, scores_h5, options.sad_stats)
+    sw = ScoreWorker(score_queue, scores_h5, options.sad_stats,
+                     mut_start, mut_end)
     sw.start()
     score_threads.append(sw)
 
@@ -322,12 +323,14 @@ class PlotWorker(Thread):
 
 class ScoreWorker(Thread):
   """Compute summary statistics and write to HDF."""
-  def __init__(self, score_queue, scores_h5, sad_stats):
+  def __init__(self, score_queue, scores_h5, sad_stats, mut_start, mut_end):
     Thread.__init__(self)
     self.queue = score_queue
     self.daemon = True
     self.scores_h5 = scores_h5
     self.sad_stats = sad_stats
+    self.mut_start = mut_start
+    self.mut_end = mut_end
 
   def run(self):
     while True:
@@ -339,15 +342,10 @@ class ScoreWorker(Thread):
 
         # seq_preds_sum is (1 + 3*mut_len) x (num_targets)
         num_preds, num_targets = seq_preds_sum.shape
-
-        # reverse engineer mutagenesis position parameters
-        mut_len = (num_preds - 1) // 3
-        mut_mid = len(seq_dna) // 2
-        mut_start = mut_mid - mut_len//2
-        mut_end = mut_start + mut_len
+        mut_len = self.mut_end - self.mut_start
 
         # one hot code mutagenized DNA
-        seq_dna_mut = seq_dna[mut_start:mut_end]
+        seq_dna_mut = seq_dna[self.mut_start:self.mut_end]
         seq_1hot_mut = dna_io.dna_1hot(seq_dna_mut)
 
         # write to HDF5

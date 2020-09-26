@@ -206,13 +206,21 @@ def main():
       contigs = break_large_contigs(contigs, options.break_t)
 
     # print contigs to BED file
-    ctg_bed_file = '%s/contigs.bed' % options.out_dir
-    write_seqs_bed(ctg_bed_file, contigs)
+    # ctg_bed_file = '%s/contigs.bed' % options.out_dir
+    # write_seqs_bed(ctg_bed_file, contigs)
 
 
   ################################################################
   # divide between train/valid/test
   ################################################################
+  # label folds
+  if options.folds is not None:
+    fold_labels = ['fold%d' % fi for fi in range(options.folds)]
+    num_folds = options.folds
+  else:
+    fold_labels = ['train', 'valid', 'test']
+    num_folds = 3
+
   if not options.restart:
     if options.folds is not None:
       # divide by fold pct
@@ -239,13 +247,14 @@ def main():
     for fi in range(len(fold_contigs)):
       fold_contigs[fi] = rejoin_large_contigs(fold_contigs[fi])
 
-  # label folds
-  if options.folds is not None:
-    fold_labels = ['fold%d' % fi for fi in range(options.folds)]
-    num_folds = options.folds
-  else:
-    fold_labels = ['train', 'valid', 'test']
-    num_folds = 3
+    # write labeled contigs to BED file
+    ctg_bed_file = '%s/contigs.bed' % options.out_dir
+    ctg_bed_out = open(ctg_bed_file, 'w')
+    for fi in range(len(fold_contigs)):
+      for ctg in fold_contigs[fi]:
+        line = '%s\t%d\t%d\t%s' % (ctg.chr, ctg.start, ctg.end, fold_labels[fi])
+        print(line, file=ctg_bed_out)
+    ctg_bed_out.close()
 
   if options.split_test:
     exit()

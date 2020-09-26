@@ -51,7 +51,7 @@ def main():
       default='train_out',
       help='Output directory for test statistics [Default: %default]')
   train_options.add_option('--restore', dest='restore',
-      help='Restore model and continue training [Default: %default]')
+      help='Restore model and continue training, from existing fold train dir [Default: %default]')
   train_options.add_option('--trunk', dest='trunk',
       default=False, action='store_true',
       help='Restore only model trunk [Default: %default]')
@@ -146,7 +146,7 @@ def main():
         cmd += ' echo $HOSTNAME;'
 
         cmd += ' basenji_train.py' 
-        cmd += ' %s' % options_string(options, train_options, '%s/train'%rep_dir)
+        cmd += ' %s' % options_string(options, train_options, rep_dir)
         cmd += ' %s %s/data' % (params_file, rep_dir)
 
         name = '%s-train-f%dc%d' % (options.name, fi, ci)
@@ -354,7 +354,7 @@ def make_rep_data(data_dir, rep_dir, fi, ci):
     ti += 1
 
 
-def options_string(options, train_options, out_dir):
+def options_string(options, train_options, rep_dir):
   options_str = ''
 
   for opt in train_options.option_list:
@@ -376,8 +376,17 @@ def options_string(options, train_options, out_dir):
       opt_str = ''
       opt_value = ''
 
+    # modify
     elif opt.dest == 'out_dir':
-      opt_value = out_dir
+      opt_value = '%s/train' % rep_dir
+
+    # find matching restore
+    elif opt.dest == 'restore':
+    	fold_dir_mid = rep_dir.split('/')[-1]
+    	if options.trunk:
+    	  opt_value = '%s/%s/train/model_trunk.h5' % (opt_value, fold_dir_mid)
+    	else:
+    		opt_value = '%s/%s/train/model_best.h5' % (opt_value, fold_dir_mid)
 
     options_str += ' %s %s' % (opt_str, opt_value)
 

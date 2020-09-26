@@ -28,7 +28,10 @@ def main():
     usage = 'usage: %prog [options] <bench1_dir> <bench2_dir> ...'
     parser = OptionParser(usage)
     parser.add_option('-a', '--alt', dest='alternative',
-      default='two-sided', help='Statistical test alternative [Default: %default]')
+            default='two-sided', help='Statistical test alternative [Default: %default]')
+    parser.add_option('--hue', dest='plot_hue',
+            default=False, action='store_true',
+            help='Scatter plot variant number as hue [Default: %default]')
     parser.add_option('-l', dest='labels')
     parser.add_option('-o', dest='out_dir',
             default='compare_scores')
@@ -185,13 +188,25 @@ def main():
             mask_ij = (df_cmp.label1 == options.labels[i]) & (df_cmp.label2 == options.labels[j])
             df_cmp_ij = df_cmp[mask_ij]
 
+            hue_var = None
+            if options.plot_hue:
+                hue_var = 'variants'
+
             plt.figure(figsize=(6,6))
-            sns.scatterplot('auroc1', 'auroc2', hue='variants', data=df_cmp_ij)
+            sns.scatterplot('auroc1', 'auroc2', data=df_cmp_ij,
+                            hue=hue_var, linewidth=0, alpha=0.8)
             ax = plt.gca()
 
             vmin = min(df_cmp_ij.auroc1.min(), df_cmp_ij.auroc2.min())
             vmax = max(df_cmp_ij.auroc1.max(), df_cmp_ij.auroc2.max())
             ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='black')
+
+            eps = 0.05
+            ax.text(1-eps, eps, 'Mean %.3f'%df_cmp_ij.auroc1.mean(),
+                horizontalalignment='right', transform=ax.transAxes)
+            ax.text(eps, 1-eps, 'Mean %.3f'%df_cmp_ij.auroc2.mean(),
+                verticalalignment='top', transform=ax.transAxes)
+
             ax.set_xlabel('%s AUROC' % options.labels[i])
             ax.set_ylabel('%s AUROC' % options.labels[j])
             sns.despine()

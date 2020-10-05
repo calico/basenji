@@ -50,10 +50,10 @@ def main():
   parser.add_option('-e', dest='conda_env',
       default='tf2-gpu',
       help='Anaconda environment [Default: %default]')
-  parser.add_option('--l1', dest='label1',
-      default='Reference', help='Reference label [Default: %default]')
-  parser.add_option('--l2', dest='label2',
+  parser.add_option('--label_exp', dest='label_exp',
       default='Experiment', help='Experiment label [Default: %default]')
+  parser.add_option('--label_ref', dest='',
+      default='Reference', help='Reference label [Default: %default]')
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')
   parser.add_option('-o', dest='out_stem',
@@ -211,84 +211,90 @@ def main():
   slurm.multi_run(jobs, verbose=True)
 
 
-  if options.ref_dir is not None:
-    # classification or regression
-    with open('%s/f0_c0/test/acc.txt' % exp_dir) as test0_open:
-      header = test0_open.readline().split()
-      if 'pearsonr' in header:
-        metric = 'pearsonr'
-      else:
-        metric = 'auprc'
 
-    ################################################################
-    # compare checkpoint on training set
-    ################################################################
-    if options.train:
+  # classification or regression
+  with open('%s/f0_c0/test/acc.txt' % exp_dir) as test0_open:
+    header = test0_open.readline().split()
+    if 'pearsonr' in header:
+      metric = 'pearsonr'
+    else:
+      metric = 'auprc'
+
+  ################################################################
+  # compare checkpoint on training set
+  ################################################################
+  if options.train:
+    exp_glob_str = '%s/*/test_train/acc.txt' % exp_dir
+    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
+
+    if options.ref_dir is not None:
       ref_glob_str = '%s/*/test_train/acc.txt' % options.ref_dir
       ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
-      exp_glob_str = '%s/*/test_train/acc.txt' % exp_dir
-      exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
-
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
-      print('\nTrain:')
-      print('%12s %s: %.4f (%.4f)' % (options.label1, metric, ref_mean, ref_stdm))
-      print('%12s %s: %.4f (%.4f)' % (options.label2, metric, exp_mean, exp_stdm))
+    print('\nTrain:')
+    print('%12s %s: %.4f (%.4f)' % (options.label_exp, metric, exp_mean, exp_stdm))
+    if options.ref_dir is not None:
+      print('%12s %s: %.4f (%.4f)' % (options.label_ref, metric, ref_mean, ref_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
 
       if options.out_stem is not None:
         jointplot(ref_cors, exp_cors,
           '%s_train.pdf' % options.out_stem,
-          options.label1, options.label2)
+          options.label_ref, options.label_exp)
 
 
-    ################################################################
-    # compare best on test set
-    ################################################################
+  ################################################################
+  # compare best on test set
+  ################################################################
+  exp_glob_str = '%s/*/test/acc.txt' % exp_dir
+  exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
+
+  if options.ref_dir is not None:
     ref_glob_str = '%s/*/test/acc.txt' % options.ref_dir
     ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
-    exp_glob_str = '%s/*/test/acc.txt' % exp_dir
-    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
-
     mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
-    print('\nTest:')
-    print('%12s %s: %.4f (%.4f)' % (options.label1, metric, ref_mean, ref_stdm))
-    print('%12s %s: %.4f (%.4f)' % (options.label2, metric, exp_mean, exp_stdm))
+  print('\nTest:')
+  print('%12s %s: %.4f (%.4f)' % (options.label_exp, metric, exp_mean, exp_stdm))
+  if options.ref_dir is not None:
+    print('%12s %s: %.4f (%.4f)' % (options.label_ref, metric, ref_mean, ref_stdm))
     print('Mann-Whitney U p-value: %.3g' % mwp)
     print('T-test p-value: %.3g' % tp)
 
     if options.out_stem is not None:
       jointplot(ref_cors, exp_cors,
           '%s_test.pdf' % options.out_stem,
-          options.label1, options.label2)
+          options.label_ref, options.label_exp)
 
-    ################################################################
-    # compare best on test set specificity
-    ################################################################
-    if options.specificity:
+  ################################################################
+  # compare best on test set specificity
+  ################################################################
+  if options.specificity:
+    exp_glob_str = '%s/*/test_spec/acc.txt' % exp_dir
+    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
+
+    if options.ref_dir is not None:
       ref_glob_str = '%s/*/test_spec/acc.txt' % options.ref_dir
       ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
-      exp_glob_str = '%s/*/test_spec/acc.txt' % exp_dir
-      exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
-
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
-      print('\nSpecificity:')
-      print('%12s %s: %.4f (%.4f)' % (options.label1, metric, ref_mean, ref_stdm))
-      print('%12s %s: %.4f (%.4f)' % (options.label2, metric, exp_mean, exp_stdm))
+    print('\nSpecificity:')
+    print('%12s %s: %.4f (%.4f)' % (options.label_exp, metric, exp_mean, exp_stdm))    
+    if options.ref_dir is not None:
+      print('%12s %s: %.4f (%.4f)' % (options.label_ref, metric, ref_mean, ref_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
 
       if options.out_stem is not None:
         jointplot(ref_cors, exp_cors,
           '%s_spec.pdf' % options.out_stem,
-          options.label1, options.label2)
-    
+          options.label_ref, options.label_exp)
+  
 
 def jointplot(ref_cors, exp_cors, out_pdf, label1, label2):
   vmin = min(np.min(ref_cors), np.min(exp_cors))

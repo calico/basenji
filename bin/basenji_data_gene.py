@@ -156,8 +156,9 @@ def main():
   genes_bed_open.close()
 
   # write targets
+  descriptions = ['RNA:%s' % label for label in expr_df.columns]
   targets_df = pd.DataFrame({'identifier':expr_df.columns,
-                             'description': expr_df.columns})
+                             'description':descriptions})
   targets_df.index.name = 'index'
   targets_df.to_csv('%s/targets.txt' % options.out_dir, sep='\t')
 

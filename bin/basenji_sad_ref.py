@@ -64,9 +64,6 @@ def main():
   parser.add_option('--flip', dest='flip_ref',
       default=False, action='store_true',
       help='Flip reference/alternate alleles when simple [Default: %default]')
-  parser.add_option('--local', dest='local',
-      default=1024, type='int',
-      help='Local SAD score [Default: %default]')
   parser.add_option('-n', dest='norm_file',
       default=None,
       help='Normalize SAD scores')

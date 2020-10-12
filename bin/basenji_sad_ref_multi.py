@@ -57,9 +57,6 @@ def main():
   parser.add_option('--flip', dest='flip_ref',
       default=False, action='store_true',
       help='Flip reference/alternate alleles when simple [Default: %default]')
-  parser.add_option('--local',dest='local',
-      default=1024, type='int',
-      help='Local SAD score [Default: %default]')
   parser.add_option('-n', dest='norm_file',
       default=None,
       help='Normalize SAD scores')
@@ -92,6 +89,9 @@ def main():
       help='Compute SED in the penultimate layer [Default: %default]')
 
   # multi
+  parser.add_option('-e', dest='conda_env',
+      default='tf2.2-gpu',
+      help='Anaconda environment [Default: %default]')
   parser.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
   parser.add_option('--max_proc', dest='max_proc',
@@ -137,7 +137,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.15-gpu;'
+      cmd += ' conda activate %s;' % options.conda_env
 
       cmd += ' basenji_sad_ref.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)

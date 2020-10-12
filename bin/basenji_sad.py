@@ -54,9 +54,6 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('--local', dest='local',
-      default=1024, type='int',
-      help='Local SAD score [Default: %default]')
   parser.add_option('-n', dest='norm_file',
       default=None,
       help='Normalize SAD scores')
@@ -177,6 +174,7 @@ def main():
   seqnn_model.build_slice(target_slice)
   seqnn_model.build_ensemble(options.rc, options.shifts)
 
+  targets_length = seqnn_model.targets_length[0]
   num_targets = seqnn_model.num_targets()
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(num_targets)]
@@ -192,7 +190,8 @@ def main():
     worker_bounds = np.linspace(0, num_snps, options.processes+1, dtype='int')
 
     # read SNPs form VCF
-    snps = bvcf.vcf_snps(vcf_file, start_i=worker_bounds[worker_index], end_i=worker_bounds[worker_index+1])
+    snps = bvcf.vcf_snps(vcf_file, start_i=worker_bounds[worker_index],
+      end_i=worker_bounds[worker_index+1])
 
   else:
     # read SNPs form VCF
@@ -215,7 +214,7 @@ def main():
   # setup output
 
   sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
-                                 snps, target_ids, target_labels)
+                                 snps, target_ids, target_labels, targets_length)
 
   if options.threads:
     snp_threads = []
@@ -265,7 +264,7 @@ def main():
   sad_out.close()
 
 
-def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
+def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels, targets_length):
   """Initialize an output HDF5 file for SAD stats."""
 
   num_targets = len(target_ids)
@@ -300,8 +299,8 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
       snp_alts.append(snp.alt_alleles[0])
   snp_refs = np.array(snp_refs, 'S')
   snp_alts = np.array(snp_alts, 'S')
-  sad_out.create_dataset('ref', data=snp_refs)
-  sad_out.create_dataset('alt', data=snp_alts)
+  sad_out.create_dataset('ref_allele', data=snp_refs)
+  sad_out.create_dataset('alt_allele', data=snp_alts)
 
   # write targets
   sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))
@@ -309,10 +308,14 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels):
 
   # initialize SAD stats
   for sad_stat in sad_stats:
-    sad_out.create_dataset(sad_stat,
+    if sad_stat in ['REF','ALT']:
+      sad_out.create_dataset(sad_stat,
+        shape=(num_snps, targets_length, num_targets),
+        dtype='float16')
+    else:      
+      sad_out.create_dataset(sad_stat,
         shape=(num_snps, num_targets),
-        dtype='float16',
-        compression=None)
+        dtype='float16')
 
   return sad_out
 
@@ -332,14 +335,15 @@ def write_pct(sad_out, sad_stats):
   pct_len = len(percentiles)
 
   for sad_stat in sad_stats:
-    sad_stat_pct = '%s_pct' % sad_stat
+    if sad_stat not in ['REF','ALT']:
+      sad_stat_pct = '%s_pct' % sad_stat
 
-    # compute
-    sad_pct = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
-    sad_pct = sad_pct.astype('float16')
+      # compute
+      sad_pct = np.percentile(sad_out[sad_stat], 100*percentiles, axis=0).T
+      sad_pct = sad_pct.astype('float16')
 
-    # save
-    sad_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')
+      # save
+      sad_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')
 
     
 def write_snp(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
@@ -385,6 +389,12 @@ def write_snp(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
                 - np.log2(ref_preds + log_pseudo)
     geo_sad = sar_vec.sum(axis=0)
     sad_out['SAR'][si,:] = geo_sad.astype('float16')
+
+  # predictions
+  if 'REF' in sad_stats:
+    sad_out['REF'][si,:] = ref_preds.astype('float16')
+  if 'ALT' in sad_stats:
+    sad_out['ALT'][si,:] = alt_preds.astype('float16')
 
 
 class SNPWorker(Thread):

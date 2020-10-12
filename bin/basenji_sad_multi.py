@@ -45,9 +45,6 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('--local',dest='local',
-      default=1024, type='int',
-      help='Local SAD score [Default: %default]')
   parser.add_option('-n', dest='norm_file',
       default=None,
       help='Normalize SAD scores')
@@ -83,6 +80,9 @@ def main():
   parser.add_option('--cpu', dest='cpu',
       default=False, action='store_true',
       help='Run without a GPU [Default: %default]')
+  parser.add_option('-e', dest='conda_env',
+      default='tf2.2-gpu',
+      help='Anaconda environment [Default: %default]')
   parser.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
   parser.add_option('--max_proc', dest='max_proc',
@@ -131,7 +131,7 @@ def main():
         cmd = ''
       else:
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-        cmd += ' conda activate tf2-gpu;'
+        cmd += ' conda activate %s;' % options.conda_env
 
       cmd += ' basenji_sad.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)

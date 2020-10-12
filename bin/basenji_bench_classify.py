@@ -17,7 +17,7 @@ import seaborn as sns
 from basenji.dna_io import dna_1hot
 
 '''
-basenji_sad_classify.py
+basenji_bench_classify.py
 '''
 
 ################################################################################

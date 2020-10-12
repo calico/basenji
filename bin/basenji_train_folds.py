@@ -81,6 +81,9 @@ def main():
   rep_options.add_option('-e', dest='conda_env',
       default='tf2-gpu',
       help='Anaconda environment [Default: %default]')
+  rep_options.add_option('-f', dest='fold_subset',
+      default=None, type='int',
+      help='Run a subset of folds [Default:%default]')
   rep_options.add_option('--name', dest='name',
       default='fold', help='SLURM name prefix [Default: %default]')
   rep_options.add_option('-p', dest='processes',
@@ -122,6 +125,10 @@ def main():
 
   # count folds
   num_folds = len([dkey for dkey in data_stats if dkey.startswith('fold')])
+
+  # subset folds
+  if options.fold_subset is not None:
+    num_folds = min(options.fold_subset, num_folds)
 
   #######################################################
   # train

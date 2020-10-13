@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 
 import slurm
-from basenji_train_folds import options_string
 
 """
 basenji_test_folds.py
@@ -145,10 +144,41 @@ def main():
                         gpu=1,
                         queue=options.queue,
                         mem=30000,
-                        time='50:00:00')
+                        time='7-0:00:00')
         jobs.append(basenji_job)
         
   slurm.multi_run(jobs, verbose=True)
+
+
+def options_string(options, train_options, rep_dir):
+  options_str = ''
+
+  for opt in train_options.option_list:
+    opt_str = opt.get_opt_string()
+    opt_value = options.__dict__[opt.dest]
+
+    # wrap askeriks in ""
+    if type(opt_value) == str and opt_value.find('*') != -1:
+      opt_value = '"%s"' % opt_value
+
+    # no value for bools
+    elif type(opt_value) == bool:
+      if not opt_value:
+        opt_str = ''
+      opt_value = ''
+
+    # skip Nones
+    elif opt_value is None:
+      opt_str = ''
+      opt_value = ''
+
+    # modify
+    elif opt.dest == 'out_dir':
+      opt_value = rep_dir
+
+    options_str += ' %s %s' % (opt_str, opt_value)
+
+  return options_str
 
 
 ################################################################################

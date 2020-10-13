@@ -192,7 +192,7 @@ def main():
   scores_h5_file = '%s/scores.h5' % options.out_dir
   if os.path.isfile(scores_h5_file):
     os.remove(scores_h5_file)
-  scores_h5 = h5py.File('%s/scores.h5' % options.out_dir, 'w')
+  scores_h5 = h5py.File(scores_h5_file, 'w')
   scores_h5.create_dataset('seqs', dtype='bool',
       shape=(num_seqs, options.mut_len, 4))
   for sad_stat in options.sad_stats:
@@ -200,6 +200,7 @@ def main():
         shape=(num_seqs, options.mut_len, 4, num_targets))
 
   # store mutagenesis sequence coordinates
+  """
   seqs_chr, seqs_start, _, seqs_strand = zip(*seqs_coords)
   seqs_chr = np.array(seqs_chr, dtype='S')
   seqs_start = np.array(seqs_start) + mut_start
@@ -209,6 +210,29 @@ def main():
   scores_h5.create_dataset('start', data=seqs_start)
   scores_h5.create_dataset('end', data=seqs_end)
   scores_h5.create_dataset('strand', data=seqs_strand)
+  """
+
+  # store mutagenesis sequence coordinates
+  scores_chr = []
+  scores_start = []
+  scores_end = []
+  scores_strand = []
+  for seq_chr, seq_start, seq_end, seq_strand in seqs_coords:
+    scores_chr.append(seq_chr)
+    scores_strand.append(seq_strand)
+    if seq_strand == '+':
+      score_start = seq_start + mut_start
+      score_end = score_start + options.mut_len
+    else:
+      score_end = seq_end - mut_start
+      score_start = score_end - options.mut_len
+    scores_start.append(score_start)
+    scores_end.append(score_end)
+
+  scores_h5.create_dataset('chr', data=np.array(scores_chr, dtype='S'))
+  scores_h5.create_dataset('start', data=np.array(scores_start))
+  scores_h5.create_dataset('end', data=np.array(scores_end))
+  scores_h5.create_dataset('strand', data=np.array(scores_strand, dtype='S'))
 
   preds_per_seq = 1 + 3*options.mut_len
 
@@ -232,7 +256,7 @@ def main():
     center_end = center_start + 1
 
   # initialize predictions stream
-  preds_stream = stream.PredStreamGen(seqnn_model, seqs_gen, params['train']['batch_size'])
+  preds_stream = stream.PredStreamGen(seqnn_model, seqs_gen, params_train['batch_size'])
 
   # predictions index
   pi = 0

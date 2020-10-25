@@ -17,6 +17,7 @@ from optparse import OptionParser, OptionGroup
 import glob
 import h5py
 import json
+import pdb
 import os
 import shutil
 import sys
@@ -25,6 +26,8 @@ import numpy as np
 import pandas as pd
 
 import slurm
+
+from basenji_test_folds import stat_tests
 
 """
 basenji_bench_phylop_folds.py
@@ -95,11 +98,17 @@ def main():
   fold_options.add_option('-e', dest='conda_env',
       default='tf2-gpu',
       help='Anaconda environment [Default: %default]')
+  fold_options.add_option('--label_exp', dest='label_exp',
+      default='Experiment', help='Experiment label [Default: %default]')
+  fold_options.add_option('--label_ref', dest='label_ref',
+      default='Reference', help='Reference label [Default: %default]')
   fold_options.add_option('--name', dest='name',
       default='sat', help='SLURM name prefix [Default: %default]')
   fold_options.add_option('-q', dest='queue',
       default='gtx1080ti',
       help='SLURM queue on which to run the jobs [Default: %default]')
+  fold_options.add_option('-r', dest='ref_dir',
+      default=None, help='Reference directory for statistical tests')
   parser.add_option_group(fold_options)
 
   (options, args) = parser.parse_args()
@@ -175,12 +184,13 @@ def main():
   if not os.path.isdir(sat_dir):
     os.mkdir(sat_dir)
     
-  ensemble_scores_h5(sat_dir, scores_files)
+  if not os.path.isfile('%s/scores.h5' % sat_dir):
+    ensemble_scores_h5(sat_dir, scores_files)
 
   ################################################################
   # PhyloP regressors
   ################################################################
-  num_pcs = int(data_stats['num_targets']**0.75)
+  # num_pcs = int(data_stats['num_targets']**0.75)
 
   jobs = []
   for ci in range(options.crosses):
@@ -190,8 +200,8 @@ def main():
 
       if not os.path.isfile('%s/stats.txt' % sat_dir):
         phylop_cmd = 'basenji_bench_phylop.py'
-        phylop_cmd += ' -e 100 -p 4'
-        phylop_cmd += ' -d %d' % num_pcs
+        phylop_cmd += ' -e 200 -p 4'
+        # phylop_cmd += ' -d %d' % num_pcs
         phylop_cmd += ' -o %s' % sat_dir
         phylop_cmd += ' %s/scores.h5' % sat_dir
 
@@ -207,8 +217,8 @@ def main():
   sat_dir = '%s/%s' % (ensemble_dir, options.out_dir)
   if not os.path.isfile('%s/stats.txt' % sat_dir):
     phylop_cmd = 'basenji_bench_phylop.py'
-    phylop_cmd += ' -e 100 -p 4'
-    phylop_cmd += ' -d %d' % num_pcs
+    phylop_cmd += ' -e 200 -p 4'
+    # phylop_cmd += ' -d %d' % num_pcs
     phylop_cmd += ' -o %s' % sat_dir
     phylop_cmd += ' %s/scores.h5' % sat_dir
 
@@ -221,6 +231,68 @@ def main():
     jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)
+
+
+  ################################################################
+  # compare
+  ################################################################
+
+  ref_sat_dirs = []
+  exp_sat_dirs = []
+  for ci in range(options.crosses):
+    for fi in range(num_folds):
+      exp_sat_dir = '%s/f%d_c%d/%s' % (exp_dir, fi, ci, options.out_dir)
+      exp_sat_dirs.append(exp_sat_dir)
+      if options.ref_dir is not None:
+        ref_sat_dir = '%s/f%d_c%d/%s' % (options.ref_dir, fi, ci, options.out_dir)
+        ref_sat_dirs.append(ref_sat_dir)
+
+  exp_pcor_folds, exp_r2_folds = read_metrics(exp_sat_dirs)
+  exp_sat_dirs = ['%s/ensemble/%s' % (exp_dir, options.out_dir)]
+  exp_pcor_ens, exp_r2_ens = read_metrics(exp_sat_dirs)
+  if options.ref_dir is not None:
+    ref_pcor_folds, ref_r2_folds = read_metrics(ref_sat_dirs)
+    ref_sat_dirs = ['%s/ensemble/%s' % (options.ref_dir, options.out_dir)]
+    ref_pcor_ens, ref_r2_ens = read_metrics(ref_sat_dirs)
+
+  print('PearsonR')
+  exp_mean = exp_pcor_folds.mean()
+  exp_stdm = exp_pcor_folds.std() / np.sqrt(len(exp_pcor_folds))
+  expe_mean = exp_pcor_ens.mean()
+  expe_stdm = exp_pcor_ens.std() / np.sqrt(len(exp_pcor_ens))
+  print('%12s:       %.4f (%.4f)' % (options.label_exp, exp_mean, exp_stdm))
+  print('%12s (ens): %.4f (%.4f)' % (options.label_exp, expe_mean, expe_stdm))
+  if options.ref_dir is not None:
+    ref_mean = ref_pcor_folds.mean()
+    ref_stdm = ref_pcor_folds.std() / np.sqrt(len(ref_pcor_folds))
+    refe_mean = ref_pcor_ens.mean()
+    refe_stdm = ref_pcor_ens.std() / np.sqrt(len(ref_pcor_ens))
+    print('%12s:       %.4f (%.4f)' % (options.label_ref, ref_mean, ref_stdm))
+    print('%12s (ens): %.4f (%.4f)' % (options.label_ref, refe_mean, refe_stdm))
+
+    mwp, tp = stat_tests(exp_pcor_folds, ref_pcor_folds, options.alternative)
+    print('Mann-Whitney U p-value: %.3g' % mwp)
+    print('T-test p-value: %.3g' % tp)
+  
+
+  print('\nR2')
+  exp_mean = exp_r2_folds.mean()
+  exp_stdm = exp_r2_folds.std() / np.sqrt(len(exp_r2_folds))
+  expe_mean = exp_r2_ens.mean()
+  expe_stdm = exp_r2_ens.std() / np.sqrt(len(exp_r2_ens))
+  print('%12s:       %.4f (%.4f)' % (options.label_exp, exp_mean, exp_stdm))
+  print('%12s (ens): %.4f (%.4f)' % (options.label_exp, expe_mean, expe_stdm))
+  if options.ref_dir is not None:
+    ref_mean = ref_r2_folds.mean()
+    ref_stdm = ref_r2_folds.std() / np.sqrt(len(ref_r2_folds))
+    refe_mean = ref_r2_ens.mean()
+    refe_stdm = ref_r2_ens.std() / np.sqrt(len(ref_r2_ens))
+    print('%12s:       %.4f (%.4f)' % (options.label_ref, ref_mean, ref_stdm))
+    print('%12s (ens): %.4f (%.4f)' % (options.label_ref, refe_mean, refe_stdm))
+
+    mwp, tp = stat_tests(exp_r2_folds, ref_r2_folds, options.alternative)
+    print('Mann-Whitney U p-value: %.3g' % mwp)
+    print('T-test p-value: %.3g' % tp)
 
 
 def ensemble_scores_h5(ensemble_dir, scores_files):
@@ -289,6 +361,22 @@ def options_string(options, group_options, rep_dir):
     options_str += ' %s %s' % (opt_str, opt_value)
 
   return options_str
+
+def read_metrics(sat_dirs):
+  pcor_folds = []
+  r2_folds = []
+
+  for sat_dir in sat_dirs:
+    pcor_i = np.load('%s/pcor.npy' % sat_dir)
+    r2_i = np.load('%s/r2.npy' % sat_dir)
+
+    pcor_folds.append(pcor_i)
+    r2_folds.append(r2_i)
+
+  pcor_folds = np.concatenate(pcor_folds)
+  r2_folds = np.concatenate(r2_folds)
+
+  return pcor_folds, r2_folds
 
 
 ################################################################################

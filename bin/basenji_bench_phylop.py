@@ -145,24 +145,26 @@ def main():
     # add positions
     seqs_pos = np.arange(mut_len)
     seqs_pos = np.tile(seqs_pos, num_seqs)
-    seqs_pos = np.reshape(seqs_pos, (num_seqs,-1))
+    seqs_pos = np.reshape(seqs_pos, (num_seqs,-1,1))
     
     # flatten everything
-    seqs_phylop_flat = seqs_phylop.flatten()
-    seqs_pos_flat = seqs_pos.flatten()
-    nt_scores_refm_flat = nt_scores_refm.reshape((-1,num_targets))
-    num_pos = nt_scores_refm_flat.shape[0]
+    # seqs_phylop_flat = seqs_phylop.flatten()
+    # seqs_pos_flat = seqs_pos.flatten()
+    # nt_scores_refm_flat = nt_scores_refm.reshape((-1,num_targets))
+    # num_pos = nt_scores_refm_flat.shape[0]
 
     # form matrix
-    X_scores = nt_scores_refm_flat
-    if options.n_components is not None:
-        options.n_components = min(options.n_components, num_targets)
-        X_scores = PCA(options.n_components).fit_transform(nt_scores_refm_flat)
-    X_pos = seqs_pos.reshape(num_pos,1)
-    X = np.concatenate([X_scores,X_pos], axis=1)
+    # X_scores = nt_scores_refm_flat
+    # if options.n_components is not None:
+    #     options.n_components = min(options.n_components, num_targets)
+    #     X_scores = PCA(options.n_components).fit_transform(nt_scores_refm_flat)
+    # X_pos = seqs_pos.reshape(num_pos,1)
+    # X = np.concatenate([X_scores,X_pos], axis=1)
+
+    X = np.concatenate([nt_scores_refm,seqs_pos], axis=-1)
 
     # regressor
-    r2s, pcors = randfor_cv(X, seqs_phylop_flat,
+    r2s, pcors = randfor_cv(X, seqs_phylop,
         iterations=options.iterations,
         n_estimators=options.num_estimators,
         random_state=options.random_seed,
@@ -180,39 +182,42 @@ def main():
     stats_out.close()
 
 
-def randfor_cv(X, y, folds=8, iterations=1, n_estimators=50, random_state=44, n_jobs=1):
-    """Compute ROC using a random forest."""
+def randfor_cv(Xs, ys, folds=8, iterations=1, n_estimators=50,
+               max_features='log2', random_state=44, n_jobs=8):
+    """Compute random forest regression accuracy statistics, shuffling at the sequence level."""
     r2s = []
     pcors = []
 
     for i in range(iterations):
         rs_iter = random_state + i
-        preds_full = np.zeros(y.shape)
 
         kf = KFold(n_splits=folds, shuffle=True, random_state=rs_iter)
 
-        for train_index, test_index in kf.split(X):
+        for train_index, test_index in kf.split(Xs):
+            num_seqs, num_pos, num_feat = Xs.shape
+            X_train = Xs[train_index].reshape((-1,num_feat))
+            y_train = ys[train_index].flatten()
+            X_test = Xs[test_index].reshape((-1,num_feat))
+            y_test = ys[test_index].flatten()
+                        
             # fit model
             if random_state is None:
                 rs_rf = None
             else:
                 rs_rf = rs_iter+test_index[0]
-            model = RandomForestRegressor(n_estimators=n_estimators, max_features='auto', max_depth=64,
-                                          min_samples_leaf=1, min_samples_split=2,
+            model = RandomForestRegressor(n_estimators=n_estimators, max_features=max_features,
+                                          max_depth=64, min_samples_leaf=1, min_samples_split=2,
                                           random_state=rs_rf, n_jobs=n_jobs)
-            model.fit(X[train_index,:], y[train_index])
-
+            model.fit(X_train, y_train)
+            
             # predict test set
-            preds = model.predict(X[test_index,:])
-
-            # save
-            preds_full[test_index] = preds
+            preds = model.predict(X_test)
 
             # compute R2
-            r2s.append(explained_variance_score(y[test_index], preds))
+            r2s.append(explained_variance_score(y_test, preds))
 
             # compute pearsonr
-            pcors.append(pearsonr(y[test_index], preds)[0])
+            pcors.append(pearsonr(y_test, preds)[0])
 
     r2s = np.array(r2s)
     pcors = np.array(pcors)

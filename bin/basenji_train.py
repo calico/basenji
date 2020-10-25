@@ -41,7 +41,7 @@ Train Basenji model using given parameters and data.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <data_dir>'
+  usage = 'usage: %prog [options] <params_file> <data1_dir> ...'
   parser = OptionParser(usage)
   parser.add_option('-k', dest='keras_fit',
       default=False, action='store_true',
@@ -62,11 +62,15 @@ def main():
       help='Evaluation TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
   (options, args) = parser.parse_args()
 
-  if len(args) != 2:
+  if len(args) < 2:
     parser.error('Must provide parameters and data directory.')
   else:
     params_file = args[0]
-    data_dir = args[1]
+    data_dirs = args[1:]
+
+  if options.keras_fit and len(data_dirs) > 1:
+    print('Cannot use keras fit method with multi-genome training.')
+    exit(1)
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
@@ -79,20 +83,24 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # load train data
-  train_data = dataset.SeqDataset(data_dir,
+  # read datasets
+  train_data = []
+  eval_data = []
+
+  for data_dir in data_dirs:
+    # load train data
+    train_data.append(dataset.SeqDataset(data_dir,
     split_label='train',
     batch_size=params_train['batch_size'],
-    shuffle_buffer=params_train.get('shuffle_buffer',32),
     mode=tf.estimator.ModeKeys.TRAIN,
-    tfr_pattern=options.tfr_train_pattern)
+    tfr_pattern=options.tfr_train_pattern))
 
-  # load eval data
-  eval_data = dataset.SeqDataset(data_dir,
+    # load eval data
+    eval_data.append(dataset.SeqDataset(data_dir,
     split_label='valid',
     batch_size=params_train['batch_size'],
     mode=tf.estimator.ModeKeys.EVAL,
-    tfr_pattern=options.tfr_eval_pattern)
+    tfr_pattern=options.tfr_eval_pattern))
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################
@@ -116,8 +124,15 @@ def main():
     ########################################
     # two GPU
 
-    mirrored_strategy = tf.distribute.MirroredStrategy()
-    with mirrored_strategy.scope():
+    strategy = tf.distribute.MirroredStrategy()
+
+    with strategy.scope():
+
+      if not options.keras_fit:
+        # distribute data
+        for di in range(len(data_dirs)):
+          train_data[di].distribute(strategy)
+          eval_data[di].distribute(strategy)
 
       # initialize model
       seqnn_model = seqnn.SeqNN(params_model)
@@ -127,8 +142,8 @@ def main():
         seqnn_model.restore(options.restore, options.trunk)
 
       # initialize trainer
-      seqnn_trainer = trainer.Trainer(params_train, train_data,
-                                      eval_data, options.out_dir)
+      seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data, options.out_dir,
+                                      strategy, params_train['num_gpu'], options.keras_fit)
 
       # compile model
       seqnn_trainer.compile(seqnn_model)
@@ -137,7 +152,10 @@ def main():
   if options.keras_fit:
     seqnn_trainer.fit_keras(seqnn_model)
   else:
-    seqnn_trainer.fit_tape(seqnn_model)
+    if len(data_dirs) == 1:
+      seqnn_trainer.fit_tape(seqnn_model)
+    else:
+      seqnn_trainer.fit2(seqnn_model)
 
 ################################################################################
 # __main__

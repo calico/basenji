@@ -34,6 +34,8 @@ from basenji import trainer
 basenji_train2.py
 
 Train Basenji model using given parameters and multiple genome datasets.
+
+DEPRACATED: Use basenji_train.py.
 """
 
 ################################################################################
@@ -81,18 +83,18 @@ def main():
 
   for data_dir in data_dirs:
     # load train data
-    train_data = dataset.SeqDataset(data_dir,
+    train_data.append(dataset.SeqDataset(data_dir,
     split_label='train',
     batch_size=params_train['batch_size'],
     mode=tf.estimator.ModeKeys.TRAIN,
-    tfr_pattern=options.tfr_train_pattern)
+    tfr_pattern=options.tfr_train_pattern))
 
     # load eval data
-    eval_data = dataset.SeqDataset(data_dir,
+    eval_data.append(dataset.SeqDataset(data_dir,
     split_label='valid',
     batch_size=params_train['batch_size'],
     mode=tf.estimator.ModeKeys.EVAL,
-    tfr_pattern=options.tfr_eval_pattern)
+    tfr_pattern=options.tfr_eval_pattern))
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################
@@ -119,11 +121,13 @@ def main():
     ########################################
     # two GPU
 
-    print('Multiple GPUs untested for joint genome training.', file=sys.stderr)
-    exit(1)
+    strategy = tf.distribute.MirroredStrategy()
+    with strategy.scope():
 
-    mirrored_strategy = tf.distribute.MirroredStrategy()
-    with mirrored_strategy.scope():
+      # distribute data
+      for di in range(len(data_dirs)):
+        train_data[di].distribute(strategy)
+        eval_data[di].distribute(strategy)
 
       # initialize model
       seqnn_model = seqnn.SeqNN(params_model)
@@ -133,8 +137,8 @@ def main():
         seqnn_model.restore(options.restore, options.trunk)
 
       # initialize trainer
-      seqnn_trainer = trainer.Trainer(params_train, train_data,
-                                      eval_data, options.out_dir)
+      seqnn_trainer = trainer.Trainer(params_train, train_data, eval_data,
+                                      options.out_dir, strategy, params_train['num_gpu'])
 
       # compile model
       seqnn_trainer.compile(seqnn_model)

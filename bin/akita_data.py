@@ -53,12 +53,15 @@ def main():
   parser.add_option('--break', dest='break_t',
       default=8388608, type='int',
       help='Break in half contigs above length [Default: %default]')
-  parser.add_option('--crop', dest='crop_bp',
+  parser.add_option('-c', '--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
   parser.add_option('-d', dest='diagonal_offset',
       default=2, type='int',
       help='Positions on the diagonal to ignore [Default: %default]')
+  parser.add_option('-f', dest='folds',
+      default=None, type='int',
+      help='Generate cross fold split [Default: %default]')
   parser.add_option('-g', dest='gaps_file',
       help='Genome assembly gaps BED [Default: %default]')
   parser.add_option('-k', dest='kernel_stddev',
@@ -83,7 +86,7 @@ def main():
       help='Sequences per TFRecord file [Default: %default]')
   parser.add_option('--restart', dest='restart',
       default=False, action='store_true',
-      help='Skip already read HDF5 coverage values. [Default: %default]')
+      help='Continue progress from midpoint. [Default: %default]')
   parser.add_option('--sample', dest='sample_pct',
       default=1.0, type='float',
       help='Down-sample the segments')
@@ -96,9 +99,9 @@ def main():
   parser.add_option('--stride_test', dest='stride_test',
       default=1., type='float',
       help='Stride to advance valid and test sequences [Default: seq_length]')
-  parser.add_option('--soft', dest='soft_clip',
+  parser.add_option('--st', '--split_test', dest='split_test',
       default=False, action='store_true',
-      help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
+      help='Exit after split. [Default: %default]')
   parser.add_option('-t', dest='test_pct_or_chr',
       default=0.05, type='str',
       help='Proportion of the data for testing [Default: %default]')
@@ -175,126 +178,175 @@ def main():
   ################################################################
   # define genomic contigs
   ################################################################
-  chrom_contigs = genome.load_chromosomes(fasta_file)
+  if not options.restart:
+    chrom_contigs = genome.load_chromosomes(fasta_file)
 
-  # remove gaps
-  if options.gaps_file:
-    chrom_contigs = genome.split_contigs(chrom_contigs,
-                                         options.gaps_file)
+    # remove gaps
+    if options.gaps_file:
+      chrom_contigs = genome.split_contigs(chrom_contigs,
+                                           options.gaps_file)
 
-  # ditch the chromosomes for contigs
-  contigs = []
-  for chrom in chrom_contigs:
-    contigs += [Contig(chrom, ctg_start, ctg_end)
-                 for ctg_start, ctg_end in chrom_contigs[chrom]]
+    # ditch the chromosomes for contigs
+    contigs = []
+    for chrom in chrom_contigs:
+      contigs += [Contig(chrom, ctg_start, ctg_end)
+                   for ctg_start, ctg_end in chrom_contigs[chrom]]
 
-  # limit to a BED file
-  if options.limit_bed is not None:
-    contigs = limit_contigs(contigs, options.limit_bed)
+    # limit to a BED file
+    if options.limit_bed is not None:
+      contigs = limit_contigs(contigs, options.limit_bed)
 
-  # filter for large enough
-  contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
+    # filter for large enough
+    contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
 
-  # break up large contigs
-  if options.break_t is not None:
-    contigs = break_large_contigs(contigs, options.break_t)
+    # break up large contigs
+    if options.break_t is not None:
+      contigs = break_large_contigs(contigs, options.break_t)
 
-  # print contigs to BED file
-  ctg_bed_file = '%s/contigs.bed' % options.out_dir
-  write_seqs_bed(ctg_bed_file, contigs)
-
+    # print contigs to BED file
+    ctg_bed_file = '%s/contigs.bed' % options.out_dir
+    write_seqs_bed(ctg_bed_file, contigs)
 
   ################################################################
   # divide between train/valid/test
   ################################################################
-  try:
-    # convert to float pct
-    valid_pct = float(options.valid_pct_or_chr)
-    test_pct = float(options.test_pct_or_chr)
-    assert(0 <= valid_pct <= 1)
-    assert(0 <= test_pct <= 1)
+  # label folds
+  if options.folds is not None:
+    fold_labels = ['fold%d' % fi for fi in range(options.folds)]
+    num_folds = options.folds
+  else:
+    fold_labels = ['train', 'valid', 'test']
+    num_folds = 3
 
-    # divide by pct
-    contig_sets = divide_contigs_pct(contigs, test_pct, valid_pct)
+  if not options.restart:
+    if options.folds is not None:
+      # divide by fold pct
+      fold_contigs = divide_contigs_folds(contigs, options.folds)
 
-  except (ValueError, AssertionError):
-    # divide by chr
-    valid_chrs = options.valid_pct_or_chr.split(',')
-    test_chrs = options.test_pct_or_chr.split(',')
-    contig_sets = divide_contigs_chr(contigs, test_chrs, valid_chrs)
+    else:
+      try:
+        # convert to float pct
+        valid_pct = float(options.valid_pct_or_chr)
+        test_pct = float(options.test_pct_or_chr)
+        assert(0 <= valid_pct <= 1)
+        assert(0 <= test_pct <= 1)
 
-  train_contigs, valid_contigs, test_contigs = contig_sets
+        # divide by pct
+        fold_contigs = divide_contigs_pct(contigs, test_pct, valid_pct)
 
-  # rejoin broken contigs within set
-  train_contigs = rejoin_large_contigs(train_contigs)
-  valid_contigs = rejoin_large_contigs(valid_contigs)
-  test_contigs = rejoin_large_contigs(test_contigs)
+      except (ValueError, AssertionError):
+        # divide by chr
+        valid_chrs = options.valid_pct_or_chr.split(',')
+        test_chrs = options.test_pct_or_chr.split(',')
+        fold_contigs = divide_contigs_chr(contigs, test_chrs, valid_chrs)
+
+    # rejoin broken contigs within set
+    for fi in range(len(fold_contigs)):
+      fold_contigs[fi] = rejoin_large_contigs(fold_contigs[fi])
+
+    # write labeled contigs to BED file
+    ctg_bed_file = '%s/contigs.bed' % options.out_dir
+    ctg_bed_out = open(ctg_bed_file, 'w')
+    for fi in range(len(fold_contigs)):
+      for ctg in fold_contigs[fi]:
+        line = '%s\t%d\t%d\t%s' % (ctg.chr, ctg.start, ctg.end, fold_labels[fi])
+        print(line, file=ctg_bed_out)
+    ctg_bed_out.close()
+
+  if options.split_test:
+    exit()
 
   ################################################################
   # define model sequences
   ################################################################
-  # stride sequences across contig
-  train_mseqs = contig_sequences(train_contigs, options.seq_length, options.stride_train, options.snap, label='train')
-  valid_mseqs = contig_sequences(valid_contigs, options.seq_length, options.stride_test,  options.snap, label='valid')
-  test_mseqs  = contig_sequences(test_contigs,  options.seq_length, options.stride_test,  options.snap, label='test')
+  if not options.restart:
+    fold_mseqs = []
+    for fi in range(num_folds):
+      if fold_labels[fi] in ['valid','test']:
+        stride_fold = options.stride_test
+      else:
+        stride_fold = options.stride_train
 
-  # shuffle
-  random.shuffle(train_mseqs)
-  random.shuffle(valid_mseqs)
-  random.shuffle(test_mseqs)
+      # stride sequences across contig
+      fold_mseqs_fi = contig_sequences(fold_contigs[fi], options.seq_length,
+                                       stride_fold, options.snap, fold_labels[fi])
+      fold_mseqs.append(fold_mseqs_fi)
 
-  # down-sample
-  if options.sample_pct < 1.0:
-    train_mseqs = random.sample(train_mseqs, int(options.sample_pct*len(train_mseqs)))
-    valid_mseqs = random.sample(valid_mseqs, int(options.sample_pct*len(valid_mseqs)))
-    test_mseqs = random.sample(test_mseqs, int(options.sample_pct*len(test_mseqs)))
+      # shuffle
+      random.shuffle(fold_mseqs[fi])
 
-  # merge
-  mseqs = train_mseqs + valid_mseqs + test_mseqs
+      # down-sample
+      if options.sample_pct < 1.0:
+        fold_mseqs[fi] = random.sample(fold_mseqs[fi], int(options.sample_pct*len(fold_mseqs[fi])))
+
+    # merge into one list
+    mseqs = [ms for fm in fold_mseqs for ms in fm]
 
 
   ################################################################
   # mappability
   ################################################################
-  if (options.umap_bed is not None) or (options.umap_midpoints is not None):
-    if shutil.which('bedtools') is None:
-      print('Install Bedtools to annotate unmappable sites', file=sys.stderr)
-      exit(1)
+  if not options.restart:
+    if (options.umap_bed is not None) or (options.umap_midpoints is not None):
+      if shutil.which('bedtools') is None:
+        print('Install Bedtools to annotate unmappable sites', file=sys.stderr)
+        exit(1)
 
-  if options.umap_bed is not None:
-    # annotate unmappable positions
-    mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
-                                 options.seq_length, options.pool_width)
+    if options.umap_bed is not None:
+      # annotate unmappable positions
+      mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
+                                   options.seq_length, options.pool_width)
 
-    # filter unmappable
-    mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
-    mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
+      # filter unmappable
+      mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
+      mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
+      mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
 
-    # write to file
+      # write to file
+      unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
+      np.save(unmap_npy, mseqs_unmap)
+
+    if options.umap_midpoints is not None:
+      # annotate unmappable midpoints for 4C/HiC
+      mseqs_unmap = annotate_unmap(mseqs, options.umap_midpoints,
+                                   options.seq_length, options.pool_width)
+
+      # filter unmappable
+      seqmid =  mseqs_unmap.shape[1]//2  #int( options.seq_length / options.pool_width /2)
+      mseqs_map_mask = (np.sum(mseqs_unmap[:,seqmid-1:seqmid+1],axis=1) == 0)
+
+      mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
+      mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
+
+      # write to file
+      unmap_npy = '%s/mseqs_unmap_midpoints.npy' % options.out_dir
+      np.save(unmap_npy, mseqs_unmap)
+
+    # write sequences to BED
+    print('writing sequences to BED')
+    seqs_bed_file = '%s/sequences.bed' % options.out_dir
+    write_seqs_bed(seqs_bed_file, mseqs, True)
+  else:
+    # read from directory
+    seqs_bed_file = '%s/sequences.bed' % options.out_dir
     unmap_npy = '%s/mseqs_unmap.npy' % options.out_dir
-    np.save(unmap_npy, mseqs_unmap)
-
-  if options.umap_midpoints is not None:
-    # annotate unmappable midpoints for 4C/HiC
-    mseqs_unmap = annotate_unmap(mseqs, options.umap_midpoints,
-                                 options.seq_length, options.pool_width)
-
-    # filter unmappable
-    seqmid =  mseqs_unmap.shape[1]//2  #int( options.seq_length / options.pool_width /2)
-    mseqs_map_mask = (np.sum(mseqs_unmap[:,seqmid-1:seqmid+1],axis=1) == 0)
-
-    mseqs = [mseqs[i] for i in range(len(mseqs)) if mseqs_map_mask[i]]
-    mseqs_unmap = mseqs_unmap[mseqs_map_mask,:]
-
-    # write to file
-    unmap_npy = '%s/mseqs_unmap_midpoints.npy' % options.out_dir
-    np.save(unmap_npy, mseqs_unmap)
-
-  # write sequences to BED
-  print('writing sequences to BED')
-  seqs_bed_file = '%s/sequences.bed' % options.out_dir
-  write_seqs_bed(seqs_bed_file, mseqs, True)
+    mseqs = []
+    fold_mseqs = []
+    for fi in range(num_folds):
+      fold_mseqs.append([])
+    for line in open(seqs_bed_file):
+      a = line.split()
+      msg = ModelSeq(a[0], int(a[1]), int(a[2]), a[3])
+      mseqs.append(msg)
+      if a[3] == 'train':
+        fi = 0
+      elif a[3] == 'valid':
+        fi = 1
+      elif a[3] == 'test':
+        fi = 2
+      else:
+        fi = int(a[3].replace('fold',''))
+      fold_mseqs[fi].append(msg)
 
 
   ################################################################
@@ -327,12 +379,11 @@ def main():
     else:
       cmd = 'akita_data_read.py'
       cmd += ' --crop %d' % options.crop_bp
+      cmd += ' -d %s' % options.diagonal_offset
       cmd += ' -k %d' % options.kernel_stddev
       cmd += ' -w %d' % options.pool_width
       if clip_ti is not None:
         cmd += ' --clip %f' % clip_ti
-      if options.soft_clip:
-        cmd += ' --soft'
       # cmd += ' -s %f' % scale_ti
       if options.blacklist_bed:
         cmd += ' -b %s' % options.blacklist_bed
@@ -378,17 +429,17 @@ def main():
 
   write_jobs = []
 
-  for tvt_set in ['train', 'valid', 'test']:
-    tvt_set_indexes = [i for i in range(len(mseqs)) if mseqs[i].label == tvt_set]
-    tvt_set_start = tvt_set_indexes[0]
-    tvt_set_end = tvt_set_indexes[-1] + 1
+  for fold_set in fold_labels:
+    fold_set_indexes = [i for i in range(len(mseqs)) if mseqs[i].label == fold_set]
+    fold_set_start = fold_set_indexes[0]
+    fold_set_end = fold_set_indexes[-1] + 1
 
     tfr_i = 0
-    tfr_start = tvt_set_start
-    tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
+    tfr_start = fold_set_start
+    tfr_end = min(tfr_start+options.seqs_per_tfr, fold_set_end)
 
-    while tfr_start <= tvt_set_end:
-      tfr_stem = '%s/%s-%d' % (tfr_dir, tvt_set, tfr_i)
+    while tfr_start <= fold_set_end:
+      tfr_stem = '%s/%s-%d' % (tfr_dir, fold_set, tfr_i)
 
       cmd = 'basenji_data_write.py'
       cmd += ' -s %d' % tfr_start
@@ -411,7 +462,7 @@ def main():
         write_jobs.append(cmd)
       else:
         j = slurm.Job(cmd,
-              name='write_%s-%d' % (tvt_set, tfr_i),
+              name='write_%s-%d' % (fold_set, tfr_i),
               out_file='%s.out' % tfr_stem,
               err_file='%s.err' % tfr_stem,
               queue='standard', mem=15000, time='12:0:0')
@@ -420,7 +471,7 @@ def main():
       # update
       tfr_i += 1
       tfr_start += options.seqs_per_tfr
-      tfr_end = min(tfr_start+options.seqs_per_tfr, tvt_set_end)
+      tfr_end = min(tfr_start+options.seqs_per_tfr, fold_set_end)
 
   if options.run_local:
     util.exec_par(write_jobs, options.processes, verbose=True)
@@ -433,9 +484,6 @@ def main():
   ################################################################
   stats_dict = {}
   stats_dict['num_targets'] = targets_df.shape[0]
-  stats_dict['train_seqs'] = len(train_mseqs)
-  stats_dict['valid_seqs'] = len(valid_mseqs)
-  stats_dict['test_seqs'] = len(test_mseqs)
   stats_dict['seq_length'] = options.seq_length
   stats_dict['pool_width'] = options.pool_width
   stats_dict['crop_bp'] = options.crop_bp
@@ -446,6 +494,9 @@ def main():
   target1_length = target1_length - options.diagonal_offset
   target_length = target1_length*(target1_length+1) // 2
   stats_dict['target_length'] = target_length
+
+  for fi in range(num_folds):
+    stats_dict['%s_seqs' % fold_labels[fi]] = len(fold_mseqs[fi])
 
   with open('%s/statistics.json' % options.out_dir, 'w') as stats_json_out:
     json.dump(stats_dict, stats_json_out, indent=4)

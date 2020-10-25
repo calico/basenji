@@ -64,9 +64,6 @@ def main():
   # parser.add_option('-s', dest='scale',
   #     default=1., type='float',
   #     help='Scale values by [Default: %default]')
-  parser.add_option('--soft', dest='soft_clip',
-      default=False, action='store_true',
-      help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
   parser.add_option('-w',dest='pool_width',
       default=1, type='int',
       help='Average pooling width [Default: %default]')

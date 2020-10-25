@@ -88,6 +88,9 @@ class SeqDataset:
   def batches_per_epoch(self):
     return self.num_seqs // self.batch_size
 
+  def distribute(self, strategy):
+    self.dataset = strategy.experimental_distribute_dataset(self.dataset)
+
   def generate_parser(self, raw=False):
     def parse_proto(example_protos):
       """Parse TFRecord protobuf."""
@@ -156,8 +159,14 @@ class SeqDataset:
     #  dataset = dataset.map(self.generate_parser())
     dataset = dataset.map(self.generate_parser())
 
+    # cache (runs OOM)
+    # dataset = dataset.cache()
+
     # batch
     dataset = dataset.batch(self.batch_size)
+
+    # prefetch
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
     # hold on
     self.dataset = dataset

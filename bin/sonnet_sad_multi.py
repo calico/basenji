@@ -42,6 +42,9 @@ def main():
   parser = OptionParser(usage)
 
   # sad
+  parser.add_option('-c', dest='slice_center',
+      default=None, type='int',
+      help='Slice center positions [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')

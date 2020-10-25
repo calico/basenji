@@ -49,12 +49,12 @@ using a saved Sonnet model.
 def main():
   usage = 'usage: %prog [options] <model> <vcf_file>'
   parser = OptionParser(usage)
+  parser.add_option('-c', dest='slice_center',
+      default=None, type='int',
+      help='Slice center positions [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('-c', dest='slice_center',
-  	  default=None, type='int',
-  	  help='Slice center positions [Default: %default]')
   parser.add_option('-n', dest='norm_file',
       default=None,
       help='Normalize SAD scores')
@@ -198,8 +198,8 @@ def main():
 
   # initialize predictions stream
   preds_stream = PredStreamGen(seqnn_model, snp_gen(),
-  	rc=options.rc, shifts=options.shifts,
-  	slice_center=options.slice_center, species=options.species)
+    rc=options.rc, shifts=options.shifts,
+    slice_center=options.slice_center, species=options.species)
 
   # predictions index
   pi = 0
@@ -271,7 +271,7 @@ class PredStreamGen:
       
       # slice center
       if self.slice_center is not None:
-      	_, seq_len, _ = stream_preds.shape
+        _, seq_len, _ = stream_preds.shape
         mid_pos = seq_len // 2
         slice_start = mid_pos - self.slice_center//2
         slice_end = slice_start + self.slice_center

@@ -93,7 +93,7 @@ def main():
       help='Sequences per TFRecord file [Default: %default]')
   parser.add_option('--restart', dest='restart',
       default=False, action='store_true',
-      help='Skip already read HDF5 coverage values. [Default: %default]')
+      help='Continue progress from midpoint. [Default: %default]')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -263,7 +263,6 @@ def main():
   # define model sequences
   ################################################################
   if not options.restart:
-    
     fold_mseqs = []
     for fi in range(num_folds):
       if fold_labels[fi] in ['valid','test']:

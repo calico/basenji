@@ -27,7 +27,8 @@ from basenji import layers
 from basenji import metrics
 
 class Trainer:
-  def __init__(self, params, train_data, eval_data, out_dir):
+  def __init__(self, params, train_data, eval_data, out_dir,
+               strategy=None, num_gpu=1, keras_fit=True):
     self.params = params
     self.train_data = train_data
     if type(self.train_data) is not list:
@@ -36,16 +37,27 @@ class Trainer:
     if type(self.eval_data) is not list:
       self.eval_data = [self.eval_data]
     self.out_dir = out_dir
+    self.strategy = strategy
+    self.num_gpu = num_gpu
+    self.batch_size = self.train_data[0].batch_size
     self.compiled = False
 
     # loss
     self.loss = self.params.get('loss','poisson').lower()
-    if self.loss == 'mse':
-      self.loss_fn = tf.keras.losses.MSE
-    elif self.loss == 'bce':
-      self.loss_fn = tf.keras.losses.BinaryCrossentropy()
+    if self.strategy is not None and not keras_fit:
+      if self.loss == 'mse':
+        self.loss_fn = tf.keras.losses.MSE(reduction=tf.keras.losses.Reduction.NONE)
+      elif self.loss == 'bce':
+        self.loss_fn = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
+      else:
+        self.loss_fn = tf.keras.losses.Poisson(reduction=tf.keras.losses.Reduction.NONE)
     else:
-      self.loss_fn = tf.keras.losses.Poisson()
+      if self.loss == 'mse':
+        self.loss_fn = tf.keras.losses.MSE
+      elif self.loss == 'bce':
+        self.loss_fn = tf.keras.losses.BinaryCrossentropy()
+      else:
+        self.loss_fn = tf.keras.losses.Poisson()
 
     # optimizer
     self.make_optimizer()
@@ -170,7 +182,7 @@ class Trainer:
         self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[1].trainable_variables))
 
     # improvement variables
-    valid_best = [np.inf]*self.num_datasets
+    valid_best = [-np.inf]*self.num_datasets
     unimproved = [0]*self.num_datasets
 
     ################################################################
@@ -239,19 +251,66 @@ class Trainer:
     
     # metrics
     num_targets = model.output_shape[-1]
-    train_loss = tf.keras.metrics.Mean()
-    train_r = metrics.PearsonR(num_targets)
-    train_r2 = metrics.R2(num_targets)
+    train_loss = tf.keras.metrics.Mean(name='train_loss')
+    train_r = metrics.PearsonR(num_targets, name='train_r')
+    train_r2 = metrics.R2(num_targets, name='train_r2')
+    valid_loss = tf.keras.metrics.Mean(name='valid_loss')
+    valid_r = metrics.PearsonR(num_targets, name='valid_r')
+    valid_r2 = metrics.R2(num_targets, name='valid_r2')
     
-    @tf.function
-    def train_step(x, y):
-      with tf.GradientTape() as tape:
-        pred = model(x, training=tf.constant(True))
+    if self.strategy is None:
+      @tf.function
+      def train_step(x, y):
+        with tf.GradientTape() as tape:
+          pred = model(x, training=True)
+          loss = self.loss_fn(y, pred) + sum(model.losses)
+        train_loss(loss)
+        train_r(y, pred)
+        train_r2(y, pred)
+        gradients = tape.gradient(loss, model.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+      @tf.function
+      def eval_step(x, y):
+        pred = model(x, training=False)
         loss = self.loss_fn(y, pred) + sum(model.losses)
-      train_loss(loss)
-      train_r(y, pred)
-      gradients = tape.gradient(loss, model.trainable_variables)
-      self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        valid_loss(loss)
+        valid_r(y, pred)
+        valid_r2(y, pred)
+
+    else:
+      def train_step(x, y):
+        with tf.GradientTape() as tape:
+          pred = model(x, training=True)
+          loss_batch_len = self.loss_fn(y, pred)
+          loss_batch = tf.reduce_mean(loss_batch_len, axis=-1)
+          loss = tf.reduce_sum(loss_batch) / self.batch_size
+          loss += sum(model.losses) / self.num_gpu
+        train_r(y, pred)
+        train_r2(y, pred)
+        gradients = tape.gradient(loss, model.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        return loss
+
+      @tf.function
+      def train_step_distr(xd, yd):
+        replica_losses = self.strategy.run(train_step, args=(xd, yd))
+        loss = self.strategy.reduce(tf.distribute.ReduceOp.SUM,
+                                    replica_losses, axis=None)
+        train_loss(loss)
+
+
+      def eval_step(x, y):
+        pred = model(x, training=False)
+        loss = self.loss_fn(y, pred) + sum(model.losses)
+        valid_loss(loss)
+        valid_r(y, pred)
+        valid_r2(y, pred)
+
+      @tf.function
+      def eval_step_distr(xd, yd):
+        return self.strategy.run(eval_step, args=(xd, yd))
+
 
     # improvement variables
     valid_best = -np.inf
@@ -267,25 +326,44 @@ class Trainer:
         train_iter = iter(self.train_data[0].dataset)
         for si in range(self.train_epoch_batches[0]):
           x, y = next(train_iter)
-          train_step(x, y)
+          if self.strategy is not None:
+            train_step_distr(x, y)
+          else:
+            train_step(x, y)
+
+        # evaluate
+        # eval_iter = iter(self.eval_data[0].dataset)
+        # for si in range(self.eval_epoch_batches[0]):
+        #   x, y = next(eval_iter)
+        for x, y in self.eval_data[0].dataset:
+          if self.strategy is not None:
+            eval_step_distr(x, y)
+          else:
+            eval_step(x, y)
 
         # print training accuracy
         train_loss_epoch = train_loss.result().numpy()
         train_r_epoch = train_r.result().numpy()
-        print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f' % (ei, (time.time()-t0), train_loss_epoch, train_r_epoch), end='')
+        train_r2_epoch = train_r2.result().numpy()
+        print('Epoch %d - %ds - train_loss: %.4f - train_r: %.4f - train_r2: %.4f' % \
+          (ei, (time.time()-t0), train_loss_epoch, train_r_epoch, train_r2_epoch), end='')
+
+        # print validation accuracy
+        # valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data[0].dataset, verbose=0)
+        valid_loss_epoch = valid_loss.result().numpy()
+        valid_r_epoch = valid_r.result().numpy()
+        valid_r2_epoch = valid_r2.result().numpy()
+        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % \
+          (valid_loss_epoch, valid_r_epoch, valid_r2_epoch), end='')
 
         # checkpoint
         seqnn_model.save('%s/model_check.h5'%self.out_dir)
 
-        # print validation accuracy
-        valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data[0].dataset, verbose=0)
-        print(' - valid_loss: %.4f - valid_r: %.4f - valid_r2: %.4f' % (valid_loss, valid_pr, valid_r2), end='')
-
         # check best
-        if valid_pr > valid_best:
+        if valid_r_epoch > valid_best:
           print(' - best!', end='')
           unimproved = 0
-          valid_best = valid_pr
+          valid_best = valid_r_epoch
           seqnn_model.save('%s/model_best.h5'%self.out_dir)
         else:
           unimproved += 1
@@ -294,6 +372,10 @@ class Trainer:
         # reset metrics
         train_loss.reset_states()
         train_r.reset_states()
+        train_r2.reset_states()
+        valid_loss.reset_states()
+        valid_r.reset_states()
+        valid_r2.reset_states()
 
   def make_optimizer(self):
     # schedule (currently OFF)

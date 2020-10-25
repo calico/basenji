@@ -39,7 +39,7 @@ Train Basenji model replicates on cross folds using given parameters and data.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <data_dir>'
+  usage = 'usage: %prog [options] <params_file> <data1_dir> ...'
   parser = OptionParser(usage)
 
   # train
@@ -94,15 +94,21 @@ def main():
       help='SLURM queue on which to run the jobs [Default: %default]')
   rep_options.add_option('-r', dest='restart',
       default=False, action='store_true')
+  rep_options.add_option('--spec_off', dest='spec_off',
+      default=False, action='store_true')
+  rep_options.add_option('--test_off', dest='test_off',
+      default=False, action='store_true')
+  rep_options.add_option('--test_train_off', dest='test_train_off',
+      default=False, action='store_true')
   parser.add_option_group(rep_options)
 
   (options, args) = parser.parse_args()
 
-  if len(args) != 2:
+  if len(args) < 2:
     parser.error('Must provide parameters and data directory.')
   else:
     params_file = os.path.abspath(args[0])
-    data_dir = os.path.abspath(args[1])
+    data_dirs = [os.path.abspath(arg) for arg in args[1:]]
 
   # read model parameters
   with open(params_file) as params_open:
@@ -119,7 +125,8 @@ def main():
     os.mkdir(options.out_dir)
 
   # read data parameters
-  data_stats_file = '%s/statistics.json' % data_dir
+  num_data = len(data_dirs)
+  data_stats_file = '%s/statistics.json' % data_dirs[0]
   with open(data_stats_file) as data_stats_open:
     data_stats = json.load(data_stats_open)
 
@@ -145,7 +152,10 @@ def main():
         os.mkdir(rep_dir)
 
         # make rep data
-        make_rep_data(data_dir, rep_dir, fi, ci)
+        rep_data_dirs = []
+        for di in range(num_data):
+          rep_data_dirs.append('%s/data%d' % (rep_dir, di))
+          make_rep_data(data_dirs[di], rep_data_dirs[-1], fi, ci)
 
         # train command
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
@@ -154,7 +164,7 @@ def main():
 
         cmd += ' basenji_train.py' 
         cmd += ' %s' % options_string(options, train_options, rep_dir)
-        cmd += ' %s %s/data' % (params_file, rep_dir)
+        cmd += ' %s %s' % (params_file, ' '.join(rep_data_dirs))
 
         name = '%s-train-f%dc%d' % (options.name, fi, ci)
         sbf = os.path.abspath('%s/train.sb' % rep_dir)
@@ -164,6 +174,7 @@ def main():
         j = slurm.Job(cmd, name,
                       outf, errf, sbf,
                       queue=options.queue,
+                      cpu=4,
                       gpu=params_train.get('num_gpu',1),
                       mem=23000, time='28-0:0:0')
         jobs.append(j)
@@ -176,124 +187,145 @@ def main():
   # test train
 
   jobs = []
-  for ci in range(options.crosses):
-    for fi in range(num_folds):
-      # make rep dir
-      rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
-      test_dir = '%s/test_train' % rep_dir
 
-      # check if done
-      acc_file = '%s/acc.txt' % test_dir
-      if options.restart and os.path.isfile(acc_file):
-        print('%s already generated.' % acc_file)
-      else:
-        cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-        cmd += ' conda activate %s;' % options.conda_env
-        cmd += ' echo $HOSTNAME;'
+  if not options.test_train_off:
+    for ci in range(options.crosses):
+      for fi in range(num_folds):
+        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
 
-        cmd += ' basenji_test.py'
-        if options.rc:
-          cmd += ' --rc'
-        if options.shifts:
-          cmd += ' --shifts %s' % options.shifts
-        cmd += ' -o %s' % test_dir
-        cmd += ' --split train'
-        cmd += ' %s %s/train/model_check.h5 %s/data' % (params_file, rep_dir, rep_dir)
+        for di in range(num_data):
+          if num_data == 1:
+            out_dir = '%s/test_train' % it_dir
+            model_file = '%s/train/model_check.h5' % it_dir
+          else:
+            out_dir = '%s/test%d_train' % (it_dir, di)
+            model_file = '%s/train/model%d_check.h5' % (it_dir, di)
+        
+          # check if done
+          acc_file = '%s/acc.txt' % out_dir
+          if os.path.isfile(acc_file):
+            print('%s already generated.' % acc_file)
+          else:
+            # basenji test
+            basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+            basenji_cmd += ' conda activate %s;' % options.conda_env
+            basenji_cmd += ' basenji_test.py'
+            basenji_cmd += ' -o %s' % out_dir
+            if options.rc:
+              basenji_cmd += ' --rc'
+            if options.shifts:
+              basenji_cmd += ' --shifts %s' % options.shifts
+            basenji_cmd += ' --split train'
+            basenji_cmd += ' %s' % params_file
+            basenji_cmd += ' %s' % model_file
+            basenji_cmd += ' %s/data%d' % (it_dir, di)
 
-        name = '%s-testtr-f%dc%d' % (options.name, fi, ci)
-        sbf = os.path.abspath('%s/test_train.sb' % rep_dir)
-        outf = os.path.abspath('%s/test_train.out' % rep_dir)
-        errf = os.path.abspath('%s/test_train.err' % rep_dir)
+            name = '%s-testtr-f%dc%d' % (options.name, fi, ci)
+            basenji_job = slurm.Job(basenji_cmd,
+                            name=name,
+                            out_file='%s.out'%out_dir,
+                            err_file='%s.err'%out_dir,
+                            queue=options.queue,
+                            cpu=1, gpu=1,
+                            mem=23000,
+                            time='4:00:00')
+            jobs.append(basenji_job)
 
-        j = slurm.Job(cmd, name,
-                      outf, errf, sbf,
-                      queue=options.queue,
-                      gpu=params_train.get('num_gpu',1),
-                      mem=23000, time='4:0:0')
-        jobs.append(j)
 
   #######################################################
   # test best
 
-  for ci in range(options.crosses):
-    for fi in range(num_folds):
-      # make rep dir
-      rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
-      test_dir = '%s/test' % rep_dir
+  if not options.test_off:
+    for ci in range(options.crosses):
+      for fi in range(num_folds):
+        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
 
-      # check if done
-      acc_file = '%s/acc.txt' % test_dir
-      if options.restart and os.path.isfile(acc_file):
-        print('%s already generated.' % acc_file)
-      else:
-        cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-        cmd += ' conda activate %s;' % options.conda_env
-        cmd += ' echo $HOSTNAME;'
+        for di in range(num_data):
+          if num_data == 1:
+            out_dir = '%s/test' % it_dir
+            model_file = '%s/train/model_best.h5' % it_dir
+          else:
+            out_dir = '%s/test%d' % (it_dir, di)
+            model_file = '%s/train/model%d_best.h5' % (it_dir, di)
 
-        cmd += ' basenji_test.py'
-        if options.rc:
-          cmd += ' --rc'
-        if options.shifts:
-          cmd += ' --shifts %s' % options.shifts
+          # check if done
+          acc_file = '%s/acc.txt' % out_dir
+          if os.path.isfile(acc_file):
+            print('%s already generated.' % acc_file)
+          else:
+            # basenji test
+            basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+            basenji_cmd += ' conda activate %s;' % options.conda_env
+            basenji_cmd += ' basenji_test.py'
+            basenji_cmd += ' -o %s' % out_dir
+            if options.rc:
+              basenji_cmd += ' --rc'
+            if options.shifts:
+              basenji_cmd += ' --shifts %s' % options.shifts
+            basenji_cmd += ' %s' % params_file
+            basenji_cmd += ' %s' % model_file
+            basenji_cmd += ' %s/data%d' % (it_dir, di)
 
-        cmd += ' -o %s' % test_dir
-        cmd += ' %s %s/train/model_best.h5 %s/data' % (params_file, rep_dir, rep_dir)
-
-        name = '%s-test-f%dc%d' % (options.name, fi, ci)
-        sbf = os.path.abspath('%s/test.sb' % rep_dir)
-        outf = os.path.abspath('%s/test.out' % rep_dir)
-        errf = os.path.abspath('%s/test.err' % rep_dir)
-
-        j = slurm.Job(cmd, name,
-                outf, errf, sbf,
-                queue=options.queue,
-                      gpu=params_train.get('num_gpu',1),
-                mem=23000, time='4:0:0')
-        jobs.append(j)
+            name = '%s-test-f%dc%d' % (options.name, fi, ci)
+            basenji_job = slurm.Job(basenji_cmd,
+                            name=name,
+                            out_file='%s.out'%out_dir,
+                            err_file='%s.err'%out_dir,
+                            queue=options.queue,
+                            cpu=1, gpu=1,
+                            mem=23000,
+                            time='4:00:00')
+            jobs.append(basenji_job)
 
   #######################################################
   # test best specificity
   
-  for ci in range(options.crosses):
-    for fi in range(num_folds):
-      # make rep dir
-      rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
-      test_dir = '%s/test_spec' % rep_dir
+  if not options.spec_off:
+    for ci in range(options.crosses):
+      for fi in range(num_folds):
+        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
 
-      # check if done
-      acc_file = '%s/acc.txt' % test_dir
-      if options.restart and os.path.isfile(acc_file):
-        print('%s already generated.' % acc_file)
-      else:
-        cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-        cmd += ' conda activate %s;' % options.conda_env
-        cmd += ' echo $HOSTNAME;'
-        
-        cmd += ' basenji_test_specificity.py'
-        if options.rc:
-          cmd += ' --rc'
-        if options.shifts:
-          cmd += ' --shifts %s' % options.shifts
-        cmd += ' -o %s' % test_dir
-        cmd += ' %s %s/train/model_best.h5 %s/data' % (params_file, rep_dir, rep_dir)
+        for di in range(num_data):
+          if num_data == 1:
+            out_dir = '%s/test_spec' % it_dir
+            model_file = '%s/train/model_best.h5' % it_dir
+          else:
+            out_dir = '%s/test%d_spec' % (it_dir, di)
+            model_file = '%s/train/model%d_best.h5' % (it_dir, di)
 
-        name = '%s-spec-f%dc%d' % (options.name, fi, ci)
-        sbf = os.path.abspath('%s/test_spec.sb' % rep_dir)
-        outf = os.path.abspath('%s/test_spec.out' % rep_dir)
-        errf = os.path.abspath('%s/test_spec.err' % rep_dir)
-        
-        # sticking to one gpu because the normalization time dominates
-        # better would be to save predictions above.
-        j = slurm.Job(cmd, name,
-                outf, errf, sbf,
-                queue=options.queue, gpu=1,
-                mem=45000, time='8:0:0')
-        jobs.append(j)
+        # check if done
+        acc_file = '%s/acc.txt' % out_dir
+        if os.path.isfile(acc_file):
+          print('%s already generated.' % acc_file)
+        else:
+          # basenji test
+          basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+          basenji_cmd += ' conda activate %s;' % options.conda_env
+          basenji_cmd += ' basenji_test_specificity.py'
+          basenji_cmd += ' -o %s' % out_dir
+          if options.rc:
+            basenji_cmd += ' --rc'
+          if options.shifts:
+            basenji_cmd += ' --shifts %s' % options.shifts
+          basenji_cmd += ' %s' % params_file
+          basenji_cmd += ' %s' % model_file
+          basenji_cmd += ' %s/data%d' % (it_dir, di)
+
+          name = '%s-spec-f%dc%d' % (options.name, fi, ci)
+          basenji_job = slurm.Job(basenji_cmd,
+                          name=name,
+                          out_file='%s.out'%out_dir,
+                          err_file='%s.err'%out_dir,
+                          queue=options.queue,
+                          cpu=1, gpu=1,
+                          mem=60000,
+                          time='6:00:00')
+          jobs.append(basenji_job)
         
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
-def make_rep_data(data_dir, rep_dir, fi, ci):
+def make_rep_data(data_dir, rep_data_dir, fi, ci):
   # read data parameters
   data_stats_file = '%s/statistics.json' % data_dir
   with open(data_stats_file) as data_stats_open:
@@ -314,7 +346,6 @@ def make_rep_data(data_dir, rep_dir, fi, ci):
   train_folds = [fold for fold in range(num_folds) if fold not in [valid_fold,test_fold]]
 
   # make data directory
-  rep_data_dir = '%s/data' % rep_dir
   os.mkdir(rep_data_dir)
 
   # dump data stats

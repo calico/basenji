@@ -133,6 +133,7 @@ def main():
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
   seqnn_model.build_ensemble(options.rc, options.shifts)
+  seqnn_model.downcast()
 
   #######################################################
   # targets/predictions
@@ -140,7 +141,7 @@ def main():
   # option to read from disk?
 
   # predict
-  eval_preds = seqnn_model.predict(eval_data, verbose=1).astype('float16')
+  eval_preds = seqnn_model.predict(eval_data, verbose=1)
   print('')
   
   # targets

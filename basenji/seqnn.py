@@ -40,7 +40,7 @@ class SeqNN():
     # only necessary for my bespoke parameters
     # others are best defaulted closer to the source
     self.augment_rc = False
-    self.augment_shift = 0
+    self.augment_shift = [0]
 
   def build_block(self, current, block_params):
     """Construct a SeqNN block.
@@ -94,7 +94,8 @@ class SeqNN():
     # augmentation
     if self.augment_rc:
       current, reverse_bool = layers.StochasticReverseComplement()(current)
-    current = layers.StochasticShift(self.augment_shift)(current)
+    if self.augment_shift != [0]:
+      current = layers.StochasticShift(self.augment_shift)(current)
 
     ###################################################
     # build convolution blocks
@@ -145,7 +146,7 @@ class SeqNN():
     ###################################################
     self.models = []
     for ho in self.head_output:
-        self.models.append(tf.keras.Model(inputs=sequence, outputs=ho))
+      self.models.append(tf.keras.Model(inputs=sequence, outputs=ho))
     self.model = self.models[0]
     print(self.model.summary())
 
@@ -213,7 +214,7 @@ class SeqNN():
         preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
-      preds_avg = tf.keras.layers.Average()(preds)      
+      preds_avg = tf.keras.layers.Average()(preds)
 
       # create meta model
       self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
@@ -233,6 +234,29 @@ class SeqNN():
 
         # replace model
         self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
+
+
+  def downcast(self, dtype=tf.float16, head_i=0):
+    """ Downcast model output type. """
+
+    # sequence input
+    sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+
+    # replace model
+    if self.embed is not None:
+      preds = self.embed(sequence)
+      preds = tf.cast(preds, dtype)
+      self.embed = tf.keras.Model(inputs=sequence, outputs=preds)
+
+    elif self.ensemble is not None:
+      preds = self.ensemble(sequence)
+      preds = tf.cast(preds, dtype)
+      self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds)
+
+    else:
+      preds = self.models[head_i](sequence)
+      preds = tf.cast(preds, dtype)
+      self.models[head_i] = tf.keras.Model(inputs=sequence, outputs=preds)
 
 
   def evaluate(self, seq_data, head_i=0, loss='poisson'):

@@ -79,8 +79,8 @@ class PolyReLU(tf.keras.layers.Layer):
     return y
 
 class GELU(tf.keras.layers.Layer):
-  def __init__(self):
-    super(GELU, self).__init__()
+  def __init__(self, **kwargs):
+    super(GELU, self).__init__(**kwargs)
   def call(self, x):
     # return tf.keras.activations.sigmoid(1.702 * x) * x
     return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x

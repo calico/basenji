@@ -54,6 +54,9 @@ class SeqNN():
     block_name = block_params['name']
     del block_params['name']
 
+    # save upper_tri flaten
+    self.preds_triu |= (block_name == 'upper_tri')
+        
     # if Keras, get block variables names
     pass_all_globals = True
     if block_name[0].isupper():
@@ -88,7 +91,6 @@ class SeqNN():
     # inputs
     ###################################################
     sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
-    # self.genome = tf.keras.Input(shape=(1,), name='genome')
     current = sequence
 
     # augmentation
@@ -96,7 +98,8 @@ class SeqNN():
       current, reverse_bool = layers.StochasticReverseComplement()(current)
     if self.augment_shift != [0]:
       current = layers.StochasticShift(self.augment_shift)(current)
-
+    self.preds_triu = False
+    
     ###################################################
     # build convolution blocks
     ###################################################
@@ -113,8 +116,6 @@ class SeqNN():
     ###################################################
     # heads
     ###################################################
-    self.preds_triu = False
-
     head_keys = natsorted([v for v in vars(self) if v.startswith('head')])
     self.heads = [getattr(self, hk) for hk in head_keys]
 
@@ -128,7 +129,6 @@ class SeqNN():
 
       # build blocks
       for bi, block_params in enumerate(head):
-        self.preds_triu |= (block_params['name'] == 'upper_tri')
         current = self.build_block(current, block_params)
 
       # transform back from reverse complement

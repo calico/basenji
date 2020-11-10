@@ -169,12 +169,12 @@ def main():
       it_dir = '%s/%d' % (exp_dir, i)
 
       for di in range(num_data):
-          if num_data == 1:
-            out_dir = '%s/test_spec' % it_dir
-            model_file = '%s/train/model_best.h5' % it_dir
-          else:
-            out_dir = '%s/test%d_spec' % (it_dir, di)
-            model_file = '%s/train/model%d_best.h5' % (it_dir, di)
+        if num_data == 1:
+          out_dir = '%s/test_spec' % it_dir
+          model_file = '%s/train/model_best.h5' % it_dir
+        else:
+          out_dir = '%s/test%d_spec' % (it_dir, di)
+          model_file = '%s/train/model%d_best.h5' % (it_dir, di)
 
         # check if done
         acc_file = '%s/acc.txt' % out_dir

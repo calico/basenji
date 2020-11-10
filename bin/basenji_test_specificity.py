@@ -48,6 +48,9 @@ Test the accuracy of a trained model on targets/predictions normalized across ta
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <data_dir>'
   parser = OptionParser(usage)
+  parser.add_option('--head', dest='head_i',
+      default=0, type='int',
+      help='Parameters head to test [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='test_out',
       help='Output directory for test statistics [Default: %default]')
@@ -131,7 +134,7 @@ def main():
 
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(model_file)
+  seqnn_model.restore(model_file, options.head_i)
   seqnn_model.build_ensemble(options.rc, options.shifts)
   seqnn_model.downcast()
 

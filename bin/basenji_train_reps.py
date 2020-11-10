@@ -94,6 +94,8 @@ def main():
     params_file = os.path.abspath(args[0])
     data_dirs = [os.path.abspath(arg) for arg in args[1:]]
 
+  num_data = len(data_dirs)
+
   # read model parameters
   with open(params_file) as params_open:
     params = json.load(params_open)
@@ -159,7 +161,7 @@ def main():
     
       # check if done
       acc_file = '%s/acc.txt' % out_dir
-      if if options.restart and os.path.isfile(acc_file):
+      if options.restart and os.path.isfile(acc_file):
         print('%s already generated.' % acc_file)
       else:
         # basenji test
@@ -174,7 +176,7 @@ def main():
         cmd += ' --split train'
         cmd += ' %s' % params_file
         cmd += ' %s' % model_file
-        cmd += ' %s' % data_dir
+        cmd += ' %s' % data_dirs[di]
 
         name = '%s-testtr%d' % (options.name, pi)
         j = slurm.Job(cmd,
@@ -203,7 +205,7 @@ def main():
     
       # check if done
       acc_file = '%s/acc.txt' % out_dir
-      if if options.restart and os.path.isfile(acc_file):
+      if options.restart and os.path.isfile(acc_file):
         print('%s already generated.' % acc_file)
       else:
         # basenji test
@@ -217,7 +219,7 @@ def main():
           cmd += ' --shifts %s' % options.shifts
         cmd += ' %s' % params_file
         cmd += ' %s' % model_file
-        cmd += ' %s' % data_dir
+        cmd += ' %s' % data_dirs[di]
 
         name = '%s-test%d' % (options.name, pi)
         j = slurm.Job(cmd,
@@ -246,7 +248,7 @@ def main():
     
       # check if done
       acc_file = '%s/acc.txt' % out_dir
-      if if options.restart and os.path.isfile(acc_file):
+      if options.restart and os.path.isfile(acc_file):
         print('%s already generated.' % acc_file)
       else:
         # basenji test
@@ -260,7 +262,7 @@ def main():
           cmd += ' --shifts %s' % options.shifts
         cmd += ' %s' % params_file
         cmd += ' %s' % model_file
-        cmd += ' %s' % data_dir
+        cmd += ' %s' % data_dirs[di]
 
         name = '%s-spec%d' % (options.name, pi)
         j = slurm.Job(cmd,

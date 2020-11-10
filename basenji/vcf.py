@@ -503,7 +503,9 @@ def dna_length_1hot(seq, length):
     nback = length - len(seq) - nfront
     seq = 'N' * nfront + seq + 'N' * nback
 
-  seq_1hot = basenji.dna_io.dna_1hot(seq)
+  # n_uniform required to avoid different  
+  #   random nucleotides for each allele
+  seq_1hot = basenji.dna_io.dna_1hot(seq, n_uniform=True)
 
   return seq_1hot, seq
 

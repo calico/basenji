@@ -48,9 +48,6 @@ Compute SNP Activity Difference (SAD) scores for SNPs in a VCF file.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
-  parser.add_option('--cpu', dest='cpu',
-      default=False, action='store_true',
-      help='Run without a GPU [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
@@ -174,7 +171,7 @@ def main():
   seqnn_model.build_slice(target_slice)
   seqnn_model.build_ensemble(options.rc, options.shifts)
 
-  targets_length = seqnn_model.targets_length[0]
+  targets_length = seqnn_model.target_lengths[0]
   num_targets = seqnn_model.num_targets()
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(num_targets)]

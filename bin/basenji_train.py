@@ -111,7 +111,7 @@ def main():
 
     # restore
     if options.restore:
-      seqnn_model.restore(options.restore, options.trunk)
+      seqnn_model.restore(options.restore, trunk=options.trunk)
 
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, 

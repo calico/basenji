@@ -66,7 +66,7 @@ class SeqNN():
 
     # set global defaults
     global_vars = ['activation', 'batch_norm', 'bn_momentum', 'bn_type',
-      'l2_scale', 'l1_scale']
+      'l2_scale', 'l1_scale','padding']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)
       if gv_value and (pass_all_globals or gv in block_varnames):
@@ -236,39 +236,49 @@ class SeqNN():
         self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
 
 
-  def downcast(self, dtype=tf.float16, head_i=0):
+  def downcast(self, dtype=tf.float16, head_i=None):
     """ Downcast model output type. """
+    # choose model
+    if self.embed is not None:
+      model = self.embed
+    elif self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
+      model = self.models[head_i]
+    else:
+      model = self.model
 
     # sequence input
     sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
 
+    # predict and downcast
+    preds = model(sequence)
+    preds = tf.cast(preds, dtype)
+    model_down = tf.keras.Model(inputs=sequence, outputs=preds)
+
     # replace model
-    if self.embed is not None:
-      preds = self.embed(sequence)
-      preds = tf.cast(preds, dtype)
-      self.embed = tf.keras.Model(inputs=sequence, outputs=preds)
-
+    if self.embed is not None:  
+      self.embed = model_down
     elif self.ensemble is not None:
-      preds = self.ensemble(sequence)
-      preds = tf.cast(preds, dtype)
-      self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds)
-
+      self.ensemble = model_down
+    elif head_i is not None:
+      self.models[head_i] = model_down
     else:
-      preds = self.models[head_i](sequence)
-      preds = tf.cast(preds, dtype)
-      self.models[head_i] = tf.keras.Model(inputs=sequence, outputs=preds)
+      self.model = model_down
 
 
-  def evaluate(self, seq_data, head_i=0, loss='poisson'):
+  def evaluate(self, seq_data, head_i=None, loss='poisson'):
     """ Evaluate model on SeqDataset. """
     # choose model
-    if self.ensemble is None:
+    if self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
       model = self.models[head_i]
     else:
-      model = self.ensemble
+      model = self.model
 
     # compile with dense metrics
-    num_targets = self.model.output_shape[-1]
+    num_targets = model.output_shape[-1]
 
     if loss == 'bce':
       model.compile(optimizer=tf.keras.optimizers.SGD(),
@@ -312,15 +322,15 @@ class SeqNN():
       return self.models[head_i].output_shape[-1]
 
 
-  def predict(self, seq_data, head_i=0, generator=False, **kwargs):
+  def predict(self, seq_data, head_i=None, generator=False, **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
-    if self.embed is not None:
-      model = self.embed
-    elif self.ensemble is not None:
+    if self.ensemble is not None:
       model = self.ensemble
-    else:
+    elif head_i is not None:
       model = self.models[head_i]
+    else:
+      model = self.model
 
     dataset = getattr(seq_data, 'dataset', None)
     if dataset is None:
@@ -332,12 +342,13 @@ class SeqNN():
       return model.predict(dataset, **kwargs)
 
 
-  def restore(self, model_file, trunk=False):
+  def restore(self, model_file, head_i=0, trunk=False):
     """ Restore weights from saved model. """
     if trunk:
       self.model_trunk.load_weights(model_file)
     else:
-      self.model.load_weights(model_file)
+      self.models[head_i].load_weights(model_file)
+      self.model = self.models[head_i]
 
 
   def save(self, model_file, trunk=False):

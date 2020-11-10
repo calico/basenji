@@ -3,6 +3,7 @@ from optparse import OptionParser
 import joblib
 import os
 import pdb
+import sys
 
 import h5py
 import numpy as np
@@ -73,7 +74,7 @@ def main():
         score_ends = h5o['end'][:]
         score_strands = [strand.decode('UTF-8') for strand in h5o['strand']]
         score_seqs = h5o['seqs'][:]
-        nt_scores = h5o[options.sad_stat][:].astype('float32')
+        nt_scores = h5o[options.sad_stat][:].astype('float16')
     num_seqs, mut_len, _, num_targets = nt_scores.shape
 
     # reference transform
@@ -100,6 +101,7 @@ def main():
 
     seqs_phylop = []
     seqs_phylop_dna1 = []
+    seqs_phylop_mask = np.ones(num_seqs, dtype='bool')
 
     fasta_open = pysam.FastaFile(fasta_file)
     phylop_open = pyBigWig.open(phylop_file, 'r')
@@ -110,24 +112,37 @@ def main():
             phylop_chr = 'chr%s' % phylop_chr
 
         # read values
-        seq_phylop = phylop_open.values(phylop_chr, score_starts[si], score_ends[si],
-            numpy=True).astype('float32')
+        try:
+            seq_phylop = phylop_open.values(phylop_chr, score_starts[si], score_ends[si],
+            numpy=True).astype('float16')
 
-        # read DNA
-        seq_phylop_dna = fasta_open.fetch(score_chrs[si], score_starts[si], score_ends[si])
-        seq_phylop_dna1 = dna_io.dna_1hot(seq_phylop_dna)
+            # read DNA
+            seq_phylop_dna = fasta_open.fetch(score_chrs[si], score_starts[si], score_ends[si])
+            seq_phylop_dna1 = dna_io.dna_1hot(seq_phylop_dna)
 
-        # reverse complement
-        if score_strands[si] == '-':            
-            seq_phylop = seq_phylop[::-1]
-            seq_phylop_dna1 = dna_io.hot1_rc(seq_phylop_dna1)
+            # reverse complement
+            if score_strands[si] == '-':            
+                seq_phylop = seq_phylop[::-1]
+                seq_phylop_dna1 = dna_io.hot1_rc(seq_phylop_dna1)
 
-        # save
-        seqs_phylop.append(seq_phylop)
-        seqs_phylop_dna1.append(seq_phylop_dna1)
+            # save
+            seqs_phylop.append(seq_phylop)
+            seqs_phylop_dna1.append(seq_phylop_dna1)
+
+        except RuntimeError:
+            print('Ignoring %s:%d-%d; phylop not found.' % \
+                (phylop_chr, score_starts[si], score_ends[si]), file=sys.stderr)
+            seqs_phylop_mask[si] = False        
+
+    # filter for valid sequences
+    nt_scores = nt_scores[seqs_phylop_mask]
+    nt_scores_ref = nt_scores_ref[seqs_phylop_mask]
+    nt_scores_refm = nt_scores_refm[seqs_phylop_mask]
+    score_seqs = score_seqs[seqs_phylop_mask]
+    num_seqs = len(score_seqs)
 
     # transform PhyloP
-    seqs_phylop = np.array(seqs_phylop)
+    seqs_phylop = np.array(seqs_phylop, dtype='float32')
     seqs_phylop = np.nan_to_num(seqs_phylop)
     seqs_phylop = np.clip(seqs_phylop, -1.5, 5)
 
@@ -162,6 +177,7 @@ def main():
     # X = np.concatenate([X_scores,X_pos], axis=1)
 
     X = np.concatenate([nt_scores_refm,seqs_pos], axis=-1)
+    X = X.astype('float32')
 
     # regressor
     r2s, pcors = randfor_cv(X, seqs_phylop,

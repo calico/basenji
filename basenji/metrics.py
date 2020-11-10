@@ -4,10 +4,44 @@ import pdb
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.utils import losses_utils
+from tensorflow.python.keras.losses import LossFunctionWrapper
 from tensorflow.python.keras.utils import metrics_utils
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 
+################################################################################
+# Losses
+################################################################################
+# def MeanSquaredErrorSpecificity(y_true, y_pred, spec_weight=1):
+#   mse_term = tf.keras.losses.mean_squared_error(y_pred, y_true)
+
+#   yn_true = y_true - tf.math.reduce_mean(y_true, axis=-1, keepdims=True)
+#   yn_pred = y_pred - tf.math.reduce_mean(y_pred, axis=-1, keepdims=True)
+#   spec_term = tf.keras.losses.mean_squared_error(yn_pred, yn_true)
+
+#   return mse_term + spec_weight*spec_term
+
+def mean_squared_error_udot(y_true, y_pred, udot_weight=1):
+  mse_term = tf.keras.losses.mean_squared_error(y_pred, y_true)
+
+  yn_true = y_true - tf.math.reduce_mean(y_true, axis=-1, keepdims=True)
+  yn_pred = y_pred - tf.math.reduce_mean(y_pred, axis=-1, keepdims=True)
+  udot_term = -math_ops.reduce_mean(yn_true * yn_pred, axis=-1)
+
+  return mse_term + udot_weight*udot_term
+
+class MeanSquaredErrorUDot(LossFunctionWrapper):
+  def __init__(self, udot_weight=1, reduction=losses_utils.ReductionV2.AUTO, name='mse_udot'):
+    self.udot_weight = udot_weight
+    mse_udot = lambda yt, yp: mean_squared_error_udot(yt, yp, self.udot_weight)
+    super(MeanSquaredErrorUDot, self).__init__(
+        mse_udot, name=name, reduction=reduction)
+
+
+################################################################################
+# Metrics
+################################################################################
 class SeqAUC(tf.keras.metrics.AUC):
   def __init__(self, curve='ROC', name=None, summarize=True, **kwargs):
     if name is None:
@@ -17,7 +51,7 @@ class SeqAUC(tf.keras.metrics.AUC):
         name = 'auprc'
     super(SeqAUC, self).__init__(curve=curve, name=name, multi_label=True, **kwargs)
     self._summarize = summarize
-
+    
 
   def update_state(self, y_true, y_pred, **kwargs):
     """Flatten sequence length before update."""

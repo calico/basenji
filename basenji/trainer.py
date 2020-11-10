@@ -26,6 +26,27 @@ from tensorflow.python.framework import dtypes
 from basenji import layers
 from basenji import metrics
 
+def parse_loss(loss_label, strategy=None, keras_fit=True, spec_weight=1):
+  """Parse loss function from label, strategy, and fitting method."""
+  if strategy is not None and not keras_fit:
+    if loss_label == 'mse':
+      loss_fn = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE)
+    elif loss_label == 'bce':
+      loss_fn = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
+    else:
+      loss_fn = tf.keras.losses.Poisson(reduction=tf.keras.losses.Reduction.NONE)
+  else:
+    if loss_label == 'mse':
+      loss_fn = tf.keras.losses.MeanSquaredError()
+    elif loss_label == 'mse_udot':
+      loss_fn = metrics.MeanSquaredErrorUDot(spec_weight)
+    elif loss_label == 'bce':
+      loss_fn = tf.keras.losses.BinaryCrossentropy()
+    else:
+      loss_fn = tf.keras.losses.Poisson()
+
+  return loss_fn
+
 class Trainer:
   def __init__(self, params, train_data, eval_data, out_dir,
                strategy=None, num_gpu=1, keras_fit=True):
@@ -43,21 +64,9 @@ class Trainer:
     self.compiled = False
 
     # loss
+    self.spec_weight = self.params.get('spec_weight', 1)
     self.loss = self.params.get('loss','poisson').lower()
-    if self.strategy is not None and not keras_fit:
-      if self.loss == 'mse':
-        self.loss_fn = tf.keras.losses.MSE(reduction=tf.keras.losses.Reduction.NONE)
-      elif self.loss == 'bce':
-        self.loss_fn = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
-      else:
-        self.loss_fn = tf.keras.losses.Poisson(reduction=tf.keras.losses.Reduction.NONE)
-    else:
-      if self.loss == 'mse':
-        self.loss_fn = tf.keras.losses.MSE
-      elif self.loss == 'bce':
-        self.loss_fn = tf.keras.losses.BinaryCrossentropy()
-      else:
-        self.loss_fn = tf.keras.losses.Poisson()
+    self.loss_fn = parse_loss(self.loss, self.strategy, keras_fit, self.spec_weight)
 
     # optimizer
     self.make_optimizer()
@@ -122,6 +131,7 @@ class Trainer:
       validation_data=self.eval_data[0].dataset,
       validation_steps=self.eval_epoch_batches[0])
 
+
   def fit2(self, seqnn_model):
     if not self.compiled:
       self.compile(seqnn_model)
@@ -133,11 +143,15 @@ class Trainer:
 
     # metrics
     train_loss, train_r, train_r2 = [], [], []
+    valid_loss, valid_r, valid_r2 = [], [], []
     for di in range(self.num_datasets):
       num_targets = seqnn_model.models[di].output_shape[-1]
-      train_loss.append(tf.keras.metrics.Mean())
-      train_r.append(metrics.PearsonR(num_targets))
-      train_r2.append(metrics.R2(num_targets))
+      train_loss.append(tf.keras.metrics.Mean(name='train%d_loss'%di))
+      train_r.append(metrics.PearsonR(num_targets, name='train%d_r'%di))
+      train_r2.append(metrics.R2(num_targets, name='train%d_r2'%di))
+      valid_loss.append(tf.keras.metrics.Mean(name='valid%d_loss'%di))
+      valid_r.append(metrics.PearsonR(num_targets, name='valid%d_r'%di))
+      valid_r2.append(metrics.R2(num_targets, name='valid%d_r2'%di))
 
     # generate decorated train steps
     """
@@ -161,7 +175,7 @@ class Trainer:
     @tf.function
     def train_step0(x, y):
       with tf.GradientTape() as tape:
-        pred = seqnn_model.models[0](x, training=tf.constant(True))
+        pred = seqnn_model.models[0](x, training=True)
         loss = self.loss_fn(y, pred) + sum(seqnn_model.models[0].losses)
       train_loss[0](loss)
       train_r[0](y, pred)
@@ -169,17 +183,34 @@ class Trainer:
       gradients = tape.gradient(loss, seqnn_model.models[0].trainable_variables)
       self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[0].trainable_variables))
 
+    @tf.function
+    def eval_step0(x, y):
+      pred = seqnn_model.models[0](x, training=False)
+      loss = self.loss_fn(y, pred) + sum(seqnn_model.models[0].losses)
+      valid_loss[0](loss)
+      valid_r[0](y, pred)
+      valid_r2[0](y, pred)
+
     if self.num_datasets > 1:
       @tf.function
       def train_step1(x, y):
         with tf.GradientTape() as tape:
-          pred = seqnn_model.models[1](x, training=tf.constant(True))
+          pred = seqnn_model.models[1](x, training=True)
           loss = self.loss_fn(y, pred) + sum(seqnn_model.models[1].losses)
         train_loss[1](loss)
         train_r[1](y, pred)
         train_r2[1](y, pred)
         gradients = tape.gradient(loss, seqnn_model.models[1].trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, seqnn_model.models[1].trainable_variables))
+
+      @tf.function
+      def eval_step1(x, y):
+        pred = seqnn_model.models[1](x, training=False)
+        loss = self.loss_fn(y, pred) + sum(seqnn_model.models[1].losses)
+        valid_loss[1](loss)
+        valid_r[1](y, pred)
+        valid_r2[1](y, pred)
+
 
     # improvement variables
     valid_best = [-np.inf]*self.num_datasets
@@ -202,7 +233,6 @@ class Trainer:
         t0 = time.time()
         for di in self.dataset_indexes:
           x, y = next(train_data_iters[di])
-          # train_steps[di](x, y)
           if di == 0:
             train_step0(x, y)
           else:
@@ -211,19 +241,25 @@ class Trainer:
         print('Epoch %d - %ds' % (ei, (time.time()-t0)))
         for di in range(self.num_datasets):
           print('  Data %d' % di, end='')
-          model = seqnn_model.models[di]
+          model = seqnn_model.models[di]          
 
           # print training accuracy
           print(' - train_loss: %.4f' % train_loss[di].result().numpy(), end='')
           print(' - train_r: %.4f' %  train_r[di].result().numpy(), end='')
           print(' - train_r: %.4f' %  train_r2[di].result().numpy(), end='')
 
+          # evaluate
+          for x, y in self.eval_data[di].dataset:
+            if di == 0:
+              eval_step0(x, y)
+            else:
+              eval_step1(x, y)
+
           # print validation accuracy
-          valid_stats = model.evaluate(self.eval_data[di].dataset, verbose=0)
-          print(' - valid_loss: %.4f' % valid_stats[0], end='')
-          print(' - valid_r: %.4f' % valid_stats[1], end='')
-          print(' - valid_r2: %.4f' % valid_stats[2], end='')
-          early_stop_stat = valid_stats[1]
+          print(' - valid_loss: %.4f' % valid_loss[di].result().numpy(), end='')
+          print(' - valid_r: %.4f' % valid_r[di].result().numpy(), end='')
+          print(' - valid_r2: %.4f' % valid_r2[di].result().numpy(), end='')
+          early_stop_stat = valid_r[di].result().numpy()
 
           # checkpoint
           model.save('%s/model%d_check.h5' % (self.out_dir, di))
@@ -242,6 +278,9 @@ class Trainer:
           train_loss[di].reset_states()
           train_r[di].reset_states()
           train_r2[di].reset_states()
+          valid_loss[di].reset_states()
+          valid_r[di].reset_states()
+          valid_r2[di].reset_states()
 
         
   def fit_tape(self, seqnn_model):
@@ -376,6 +415,7 @@ class Trainer:
         valid_loss.reset_states()
         valid_r.reset_states()
         valid_r2.reset_states()
+
 
   def make_optimizer(self):
     # schedule (currently OFF)

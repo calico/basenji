@@ -39,6 +39,7 @@ import seaborn as sns
 from basenji import dataset
 from basenji import plots
 from basenji import seqnn
+from basenji import trainer
 
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
@@ -57,6 +58,9 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('--ai', dest='accuracy_indexes',
       help='Comma-separated list of target indexes to make accuracy scatter plots.')
+  parser.add_option('--head', dest='head_i',
+      default=0, type='int',
+      help='Parameters head to test [Default: %default]')
   parser.add_option('--mc', dest='mc_n',
       default=0, type='int',
       help='Monte carlo test iterations [Default: %default]')
@@ -122,21 +126,23 @@ def main():
 
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(model_file)
+  seqnn_model.restore(model_file, options.head_i)
   seqnn_model.build_ensemble(options.rc, options.shifts)
 
   #######################################################
   # evaluate
 
-  eval_loss = params_train.get('loss', 'poisson')
+  loss_label = params_train.get('loss', 'poisson').lower()
+  spec_weight = params_train.get('spec_weight', 1)
+  loss_fn = trainer.parse_loss(loss_label, spec_weight=spec_weight)
 
   # evaluate
-  test_loss, test_metric1, test_metric2 = seqnn_model.evaluate(eval_data, loss=eval_loss)
+  test_loss, test_metric1, test_metric2 = seqnn_model.evaluate(eval_data, loss=loss_fn)
 
   # print summary statistics
   print('\nTest Loss:         %7.5f' % test_loss)
 
-  if eval_loss == 'bce':
+  if loss_label == 'bce':
     print('Test AUROC:        %7.5f' % test_metric1.mean())
     print('Test AUPRC:        %7.5f' % test_metric2.mean())
 

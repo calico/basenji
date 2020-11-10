@@ -210,6 +210,7 @@ def main():
             basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
             basenji_cmd += ' conda activate %s;' % options.conda_env
             basenji_cmd += ' basenji_test.py'
+            basenji_cmd += ' --head %d' % di
             basenji_cmd += ' -o %s' % out_dir
             if options.rc:
               basenji_cmd += ' --rc'
@@ -257,6 +258,7 @@ def main():
             basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
             basenji_cmd += ' conda activate %s;' % options.conda_env
             basenji_cmd += ' basenji_test.py'
+            basenji_cmd += ' --head %d' % di
             basenji_cmd += ' -o %s' % out_dir
             if options.rc:
               basenji_cmd += ' --rc'
@@ -293,34 +295,35 @@ def main():
             out_dir = '%s/test%d_spec' % (it_dir, di)
             model_file = '%s/train/model%d_best.h5' % (it_dir, di)
 
-        # check if done
-        acc_file = '%s/acc.txt' % out_dir
-        if os.path.isfile(acc_file):
-          print('%s already generated.' % acc_file)
-        else:
-          # basenji test
-          basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-          basenji_cmd += ' conda activate %s;' % options.conda_env
-          basenji_cmd += ' basenji_test_specificity.py'
-          basenji_cmd += ' -o %s' % out_dir
-          if options.rc:
-            basenji_cmd += ' --rc'
-          if options.shifts:
-            basenji_cmd += ' --shifts %s' % options.shifts
-          basenji_cmd += ' %s' % params_file
-          basenji_cmd += ' %s' % model_file
-          basenji_cmd += ' %s/data%d' % (it_dir, di)
+          # check if done
+          acc_file = '%s/acc.txt' % out_dir
+          if os.path.isfile(acc_file):
+            print('%s already generated.' % acc_file)
+          else:
+            # basenji test
+            basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+            basenji_cmd += ' conda activate %s;' % options.conda_env
+            basenji_cmd += ' basenji_test_specificity.py'
+            basenji_cmd += ' --head %d' % di
+            basenji_cmd += ' -o %s' % out_dir
+            if options.rc:
+              basenji_cmd += ' --rc'
+            if options.shifts:
+              basenji_cmd += ' --shifts %s' % options.shifts
+            basenji_cmd += ' %s' % params_file
+            basenji_cmd += ' %s' % model_file
+            basenji_cmd += ' %s/data%d' % (it_dir, di)
 
-          name = '%s-spec-f%dc%d' % (options.name, fi, ci)
-          basenji_job = slurm.Job(basenji_cmd,
-                          name=name,
-                          out_file='%s.out'%out_dir,
-                          err_file='%s.err'%out_dir,
-                          queue=options.queue,
-                          cpu=1, gpu=1,
-                          mem=60000,
-                          time='6:00:00')
-          jobs.append(basenji_job)
+            name = '%s-spec-f%dc%d' % (options.name, fi, ci)
+            basenji_job = slurm.Job(basenji_cmd,
+                            name=name,
+                            out_file='%s.out'%out_dir,
+                            err_file='%s.err'%out_dir,
+                            queue=options.queue,
+                            cpu=1, gpu=1,
+                            mem=90000,
+                            time='6:00:00')
+            jobs.append(basenji_job)
         
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)
@@ -420,11 +423,11 @@ def options_string(options, train_options, rep_dir):
 
     # find matching restore
     elif opt.dest == 'restore':
-    	fold_dir_mid = rep_dir.split('/')[-1]
-    	if options.trunk:
-    	  opt_value = '%s/%s/train/model_trunk.h5' % (opt_value, fold_dir_mid)
-    	else:
-    		opt_value = '%s/%s/train/model_best.h5' % (opt_value, fold_dir_mid)
+      fold_dir_mid = rep_dir.split('/')[-1]
+      if options.trunk:
+        opt_value = '%s/%s/train/model_trunk.h5' % (opt_value, fold_dir_mid)
+      else:
+        opt_value = '%s/%s/train/model_best.h5' % (opt_value, fold_dir_mid)
 
     options_str += ' %s %s' % (opt_str, opt_value)
 

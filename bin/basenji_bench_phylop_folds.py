@@ -185,7 +185,10 @@ def main():
     os.mkdir(sat_dir)
     
   if not os.path.isfile('%s/scores.h5' % sat_dir):
+    print('Generating ensemble scores.')
     ensemble_scores_h5(sat_dir, scores_files)
+  else:
+    print('Ensemble scores already generated.')
 
   ################################################################
   # PhyloP regressors
@@ -210,7 +213,7 @@ def main():
         j = slurm.Job(phylop_cmd, name,
                       '%s.out'%std_pre, '%s.err'%std_pre,
                       queue='standard', cpu=4,
-                      mem=22000, time='1-0:0:0')
+                      mem=45000, time='1-0:0:0')
         jobs.append(j)
 
   # ensemble
@@ -227,7 +230,7 @@ def main():
     j = slurm.Job(phylop_cmd, name,
                   '%s.out'%std_pre, '%s.err'%std_pre,
                   queue='standard', cpu=4,
-                  mem=22000, time='1-0:0:0')
+                  mem=45000, time='1-0:0:0')
     jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)
@@ -311,19 +314,22 @@ def ensemble_scores_h5(ensemble_dir, scores_files):
       ensemble_h5.create_dataset(key, data=scores0_h5[key])
     else:
       sad_stats.append(key)
+      sad_shape = scores0_h5[key].shape
   scores0_h5.close()
 
   # average sum stats
+  num_folds = len(scores_files)
   for sad_stat in sad_stats:
-    # read folds
-    sad_values = []
+    # initialize ensemble array
+    sad_values = np.zeros(shape=sad_shape, dtype='float32')
+
+    # read and add folds
     for scores_file in scores_files:
       with h5py.File(scores_file, 'r') as scores_h5:
-        sad_values.append(scores_h5[sad_stat][:])
+        sad_values += scores_h5[sad_stat][:].astype('float32')
     
-    # summarize
-    sad_values = np.array(sad_values)
-    sad_values = sad_values.mean(axis=0, dtype='float32')
+    # normalize and downcast
+    sad_values /= num_folds
     sad_values = sad_values.astype('float16')
 
     # save

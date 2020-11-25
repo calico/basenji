@@ -50,6 +50,9 @@ def main():
   parser.add_option('-d', dest='dataset_i',
       default=None, type='int',
       help='Dataset index [Default:%default]')
+  parser.add_option('--d_ref', dest='dataset_ref_i',
+      default=None, type='int',
+      help='Reference Dataset index [Default:%default]')
   parser.add_option('-e', dest='conda_env',
       default='tf2-gpu',
       help='Anaconda environment [Default: %default]')
@@ -126,7 +129,8 @@ def main():
         # check if done
         acc_file = '%s/acc.txt' % out_dir
         if os.path.isfile(acc_file):
-          print('%s already generated.' % acc_file)
+          # print('%s already generated.' % acc_file)
+          pass
         else:            
           cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
           cmd += ' conda activate %s;' % options.conda_env
@@ -171,7 +175,8 @@ def main():
       # check if done
       acc_file = '%s/acc.txt' % out_dir
       if os.path.isfile(acc_file):
-        print('%s already generated.' % acc_file)
+        # print('%s already generated.' % acc_file)
+        pass
       else:
         # basenji test
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
@@ -216,7 +221,8 @@ def main():
         # check if done
         acc_file = '%s/acc.txt' % out_dir
         if os.path.isfile(acc_file):
-          print('%s already generated.' % acc_file)
+          # print('%s already generated.' % acc_file)
+          pass
         else:
           # basenji test
           cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
@@ -251,6 +257,11 @@ def main():
   else:
     test_prefix = 'test%d' % options.dataset_i
 
+  if options.dataset_ref_i is None:
+    test_ref_prefix = 'test'
+  else:
+    test_ref_prefix = 'test%d' % options.dataset_ref_i
+
   # classification or regression
   with open('%s/f0_c0/%s/acc.txt' % (exp_dir,test_prefix)) as test0_open:
     header = test0_open.readline().split()
@@ -267,7 +278,7 @@ def main():
     exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
 
     if options.ref_dir is not None:
-      ref_glob_str = '%s/*/%s_train/acc.txt' % (options.ref_dir, test_prefix)
+      ref_glob_str = '%s/*/%s_train/acc.txt' % (options.ref_dir, test_ref_prefix)
       ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
@@ -291,7 +302,7 @@ def main():
   exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
 
   if options.ref_dir is not None:
-    ref_glob_str = '%s/*/%s/acc.txt' % (options.ref_dir, test_prefix)
+    ref_glob_str = '%s/*/%s/acc.txt' % (options.ref_dir, test_ref_prefix)
     ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
     mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
@@ -316,7 +327,7 @@ def main():
     exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
 
     if options.ref_dir is not None:
-      ref_glob_str = '%s/*/%s_spec/acc.txt' % (options.ref_dir, test_prefix)
+      ref_glob_str = '%s/*/%s_spec/acc.txt' % (options.ref_dir, test_ref_prefix)
       ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
 
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
@@ -382,16 +393,16 @@ def read_metrics(acc_glob_str, metric='pearsonr'):
 
 
 def stat_tests(ref_cors, exp_cors, alternative):
-  _, mwp = wilcoxon(ref_cors, exp_cors, alternative=alternative)
-  tt, tp = ttest_rel(ref_cors, exp_cors)
+  _, mwp = wilcoxon(exp_cors, ref_cors, alternative=alternative)
+  tt, tp = ttest_rel(exp_cors, ref_cors)
 
   if alternative == 'less':
-    if tt > 0:
-      tp = 1 - (1-tp)/2
-    else:
-      tp /= 2
-  elif alternative == 'greater':
     if tt <= 0:
+      tp /= 2
+    else:
+      tp = 1 - (1-tp)/2
+  elif alternative == 'greater':
+    if tt >= 0:
       tp /= 2
     else:
       tp = 1 - (1-tp)/2

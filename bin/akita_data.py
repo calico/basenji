@@ -145,6 +145,10 @@ def main():
   random.seed(options.seed)
   np.random.seed(options.seed)
 
+  if options.break_t is not None and options.break_t < options.seq_length:
+    print('Maximum contig length --break cannot be less than sequence length.', file=sys.stderr)
+    exit(1)
+
   # transform proportion strides to base pairs
   if options.stride_train <= 1:
     print('stride_train %.f'%options.stride_train, end='')

@@ -66,7 +66,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
     filters=filters,
     kernel_size=kernel_size,
     strides=strides,
-    padding=padding,
+    padding='same',
     use_bias=False,
     dilation_rate=dilation_rate,
     kernel_initializer=kernel_initializer,
@@ -100,7 +100,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
   if pool_size > 1:
     current = tf.keras.layers.MaxPool1D(
       pool_size=pool_size,
-      padding='same')(current)
+      padding=padding)(current)
 
   return current
 

@@ -168,6 +168,7 @@ def main():
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
         cmd += ' conda activate %s;' % options.conda_env
         cmd += ' basenji_test.py'
+        cmd += ' --head %d' % di
         cmd += ' -o %s' % out_dir
         if options.rc:
           cmd += ' --rc'
@@ -212,6 +213,7 @@ def main():
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
         cmd += ' conda activate %s;' % options.conda_env
         cmd += ' basenji_test.py'
+        cmd += ' --head %d' % di
         cmd += ' -o %s' % out_dir
         if options.rc:
           cmd += ' --rc'
@@ -255,6 +257,7 @@ def main():
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
         cmd += ' conda activate %s;' % options.conda_env
         cmd += ' basenji_test_specificity.py'
+        cmd += ' --head %d' % di
         cmd += ' -o %s' % out_dir
         if options.rc:
           cmd += ' --rc'
@@ -271,7 +274,7 @@ def main():
                         err_file='%s.err'%out_dir,
                         queue=options.queue,
                         cpu=1, gpu=1,
-                        mem=75000,
+                        mem=90000,
                         time='8:00:00')
         jobs.append(j)
       

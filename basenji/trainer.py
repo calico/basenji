@@ -63,14 +63,6 @@ class Trainer:
     self.batch_size = self.train_data[0].batch_size
     self.compiled = False
 
-    # loss
-    self.spec_weight = self.params.get('spec_weight', 1)
-    self.loss = self.params.get('loss','poisson').lower()
-    self.loss_fn = parse_loss(self.loss, self.strategy, keras_fit, self.spec_weight)
-
-    # optimizer
-    self.make_optimizer()
-
     # early stopping
     self.patience = self.params.get('patience', 20)
 
@@ -86,6 +78,14 @@ class Trainer:
     for di in range(self.num_datasets):
       self.dataset_indexes += [di]*self.train_epoch_batches[di]
     self.dataset_indexes = np.array(self.dataset_indexes)
+
+    # loss
+    self.spec_weight = self.params.get('spec_weight', 1)
+    self.loss = self.params.get('loss','poisson').lower()
+    self.loss_fn = parse_loss(self.loss, self.strategy, keras_fit, self.spec_weight)
+
+    # optimizer
+    self.make_optimizer()
 
   def compile(self, seqnn_model):
     for model in seqnn_model.models:
@@ -429,6 +429,17 @@ class Trainer:
     else:
       lr_schedule = initial_learning_rate
 
+    cyclical1 = True
+    for lrs_param in ['initial_learning_rate', 'maximal_learning_rate', 'final_learning_rate', 'train_epochs_cycle1']:
+      cyclical1 = cyclical1 & (lrs_param in self.params)
+    if cyclical1:
+      step_size = self.params['train_epochs_cycle1'] * sum(self.train_epoch_batches)
+      lr_schedule = Cyclical1LearningRate(
+        initial_learning_rate=self.params['initial_learning_rate'],
+        maximal_learning_rate=self.params['maximal_learning_rate'],
+        final_learning_rate=self.params['final_learning_rate'],
+        step_size=step_size)
+
     if version.parse(tf.__version__) < version.parse('2.2'):
       clip_norm_default = 1000000
     else:
@@ -439,14 +450,14 @@ class Trainer:
     optimizer_type = self.params.get('optimizer', 'sgd').lower()
     if optimizer_type == 'adam':
       self.optimizer = tf.keras.optimizers.Adam(
-          lr=lr_schedule,
+          learning_rate=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
           beta_2=self.params.get('adam_beta2',0.999),
           clipnorm=clip_norm)
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
-          lr=lr_schedule,
+          learning_rate=lr_schedule,
           momentum=self.params.get('momentum', 0.99),
           clipnorm=clip_norm)
 
@@ -482,3 +493,50 @@ class EarlyStoppingMin(tf.keras.callbacks.EarlyStopping):
           if self.verbose > 0:
             print('Restoring model weights from the end of the best epoch.')
           self.model.set_weights(self.best_weights)
+
+class Cyclical1LearningRate(tf.keras.optimizers.schedules.LearningRateSchedule):
+  """A LearningRateSchedule that uses cyclical schedule.
+  https://yashuseth.blog/2018/11/26/hyper-parameter-tuning-best-practices-learning-rate-batch-size-momentum-weight-decay/
+  """
+
+  def __init__(
+    self,
+    initial_learning_rate,
+    maximal_learning_rate,
+    final_learning_rate,
+    step_size,
+    name: str = "Cyclical1LearningRate",
+  ):
+    super().__init__()
+    self.initial_learning_rate = initial_learning_rate
+    self.maximal_learning_rate = maximal_learning_rate
+    self.final_learning_rate = final_learning_rate
+    self.step_size = step_size
+    self.name = name
+
+  def __call__(self, step):
+    with tf.name_scope(self.name or "Cyclical1LearningRate"):
+      initial_learning_rate = tf.convert_to_tensor(self.initial_learning_rate,
+        name="initial_learning_rate")
+      dtype = initial_learning_rate.dtype
+      maximal_learning_rate = tf.cast(self.maximal_learning_rate, dtype)
+      final_learning_rate = tf.cast(self.final_learning_rate, dtype)
+      
+      step_size = tf.cast(self.step_size, dtype)
+      cycle = tf.floor(1 + step / (2 * step_size))
+      x = tf.abs(step / step_size - 2 * cycle + 1)
+      
+      lr = tf.where(step > 2*step_size,
+                    final_learning_rate,
+                    initial_learning_rate + (
+                      maximal_learning_rate - initial_learning_rate
+                      ) * tf.maximum(tf.cast(0, dtype), (1 - x)))
+      return lr
+
+  def get_config(self):
+      return {
+          "initial_learning_rate": self.initial_learning_rate,
+          "maximal_learning_rate": self.maximal_learning_rate,
+          "final_learning_rate": self.final_learning_rate,
+          "step_size": self.step_size,
+      }

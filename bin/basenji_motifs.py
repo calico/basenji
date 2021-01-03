@@ -120,7 +120,7 @@ def main():
   eval_data = dataset.SeqDataset(data_dir,
     split_label=options.split_label,
     batch_size=params_train['batch_size'],
-    mode=tf.estimator.ModeKeys.EVAL,
+    mode='eval',
     tfr_pattern=options.tfr_pattern)
 
   # obtain sequences

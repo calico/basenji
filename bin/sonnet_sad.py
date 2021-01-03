@@ -307,7 +307,7 @@ class PredStreamGen:
     # add rc/shifts
     for seq_1hot in seqs_1hot:
       for shift in self.shifts:
-        seq_1hot_aug = dna_io.hot1_augment(seq_1hot)
+        seq_1hot_aug = dna_io.hot1_augment(seq_1hot, shift=shift)
         seqs_1hot_ens.append(seq_1hot_aug)
         if self.rc:
           seq_1hot_aug = dna_io.hot1_rc(seq_1hot_aug)

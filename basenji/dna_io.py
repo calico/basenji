@@ -122,16 +122,22 @@ def hot1_augment(Xb, fwdrc=True, shift=0):
       Xbt:    Transformed version of Xb
     """
 
+  if Xb.ndim == 2:
+    singleton = True
+    Xb = np.expand_dims(Xb, axis=0)
+  else:
+    singleton = False
+
   if Xb.dtype == bool:
     nval = 0
   else:
-    nval = 1. / Xb.shape[2]
+    nval = 0.25
 
   if shift == 0:
     Xbt = Xb
 
   elif shift > 0:
-    Xbt = np.zeros(Xb.shape)
+    Xbt = np.zeros(Xb.shape, dtype=Xb.dtype)
 
     # fill in left unknowns
     Xbt[:, :shift, :] = nval
@@ -154,6 +160,9 @@ def hot1_augment(Xb, fwdrc=True, shift=0):
 
   if not fwdrc:
     Xbt = hot1_rc(Xbt)
+
+  if singleton:
+    Xbt = Xbt[0]
 
   return Xbt
 

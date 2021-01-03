@@ -12,18 +12,20 @@ dependencies:
   - natsort
   - networkx
   - numpy
+  - packaging
   - pandas
   - pillow
   - pybedtools
   - pybigwig
   - pysam
-  - python=3.7
+  - python=3.8
   - scikit-learn
   - scipy
   - seaborn
   - statsmodels
   - tabulate
   - pip:
+    - tensorflow
     - cooler
     - cooltools
     

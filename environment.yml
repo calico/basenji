@@ -1,10 +1,13 @@
 name: basenji
 channels:
+  - defaults
   - conda-forge
   - bioconda
-  - defaults
+  - nvidia
 dependencies:
   - astropy
+  - cudatoolkit=11
+  - cudnn==8
   - h5py
   - intervaltree
   - joblib
@@ -25,7 +28,6 @@ dependencies:
   - statsmodels
   - tabulate
   - pip:
-    - tensorflow
     - cooler
     - cooltools
-    
+    - tensorflow

@@ -239,9 +239,14 @@ class WheezeExcite(tf.keras.layers.Layer):
 
 
 class SqueezeExcite(tf.keras.layers.Layer):
-  def __init__(self, additive=False):
+  def __init__(self, activation='relu', additive=False, bottleneck_ratio=8,
+    batch_norm=False, bn_momentum=0.9):
     super(SqueezeExcite, self).__init__()
+    self.activation = activation
     self.additive = additive
+    self.batch_norm = batch_norm
+    self.bn_momentum = bn_momentum
+    self.bottleneck_ratio = bottleneck_ratio
 
   def build(self, input_shape):
     self.num_channels = input_shape[-1]
@@ -257,19 +262,28 @@ class SqueezeExcite(tf.keras.layers.Layer):
       exit(1)
 
     self.dense1 = tf.keras.layers.Dense(
-      units=self.num_channels//4,
+      units=self.num_channels//self.bottleneck_ratio,
       activation='relu')
     self.dense2 = tf.keras.layers.Dense(
       units=self.num_channels,
       activation=None)
+    if self.batch_norm:
+      self.bn = tf.keras.layers.BatchNormalization(
+        momentum=self.bn_momentum,
+        gamma_initializer='zeros')
 
   def call(self, x):
+    # activate
+    x = activate(x, self.activation)
+
     # squeeze
     squeeze = self.gap(x)
 
     # excite
     excite = self.dense1(squeeze)
     excite = self.dense2(excite)
+    if self.batch_norm:
+      excite = self.bn(excite)
 
     # scale
     if self.one_or_two == 'one':
@@ -279,7 +293,6 @@ class SqueezeExcite(tf.keras.layers.Layer):
 
     if self.additive:
       xs = x + excite
-      xs = tf.keras.activations.relu(xs)
     else:
       excite = tf.keras.activations.sigmoid(excite)
       xs = x * excite
@@ -289,7 +302,11 @@ class SqueezeExcite(tf.keras.layers.Layer):
   def get_config(self):
     config = super().get_config().copy()
     config.update({
-      'additive': self.additive
+      'activation': self.activation,
+      'additive': self.additive,
+      'batch_norm': self.batch_norm,
+      'bn_momentum': self.bn_momentum,
+      'bottleneck_ratio': self.bottleneck_ratio
     })
     return config
 

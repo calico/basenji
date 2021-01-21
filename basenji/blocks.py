@@ -432,8 +432,10 @@ def position_encoding(current, min_rate=.0001):
 
   return current
 
-def squeeze_excite(inputs, **kwargs):
-  return layers.SqueezeExcite()(inputs)
+def squeeze_excite(inputs, activation='relu', bottleneck_ratio=8,
+     additive=False, batch_norm=False, bn_momentum=0.9, **kwargs):
+  return layers.SqueezeExcite(activation, additive, bottleneck_ratio,
+    batch_norm, bn_momentum)(inputs)
 
 def wheeze_excite(inputs, pool_size, **kwargs):
   return layers.WheezeExcite(pool_size)(inputs)

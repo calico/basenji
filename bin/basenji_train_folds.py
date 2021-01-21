@@ -229,7 +229,7 @@ def main():
                             queue=options.queue,
                             cpu=1, gpu=1,
                             mem=23000,
-                            time='4:00:00')
+                            time='8:00:00')
             jobs.append(basenji_job)
 
 

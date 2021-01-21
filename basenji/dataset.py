@@ -54,7 +54,7 @@ def file_to_records(filename):
 #     self.make_dataset()
 
 class SeqDataset:
-  def __init__(self, data_dir, split_label, batch_size, shuffle_buffer=32,
+  def __init__(self, data_dir, split_label, batch_size, shuffle_buffer=128,
                seq_length_crop=None, mode='eval', tfr_pattern=None):
     """Initialize basic parameters; run compute_stats; run make_dataset."""
 

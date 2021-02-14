@@ -623,18 +623,110 @@ def factor_inverse(inputs, components_file, **kwargs):
   return current
 
 ############################################################
-# Keras defaults
+# Dense
 ############################################################
-def final(inputs, units, activation='linear', kernel_initializer='he_normal',
-          l2_scale=0, l1_scale=0, **kwargs):
+def dense_block(inputs, units=None, activation='relu', activation_end=None,
+    flatten=False, dropout=0, l2_scale=0, l1_scale=0, residual=False,
+    batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
+    kernel_initializer='he_normal', **kwargs):
+  """Construct a single convolution block.
 
+  Args:
+    inputs:         [batch_size, seq_length, features] input sequence
+    units:          Conv1D filters
+    activation:     relu/gelu/etc
+    activation_end: Compute activation after the other operations
+    flatten:        Flatten across positional axis
+    dropout:        Dropout rate probability
+    l2_scale:       L2 regularization weight.
+    l1_scale:       L1 regularization weight.
+    residual:       Residual connection boolean
+    batch_norm:     Apply batch normalization
+    bn_momentum:    BatchNorm momentum
+    bn_gamma:       BatchNorm gamma (defaults according to residual)
+
+  Returns:
+    [batch_size, seq_length(?), features] output sequence
+  """
+  current = inputs
+
+  if units is None:
+    units = inputs.shape[-1]
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # flatten
+  if flatten:
+    _, seq_len, seq_depth = current.shape
+    current = tf.keras.layers.Reshape((1,seq_len*seq_depth,))(current)
+
+  # dense
+  current = tf.keras.layers.Dense(
+    units=units,
+    use_bias=(not batch_norm),
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
+    )(current)
+
+  # batch norm
+  if batch_norm:
+    if bn_gamma is None:
+      bn_gamma = 'zeros' if residual else 'ones'
+    if bn_type == 'sync':
+      bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
+    else:
+      bn_layer = tf.keras.layers.BatchNormalization
+    current = bn_layer(
+      momentum=bn_momentum,
+      gamma_initializer=bn_gamma)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # residual add
+  if residual:
+    current = tf.keras.layers.Add()([inputs,current])
+
+  # end activation
+  if activation_end is not None:
+    current = layers.activate(current, activation_end)
+
+  return current
+
+
+def final(inputs, units, activation='linear', flatten=False,
+          kernel_initializer='he_normal', l2_scale=0, l1_scale=0, **kwargs):
+  """Final simple transformation before comparison to targets.
+
+  Args:
+    inputs:         [batch_size, seq_length, features] input sequence
+    units:          Dense units
+    activation:     relu/gelu/etc
+    flatten:        Flatten positional axis.
+    l2_scale:       L2 regularization weight.
+    l1_scale:       L1 regularization weight.
+
+  Returns:
+    [batch_size, seq_length(?), units] output sequence
+
+  """
+  current = inputs
+
+  # flatten
+  if flatten:
+    _, seq_len, seq_depth = current.shape
+    current = tf.keras.layers.Reshape((1,seq_len*seq_depth,))(current)
+
+  # dense
   current = tf.keras.layers.Dense(
     units=units,
     use_bias=True,
     activation=activation,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
-    )(inputs)
+    )(current)
 
   return current
 
@@ -649,7 +741,7 @@ def dense(inputs, units, activation='linear', kernel_initializer='he_normal',
     activation=activation,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
-    )(inputs)
+    )(current)
 
   return current
 
@@ -715,11 +807,13 @@ name_func = {
   'conv_tower': conv_tower,
   'cropping_2d': cropping_2d,
   'dense': dense,
+  'dense_block': dense_block,
   'dilated_residual': dilated_residual,
   'dilated_residual_2d': dilated_residual_2d,
   'dilated_dense': dilated_dense,
   'exp': exp,
   'factor_inverse': factor_inverse,
+  'final': final,
   'global_context': global_context,
   'one_to_two': one_to_two,
   'symmetrize_2d':symmetrize_2d,

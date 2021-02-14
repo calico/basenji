@@ -54,7 +54,7 @@ class SeqNN():
     block_name = block_params['name']
     del block_params['name']
 
-    # save upper_tri flaten
+    # save upper_tri flatten
     self.preds_triu |= (block_name == 'upper_tri')
         
     # if Keras, get block variables names

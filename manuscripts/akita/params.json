@@ -6,7 +6,7 @@
         "momentum": 0.99575,
         "loss": "mse",
         "patience": 12,
-        "clipnorm": 10.7
+        "clip_norm": 10.0
     },
     "model": {
         "seq_length": 1048576,
@@ -80,7 +80,7 @@
                 "diagonal_offset": 2
             },
             {
-                "name": "dense",
+                "name": "final",
                 "units": 5,
                 "activation": "linear"
             }

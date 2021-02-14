@@ -49,7 +49,7 @@
             }
         ],
         "head_mouse": {
-            "name": "dense",
+            "name": "final",
             "units": 1643,
             "activation": "softplus"
         }

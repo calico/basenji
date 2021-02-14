@@ -49,7 +49,7 @@
             }
         ],
         "head_human": {
-            "name": "dense",
+            "name": "final",
             "units": 5313,
             "activation": "softplus"
         }

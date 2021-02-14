@@ -232,7 +232,7 @@ class Trainer:
         # train
         t0 = time.time()
         for di in self.dataset_indexes:
-          x, y = next(train_data_iters[di])
+          x, y = safe_next(train_data_iters[di])
           if di == 0:
             train_step0(x, y)
           else:
@@ -364,7 +364,7 @@ class Trainer:
         t0 = time.time()
         train_iter = iter(self.train_data[0].dataset)
         for si in range(self.train_epoch_batches[0]):
-          x, y = next(train_iter)
+          x, y = safe_next(train_iter)
           if self.strategy is not None:
             train_step_distr(x, y)
           else:
@@ -373,7 +373,7 @@ class Trainer:
         # evaluate
         # eval_iter = iter(self.eval_data[0].dataset)
         # for si in range(self.eval_epoch_batches[0]):
-        #   x, y = next(eval_iter)
+        #   x, y = safe_next(eval_iter)
         for x, y in self.eval_data[0].dataset:
           if self.strategy is not None:
             eval_step_distr(x, y)
@@ -540,3 +540,20 @@ class Cyclical1LearningRate(tf.keras.optimizers.schedules.LearningRateSchedule):
           "final_learning_rate": self.final_learning_rate,
           "step_size": self.step_size,
       }
+
+def safe_next(data_iter, retry=5, sleep=10):
+  attempts = 0
+  d = None
+  while d is None and attempts < retry:
+    try:
+      d = next(data_iter)
+    except tensorflow.python.framework.errors_impl.AbortedError:
+      print('AbortedError, which has previously indicated NFS daemon restart.', file=sys.stderr)
+      time.sleep(sleep)
+    attempts += 1
+
+  if d is None:
+      # let it crash
+      d = next(data_iter)
+
+  return d

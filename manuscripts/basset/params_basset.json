@@ -13,7 +13,7 @@
         "seq_length": 1344,
 
         "augment_rc": true,
-        "augment_shift": 2,
+        "augment_shift": 3,
 
         "activation": "gelu",
         "batch_norm": true,
@@ -40,16 +40,15 @@
                 "kernel_size": 1
             },
             {
-                "name": "conv_block",
-                "filters": 768,
-                "kernel_size": 7,
-                "dropout": 0.2,
-                "padding": "valid"
+                "name": "dense_block",
+		"flatten": true,
+                "units": 768,
+                "dropout": 0.2
             }
         ],
-        "head_seq": [
+        "head": [
             {
-                "name": "dense",
+                "name": "final",
                 "units": 164,
                 "activation": "sigmoid"
             }

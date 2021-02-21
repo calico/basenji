@@ -8,6 +8,7 @@ dependencies:
   - astropy
   - cudatoolkit=11
   - cudnn==8
+  - cython
   - h5py
   - intervaltree
   - joblib

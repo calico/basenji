@@ -741,7 +741,7 @@ def dense(inputs, units, activation='linear', kernel_initializer='he_normal',
     activation=activation,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
-    )(current)
+    )(inputs)
 
   return current
 

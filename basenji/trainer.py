@@ -371,9 +371,6 @@ class Trainer:
             train_step(x, y)
 
         # evaluate
-        # eval_iter = iter(self.eval_data[0].dataset)
-        # for si in range(self.eval_epoch_batches[0]):
-        #   x, y = safe_next(eval_iter)
         for x, y in self.eval_data[0].dataset:
           if self.strategy is not None:
             eval_step_distr(x, y)
@@ -388,7 +385,6 @@ class Trainer:
           (ei, (time.time()-t0), train_loss_epoch, train_r_epoch, train_r2_epoch), end='')
 
         # print validation accuracy
-        # valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data[0].dataset, verbose=0)
         valid_loss_epoch = valid_loss.result().numpy()
         valid_r_epoch = valid_r.result().numpy()
         valid_r2_epoch = valid_r2.result().numpy()

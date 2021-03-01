@@ -226,9 +226,9 @@ class PearsonR(tf.keras.metrics.Metric):
 
     true_var = self._true_sumsq - tf.multiply(self._count, true_mean2)
     pred_var = self._pred_sumsq - tf.multiply(self._count, pred_mean2)
-    pred_var = tf.cond(tf.greater(pred_var, 1e-12),
-                       lambda: pred_var,
-                       lambda: np.inf*tf.ones_like(pred_var))
+    pred_var = tf.where(tf.greater(pred_var, 1e-12),
+                        pred_var,
+                        np.inf*tf.ones_like(pred_var))
     
     tp_var = tf.multiply(tf.math.sqrt(true_var), tf.math.sqrt(pred_var))
     correlation = tf.divide(covariance, tp_var)

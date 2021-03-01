@@ -350,13 +350,26 @@ class Trainer:
       def eval_step_distr(xd, yd):
         return self.strategy.run(eval_step, args=(xd, yd))
 
+    # checkpoint manager
+    ckpt = tf.train.Checkpoint(model=seqnn_model.model, optimizer=self.optimizer)
+    manager = tf.train.CheckpointManager(ckpt, self.out_dir, max_to_keep=1)
+    ckpt.restore(manager.latest_checkpoint)
+    if manager.latest_checkpoint:
+      ckpt_end = 5+manager.latest_checkpoint.find('ckpt-')
+      epoch_start = int(manager.latest_checkpoint[ckpt_end:])
+      print('Checkpoint restored at epoch %d, optimizer iteration %d.' % \
+        (epoch_start, self.optimizer.iterations))
+
+    else:
+      print('No checkpoints found.')
+      epoch_start = 0
 
     # improvement variables
     valid_best = -np.inf
     unimproved = 0
 
     # training loop
-    for ei in range(self.train_epochs_max):
+    for ei in range(epoch_start, self.train_epochs_max):
       if ei >= self.train_epochs_min and unimproved > self.patience:
         break
       else:
@@ -392,6 +405,7 @@ class Trainer:
           (valid_loss_epoch, valid_r_epoch, valid_r2_epoch), end='')
 
         # checkpoint
+        manager.save()
         seqnn_model.save('%s/model_check.h5'%self.out_dir)
 
         # check best

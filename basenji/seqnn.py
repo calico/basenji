@@ -52,7 +52,6 @@ class SeqNN():
 
     # extract name
     block_name = block_params['name']
-    del block_params['name']
 
     # save upper_tri flatten
     self.preds_triu |= (block_name == 'upper_tri')
@@ -74,6 +73,7 @@ class SeqNN():
 
     # set remaining params
     block_args.update(block_params)
+    del block_args['name']
 
     # switch for block
     if block_name[0].islower():

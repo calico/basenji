@@ -16,4 +16,4 @@ then
 	mv wgEncodeHg19ConsensusSignalArtifactRegions.bed data/
 fi
 
-basenji_data.py -b $blacklist -p 8 -r 4096 -w 192 -l 1344 --peaks -v .12 -t .12 --stride 192 --stride_test 192 --crop 576 -o data_basset --local $fasta data/targets.txt
+basenji_data.py -b $blacklist --local -p 8 -r 4096 -w 192 -l 1344 --peaks -v .12 -t .12 --stride 192 --stride_test 192 --crop 576 -o data_basset $fasta data/targets.txt

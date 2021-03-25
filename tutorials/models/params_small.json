@@ -7,11 +7,10 @@
         "momentum": 0.99,
         "train_epochs": 20,
         "patience": 8,
-        "clipnorm": 2
+        "clip_norm": 2
     },
     "model": {
         "seq_length": 131072,
-        "target_length": 1024,
 
         "augment_rc": true,
         "augment_shift": 3,
@@ -49,7 +48,7 @@
             }
         ],
         "head": {
-            "name": "dense",
+            "name": "final",
             "units": 3,
             "activation": "softplus"
         }

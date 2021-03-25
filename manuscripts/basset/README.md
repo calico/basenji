@@ -8,6 +8,4 @@
 
 *params_basset.json* - Recommended parameters to train a Basset-style model. Note, these aren't the exact parameters used in that paper; they represent a roughly benchmarked improvement.
 
-Also note that I implemented the flatten/dense penultimate layers with a "valid" padded convolution. You have to specify the sequence length, pooling, and width of this convolution carefully to match your preprocessing of the peaks above. I recommend this approach because the flatten/dense layer can contain a huge majority of the model's parameters if designed thoughtlessly. I wouldn't go beyond a kernel width of 5-10; instead, pool your representation further. If you're having trouble getting this to work, reach out, and I'll lend a hand.
-
-*basenji_train.py -k -o train_basset --rc params_basset.json data_basset*
+*basenji_train.py -k -o train_basset params_basset.json data_basset*

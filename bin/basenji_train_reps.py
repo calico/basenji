@@ -138,7 +138,7 @@ def main():
                     outf, errf, sbf,
                     queue=options.queue,
                     gpu=params_train.get('num_gpu',1),
-                    mem=23000, time='28-0:0:0')
+                    mem=30000, time='28-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

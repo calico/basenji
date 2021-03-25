@@ -333,7 +333,7 @@ def ensemble_scores_h5(ensemble_dir, scores_files):
     sad_values = sad_values.astype('float16')
 
     # save
-    ensemble_h5.create_dataset(key, data=sad_values)
+    ensemble_h5.create_dataset(sad_stat, data=sad_values)
 
   ensemble_h5.close()
 

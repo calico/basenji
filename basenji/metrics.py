@@ -188,23 +188,28 @@ class PearsonR(tf.keras.metrics.Metric):
     y_true = tf.cast(y_true, 'float32')
     y_pred = tf.cast(y_pred, 'float32')
 
-    product = tf.reduce_sum(tf.multiply(y_true, y_pred), axis=[0,1])
+    if len(y_true.shape) == 2:
+      reduce_axes = 0
+    else:
+      reduce_axes = [0,1]
+
+    product = tf.reduce_sum(tf.multiply(y_true, y_pred), axis=reduce_axes)
     self._product.assign_add(product)
 
-    true_sum = tf.reduce_sum(y_true, axis=[0,1])
+    true_sum = tf.reduce_sum(y_true, axis=reduce_axes)
     self._true_sum.assign_add(true_sum)
 
-    true_sumsq = tf.reduce_sum(tf.math.square(y_true), axis=[0,1])
+    true_sumsq = tf.reduce_sum(tf.math.square(y_true), axis=reduce_axes)
     self._true_sumsq.assign_add(true_sumsq)
 
-    pred_sum = tf.reduce_sum(y_pred, axis=[0,1])
+    pred_sum = tf.reduce_sum(y_pred, axis=reduce_axes)
     self._pred_sum.assign_add(pred_sum)
 
-    pred_sumsq = tf.reduce_sum(tf.math.square(y_pred), axis=[0,1])
+    pred_sumsq = tf.reduce_sum(tf.math.square(y_pred), axis=reduce_axes)
     self._pred_sumsq.assign_add(pred_sumsq)
 
     count = tf.ones_like(y_true)
-    count = tf.reduce_sum(count, axis=[0,1])
+    count = tf.reduce_sum(count, axis=reduce_axes)
     self._count.assign_add(count)
 
   def result(self):
@@ -221,6 +226,10 @@ class PearsonR(tf.keras.metrics.Metric):
 
     true_var = self._true_sumsq - tf.multiply(self._count, true_mean2)
     pred_var = self._pred_sumsq - tf.multiply(self._count, pred_mean2)
+    pred_var = tf.where(tf.greater(pred_var, 1e-12),
+                        pred_var,
+                        np.inf*tf.ones_like(pred_var))
+    
     tp_var = tf.multiply(tf.math.sqrt(true_var), tf.math.sqrt(pred_var))
     correlation = tf.divide(covariance, tp_var)
 
@@ -250,20 +259,25 @@ class R2(tf.keras.metrics.Metric):
     y_true = tf.cast(y_true, 'float32')
     y_pred = tf.cast(y_pred, 'float32')
 
-    true_sum = tf.reduce_sum(y_true, axis=[0,1])
+    if len(y_true.shape) == 2:
+      reduce_axes = 0
+    else:
+      reduce_axes = [0,1]
+
+    true_sum = tf.reduce_sum(y_true, axis=reduce_axes)
     self._true_sum.assign_add(true_sum)
 
-    true_sumsq = tf.reduce_sum(tf.math.square(y_true), axis=[0,1])
+    true_sumsq = tf.reduce_sum(tf.math.square(y_true), axis=reduce_axes)
     self._true_sumsq.assign_add(true_sumsq)
 
-    product = tf.reduce_sum(tf.multiply(y_true, y_pred), axis=[0,1])
+    product = tf.reduce_sum(tf.multiply(y_true, y_pred), axis=reduce_axes)
     self._product.assign_add(product)
 
-    pred_sumsq = tf.reduce_sum(tf.math.square(y_pred), axis=[0,1])
+    pred_sumsq = tf.reduce_sum(tf.math.square(y_pred), axis=reduce_axes)
     self._pred_sumsq.assign_add(pred_sumsq)
 
     count = tf.ones_like(y_true)
-    count = tf.reduce_sum(count, axis=[0,1])
+    count = tf.reduce_sum(count, axis=reduce_axes)
     self._count.assign_add(count)
 
   def result(self):

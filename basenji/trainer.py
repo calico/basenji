@@ -232,7 +232,7 @@ class Trainer:
         # train
         t0 = time.time()
         for di in self.dataset_indexes:
-          x, y = next(train_data_iters[di])
+          x, y = safe_next(train_data_iters[di])
           if di == 0:
             train_step0(x, y)
           else:
@@ -350,13 +350,26 @@ class Trainer:
       def eval_step_distr(xd, yd):
         return self.strategy.run(eval_step, args=(xd, yd))
 
+    # checkpoint manager
+    ckpt = tf.train.Checkpoint(model=seqnn_model.model, optimizer=self.optimizer)
+    manager = tf.train.CheckpointManager(ckpt, self.out_dir, max_to_keep=1)
+    ckpt.restore(manager.latest_checkpoint)
+    if manager.latest_checkpoint:
+      ckpt_end = 5+manager.latest_checkpoint.find('ckpt-')
+      epoch_start = int(manager.latest_checkpoint[ckpt_end:])
+      print('Checkpoint restored at epoch %d, optimizer iteration %d.' % \
+        (epoch_start, self.optimizer.iterations))
+
+    else:
+      print('No checkpoints found.')
+      epoch_start = 0
 
     # improvement variables
     valid_best = -np.inf
     unimproved = 0
 
     # training loop
-    for ei in range(self.train_epochs_max):
+    for ei in range(epoch_start, self.train_epochs_max):
       if ei >= self.train_epochs_min and unimproved > self.patience:
         break
       else:
@@ -364,16 +377,13 @@ class Trainer:
         t0 = time.time()
         train_iter = iter(self.train_data[0].dataset)
         for si in range(self.train_epoch_batches[0]):
-          x, y = next(train_iter)
+          x, y = safe_next(train_iter)
           if self.strategy is not None:
             train_step_distr(x, y)
           else:
             train_step(x, y)
 
         # evaluate
-        # eval_iter = iter(self.eval_data[0].dataset)
-        # for si in range(self.eval_epoch_batches[0]):
-        #   x, y = next(eval_iter)
         for x, y in self.eval_data[0].dataset:
           if self.strategy is not None:
             eval_step_distr(x, y)
@@ -388,7 +398,6 @@ class Trainer:
           (ei, (time.time()-t0), train_loss_epoch, train_r_epoch, train_r2_epoch), end='')
 
         # print validation accuracy
-        # valid_loss, valid_pr, valid_r2 = model.evaluate(self.eval_data[0].dataset, verbose=0)
         valid_loss_epoch = valid_loss.result().numpy()
         valid_r_epoch = valid_r.result().numpy()
         valid_r2_epoch = valid_r2.result().numpy()
@@ -396,6 +405,7 @@ class Trainer:
           (valid_loss_epoch, valid_r_epoch, valid_r2_epoch), end='')
 
         # checkpoint
+        manager.save()
         seqnn_model.save('%s/model_check.h5'%self.out_dir)
 
         # check best
@@ -610,3 +620,20 @@ class WarmUp(tf.keras.optimizers.schedules.LearningRateSchedule):
       "power": self.power,
       "name": self.name,
     }
+
+def safe_next(data_iter, retry=5, sleep=10):
+  attempts = 0
+  d = None
+  while d is None and attempts < retry:
+    try:
+      d = next(data_iter)
+    except tensorflow.python.framework.errors_impl.AbortedError:
+      print('AbortedError, which has previously indicated NFS daemon restart.', file=sys.stderr)
+      time.sleep(sleep)
+    attempts += 1
+
+  if d is None:
+      # let it crash
+      d = next(data_iter)
+
+  return d

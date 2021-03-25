@@ -5,7 +5,7 @@
         "learning_rate": 0.15,
         "momentum": 0.99,
         "patience": 16,
-        "clipnorm": 2
+        "clip_norm": 2
     },
     "model": {
         "seq_length": 131072,
@@ -30,28 +30,28 @@
                 "pool_size": 2,
                 "repeat": 6
             },
-	    {
+            {
                 "name": "dilated_residual",
                 "filters": 384,
                 "rate_mult": 1.5,
                 "repeat": 11,
                 "dropout": 0.3,
-		"round": true
+                "round": true
             },
-	    {
-		"name": "Cropping1D",
-		"cropping": 64
-	    },
-	    {
+            {
+                "name": "Cropping1D",
+                "cropping": 64
+            },
+            {
                 "name": "conv_block",
                 "filters": 1536,
                 "dropout": 0.05
             }
         ],
         "head_mouse": {
-	    "name": "dense",
-	    "units": 1643,
-	    "activation": "softplus"
-	}
+            "name": "final",
+            "units": 1643,
+            "activation": "softplus"
+        }
     }
 }

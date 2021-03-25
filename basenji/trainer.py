@@ -418,27 +418,34 @@ class Trainer:
 
 
   def make_optimizer(self):
-    # schedule (currently OFF)
-    initial_learning_rate = self.params.get('learning_rate', 0.01)
-    if False:
-      lr_schedule = keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate,
-        decay_steps=self.params.get('decay_steps', 100000),
-        decay_rate=self.params.get('decay_rate', 0.96),
-        staircase=True)
-    else:
-      lr_schedule = initial_learning_rate
-
     cyclical1 = True
     for lrs_param in ['initial_learning_rate', 'maximal_learning_rate', 'final_learning_rate', 'train_epochs_cycle1']:
       cyclical1 = cyclical1 & (lrs_param in self.params)
     if cyclical1:
       step_size = self.params['train_epochs_cycle1'] * sum(self.train_epoch_batches)
+      initial_learning_rate = self.params.get('initial_learning_rate')
       lr_schedule = Cyclical1LearningRate(
         initial_learning_rate=self.params['initial_learning_rate'],
         maximal_learning_rate=self.params['maximal_learning_rate'],
         final_learning_rate=self.params['final_learning_rate'],
         step_size=step_size)
+    else:
+      # schedule (currently OFF)
+      initial_learning_rate = self.params.get('learning_rate', 0.01)
+      if False:
+        lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+          initial_learning_rate,
+          decay_steps=self.params.get('decay_steps', 100000),
+          decay_rate=self.params.get('decay_rate', 0.96),
+          staircase=True)
+      else:
+        lr_schedule = initial_learning_rate
+
+    if 'warmup_steps' in self.params:
+      lr_schedule = WarmUp(
+        initial_learning_rate=initial_learning_rate,
+        warmup_steps=self.params['warmup_steps'],
+        decay_schedule=lr_schedule)
 
     if version.parse(tf.__version__) < version.parse('2.2'):
       clip_norm_default = 1000000
@@ -453,7 +460,8 @@ class Trainer:
           learning_rate=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
           beta_2=self.params.get('adam_beta2',0.999),
-          clipnorm=clip_norm)
+          clipnorm=clip_norm,
+          amsgrad=True)
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
@@ -540,3 +548,65 @@ class Cyclical1LearningRate(tf.keras.optimizers.schedules.LearningRateSchedule):
           "final_learning_rate": self.final_learning_rate,
           "step_size": self.step_size,
       }
+
+class WarmUp(tf.keras.optimizers.schedules.LearningRateSchedule):
+  """
+  Applies a warmup schedule on a given learning rate decay schedule.
+  (h/t HuggingFace.)
+
+  Args:
+      initial_learning_rate (:obj:`float`):
+          The initial learning rate for the schedule after the warmup (so this will be the learning rate at the end
+          of the warmup).
+      decay_schedule (:obj:`Callable`):
+          The learning rate or schedule function to apply after the warmup for the rest of training.
+      warmup_steps (:obj:`int`):
+          The number of steps for the warmup part of training.
+      power (:obj:`float`, `optional`, defaults to 1):
+          The power to use for the polynomial warmup (defaults is a linear warmup).
+      name (:obj:`str`, `optional`):
+          Optional name prefix for the returned tensors during the schedule.
+  """
+
+  def __init__(
+    self,
+    initial_learning_rate: float,
+    warmup_steps: int,
+    decay_schedule: None,
+    power: float = 1.0,
+    name: str = None,
+  ):
+    super().__init__()
+    self.initial_learning_rate = initial_learning_rate
+    self.warmup_steps = warmup_steps
+    self.power = power
+    self.decay_schedule = decay_schedule
+    self.name = name
+
+  def __call__(self, step):
+    with tf.name_scope(self.name or "WarmUp") as name:
+      # Implements polynomial warmup. i.e., if global_step < warmup_steps, the
+      # learning rate will be `global_step/num_warmup_steps * init_lr`.
+      global_step_float = tf.cast(step, tf.float32)
+      warmup_steps_float = tf.cast(self.warmup_steps, tf.float32)
+      warmup_percent_done = global_step_float / warmup_steps_float
+      warmup_learning_rate = self.initial_learning_rate * tf.math.pow(warmup_percent_done, self.power)
+      if callable(self.decay_schedule):
+        warmed_learning_rate = self.decay_schedule(step - self.warmup_steps)
+      else:
+        warmed_learning_rate = self.decay_schedule
+      return tf.cond(
+        global_step_float < warmup_steps_float,
+        lambda: warmup_learning_rate,
+        lambda: warmed_learning_rate,
+        name=name,
+      )
+
+  def get_config(self):
+    return {
+      "initial_learning_rate": self.initial_learning_rate,
+      "decay_schedule": self.decay_schedule,
+      "warmup_steps": self.warmup_steps,
+      "power": self.power,
+      "name": self.name,
+    }

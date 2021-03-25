@@ -139,13 +139,11 @@ def _prepend_dims(x, num_dims):
   return tf.reshape(x, shape=[1] * num_dims + x.shape)
 
 def positional_features_central_mask(positions: tf.Tensor,
-                                     feature_size: int,
-                                     seq_length: Optional[int] = None,
-                                     bin_size: Optional[int] = None):
+                                        feature_size: int,
+                                        seq_length: int):
   """Positional features using a central mask (allow only central features)."""
-  del seq_length  # Unused.
-  del bin_size  # Unused.
-  center_widths = tf.pow(2.0, tf.range(1, feature_size + 1, dtype=tf.float32))
+  pow_rate = np.exp(np.log(seq_length+1) / feature_size).astype('float32')
+  center_widths = tf.pow(pow_rate, tf.range(1, feature_size + 1, dtype=tf.float32))
   center_widths = center_widths - 1
   center_widths = _prepend_dims(center_widths, positions.shape.rank)
   outputs = tf.cast(center_widths > tf.abs(positions)[..., tf.newaxis],
@@ -263,6 +261,46 @@ def positional_features_all(positions: tf.Tensor,
       positions.shape + [feature_size])
   return embeddings
 
+def positional_features(positions: tf.Tensor,
+                        feature_size: int,
+                        seq_length: int,
+                        symmetric=False):
+  """Compute relative positional encodings/features.
+
+  Each positional feature function will compute/provide the same fraction of
+  features, making up the total of feature_size.
+
+  Args:
+    positions: Tensor of relative positions of arbitrary shape.
+    feature_size: Total number of basis functions.
+    seq_length: Sequence length denoting the characteristic length that
+      the individual positional features can use. This is required since the
+      parametrization of the input features should be independent of `positions`
+      while it could still require to use the total number of features.
+    symmetric: If True, the resulting features will be symmetric across the
+      relative position of 0 (i.e. only absolute value of positions will
+      matter). If false, then both the symmetric and asymmetric version
+      (symmetric multiplied by sign(positions)) of the features will be used.
+
+  Returns:
+    Tensor of shape: `positions.shape + (feature_size,)`.
+  """
+  if symmetric:
+    num_components = 1
+  else:
+    num_components = 2
+  num_basis_per_class = feature_size // num_components
+  
+  embeddings = positional_features_central_mask(positions, num_basis_per_class, seq_length)
+
+  if not symmetric:
+    embeddings = tf.concat([embeddings, tf.sign(positions)[..., tf.newaxis] * embeddings], axis=-1)
+
+  tf.TensorShape(embeddings.shape).assert_is_compatible_with(
+      positions.shape + [feature_size])
+
+  return embeddings
+
 def relative_shift(x):
   """Shift the relative logits like in TransformerXL."""
   # We prepend zeros on the final timescale dimension.
@@ -281,22 +319,21 @@ class MultiheadAttention(tf.keras.layers.Layer):
   def __init__(self,
                value_size,
                key_size,
-               num_heads,
+               heads,
                scaling=True,
                attention_dropout_rate=0,
                relative_position_symmetric=True,
-               relative_position_functions=['positional_features_central_mask','positional_features_gamma'],
-               num_relative_position_features=None,
+               relative_position_functions=['positional_features_central_mask'],
+               num_position_features=None,
                positional_dropout_rate=0,
                zero_initialize=True,
-               initializer=None,
-               name=None):
+               initializer=None):
     """Creates a MultiheadAttention module.
 
     Args:
       value_size: The size of each value embedding per head.
       key_size: The size of each key and query embedding per head.
-      num_heads: The number of independent queries per timestep.
+      heads: The number of independent queries per timestep.
       scaling: Whether to scale the attention logits.
       attention_dropout_rate: Dropout rate for attention logits.
       relative_position_symmetric: If True, the symmetric version of basis
@@ -304,31 +341,30 @@ class MultiheadAttention(tf.keras.layers.Layer):
         will be use.
       relative_position_functions: List of function names used for relative
         positional biases.
-      num_relative_position_features: Number of relative positional features
+      num_position_features: Number of relative positional features
         to compute. If None, `value_size * num_heads` is used.
       positional_dropout_rate: Dropout rate for the positional encodings if
         relative positions are used.
       zero_initialize: if True, the final linear layer will be 0 initialized.
       initializer: Initializer for the projection layers. If unspecified,
         VarianceScaling is used with scale = 2.0.
-      name: Name of module.
     """
-    super().__init__(name=name)
+    super().__init__()
     self._value_size = value_size
     self._key_size = key_size
-    self._num_heads = num_heads
+    self._num_heads = heads
     self._attention_dropout_rate = attention_dropout_rate
     self._scaling = scaling
     self._relative_position_symmetric = relative_position_symmetric
     self._relative_position_functions = relative_position_functions
-    if num_relative_position_features is None:
-      # num_relative_position_features needs to be divisible by the number of
+    if num_position_features is None:
+      # num_position_features needs to be divisible by the number of
       # relative positional functions *2 (for symmetric & asymmetric version).
       divisible_by = 2 * len(self._relative_position_functions)
-      self._num_relative_position_features = (
+      self._num_position_features = (
           (self._value_size // divisible_by) * divisible_by)
     else:
-      self._num_relative_position_features = num_relative_position_features
+      self._num_position_features = num_position_features
     self._positional_dropout_rate = positional_dropout_rate
 
     self._initializer = initializer
@@ -338,7 +374,6 @@ class MultiheadAttention(tf.keras.layers.Layer):
     key_proj_size = self._key_size * self._num_heads
     embedding_size = self._value_size * self._num_heads
 
-    # self._q_layer = snt.Linear(
     self._q_layer = tf.keras.layers.Dense(
         key_proj_size,
         name='q_layer',
@@ -366,14 +401,14 @@ class MultiheadAttention(tf.keras.layers.Layer):
         name='r_k_layer',
         use_bias=False,
         kernel_initializer=self._initializer)
-    self._r_w_bias = tf.Variable(
-        self._initializer([1, self._num_heads, 1, self._key_size],
-                          dtype=tf.float32),
-        name='r_w_bias')
-    self._r_r_bias = tf.Variable(
-        self._initializer([1, self._num_heads, 1, self._key_size],
-                          dtype=tf.float32),
-        name='r_r_bias')
+    self._r_w_bias = self.add_weight('r_w_bias',
+          shape=[1, self._num_heads, 1, self._key_size],
+          initializer=self._initializer,
+          dtype=tf.float32)
+    self._r_r_bias = self.add_weight('r_r_bias',
+          shape=[1, self._num_heads, 1, self._key_size],
+          initializer=self._initializer,
+          dtype=tf.float32)
 
   def _multihead_output(self, linear_layer, inputs):
     """Applies a standard linear to inputs and returns multihead output."""
@@ -405,14 +440,19 @@ class MultiheadAttention(tf.keras.layers.Layer):
 
     # Project positions to form relative keys.
     distances = tf.range(-seq_len + 1, seq_len, dtype=tf.float32)[tf.newaxis]
-    positional_encodings = positional_features_all(
+    # positional_encodings = positional_features_all(
+    #     positions=distances,
+    #     feature_size=self._num_position_features,
+    #     seq_length=seq_len,
+    #     feature_functions=self._relative_position_functions,
+    #     symmetric=self._relative_position_symmetric)
+    positional_encodings = positional_features(
         positions=distances,
-        feature_size=self._num_relative_position_features,
+        feature_size=self._num_position_features,
         seq_length=seq_len,
-        feature_functions=self._relative_position_functions,
         symmetric=self._relative_position_symmetric)
     # [1, 2T-1, Cr]
-
+    
     if training:
       positional_encodings = tf.nn.dropout(
           positional_encodings, rate=self._positional_dropout_rate)

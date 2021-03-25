@@ -340,10 +340,12 @@ def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 ############################################################
 # Attention
 ############################################################
-def multihead_attention(inputs, value_size=None, key_size=None, num_heads=1, activation='relu',
-    attention_dropout=0, position_dropout=0, dropout=0, bn_momentum=0.9, **kwargs):
-  if value_size is None:
-    value_size = inputs.shape[-1] // num_heads
+def multihead_attention(inputs, key_size=None, heads=1, out_size=None,
+    num_position_features=None, activation='relu', bn_momentum=0.9,
+    attention_dropout=0, position_dropout=0, dropout=0, dense_expansion=0, **kwargs):
+  if out_size is None:
+    out_size = inputs.shape[-1]
+    value_size = out_size // heads
 
   # activation 
   current = layers.activate(inputs, activation)
@@ -354,9 +356,11 @@ def multihead_attention(inputs, value_size=None, key_size=None, num_heads=1, act
   # multi-head attention
   current = layers.MultiheadAttention(value_size=value_size,
     key_size=key_size,
-    num_heads=num_heads,
+    heads=heads,
+    num_position_features=num_position_features,
     attention_dropout_rate=attention_dropout,
-    positional_dropout_rate=position_dropout)(current)
+    positional_dropout_rate=position_dropout,
+    zero_initialize=False)(current)
 
   # batch norm
   current = tf.keras.layers.BatchNormalization(
@@ -370,57 +374,36 @@ def multihead_attention(inputs, value_size=None, key_size=None, num_heads=1, act
   # residual
   current = tf.keras.layers.Add()([inputs,current])
 
+  if dense_expansion == 0:
+    final = current
+  else:
+    current_mha = current
+
+    # layer norm
+    current = tf.keras.layers.LayerNormalization()(current)
+
+    # dense
+    expansion_filters = int(dense_expansion*out_size)
+    current = tf.keras.layers.Dense(expansion_filters)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # activation 
+    current = layers.activate(current, activation)
+
+    # dense
+    current = tf.keras.layers.Dense(out_size)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # residual
+    final = tf.keras.layers.Add()([current_mha,current])
+
   return current
-
-
-def transformer_ziga(inputs, value_size=None, key_size=None, num_heads=1, activation='relu',
-    attention_dropout=0, position_dropout=0, dropout=0, **kwargs):
-  if value_size is None:
-    value_size = inputs.shape[-1]
-
-  # activation 
-  current = layers.activate(inputs, activation)
-    
-  # layer norm
-  current = tf.keras.layers.LayerNormalization()(current)
-
-  # multi-head attention
-  current = MultiheadAttention(value_size=value_size,
-    key_size=key_size,
-    num_heads=num_heads,
-    attention_dropout_rate=attention_dropout,
-    position_dropout_rate=position_dropout)(current)
-
-  # dropout
-  if dropout > 0:
-    current = tf.keras.layers.Dropout(dropout)(current)
-
-  # residual
-  current += inputs
-  current_mha = current
-
-  # layer norm
-  current = tf.keras.layers.LayerNormalization()(current)
-
-  # dense
-  current = tf.keras.layers.Dense(1.5*value_size)(current)
-
-  # dropout
-  if dropout > 0:
-    current = tf.keras.layers.Dropout(dropout)(current)
-
-  # activation 
-  current = layers.activate(current, activation)
-
-  # dense
-  current = tf.keras.layers.Dense(value_size)(current)
-
-  # dropout
-  if dropout > 0:
-    current = tf.keras.layers.Dropout(dropout)(current)
-
-  # residual
-  return current + current_mha
 
 
 def attention(inputs, kq_depth=None, max_relative_position=64,

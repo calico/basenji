@@ -340,6 +340,72 @@ def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 ############################################################
 # Attention
 ############################################################
+def multihead_attention(inputs, key_size=None, heads=1, out_size=None,
+    num_position_features=None, activation='relu', bn_momentum=0.9,
+    attention_dropout=0, position_dropout=0, dropout=0, dense_expansion=0, **kwargs):
+  if out_size is None:
+    out_size = inputs.shape[-1]
+    value_size = out_size // heads
+
+  # activation 
+  current = layers.activate(inputs, activation)
+    
+  # layer norm
+  current = tf.keras.layers.LayerNormalization()(current)
+
+  # multi-head attention
+  current = layers.MultiheadAttention(value_size=value_size,
+    key_size=key_size,
+    heads=heads,
+    num_position_features=num_position_features,
+    attention_dropout_rate=attention_dropout,
+    positional_dropout_rate=position_dropout,
+    zero_initialize=False)(current)
+
+  # batch norm
+  current = tf.keras.layers.BatchNormalization(
+    momentum=bn_momentum,
+    gamma_initializer='zeros')(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # residual
+  current = tf.keras.layers.Add()([inputs,current])
+
+  if dense_expansion == 0:
+    final = current
+  else:
+    current_mha = current
+
+    # layer norm
+    current = tf.keras.layers.LayerNormalization()(current)
+
+    # dense
+    expansion_filters = int(dense_expansion*out_size)
+    current = tf.keras.layers.Dense(expansion_filters)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # activation 
+    current = layers.activate(current, activation)
+
+    # dense
+    current = tf.keras.layers.Dense(out_size)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # residual
+    final = tf.keras.layers.Add()([current_mha,current])
+
+  return current
+
+
 def attention(inputs, kq_depth=None, max_relative_position=64,
     batch_norm=False, bn_momentum=0.99, bn_type='standard', **kwargs):
   """Construct a residual attention block.
@@ -815,6 +881,7 @@ name_func = {
   'factor_inverse': factor_inverse,
   'final': final,
   'global_context': global_context,
+  'multihead_attention': multihead_attention,
   'one_to_two': one_to_two,
   'symmetrize_2d':symmetrize_2d,
   'squeeze_excite': squeeze_excite,

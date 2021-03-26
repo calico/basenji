@@ -79,7 +79,7 @@ def main():
       default=1, type='int',
       help='Number of cross-fold rounds [Default:%default]')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf2-gpu',
+      default='tf2.4',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('-f', dest='fold_subset',
       default=None, type='int',
@@ -176,7 +176,7 @@ def main():
                       queue=options.queue,
                       cpu=4,
                       gpu=params_train.get('num_gpu',1),
-                      mem=30000, time='28-0:0:0')
+                      mem=37000, time='28-0:0:0')
         jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

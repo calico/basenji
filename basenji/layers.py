@@ -713,10 +713,14 @@ class EnsembleShift(tf.keras.layers.Layer):
 
 class StochasticShift(tf.keras.layers.Layer):
   """Stochastically shift a one hot encoded DNA sequence."""
-  def __init__(self, shift_max=0, pad='uniform'):
+  def __init__(self, shift_max=0, symmetric=True, pad='uniform'):
     super(StochasticShift, self).__init__()
     self.shift_max = shift_max
-    self.augment_shifts = tf.range(-self.shift_max, self.shift_max+1)
+    self.symmetric = symmetric
+    if self.symmetric:
+      self.augment_shifts = tf.range(-self.shift_max, self.shift_max+1)
+    else:
+      self.augment_shifts = tf.range(0, self.shift_max+1)
     self.pad = pad
 
   def call(self, seq_1hot, training=None):
@@ -735,6 +739,7 @@ class StochasticShift(tf.keras.layers.Layer):
     config = super().get_config().copy()
     config.update({
       'shift_max': self.shift_max,
+      'symmetric': self.symmetric,
       'pad': self.pad
     })
     return config

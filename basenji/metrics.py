@@ -23,7 +23,7 @@ from tensorflow.python.ops import math_ops
 #   return mse_term + spec_weight*spec_term
 
 def mean_squared_error_udot(y_true, y_pred, udot_weight=1):
-  mse_term = tf.keras.losses.mean_squared_error(y_pred, y_true)
+  mse_term = tf.keras.losses.mean_squared_error(y_true, y_pred)
 
   yn_true = y_true - tf.math.reduce_mean(y_true, axis=-1, keepdims=True)
   yn_pred = y_pred - tf.math.reduce_mean(y_pred, axis=-1, keepdims=True)
@@ -38,6 +38,22 @@ class MeanSquaredErrorUDot(LossFunctionWrapper):
     super(MeanSquaredErrorUDot, self).__init__(
         mse_udot, name=name, reduction=reduction)
 
+
+def poisson_kl(y_true, y_pred, kl_weight=1):
+  poisson_term = tf.keras.losses.poisson(y_true, y_pred)
+
+  yn_true = y_true / tf.math.reduce_sum(y_true, axis=-1, keepdims=True)
+  yn_pred = y_pred / tf.math.reduce_sum(y_pred, axis=-1, keepdims=True)
+  kl_term = tf.keras.losses.kl_divergence(yn_true, yn_pred)
+
+  return poisson_term + kl_weight*kl_term
+
+class PoissonKL(LossFunctionWrapper):
+  def __init__(self, kl_weight=1, reduction=losses_utils.ReductionV2.AUTO, name='poisson_kl'):
+    self.kl_weight = kl_weight
+    pois_kl = lambda yt, yp: poisson_kl(yt, yp, self.kl_weight)
+    super(PoissonKL, self).__init__(
+        pois_kl, name=name, reduction=reduction)
 
 ################################################################################
 # Metrics

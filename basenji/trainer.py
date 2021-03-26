@@ -42,6 +42,8 @@ def parse_loss(loss_label, strategy=None, keras_fit=True, spec_weight=1):
       loss_fn = metrics.MeanSquaredErrorUDot(spec_weight)
     elif loss_label == 'bce':
       loss_fn = tf.keras.losses.BinaryCrossentropy()
+    elif loss_label == 'poisson_kl':
+      loss_fn = metrics.PoissonKL(spec_weight)
     else:
       loss_fn = tf.keras.losses.Poisson()
 

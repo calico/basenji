@@ -353,6 +353,6 @@ class SeqNN():
 
   def save(self, model_file, trunk=False):
     if trunk:
-      self.model_trunk.save(model_file)
+      self.model_trunk.save(model_file, include_optimizer=False)
     else:
-      self.model.save(model_file)
+      self.model.save(model_file, include_optimizer=False)

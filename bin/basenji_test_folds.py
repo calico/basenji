@@ -66,7 +66,7 @@ def main():
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')
   parser.add_option('-o', dest='out_stem',
-      default=None, help='Outplut plot stem [Default: %default]')
+      default=None, help='Output plot stem [Default: %default]')
   parser.add_option('-q', dest='queue',
       default='gtx1080ti')
   parser.add_option('-r', dest='ref_dir',
@@ -393,6 +393,11 @@ def read_metrics(acc_glob_str, metric='pearsonr'):
 
 
 def stat_tests(ref_cors, exp_cors, alternative):
+  # hack for the common situtation where I have more reference
+  # crosses than experiment crosses
+  if len(ref_cors) == 2*len(exp_cors):
+    ref_cors = [ref_cors[i] for i in range(len(ref_cors)) if i % 2 == 0]
+
   _, mwp = wilcoxon(exp_cors, ref_cors, alternative=alternative)
   tt, tp = ttest_rel(exp_cors, ref_cors)
 

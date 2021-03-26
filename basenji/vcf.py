@@ -183,7 +183,7 @@ def intersect_snps_seqs(vcf_file, seq_coords, vision_p=1):
 
 
 def snp_seq1(snp, seq_len, genome_open):
-  """ Produce a one hot coded sequences for a SNP.
+  """ Produce one hot coded sequences for a SNP.
 
     Attrs:
         snp [SNP] :
@@ -646,7 +646,7 @@ class SNP:
     self.rsid = a[2]
     self.ref_allele = a[3]
     self.alt_alleles = a[4].split(',')
-    # self.alt_allele = self.alt_alleles[0]
+    self.alt_allele = self.alt_alleles[0]
     self.flipped = False
 
     if self.rsid == '.':

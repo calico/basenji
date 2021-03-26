@@ -167,7 +167,7 @@ def hot1_augment(Xb, fwdrc=True, shift=0):
   return Xbt
 
 
-def hot1_delete(seq_1hot, pos, delete_len):
+def hot1_delete(seq_1hot, pos, delete_len, pad_value=None):
   """ hot1_delete
 
     Delete "delete_len" nucleotides starting at
@@ -180,12 +180,13 @@ def hot1_delete(seq_1hot, pos, delete_len):
   # seq_1hot[100:-3,:] = seq_1hot[100+3:,:]
 
   # change right end to N's
-  if seq_1hot.dtype == bool:
-    nval = 0
-  else:
-    nval = 0.25
+  if pad_value is None:
+    if seq_1hot.dtype == bool:
+      pad_value = 0
+    else:
+      pad_value = 0.25
 
-  seq_1hot[-delete_len:, :] = nval
+  seq_1hot[-delete_len:, :4] = pad_value
 
 
 def hot1_dna(seqs_1hot):
@@ -251,7 +252,7 @@ def hot1_insert(seq_1hot, pos, insert_seq):
   # seq_1hot[100+3:,:] = seq_1hot[100:-3,:]
 
   # reset
-  seq_1hot[pos:pos + len(insert_seq), :] = 0
+  seq_1hot[pos:pos + len(insert_seq), :4] = 0
 
   for i in range(len(insert_seq)):
     nt = insert_seq[i]
@@ -304,7 +305,7 @@ def hot1_set(seq_1hot, pos, nt):
     """
 
   # reset
-  seq_1hot[pos, :] = 0
+  seq_1hot[pos, :4] = 0
 
   # set
   if nt == 'A':

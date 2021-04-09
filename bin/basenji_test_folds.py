@@ -63,6 +63,8 @@ def main():
       default='Experiment', help='Experiment label [Default: %default]')
   parser.add_option('--label_ref', dest='label_ref',
       default='Reference', help='Reference label [Default: %default]')
+  parser.add_option('-m', dest='metric',
+  	  default=None, help='Train/test metric [Default: Pearsonr or AUPRC]')
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')
   parser.add_option('-o', dest='out_stem',
@@ -263,29 +265,30 @@ def main():
     test_ref_prefix = 'test%d' % options.dataset_ref_i
 
   # classification or regression
-  with open('%s/f0_c0/%s/acc.txt' % (exp_dir,test_prefix)) as test0_open:
-    header = test0_open.readline().split()
-    if 'pearsonr' in header:
-      metric = 'pearsonr'
-    else:
-      metric = 'auprc'
+  if options.metric is None:
+	  with open('%s/f0_c0/%s/acc.txt' % (exp_dir,test_prefix)) as test0_open:
+	    header = test0_open.readline().split()
+	    if 'pearsonr' in header:
+	      options.metric = 'pearsonr'
+	    else:
+	      options.metric = 'auprc'
 
   ################################################################
   # compare checkpoint on training set
   ################################################################
   if options.train:
     exp_glob_str = '%s/*/%s_train/acc.txt' % (exp_dir, test_prefix)
-    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
+    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, options.metric)
 
     if options.ref_dir is not None:
       ref_glob_str = '%s/*/%s_train/acc.txt' % (options.ref_dir, test_ref_prefix)
-      ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
+      ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, options.metric)
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
     print('\nTrain:')
-    print('%12s %s: %.4f (%.4f)' % (options.label_exp, metric, exp_mean, exp_stdm))
+    print('%12s %s: %.4f (%.4f)' % (options.label_exp, options.metric, exp_mean, exp_stdm))
     if options.ref_dir is not None:
-      print('%12s %s: %.4f (%.4f)' % (options.label_ref, metric, ref_mean, ref_stdm))
+      print('%12s %s: %.4f (%.4f)' % (options.label_ref, options.metric, ref_mean, ref_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
 
@@ -299,18 +302,18 @@ def main():
   # compare best on test set
   ################################################################
   exp_glob_str = '%s/*/%s/acc.txt' % (exp_dir, test_prefix)
-  exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
+  exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, options.metric)
 
   if options.ref_dir is not None:
     ref_glob_str = '%s/*/%s/acc.txt' % (options.ref_dir, test_ref_prefix)
-    ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
+    ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, options.metric)
 
     mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
   print('\nTest:')
-  print('%12s %s: %.4f (%.4f)' % (options.label_exp, metric, exp_mean, exp_stdm))
+  print('%12s %s: %.4f (%.4f)' % (options.label_exp, options.metric, exp_mean, exp_stdm))
   if options.ref_dir is not None:
-    print('%12s %s: %.4f (%.4f)' % (options.label_ref, metric, ref_mean, ref_stdm))
+    print('%12s %s: %.4f (%.4f)' % (options.label_ref, options.metric, ref_mean, ref_stdm))
     print('Mann-Whitney U p-value: %.3g' % mwp)
     print('T-test p-value: %.3g' % tp)
 
@@ -324,18 +327,18 @@ def main():
   ################################################################
   if options.specificity:
     exp_glob_str = '%s/*/%s_spec/acc.txt' % (exp_dir, test_prefix)
-    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, metric)
+    exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, options.metric)
 
     if options.ref_dir is not None:
       ref_glob_str = '%s/*/%s_spec/acc.txt' % (options.ref_dir, test_ref_prefix)
-      ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, metric)
+      ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, options.metric)
 
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
     print('\nSpecificity:')
-    print('%12s %s: %.4f (%.4f)' % (options.label_exp, metric, exp_mean, exp_stdm))    
+    print('%12s %s: %.4f (%.4f)' % (options.label_exp, options.metric, exp_mean, exp_stdm))    
     if options.ref_dir is not None:
-      print('%12s %s: %.4f (%.4f)' % (options.label_ref, metric, ref_mean, ref_stdm))
+      print('%12s %s: %.4f (%.4f)' % (options.label_ref, options.metric, ref_mean, ref_stdm))
       print('Mann-Whitney U p-value: %.3g' % mwp)
       print('T-test p-value: %.3g' % tp)
 

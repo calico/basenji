@@ -16,61 +16,61 @@
 from __future__ import print_function
 
 from optparse import OptionParser
+
 import gc
 import json
 import os
+import pdb
+import pickle
 from queue import Queue
+import random
 import sys
 from threading import Thread
 
 import h5py
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
+import pysam
 import tensorflow as tf
 
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
 
+from basenji import bed
 from basenji import dna_io
 from basenji import seqnn
 from basenji import stream
-from basenji import vcf
-
-from basenji_sat_bed import ScoreWorker, satmut_gen
+from basenji_sat_bed import satmut_gen, ScoreWorker
 
 '''
-sonnet_sat_vcf.py
+sonnet_sat_bed.py
 
-Perform an in silico saturated mutagenesis of the sequences surrounding variants
-given in a VCF file.
+Perform an in silico saturation mutagenesis of sequences in a BED file.
 '''
 
 ################################################################################
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <model> <vcf_file>'
+  usage = 'usage: %prog [options] <model> <bed_file>'
   parser = OptionParser(usage)
   parser.add_option('-d', dest='mut_down',
       default=0, type='int',
       help='Nucleotides downstream of center sequence to mutate [Default: %default]')
-  parser.add_option('-f', dest='figure_width',
-      default=20, type='float',
-      help='Figure width [Default: %default]')
-  parser.add_option('--f1', dest='genome1_fasta',
-      default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
-      help='Genome FASTA which which major allele sequences will be drawn')
-  parser.add_option('--f2', dest='genome2_fasta',
+  parser.add_option('-f', dest='genome_fasta',
       default=None,
-      help='Genome FASTA which which minor allele sequences will be drawn')
+      help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-l', dest='mut_len',
-      default=200, type='int',
-      help='Length of centered sequence to mutate [Default: %default]')
+      default=0, type='int',
+      help='Length of center sequence to mutate [Default: %default]')
   parser.add_option('-o', dest='out_dir',
-      default='sat_vcf',
-      help='Output directory [Default: %default]')
+      default='sat_mut', help='Output directory [Default: %default]')
+  parser.add_option('--plots', dest='plots',
+      default=False, action='store_true',
+      help='Make heatmap plots [Default: %default]')
+  parser.add_option('-p', dest='processes',
+      default=None, type='int',
+      help='Number of processes, passed by multi script')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
@@ -81,7 +81,7 @@ def main():
       default='human')
   parser.add_option('--stats', dest='sad_stats',
       default='sum',
-      help='Comma-separated list of stats to save. [Default: %default]')
+      help='Comma-separated list of stats to save (sum/center/scd). [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
@@ -90,11 +90,39 @@ def main():
       help='Nucleotides upstream of center sequence to mutate [Default: %default]')
   (options, args) = parser.parse_args()
 
-  if len(args) != 2:
-    parser.error('Must provide model and VCF')
-  else:
+  if len(args) == 2:
+    # single worker
     model_file = args[0]
-    vcf_file = args[1]
+    bed_file = args[1]
+
+  elif len(args) == 3:
+    # master script
+    options_pkl_file = args[0]
+    model_file = args[1]
+    bed_file = args[2]
+
+    # load options
+    options_pkl = open(options_pkl_file, 'rb')
+    options = pickle.load(options_pkl)
+    options_pkl.close()
+
+  elif len(args) == 4:
+    # multi worker
+    options_pkl_file = args[0]
+    model_file = args[1]
+    bed_file = args[2]
+    worker_index = int(args[3])
+
+    # load options
+    options_pkl = open(options_pkl_file, 'rb')
+    options = pickle.load(options_pkl)
+    options_pkl.close()
+
+    # update output directory
+    options.out_dir = '%s/job%d' % (options.out_dir, worker_index)
+
+  else:
+    parser.error('Must provide parameter and model files and BED file')
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
@@ -108,9 +136,6 @@ def main():
     assert(options.mut_len > 0)
     options.mut_up = options.mut_len // 2
     options.mut_down = options.mut_len - options.mut_up
-
-  #################################################################
-  # read parameters and targets
 
   # read targets
   if options.targets_file is None:
@@ -132,20 +157,19 @@ def main():
   _, preds_length, num_targets = null_preds.shape
 
   #################################################################
-  # SNP sequence dataset
+  # sequence dataset
 
-  # load SNPs
-  snps = vcf.vcf_snps(vcf_file)
+  # read sequences from BED
+  seqs_dna, seqs_coords = bed.make_bed_seqs(
+    bed_file, options.genome_fasta, seq_length, stranded=True)
 
-  # get one hot coded input sequences
-  if not options.genome2_fasta:
-    seqs_1hot, seq_headers, snps, seqs_dna = vcf.snps_seq1(
-        snps, seq_length, options.genome1_fasta, return_seqs=True)
-  else:
-    seqs_1hot, seq_headers, snps, seqs_dna = vcf.snps2_seq1(
-        snps, seq_length, options.genome1_fasta,
-        options.genome2_fasta, return_seqs=True)
-  num_seqs = seqs_1hot.shape[0]
+  # filter for worker SNPs
+  if options.processes is not None:
+    worker_bounds = np.linspace(0, len(seqs_dna), options.processes+1, dtype='int')
+    seqs_dna = seqs_dna[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+    seqs_coords = seqs_coords[worker_bounds[worker_index]:worker_bounds[worker_index+1]]
+
+  num_seqs = len(seqs_dna)
 
   # determine mutation region limits
   seq_mid = seq_length // 2
@@ -162,13 +186,33 @@ def main():
   if os.path.isfile(scores_h5_file):
     os.remove(scores_h5_file)
   scores_h5 = h5py.File(scores_h5_file, 'w')
-  scores_h5.create_dataset('label',
-    data=np.array(seq_headers, dtype='S'))
   scores_h5.create_dataset('seqs', dtype='bool',
-    shape=(num_seqs, options.mut_len, 4))
+      shape=(num_seqs, options.mut_len, 4))
   for sad_stat in options.sad_stats:
     scores_h5.create_dataset(sad_stat, dtype='float16',
         shape=(num_seqs, options.mut_len, 4, num_targets))
+
+  # store mutagenesis sequence coordinates
+  scores_chr = []
+  scores_start = []
+  scores_end = []
+  scores_strand = []
+  for seq_chr, seq_start, seq_end, seq_strand in seqs_coords:
+    scores_chr.append(seq_chr)
+    scores_strand.append(seq_strand)
+    if seq_strand == '+':
+      score_start = seq_start + mut_start
+      score_end = score_start + options.mut_len
+    else:
+      score_end = seq_end - mut_start
+      score_start = score_end - options.mut_len
+    scores_start.append(score_start)
+    scores_end.append(score_end)
+
+  scores_h5.create_dataset('chr', data=np.array(scores_chr, dtype='S'))
+  scores_h5.create_dataset('start', data=np.array(scores_start))
+  scores_h5.create_dataset('end', data=np.array(scores_end))
+  scores_h5.create_dataset('strand', data=np.array(scores_strand, dtype='S'))
 
   preds_per_seq = 1 + 3*options.mut_len
 
@@ -181,7 +225,7 @@ def main():
     score_threads.append(sw)
 
   #################################################################
-  # predict scores and write output
+  # predict scores, write output
 
   # find center
   center_start = preds_length // 2
@@ -227,6 +271,10 @@ def main():
     seq_pred_stats = (seq_preds_sum, seq_preds_center, seq_preds_scd)
     score_queue.put((seqs_dna[si], seq_pred_stats, si))
     
+    # queue sequence for plotting
+    if options.plots:
+      plot_queue.put((seqs_dna[si], seq_preds_sum, si))
+
     gc.collect()
 
   # finish queue
@@ -242,4 +290,3 @@ def main():
 ################################################################################
 if __name__ == '__main__':
   main()
-  # pdb.runcall(main)

@@ -329,6 +329,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
                zero_initialize=True,
                initializer=None):
     """Creates a MultiheadAttention module.
+       Original version written by Ziga Avsec.
 
     Args:
       value_size: The size of each value embedding per head.

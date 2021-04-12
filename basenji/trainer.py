@@ -579,6 +579,104 @@ class Trainer:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)
       exit(1)
 
+
+# This could be merged with the trainer class above without much compromise.
+class RnaTrainer:
+  def __init__(self, params, train_data, eval_data, out_dir,
+               strategy=None, num_gpu=1, keras_fit=True):
+    self.params = params
+    self.train_data = train_data
+    self.eval_data = eval_data
+    self.out_dir = out_dir
+    self.batch_size = self.train_data.batch_size
+    self.compiled = False
+
+    # early stopping
+    self.patience = self.params.get('patience', 20)
+
+    # compute batches/epoch
+    self.train_epoch_batches = self.train_data.batches_per_epoch()
+    self.eval_epoch_batches = self.eval_data.batches_per_epoch()
+    self.train_epochs_min = self.params.get('train_epochs_min', 1)
+    self.train_epochs_max = self.params.get('train_epochs_max', 10000)
+
+    # loss
+    self.loss_fn = tf.keras.losses.MeanSquaredError()
+
+    # optimizer
+    self.make_optimizer()
+
+  def compile(self, seqnn_model):
+    model = seqnn_model.model
+    num_targets = model.output_shape[-1]
+
+    model_metrics = [metrics.PearsonR(num_targets), metrics.R2(num_targets)]
+    
+    model.compile(loss=self.loss_fn,
+                  optimizer=self.optimizer,
+                  metrics=model_metrics)
+    self.compiled = True
+
+  def fit(self, seqnn_model):
+    if not self.compiled:
+      self.compile(seqnn_model)
+
+    early_stop = EarlyStoppingMin(monitor='val_pearsonr', mode='max', verbose=1,
+                     patience=self.patience, min_epoch=self.train_epochs_min)
+    save_best = tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir,
+                                                   save_best_only=True, mode='max',
+                                                   monitor='val_pearsonr', verbose=1)
+    history = tf.keras.callbacks.CSVLogger('%s/train.out'%self.out_dir, separator="\t", append=False)
+
+
+    callbacks = [tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
+                 early_stop, save_best, history]
+
+    seqnn_model.model.fit(
+      self.train_data.dataset,
+      epochs=self.train_epochs_max,
+      steps_per_epoch=self.train_epoch_batches,
+      callbacks=callbacks,
+      validation_data=self.eval_data.dataset,
+      validation_steps=self.eval_epoch_batches)
+
+  def make_optimizer(self):
+    # schedule (currently OFF)
+    lr_schedule = self.params.get('learning_rate', 0.01)
+
+    cyclical1 = True
+    for lrs_param in ['initial_learning_rate', 'maximal_learning_rate', 'final_learning_rate', 'train_epochs_cycle1']:
+      cyclical1 = cyclical1 & (lrs_param in self.params)
+    if cyclical1:
+      step_size = self.params['train_epochs_cycle1'] * self.train_epoch_batches
+      lr_schedule = Cyclical1LearningRate(
+        initial_learning_rate=self.params['initial_learning_rate'],
+        maximal_learning_rate=self.params['maximal_learning_rate'],
+        final_learning_rate=self.params['final_learning_rate'],
+        step_size=step_size)
+
+    clip_norm = self.params.get('clip_norm', None)
+
+    # optimizer
+    optimizer_type = self.params.get('optimizer', 'sgd').lower()
+    if optimizer_type == 'adam':
+      self.optimizer = tf.keras.optimizers.Adam(
+          learning_rate=lr_schedule,
+          beta_1=self.params.get('adam_beta1',0.9),
+          beta_2=self.params.get('adam_beta2',0.999),
+          clipnorm=clip_norm)
+
+    elif optimizer_type in ['sgd', 'momentum']:
+      self.optimizer = tf.keras.optimizers.SGD(
+          learning_rate=lr_schedule,
+          momentum=self.params.get('momentum', 0.99),
+          clipnorm=clip_norm)
+
+    else:
+      print('Cannot recognize optimization algorithm %s' % optimizer_type)
+      exit(1)
+
+
 class EarlyStoppingMin(tf.keras.callbacks.EarlyStopping):
   """Stop training when a monitored quantity has stopped improving.
   Arguments:
@@ -607,6 +705,7 @@ class EarlyStoppingMin(tf.keras.callbacks.EarlyStopping):
           if self.verbose > 0:
             print('Restoring model weights from the end of the best epoch.')
           self.model.set_weights(self.best_weights)
+
 
 class Cyclical1LearningRate(tf.keras.optimizers.schedules.LearningRateSchedule):
   """A LearningRateSchedule that uses cyclical schedule.

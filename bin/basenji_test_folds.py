@@ -54,7 +54,7 @@ def main():
       default=None, type='int',
       help='Reference Dataset index [Default:%default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf2-gpu',
+      default='tf2.4',
       help='Anaconda environment [Default: %default]')
   parser.add_option('-f', dest='fold_subset',
       default=None, type='int',
@@ -67,7 +67,9 @@ def main():
   	  default=None, help='Train/test metric [Default: Pearsonr or AUPRC]')
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')
-  parser.add_option('-o', dest='out_stem',
+  parser.add_option('-o', dest='exp_dir',
+      default=None, help='Output experiment directory [Default: %default]')
+  parser.add_option('-p', dest='out_stem',
       default=None, help='Output plot stem [Default: %default]')
   parser.add_option('-q', dest='queue',
       default='gtx1080ti')
@@ -87,12 +89,14 @@ def main():
       help='Test on the training set, too [Default: %default]')
   (options, args) = parser.parse_args()
 
-  if len(args) < 3:
+  if len(args) < 2:
     parser.error('Must provide parameters file and data directory')
   else:
-    exp_dir = args[0]
-    params_file = args[1]
-    data_dirs = [os.path.abspath(arg) for arg in args[2:]]
+    params_file = args[0]
+    data_dirs = [os.path.abspath(arg) for arg in args[1:]]
+
+  # using -o for required argument for compatibility with the training script
+  assert(options.exp_dir is not None)
 
   # read data parameters
   data_stats_file = '%s/statistics.json' % data_dirs[0]
@@ -110,6 +114,13 @@ def main():
   # subset folds
   if options.fold_subset is not None:
     num_folds = min(options.fold_subset, num_folds)
+
+  if options.queue == 'standard':
+  	num_cpu = 8
+  	num_gpu = 0
+  else:
+  	num_cpu = 2
+  	num_gpu = 1
   
   ################################################################
   # test check
@@ -119,7 +130,7 @@ def main():
   if options.train:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+        it_dir = '%s/f%d_c%d' % (options.exp_dir, fi, ci)
 
         if options.dataset_i is None:
           out_dir = '%s/test_train' % it_dir
@@ -154,9 +165,9 @@ def main():
                         out_file='%s.out'%out_dir,
                         err_file='%s.err'%out_dir,
                         queue=options.queue,
-                        cpu=1, gpu=1,
+                        cpu=num_cpu, gpu=num_gpu,
                         mem=23000,
-                        time='4:00:00')
+                        time='8:00:00')
           jobs.append(j)
 
 
@@ -165,7 +176,7 @@ def main():
   ################################################################
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+      it_dir = '%s/f%d_c%d' % (options.exp_dir, fi, ci)
 
       if options.dataset_i is None:
         out_dir = '%s/test' % it_dir
@@ -200,7 +211,7 @@ def main():
                       out_file='%s.out'%out_dir,
                       err_file='%s.err'%out_dir,
                       queue=options.queue,
-                      cpu=1, gpu=1,
+                      cpu=num_cpu, gpu=num_gpu,
                       mem=23000,
                       time='4:00:00')
         jobs.append(j)
@@ -211,7 +222,7 @@ def main():
   if options.specificity:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+        it_dir = '%s/f%d_c%d' % (options.exp_dir, fi, ci)
 
         if options.dataset_i is None:
           out_dir = '%s/test_spec' % it_dir
@@ -246,7 +257,7 @@ def main():
                           out_file='%s.out'%out_dir,
                           err_file='%s.err'%out_dir,
                           queue=options.queue,
-                          cpu=1, gpu=1,
+                          cpu=num_cpu, gpu=num_gpu,
                           mem=75000,
                           time='6:00:00')
           jobs.append(j)
@@ -266,7 +277,7 @@ def main():
 
   # classification or regression
   if options.metric is None:
-	  with open('%s/f0_c0/%s/acc.txt' % (exp_dir,test_prefix)) as test0_open:
+	  with open('%s/f0_c0/%s/acc.txt' % (options.exp_dir,test_prefix)) as test0_open:
 	    header = test0_open.readline().split()
 	    if 'pearsonr' in header:
 	      options.metric = 'pearsonr'
@@ -277,7 +288,7 @@ def main():
   # compare checkpoint on training set
   ################################################################
   if options.train:
-    exp_glob_str = '%s/*/%s_train/acc.txt' % (exp_dir, test_prefix)
+    exp_glob_str = '%s/*/%s_train/acc.txt' % (options.exp_dir, test_prefix)
     exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, options.metric)
 
     if options.ref_dir is not None:
@@ -301,7 +312,7 @@ def main():
   ################################################################
   # compare best on test set
   ################################################################
-  exp_glob_str = '%s/*/%s/acc.txt' % (exp_dir, test_prefix)
+  exp_glob_str = '%s/*/%s/acc.txt' % (options.exp_dir, test_prefix)
   exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, options.metric)
 
   if options.ref_dir is not None:
@@ -326,7 +337,7 @@ def main():
   # compare best on test set specificity
   ################################################################
   if options.specificity:
-    exp_glob_str = '%s/*/%s_spec/acc.txt' % (exp_dir, test_prefix)
+    exp_glob_str = '%s/*/%s_spec/acc.txt' % (options.exp_dir, test_prefix)
     exp_cors, exp_mean, exp_stdm = read_metrics(exp_glob_str, options.metric)
 
     if options.ref_dir is not None:

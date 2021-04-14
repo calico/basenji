@@ -39,13 +39,22 @@ class MeanSquaredErrorUDot(LossFunctionWrapper):
         mse_udot, name=name, reduction=reduction)
 
 
-def poisson_kl(y_true, y_pred, kl_weight=1):
+def poisson_kl(y_true, y_pred, kl_weight=1, epsilon=1e-3):
+  # poisson loss
   poisson_term = tf.keras.losses.poisson(y_true, y_pred)
 
+  # add epsilon to protect against all tiny values
+  y_true += epsilon
+  y_pred += epsilon
+
+  # normalize to sum to one
   yn_true = y_true / tf.math.reduce_sum(y_true, axis=-1, keepdims=True)
   yn_pred = y_pred / tf.math.reduce_sum(y_pred, axis=-1, keepdims=True)
+
+  # kl term
   kl_term = tf.keras.losses.kl_divergence(yn_true, yn_pred)
 
+  # weighted combination
   return poisson_term + kl_weight*kl_term
 
 class PoissonKL(LossFunctionWrapper):

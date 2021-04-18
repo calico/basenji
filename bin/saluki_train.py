@@ -70,7 +70,7 @@ def main():
 
   # set seq length
   params_model['seq_length'] = data_stats['length_%s' % params_model['rna_mode']]
-  params_model['num_features'] = data_stats['num_features']
+  params_model['num_features'] = data_stats.get('num_features',0)
   
   # for each fold
   for fi in range(num_folds):

@@ -30,29 +30,6 @@ TFR_OUTPUT = 'target'
 def file_to_records(filename):
   return tf.data.TFRecordDataset(filename, compression_type='ZLIB')
 
-
-# class SeqDataset:
-#   def __init__(self, tfr_pattern, seq_length, seq_depth=4, seq_length_crop=None,
-#                target_length=None, num_targets=None, batch_size=1,
-#                mode=tf.estimator.ModeKeys.EVAL, compute_stats=True):
-#     """Initialize basic parameters; run compute_stats; run make_dataset."""
-
-#     self.tfr_pattern = tfr_pattern
-
-#     self.num_seqs = None
-#     self.batch_size = batch_size
-#     self.seq_length = seq_length
-#     self.seq_length_crop = seq_length_crop
-#     self.seq_depth = seq_depth
-#     self.target_length = target_length
-#     self.num_targets = num_targets
-
-#     self.mode = mode
-
-#     if compute_stats:
-#       self.compute_stats()
-#     self.make_dataset()
-
 class SeqDataset:
   def __init__(self, data_dir, split_label, batch_size, shuffle_buffer=128,
                seq_length_crop=None, mode='eval', tfr_pattern=None):

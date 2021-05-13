@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from optparse import OptionParser
 import glob
+import json
 import multiprocessing
 import os
 import pdb
@@ -27,12 +28,15 @@ Print quality control statistics for a TFRecords dataset.
 def main():
   usage = 'usage: %prog [options] <tfr_data_dir>'
   parser = OptionParser(usage)
-  parser.add_option('-l', dest='target_length',
-      default=1024, type='int')
-  parser.add_option('-o', dest='out_dir', default='tfr_qc')
-  parser.add_option('-p', dest='processes', default=16, type='int',
-      help='Number of parallel threads to use [Default: %default]')
-  parser.add_option('-s', dest='split', default='test')
+  parser.add_option('-o', dest='out_dir',
+    default='tfr_qc',
+    help='Output directory [Default: %default]')
+  parser.add_option('-p', dest='processes',
+    default=16, type='int',
+    help='Number of parallel threads to use [Default: %default]')
+  parser.add_option('-s', dest='split',
+    default='test',
+    help='TFRecords prefix [Default: %default]')
   (options,args) = parser.parse_args()
 
   if len(args) != 1:
@@ -47,9 +51,16 @@ def main():
   targets_file = '%s/targets.txt' % tfr_data_dir
   targets_df = pd.read_table(targets_file, index_col=0)
 
+  # read data parameters
+  stats_file = '%s/statistics.json' % tfr_data_dir
+  with open(stats_file) as stats_open:
+    data_stats = json.load(stats_open)
+  num_targets = data_stats['num_targets']
+  target_length = data_stats['target_length']
+
   # read target values
   tfr_pattern = '%s/tfrecords/%s-*.tfr' % (tfr_data_dir, options.split)
-  targets = read_tfr(tfr_pattern, options.target_length)
+  targets = read_tfr(tfr_pattern, target_length)
 
   # compute stats
   target_means = np.mean(targets, axis=(0,1), dtype='float64')

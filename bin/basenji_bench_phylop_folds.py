@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 import slurm
+import util
 
 from basenji_test_folds import stat_tests
 
@@ -96,12 +97,15 @@ def main():
       default=1, type='int',
       help='Number of cross-fold rounds [Default:%default]')
   fold_options.add_option('-e', dest='conda_env',
-      default='tf2-gpu',
+      default='tf2.4',
       help='Anaconda environment [Default: %default]')
   fold_options.add_option('--label_exp', dest='label_exp',
       default='Experiment', help='Experiment label [Default: %default]')
   fold_options.add_option('--label_ref', dest='label_ref',
       default='Reference', help='Reference label [Default: %default]')
+  fold_options.add_option('--max_proc', dest='max_proc',
+      default=None, type='int',
+      help='Maximum concurrent processes [Default: %default]')
   fold_options.add_option('--name', dest='name',
       default='sat', help='SLURM name prefix [Default: %default]')
   fold_options.add_option('-q', dest='queue',
@@ -142,6 +146,7 @@ def main():
   for ci in range(options.crosses):
     for fi in range(num_folds):
       it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+      name = '%s-f%dc%d' % (options.name, fi, ci)
 
       # update output directory
       sat_dir = '%s/%s' % (it_dir, options.out_dir)
@@ -156,22 +161,35 @@ def main():
         basenji_cmd += ' conda activate %s;' % options.conda_env
         basenji_cmd += ' echo $HOSTNAME;'
 
-        basenji_cmd += ' basenji_sat_bed.py'
+        if options.processes > 1:
+            basenji_cmd += ' basenji_sat_bed_multi.py'
+            basenji_cmd += ' --max_proc %d' % (options.max_proc // num_folds)
+            basenji_cmd += ' -q %s' % options.queue
+            basenji_cmd += ' -n %s' % name
+            basenji_cmd += ' -r'
+        else:
+            basenji_cmd += ' basenji_sat_bed.py'
+        
         basenji_cmd += ' %s' % options_string(options, sat_options, sat_dir)
         basenji_cmd += ' %s' % params_file
         basenji_cmd += ' %s/train/model_best.h5' % it_dir
         basenji_cmd += ' %s' % bed_file
         
-        name = '%s-f%dc%d' % (options.name, fi, ci)
-        basenji_job = slurm.Job(basenji_cmd, name,
-                        out_file='%s.out'%sat_dir,
-                        err_file='%s.err'%sat_dir,
-                        cpu=2, gpu=1,
-                        queue=options.queue,
-                        mem=30000, time='7-0:00:00')
-        jobs.append(basenji_job)
+        if options.processes > 1:
+          jobs.append(basenji_cmd)
+        else:
+          basenji_job = slurm.Job(basenji_cmd, name,
+            out_file='%s.out'%sat_dir,
+            err_file='%s.err'%sat_dir,
+            cpu=2, gpu=1,
+            queue=options.queue,
+            mem=30000, time='28-0:00:00')
+          jobs.append(basenji_job)
         
-  slurm.multi_run(jobs, verbose=True)
+  if options.processes > 1:
+    util.exec_par(jobs, verbose=True)
+  else:
+    slurm.multi_run(jobs, verbose=True)
 
   ################################################################
   # ensemble
@@ -213,7 +231,7 @@ def main():
         j = slurm.Job(phylop_cmd, name,
                       '%s.out'%std_pre, '%s.err'%std_pre,
                       queue='standard', cpu=4,
-                      mem=45000, time='1-0:0:0')
+                      mem=90000, time='1-0:0:0')
         jobs.append(j)
 
   # ensemble
@@ -230,7 +248,7 @@ def main():
     j = slurm.Job(phylop_cmd, name,
                   '%s.out'%std_pre, '%s.err'%std_pre,
                   queue='standard', cpu=4,
-                  mem=45000, time='1-0:0:0')
+                  mem=90000, time='1-0:0:0')
     jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)

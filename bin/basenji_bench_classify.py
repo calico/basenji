@@ -35,6 +35,9 @@ def main():
             default=False, action='store_true')
     parser.add_option('-m', dest='model_pkl',
             help='Dimension reduction model')
+    parser.add_option('--msl', dest='msl',
+            default=1, type='int',
+            help='Random forest min_samples_leaf [Default: %default]')
     parser.add_option('-o', dest='out_dir',
             default='class_out')
     parser.add_option('-p', dest='parallel_threads',
@@ -88,15 +91,15 @@ def main():
     else:
         # aurocs, fpr_folds, tpr_folds, fpr_full, tpr_full = ridge_roc(X, y, folds=8, alpha=10000)
         aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds = randfor_roc(X, y, folds=8,
-                iterations=options.iterations, random_state=options.random_seed,
-                n_jobs=options.parallel_threads)
+                iterations=options.iterations, min_samples_leaf=options.msl,
+                random_state=options.random_seed, n_jobs=options.parallel_threads)
 
         # save preds
         if options.save_preds:
             np.save('%s/preds.npy' % options.out_dir, preds)
 
         # save full model
-        model = randfor_full(X, y)
+        model = randfor_full(X, y, min_samples_leaf=options.msl)
         joblib.dump(model, '%s/model.pkl' % options.out_dir)
 
     # save
@@ -169,16 +172,17 @@ def plot_roc(fprs, tprs, out_dir):
     plt.close()
 
 
-def randfor_full(X, y, random_state=None, n_jobs=1):
+def randfor_full(X, y, min_samples_leaf=1, random_state=None, n_jobs=1):
     """Compute a single random forest on the full data."""
     model = RandomForestClassifier(n_estimators=100, max_features='log2', max_depth=64,
-                                   min_samples_leaf=1, min_samples_split=2,
+                                   min_samples_leaf=min_samples_leaf, min_samples_split=2,
                                    random_state=random_state, n_jobs=n_jobs)
     model.fit(X, y)
     return model
 
 
-def randfor_roc(X, y, folds=8, iterations=1, random_state=None, n_jobs=1):
+def randfor_roc(X, y, folds=8, iterations=1, 
+    min_samples_leaf=1, random_state=None, n_jobs=1):
     """Compute ROC using a random forest."""
     aurocs = []
     fpr_folds = []
@@ -203,7 +207,7 @@ def randfor_roc(X, y, folds=8, iterations=1, random_state=None, n_jobs=1):
             else:
                 rs_rf = rs_iter+test_index[0]
             model = RandomForestClassifier(n_estimators=100, max_features='log2', max_depth=64,
-                                           min_samples_leaf=1, min_samples_split=2,
+                                           min_samples_leaf=min_samples_leaf, min_samples_split=2,
                                            random_state=rs_rf, n_jobs=n_jobs)
             model.fit(X[train_index,:], y[train_index])
 

@@ -92,72 +92,77 @@ def main():
             sad_stat_up = sad_stats[0].upper()
             num_variants = tissue_sad_h5[sad_stat_up].shape[0]
 
-        # read TPRs and FPRs
-        bench_tpr_mean = []
-        bench_fpr_mean = []
-        bench_aurocs = []
-        for i in range(num_benches):
-            tissue_class_dir_i = '%s/%s_class-%s' % (bench_dirs[i],tissue,sad_stats[i])
-            if not os.path.isdir(tissue_class_dir_i):
-                # TEMP during transition
-                tissue_class_dir_i = '%s/%s_class' % (bench_dirs[i],tissue)
+        # filter variants
+        if num_variants >= options.min_variants:
+            # read TPRs and FPRs
+            bench_tpr_mean = []
+            bench_fpr_mean = []
+            bench_aurocs = []
+            for i in range(num_benches):
+                tissue_class_dir_i = '%s/%s_class-%s' % (bench_dirs[i],tissue,sad_stats[i])
+                if not os.path.isdir(tissue_class_dir_i):
+                    # TEMP during transition
+                    tissue_class_dir_i = '%s/%s_class' % (bench_dirs[i],tissue)
 
-            tpr_mean = np.load('%s/tpr_mean.npy' % tissue_class_dir_i)
-            fpr_mean = np.load('%s/fpr_mean.npy' % tissue_class_dir_i)
-            aurocs = np.load('%s/aurocs.npy' % tissue_class_dir_i)
-            bench_tpr_mean.append(tpr_mean)
-            bench_fpr_mean.append(fpr_mean)
-            bench_aurocs.append(aurocs)
+                try:
+                    tpr_mean = np.load('%s/tpr_mean.npy' % tissue_class_dir_i)
+                    fpr_mean = np.load('%s/fpr_mean.npy' % tissue_class_dir_i)
+                    aurocs = np.load('%s/aurocs.npy' % tissue_class_dir_i)
+                except FileNotFoundError:
+                    print('Failed run for %s w/ %d variants' % (tissue, num_variants), file=sys.stderr)
+                bench_tpr_mean.append(tpr_mean)
+                bench_fpr_mean.append(fpr_mean)
+                bench_aurocs.append(aurocs)
 
-        # mean ROC plot
-        plt.figure(figsize=(6,6))
-        for i in range(num_benches):
-            label_i = '%s AUROC %.4f' % (options.labels[i], bench_aurocs[i].mean())
-            plt.plot(bench_fpr_mean[i], bench_tpr_mean[i], alpha=0.5, label=label_i)
-        plt.legend()
-        ax = plt.gca()
-        ax.set_xlabel('False positive rate')
-        ax.set_ylabel('True positive rate')
-        sns.despine()
-        plt.tight_layout()                                                  
-        plt.savefig('%s/roc_full.pdf' % tissue_out_dir)
-        plt.close()
+            # mean ROC plot
+            plt.figure(figsize=(6,6))
+            for i in range(num_benches):
+                label_i = '%s AUROC %.4f' % (options.labels[i], bench_aurocs[i].mean())
+                plt.plot(bench_fpr_mean[i], bench_tpr_mean[i], alpha=0.5, label=label_i)
+            plt.legend()
+            ax = plt.gca()
+            ax.set_xlabel('False positive rate')
+            ax.set_ylabel('True positive rate')
+            sns.despine()
+            plt.tight_layout()                                                  
+            plt.savefig('%s/roc_full.pdf' % tissue_out_dir)
+            plt.close()
 
 
-        # scatter plot versions' fold AUROCss
-        for i in range(num_benches):
-            for j in range(i+1, num_benches):
-                if len(bench_aurocs[i]) == len(bench_aurocs[j]):
-                    plt.figure(figsize=(6,6))
-                    sns.scatterplot(bench_aurocs[i], bench_aurocs[j],
-                                    color='black', linewidth=0, alpha=0.5)
-                    ax = plt.gca()
+            # scatter plot versions' fold AUROCss
+            for i in range(num_benches):
+                for j in range(i+1, num_benches):
+                    if len(bench_aurocs[i]) == len(bench_aurocs[j]):
+                        plt.figure(figsize=(6,6))
+                        sns.scatterplot(x=bench_aurocs[i], y=bench_aurocs[j],
+                                        color='black', linewidth=0, alpha=0.5)
+                        ax = plt.gca()
 
-                    vmin = min(bench_aurocs[i].min(), bench_aurocs[j].min())
-                    vmax = max(bench_aurocs[i].max(), bench_aurocs[j].max())
-                    ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='gold')
-                    ax.set_xlabel('%s fold AUROC' % options.labels[i])
-                    ax.set_ylabel('%s fold AUROC' % options.labels[j])
-                    sns.despine()
-                    plt.tight_layout()
-                    plt.savefig('%s/auroc_%s_%s.pdf' % (tissue_out_dir, options.labels[i], options.labels[j]))
-                    plt.close()
+                        vmin = min(bench_aurocs[i].min(), bench_aurocs[j].min())
+                        vmax = max(bench_aurocs[i].max(), bench_aurocs[j].max())
+                        ax.plot([vmin,vmax], [vmin,vmax], linestyle='--', color='gold')
+                        ax.set_xlabel('%s fold AUROC' % options.labels[i])
+                        ax.set_ylabel('%s fold AUROC' % options.labels[j])
+                        sns.despine()
+                        plt.tight_layout()
+                        plt.savefig('%s/auroc_%s_%s.pdf' % (tissue_out_dir, options.labels[i], options.labels[j]))
+                        plt.close()
 
-                # append lists
-                df_tissues.append(tissue)
-                df_variants.append(num_variants)
-                df_label1.append(options.labels[i])
-                df_label2.append(options.labels[j])
-                df_auroc1.append(bench_aurocs[i].mean())
-                df_auroc2.append(bench_aurocs[j].mean())
-                if len(bench_aurocs[i]) == len(bench_aurocs[j]):
-                    df_mwp.append(wilcoxon(bench_aurocs[i], bench_aurocs[j],
-                                           alternative=options.alternative)[1])
-                    df_tp.append(ttest_alt(bench_aurocs[i], bench_aurocs[j],
-                                           alternative=options.alternative)[1])
-                else:
-                    df_mwp.append(0)
-                    df_tp.append(0)
+                    # append lists
+                    df_tissues.append(tissue)
+                    df_variants.append(num_variants)
+                    df_label1.append(options.labels[i])
+                    df_label2.append(options.labels[j])
+                    df_auroc1.append(bench_aurocs[i].mean())
+                    df_auroc2.append(bench_aurocs[j].mean())
+                    if len(bench_aurocs[i]) == len(bench_aurocs[j]):
+                        df_mwp.append(wilcoxon(bench_aurocs[i], bench_aurocs[j],
+                                               alternative=options.alternative)[1])
+                        df_tp.append(ttest_alt(bench_aurocs[i], bench_aurocs[j],
+                                               alternative=options.alternative)[1])
+                    else:
+                        df_mwp.append(0)
+                        df_tp.append(0)
 
     df_cmp = pd.DataFrame({
         'tissue':df_tissues,
@@ -169,9 +174,6 @@ def main():
         'wilcoxon':df_mwp,
         'ttest':df_tp
         })
-
-    # filter variants
-    df_cmp = df_cmp[df_cmp.variants >= options.min_variants]
 
     # print table
     df_cmp.sort_values('variants', inplace=True)
@@ -193,7 +195,7 @@ def main():
                 hue_var = 'variants'
 
             plt.figure(figsize=(6,6))
-            sns.scatterplot('auroc1', 'auroc2', data=df_cmp_ij,
+            sns.scatterplot(x='auroc1', y='auroc2', data=df_cmp_ij,
                             hue=hue_var, linewidth=0, alpha=0.8)
             ax = plt.gca()
 

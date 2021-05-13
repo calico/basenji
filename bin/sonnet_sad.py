@@ -28,11 +28,10 @@ import numpy as np
 import pandas as pd
 import pysam
 import tensorflow as tf
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
 
 from basenji import dna_io
 from basenji import seqnn
+from basenji import stream
 from basenji import vcf as bvcf
 from basenji_sad import initialize_output_h5, write_pct, write_snp
 
@@ -49,6 +48,9 @@ using a saved Sonnet model.
 def main():
   usage = 'usage: %prog [options] <model> <vcf_file>'
   parser = OptionParser(usage)
+  parser.add_option('-b', dest='batch_size',
+      default=4, type='int',
+      help='Batch size [Default: %default]')
   parser.add_option('-c', dest='slice_center',
       default=None, type='int',
       help='Slice center positions [Default: %default]')
@@ -198,8 +200,8 @@ def main():
 
   # initialize predictions stream
   preds_stream = stream.PredStreamSonnet(seqnn_model, snp_gen(),
-    rc=options.rc, shifts=options.shifts,
-    slice_center=options.slice_center, species=options.species)
+    rc=options.rc, shifts=options.shifts, species=options.species, 
+    slice_center=options.slice_center, batch_size=options.batch_size)
 
   # predictions index
   pi = 0

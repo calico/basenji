@@ -80,9 +80,14 @@ def main():
       default=False, action='store_true',
       help='Compute SED in the penultimate layer [Default: %default]')
 
+  # classify
+  parser.add_option('--msl', dest='msl',
+      default=1, type='int',
+      help='Random forest min_samples_leaf [Default: %default]')
+
   # multi
   parser.add_option('-e', dest='conda_env',
-      default='tf2.2-gpu',
+      default='tf2.4',
       help='Anaconda environment [Default: %default]')
   parser.add_option('-g', dest='gtex_vcf_dir',
       default='/home/drk/seqnn/data/gtex_fine/susie_pip90')
@@ -167,6 +172,8 @@ def main():
   # classify
 
   cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44 -s'
+
+  cmd_base += ' --msl %d' % options.msl
 
   jobs = []
   for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):

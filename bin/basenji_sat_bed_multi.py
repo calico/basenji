@@ -43,6 +43,9 @@ def main():
   parser = OptionParser(usage)
 
   # basenji_sat_bed.py options
+  parser.add_option('-d', dest='mut_down',
+      default=0, type='int',
+      help='Nucleotides downstream of center sequence to mutate [Default: %default]')
   parser.add_option('-f', dest='genome_fasta',
       default=None,
       help='Genome FASTA for sequences [Default: %default]')
@@ -66,8 +69,14 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
+  parser.add_option('-u', dest='mut_up',
+      default=0, type='int',
+      help='Nucleotides upstream of center sequence to mutate [Default: %default]')
 
   # _multi.py options
+  parser.add_option('-e', dest='conda_env',
+      default='tf2.4',
+      help='Anaconda environment [Default: %default]')
   parser.add_option('--max_proc', dest='max_proc',
       default=None, type='int',
       help='Maximum concurrent processes [Default: %default]')
@@ -115,7 +124,7 @@ def main():
   for pi in range(options.processes):
     if not options.restart or not job_completed(options, pi):
       cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate tf1.15-gpu;'
+      cmd += ' conda activate %s;' % options.conda_env
 
       cmd += ' basenji_sat_bed.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
@@ -124,7 +133,8 @@ def main():
       errf = '%s/job%d.err' % (options.out_dir, pi)
       j = slurm.Job(cmd, name,
           outf, errf,
-          queue=options.queue, gpu=1,
+          queue=options.queue,
+          cpu=2, gpu=1,
           mem=30000, time='14-0:0:0')
       jobs.append(j)
 

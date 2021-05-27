@@ -105,6 +105,173 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
   return current
 
 
+def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
+    l2_scale=0, residual=False, dropout=0, dropout_residual=0, pool_size=1, 
+    batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
+    conv_type='standard', kernel_initializer='he_normal', padding='same'):
+  """Construct a single convolution block, assumed to be operating on DNA.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    filters:       Conv1D filters
+    kernel_size:   Conv1D kernel_size
+    activation:    relu/gelu/etc
+    strides:       Conv1D strides
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    conv_type:     Conv1D layer type
+    pool_size:     Max pool width
+    batch_norm:    Apply batch normalization
+    bn_momentum:   BatchNorm momentum
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+
+  # flow through variable current
+  current = inputs
+
+  # choose convolution type
+  if conv_type == 'separable':
+    conv_layer = tf.keras.layers.SeparableConv1D
+  else:
+    conv_layer = tf.keras.layers.Conv1D
+
+  # choose batch norm type
+  if bn_type == 'sync':
+    bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
+  else:
+    bn_layer = tf.keras.layers.BatchNormalization
+
+  if filters is None:
+    filters = inputs.shape[-1]
+
+  # convolution
+  current = conv_layer(
+    filters=filters,
+    kernel_size=kernel_size,
+    strides=strides,
+    padding='same',
+    use_bias=~batch_norm,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  if residual:
+    # residual conv block
+    rcurrent = conv_nac(current,
+      activation=activation,
+      l2_scale=l2_scale,
+      dropout=dropout_residual,
+      conv_type=conv_type,
+      batch_norm=batch_norm,
+      bn_momentum=bn_momentum,
+      bn_type=bn_type,
+      kernel_initializer=kernel_initializer)
+
+    # residual add
+    current = tf.keras.layers.Add()([current,rcurrent])
+
+  else:
+    # batch norm
+    if batch_norm:
+      current = bn_layer(
+        momentum=bn_momentum)(current)
+
+    # activation
+    current = layers.activate(current, activation)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # Pool
+  if pool_size > 1:
+    current = tf.keras.layers.MaxPool1D(
+      pool_size=pool_size,
+      padding=padding)(current)
+
+  return current
+
+
+def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
+    dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
+    pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
+    kernel_initializer='he_normal', padding='same'):
+  """Construct a single convolution block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    filters:       Conv1D filters
+    kernel_size:   Conv1D kernel_size
+    activation:    relu/gelu/etc
+    strides:       Conv1D strides
+    dilation_rate: Conv1D dilation rate
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    conv_type:     Conv1D layer type
+    residual:      Residual connection boolean
+    pool_size:     Max pool width
+    batch_norm:    Apply batch normalization
+    bn_momentum:   BatchNorm momentum
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+
+  # flow through variable current
+  current = inputs
+
+  # choose convolution type
+  if conv_type == 'separable':
+    conv_layer = tf.keras.layers.SeparableConv1D
+  else:
+    conv_layer = tf.keras.layers.Conv1D
+
+  # choose batch norm type
+  if bn_type == 'sync':
+    bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
+  else:
+    bn_layer = tf.keras.layers.BatchNormalization
+
+  if filters is None:
+    filters = inputs.shape[-1]
+
+  # batch norm
+  if batch_norm:
+    current = bn_layer(
+      momentum=bn_momentum)(current)
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # convolution
+  current = conv_layer(
+    filters=filters,
+    kernel_size=kernel_size,
+    strides=strides,
+    padding='same',
+    use_bias=False,
+    dilation_rate=dilation_rate,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # residual add
+  if residual:
+    current = tf.keras.layers.Add()([inputs,current])
+    
+  # Pool
+  if pool_size > 1:
+    current = tf.keras.layers.MaxPool1D(
+      pool_size=pool_size,
+      padding=padding)(current)
+
+  return current
+
+
 def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
     kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1,
     batch_norm=False, bn_momentum=0.99, bn_gamma='ones', bn_type='standard', symmetric=False):
@@ -218,7 +385,7 @@ def xception_block(inputs, filters=None, kernel_size=1,
 ############################################################
 # Towers
 ############################################################
-def conv_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
+def conv_tower_v1(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
   """Construct a reducing convolution block.
 
   Args:
@@ -241,6 +408,48 @@ def conv_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
     # convolution
     current = conv_block(current,
       filters=int(np.round(rep_filters)),
+      **kwargs)
+
+    # update filters
+    rep_filters *= filters_mult
+
+  return current
+
+
+def conv_tower(inputs, filters_init, filters_end=None, filters_mult=None,
+               divisible_by=1, repeat=1, **kwargs):
+  """Construct a reducing convolution block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    filters_init:  Initial Conv1D filters
+    filters_end:   End Conv1D filters
+    filters_mult:  Multiplier for Conv1D filters
+    divisible_by:  Round filters to be divisible by (eg a power of two)
+    repeat:        Tower repetitions
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+
+  def _round(x):
+    return int(np.round(x / divisible_by) * divisible_by)
+
+  # flow through variable current
+  current = inputs
+
+  # initialize filters
+  rep_filters = filters_init
+
+  # determine multiplier
+  if filters_mult is None:
+    assert(filters_end is not None)
+    filters_mult = np.exp(np.log(filters_end/filters_init) / (repeat-1))
+
+  for ri in range(repeat):
+    # convolution
+    current = conv_block(current,
+      filters=_round(rep_filters),
       **kwargs)
 
     # update filters
@@ -283,7 +492,7 @@ def res_tower(inputs, filters_init, filters_mult=1, dropout=0,
     current0 = current
 
     # subsequent
-    for ci in range(1,num_convs):
+    for ci in range(1, num_convs):
       bg = 'ones' if ci < num_convs-1 else 'zeros'
       current = conv_block(current,
                            filters=rep_filters_int,
@@ -340,6 +549,87 @@ def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 ############################################################
 # Attention
 ############################################################
+def transformer(inputs, key_size=None, heads=1, out_size=None,
+    num_position_features=None, activation='relu', dense_expansion=2.0,
+    attention_dropout=0.05, position_dropout=0.01, dropout=0.25, **kwargs):
+  """Construct a transformer block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    key_size:        Conv block repetitions
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+  if out_size is None:
+    out_size = inputs.shape[-1]
+    value_size = out_size // heads
+    
+  # layer norm
+  current = tf.keras.layers.LayerNormalization()(inputs)
+
+  # multi-head attention
+  current = layers.MultiheadAttention(value_size=value_size,
+    key_size=key_size,
+    heads=heads,
+    num_position_features=num_position_features,
+    attention_dropout_rate=attention_dropout,
+    positional_dropout_rate=position_dropout)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # residual
+  current = tf.keras.layers.Add()([inputs,current])
+
+  if dense_expansion == 0:
+    final = current
+  else:
+    current_mha = current
+
+    # layer norm
+    current = tf.keras.layers.LayerNormalization()(current)
+
+    # dense
+    expansion_filters = int(dense_expansion*out_size)
+    current = tf.keras.layers.Dense(expansion_filters)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # activation 
+    current = layers.activate(current, 'relu')
+
+    # dense
+    current = tf.keras.layers.Dense(out_size)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # residual
+    final = tf.keras.layers.Add()([current_mha,current])
+
+  return current
+
+def transformer_tower(inputs, repeat=2, **kwargs):
+  """Construct a tower of repeated transformer blocks.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    repeat:        Conv block repetitions
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+  current = inputs
+  for ri in range(repeat):
+    current = transformer(current, **kwargs)
+  return current
+
+
 def multihead_attention(inputs, key_size=None, heads=1, out_size=None,
     num_position_features=None, activation='relu', bn_momentum=0.9,
     attention_dropout=0, position_dropout=0, dropout=0, dense_expansion=0, **kwargs):
@@ -548,8 +838,8 @@ def dilated_dense(inputs, filters, kernel_size=3, rate_mult=2,
   return current
 
 
-def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, 
-    conv_type='standard', dropout=0, repeat=1, round=False, **kwargs):
+def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0,
+    repeat=1, conv_type='standard', batch_norm=False, round=False, **kwargs):
   """Construct a residual dilated convolution block.
 
   Args:
@@ -572,6 +862,7 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2,
       kernel_size=kernel_size,
       dilation_rate=int(np.round(dilation_rate)),
       conv_type=conv_type,
+      batch_norm=batch_norm,
       bn_gamma='ones',
       **kwargs)
 
@@ -579,8 +870,13 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2,
     current = conv_block(current,
       filters=rep_input.shape[-1],
       dropout=dropout,
+      batch_norm=batch_norm,
       bn_gamma='zeros',
       **kwargs)
+
+    # InitZero
+    if not batch_norm:
+      current = layers.Scale()(current)
 
     # residual add
     current = tf.keras.layers.Add()([rep_input,current])
@@ -869,6 +1165,8 @@ name_func = {
   'concat_position': concat_position,
   'concat_to_2d': concat_to_2d,
   'conv_block': conv_block,  
+  'conv_dna': conv_dna,  
+  'conv_nac': conv_nac,  
   'conv_block_2d': conv_block_2d,
   'conv_tower': conv_tower,
   'cropping_2d': cropping_2d,
@@ -886,6 +1184,8 @@ name_func = {
   'symmetrize_2d':symmetrize_2d,
   'squeeze_excite': squeeze_excite,
   'res_tower': res_tower,
+  'transformer': transformer,
+  'transformer_tower': transformer_tower,
   'upper_tri': upper_tri,
   'wheeze_excite': wheeze_excite,
   'xception_block': xception_block,

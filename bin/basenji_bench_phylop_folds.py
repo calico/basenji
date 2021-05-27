@@ -62,6 +62,9 @@ def main():
   sat_options.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
+  sat_options.add_option('--restart', dest='restart',
+      default=False, action='store_true',
+      help='Restart a partially completed job [Default: %default]')
   sat_options.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
@@ -166,7 +169,6 @@ def main():
             basenji_cmd += ' --max_proc %d' % (options.max_proc // num_folds)
             basenji_cmd += ' -q %s' % options.queue
             basenji_cmd += ' -n %s' % name
-            basenji_cmd += ' -r'
         else:
             basenji_cmd += ' basenji_sat_bed.py'
         

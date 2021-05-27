@@ -89,7 +89,7 @@ def main():
   parser.add_option('-q', dest='queue',
       default='k80',
       help='SLURM queue on which to run the jobs [Default: %default]')
-  parser.add_option('-r', dest='restart',
+  parser.add_option('-r', '--restart', dest='restart',
       default=False, action='store_true',
       help='Restart a partially completed job [Default: %default]')
   (options, args) = parser.parse_args()
@@ -213,7 +213,15 @@ def job_completed(options, pi):
   """Check whether a specific job has generated its
      output file."""
   out_file = '%s/job%d/scores.h5' % (options.out_dir, pi)
-  return os.path.isfile(out_file) or os.path.isdir(out_file)
+  valid_file = True
+  if not os.path.isfile(out_file):
+    valid_file = False
+  else:
+    try:
+      out_open = h5py.File(out_file, 'r')
+    except OSError:
+      valid_file = False
+  return valid_file
 
 
 ################################################################################

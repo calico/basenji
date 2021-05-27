@@ -168,7 +168,7 @@ def main():
   #######################################################
   # classify
 
-  cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44 -s'
+  cmd_base = 'basenji_bench_classify.py --iscale 0.1 -i 100 -p 2 -r 44 -s'
 
   cmd_base += ' --msl %d' % options.msl
 

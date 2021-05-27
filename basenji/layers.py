@@ -70,6 +70,62 @@ class Exp(tf.keras.layers.Layer):
     config['minus'] = self.minus
     return config
 
+
+class Scale(tf.keras.layers.Layer):
+  def __init__(self, axis=-1, initializer='zeros'):
+    super(Scale, self).__init__()
+    if isinstance(axis, (list, tuple)):
+      self.axis = axis[:]
+    elif isinstance(axis, int):
+      self.axis = axis
+    else:
+      raise TypeError('Expected an int or a list/tuple of ints for the '
+                      'argument \'axis\', but received: %r' % axis)
+    self.initializer = tf.keras.initializers.get(initializer)
+
+  def build(self, input_shape):
+    # input_shape = tensor_shape.TensorShape(input_shape)
+    if not input_shape.ndims:
+      raise ValueError('Input has undefined rank.')
+    ndims = len(input_shape)
+
+    # Convert axis to list and resolve negatives
+    if isinstance(self.axis, int):
+      self.axis = [self.axis]
+    elif isinstance(self.axis, tuple):
+      self.axis = list(self.axis)
+    for idx, x in enumerate(self.axis):
+      if x < 0:
+        self.axis[idx] = ndims + x
+
+    # Validate axes
+    for x in self.axis:
+      if x < 0 or x >= ndims:
+        raise ValueError('Invalid axis: %d' % x)
+    if len(self.axis) != len(set(self.axis)):
+      raise ValueError('Duplicate axis: {}'.format(tuple(self.axis)))
+
+    param_shape = [input_shape[dim] for dim in self.axis]
+
+    self.scale = self.add_weight(
+        name='scale',
+        shape=param_shape,
+        initializer=self.initializer,
+        trainable=True)
+
+  def call(self, x):
+    # return x * math_ops.cast(self.scale, x.dtype)
+    return x * self.scale
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'axis': self.axis,
+      'initializer': tf.keras.initializers.serialize(self.initializer)
+    })
+    return config
+
+
 class PolyReLU(tf.keras.layers.Layer):
   def __init__(self, shift=0):
     super(PolyReLU, self).__init__()
@@ -322,7 +378,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
                heads,
                scaling=True,
                attention_dropout_rate=0,
-               relative_position_symmetric=True,
+               relative_position_symmetric=False,
                relative_position_functions=['positional_features_central_mask'],
                num_position_features=None,
                positional_dropout_rate=0,

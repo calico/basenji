@@ -28,8 +28,6 @@ import random
 import sys
 import time
 
-import matplotlib
-matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import numpy as np
 import pyBigWig
@@ -52,7 +50,6 @@ Notes:
  -The adaptive trimming statistics are awry for paired end shift_center datasets
   like ChIP-seq because the events are initially double counted in order to use
   uint16 rather than a larger data structure.
- -For that reason and others, I recommend
 '''
 
 ################################################################################
@@ -61,97 +58,45 @@ Notes:
 def main():
   usage = 'usage: %prog [options] <bam_file> <output_file>'
   parser = OptionParser(usage)
-  parser.add_option(
-      '-b',
-      dest='cut_bias_kmer',
-      default=None,
-      action='store_true',
-      help=
-      'Normalize coverage for a cutting bias model for k-mers [Default: %default]')
-  parser.add_option(
-      '-c',
-      dest='shift_center',
-      default=False,
-      action='store_true',
-      help=
-      'Shift the event to the fragment center, learning the distribution for single end reads [Default: %default]')
-  parser.add_option(
-      '--clip_max',
-      dest='clip_max',
-      default=None,
-      type='int',
-      help=
-      'Clip coverage using adaptively-determined thresholds to this maximum [Default: %default]')
-  parser.add_option(
-      '--clip_multi',
-      dest='clip_max_multi',
-      default=None,
-      type='float',
-      help=
-      'Maximum coverage at a single position from multi-mapping reads [Default: %default]'
-      )
-  parser.add_option(
-      '-f',
-      dest='fasta_file',
-      default=None,
-      help='FASTA to obtain sequence to control for GC% [Default: %default]')
-  parser.add_option(
-      '-g',
-      dest='gc',
-      default=False,
-      action='store_true',
+  parser.add_option('-b', dest='cut_bias_kmer',
+      default=None, action='store_true',
+      help='Unfinished! Normalize coverage for a cutting bias model for k-mers [Default: %default]')
+  parser.add_option('-c', dest='shift_center',
+      default=False, action='store_true',
+      help='Shift the event to the fragment center, learning the distribution for single end reads [Default: %default]')
+  parser.add_option('--clip_max', dest='clip_max',
+      default=None, type='int',
+      help='Clip coverage using adaptively-determined thresholds to this maximum [Default: %default]')
+  parser.add_option('--clip_multi', dest='clip_max_multi',
+      default=None, type='float',
+      help='Maximum coverage at a single position from multi-mapping reads [Default: %default]')
+  parser.add_option('-f', dest='fasta_file',
+      default=None, help='FASTA to obtain sequence to control for GC% [Default: %default]')
+  parser.add_option('-g', dest='gc',
+      default=False, action='store_true',
       help='Control for local GC% [Default: %default]')
-  parser.add_option(
-      '-m',
-      dest='multi_em',
-      default=0,
-      type='int',
-      help=
-      'Iterations of EM to distribute multi-mapping reads [Default: %default]')
-  parser.add_option(
-      '-o',
-      dest='out_dir',
-      default='bam_cov',
-      help='Output directory [Default: %default]'
-  )
-  parser.add_option(
-      '-q',
-      dest='mapq_t',
-      default=2,
-      type='int',
+  parser.add_option('-m', dest='multi_em',
+      default=0, type='int',
+      help='EM iterations to distribute multi-mapping reads [Default: %default]')
+  parser.add_option('-o', dest='out_dir',
+      default='bam_cov', help='Output directory [Default: %default]')
+  parser.add_option('-q', dest='mapq_t',
+      default=2, type='int',
       help='Filter alignments for MAPQ >= threshold [Default: %default]')
-  parser.add_option(
-      '-s',
-      dest='smooth_sd',
-      default=32,
-      type='float',
-      help=
-      'Gaussian standard deviation to smooth coverage estimates with [Default: %default]'
-  )
-  parser.add_option(
-      '--strand',
-      dest='stranded',
-      default=False,
-      action='store_true',
-      help='Stranded sequencing, output forward and reverse coverage tracks [Default: %default]'
-  )
-  parser.add_option(
-      '-u',
-      dest='unsorted',
-      default=False,
-      action='store_true',
+  parser.add_option('-s', dest='smooth_sd',
+      default=16, type='float',
+      help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
+  parser.add_option('--strand', dest='stranded',
+      default=False, action='store_true',
+      help='Stranded sequencing, output forward and reverse coverage tracks [Default: %default]')
+  parser.add_option('-u', dest='unsorted',
+      default=False, action='store_true',
       help='Alignments are unsorted [Default: %default]')
-  parser.add_option(
-      '-v',
-      dest='shift_forward_end',
-      default=0,
-      type='int',
+  parser.add_option('-v', dest='shift_forward_end',
+      default=0, type='int',
       help='Fragment shift for forward end read [Default: %default]')
-  parser.add_option(
-      '-w',
-      dest='shift_reverse_end',
-      default=0,
-      type='int',
+  parser.add_option('-w', dest='shift_reverse_end',
+      default=0, type='int',
       help='Fragment shift for reverse end read [Default: %default]')
   (options, args) = parser.parse_args()
 
@@ -1216,7 +1161,7 @@ class GenomeCoverage:
         # count NH-tag multi-mapper
         elif align.has_tag('NH') and not align.has_tag('XA'):
           # update multi-map data structures
-          ri = self.read_multi_nh(multi_positions, multi_reads, multi_weight, align, ri, read_id, last_read_id, genome_sorted)
+          ri = self.read_multi_nh(multi_positions, multi_reads, multi_weight, align, gi, ri, read_id, last_read_id, genome_sorted)
 
         else:
             print('Multi-map tag scenario that I did not prepare for:', file=sys.stderr)
@@ -1411,7 +1356,7 @@ class GenomeCoverage:
     return ri + 1
 
 
-  def read_multi_nh(self, multi_positions, multi_reads, multi_weight, align, ri, read_id, last_read_id, genome_sorted):
+  def read_multi_nh(self, multi_positions, multi_reads, multi_weight, align, gi, ri, read_id, last_read_id, genome_sorted):
     """ Helper function to process an NH-tagged multi-mapper. """
 
     # determine multi-mapping state

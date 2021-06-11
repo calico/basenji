@@ -93,3 +93,18 @@ class RnaNN:
     ###################################################
     self.model = tf.keras.Model(inputs=[sequence,features], outputs=prediction)
     print(self.model.summary())
+
+  def predict(self, seq_data, generator=False, **kwargs):
+    """ Predict targets for SeqDataset. """
+    dataset = getattr(seq_data, 'dataset', None)
+    if dataset is None:
+      dataset = seq_data
+
+    if generator:
+      return self.model.predict_generator(dataset, **kwargs)
+    else:
+      return self.model.predict(dataset, **kwargs)
+
+  def restore(self, model_file):
+    """ Restore weights from saved model. """
+    self.model.load_weights(model_file)

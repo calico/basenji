@@ -664,13 +664,13 @@ class RnaTrainer:
           learning_rate=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
           beta_2=self.params.get('adam_beta2',0.999),
-          clipnorm=clip_norm)
+          global_clipnorm=clip_norm)
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
           learning_rate=lr_schedule,
           momentum=self.params.get('momentum', 0.99),
-          clipnorm=clip_norm)
+          global_clipnorm=clip_norm)
 
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)

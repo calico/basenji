@@ -463,7 +463,7 @@ class Trainer:
       clip_norm_default = 1000000
     else:
       clip_norm_default = None
-    clip_norm = self.params.get('clip_norm', clip_norm_default)
+    self.clip_norm = self.params.get('clip_norm', clip_norm_default)
 
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()
@@ -472,14 +472,14 @@ class Trainer:
           learning_rate=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
           beta_2=self.params.get('adam_beta2',0.999),
-          global_clipnorm=clip_norm,
-          amsgrad=True)
+          global_clipnorm=self.clip_norm,
+          amsgrad=False) # reduces performance in my experience
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
           learning_rate=lr_schedule,
           momentum=self.params.get('momentum', 0.99),
-          global_clipnorm=clip_norm)
+          global_clipnorm=self.clip_norm)
 
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)

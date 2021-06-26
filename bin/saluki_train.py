@@ -32,7 +32,7 @@ from basenji import trainer
 """
 saluki_train.py
 
-Train Saluki model using given parameters and data on 3' UTRs.
+Train Saluki model using given parameters and data on RNA sequence.
 """
 
 ################################################################################
@@ -69,8 +69,9 @@ def main():
   num_folds = data_stats['num_folds']
 
   # set seq length
-  params_model['seq_length'] = data_stats['length_%s' % params_model['rna_mode']]
-  params_model['num_features'] = data_stats.get('num_features',0)
+  # params_model['seq_length'] = data_stats['length_%s' % params_model['rna_mode']]
+  # params_model['num_features'] = data_stats.get('num_features',0)
+  params_model['seq_length'] = data_stats['length_full']
   
   # for each fold
   for fi in range(num_folds):

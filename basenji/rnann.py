@@ -38,9 +38,10 @@ class RnaNN:
     ###################################################
     # inputs
     ###################################################
-    seq_depth = 5 if self.rna_mode == 'full' else 4
+    # seq_depth = 5 if self.rna_mode == 'full' else 4
+    seq_depth = 7
     sequence = tf.keras.Input(shape=(self.seq_length, seq_depth), name='sequence')
-    features = tf.keras.Input(shape=(self.num_features,), name='features')
+    # features = tf.keras.Input(shape=(self.num_features,), name='features')
     current = sequence
 
     # augmentation
@@ -75,7 +76,7 @@ class RnaNN:
                                    kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
 
     # concat features
-    current = tf.keras.layers.Concatenate()([current, features])
+    # current = tf.keras.layers.Concatenate()([current, features])
 
     # penultimate
     current = tf.keras.layers.Dense(self.filters,
@@ -91,7 +92,8 @@ class RnaNN:
     ###################################################
     # compile model(s)
     ###################################################
-    self.model = tf.keras.Model(inputs=[sequence,features], outputs=prediction)
+    # self.model = tf.keras.Model(inputs=[sequence,features], outputs=prediction)
+    self.model = tf.keras.Model(inputs=sequence, outputs=prediction)
     print(self.model.summary())
 
   def predict(self, seq_data, generator=False, **kwargs):

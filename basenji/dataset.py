@@ -283,7 +283,7 @@ class RnaDataset:
       feature_spec = {
         'lengths': tf.io.FixedLenFeature((1,), tf.int64),
         'sequence': tf.io.FixedLenFeature([], tf.string),
-        'isoFreq': tf.io.FixedLenFeature([], tf.string, allow_missing=True),
+        'isoFreq': tf.io.FixedLenFeature([], tf.string),
         'frame': tf.io.FixedLenSequenceFeature([], tf.int64, allow_missing=True),
         'splice5p': tf.io.FixedLenSequenceFeature([], tf.int64, allow_missing=True),
         'splice3p': tf.io.FixedLenSequenceFeature([], tf.int64, allow_missing=True),

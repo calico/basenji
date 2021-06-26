@@ -87,18 +87,18 @@ def main():
 
     # initialize train data
     train_data = dataset.RnaDataset(data_dir,
-      rna_mode=params_model['rna_mode'],
       split_labels=split_labels_train,
       batch_size=params_train['batch_size'],
       shuffle_buffer=params_train.get('shuffle_buffer',1024),
       mode='train')
+    # rna_mode=params_model['rna_mode'],
 
     # initialize eval data
     eval_data = dataset.RnaDataset(data_dir,
-      rna_mode=params_model['rna_mode'],
       split_labels=split_labels_eval,
       batch_size=params_train['batch_size'],
       mode='eval')
+    # rna_mode=params_model['rna_mode'],
 
     # initialize model
     seqnn_model = rnann.RnaNN(params_model)

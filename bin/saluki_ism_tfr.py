@@ -143,10 +143,15 @@ def main():
   for seq_1hot, _ in eval_data.dataset:
     print('Predicting %d' % si, flush=True)
 
+    # convert to single numpy 1hot
+    seq_1hot = seq_1hot[0,:,:4].numpy().astype('bool')
+
+    # hack compute actual length
+    seq_len = np.max(np.where(seq_1hot.sum(axis=-1))[0])
+
     # write reference sequence  
-    seq_len = seq_1hot.shape[1]
     seq_mut_len = min(seq_len, options.mut_len)
-    seq_1hot_mut = seq_1hot[0,-seq_mut_len:,:4].numpy().astype('bool')
+    seq_1hot_mut = seq_1hot[seq_len-seq_mut_len:seq_len]
     scores_h5['seqs'][si,-seq_mut_len:,:] = seq_1hot_mut
 
     # initialize scores
@@ -168,6 +173,9 @@ def main():
           seq_scores[mi,ni,:] = preds_stream[pi]
           pi += 1
 
+    # normalize
+    seq_scores -= seq_scores.mean(axis=1, keepdims=True)
+
     # write to HDF5
     scores_h5['ism'][si,-seq_mut_len:,:,:] = seq_scores.astype('float16')
 
@@ -186,8 +194,11 @@ def satmut_gen(eval_data, mut_len):
     seq_1hot = seq_1hot.numpy()[0]
     yield seq_1hot
 
+    # hack compute actual length
+    seq_len = np.max(np.where(seq_1hot.sum(axis=-1))[0])
+
     # set mutation boundaries
-    mut_end = seq_1hot.shape[0]
+    mut_end = seq_len
     mut_start = max(0, mut_end - mut_len)
 
     # for mutation positions

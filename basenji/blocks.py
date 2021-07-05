@@ -622,6 +622,7 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
   """
   if out_size is None:
     out_size = inputs.shape[-1]
+    assert(out_size % heads == 0)
     value_size = out_size // heads
     
   # layer norm

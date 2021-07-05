@@ -358,6 +358,23 @@ def make_rep_data(data_dir, rep_data_dir, fi, ci):
   with open('%s/statistics.json'%rep_data_dir, 'w') as data_stats_open:
     json.dump(data_stats, data_stats_open, indent=4)
 
+  # set sequence tvt
+  try:
+    seqs_bed_out = open('%s/sequences.bed'%rep_data_dir, 'w')
+    for line in open('%s/sequences.bed'%data_dir):
+      a = line.split()
+      sfi = int(a[-1].replace('fold',''))
+      if sfi == test_fold:
+        a[-1] = 'test'
+      elif sfi == valid_fold:
+        a[-1] = 'valid'
+      else:
+        a[-1] = 'train'
+      print('\t'.join(a), file=seqs_bed_out)
+    seqs_bed_out.close()
+  except ValueError:
+    pass
+
   # copy targets
   shutil.copy('%s/targets.txt'%data_dir, '%s/targets.txt'%rep_data_dir)
 

@@ -44,12 +44,18 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-b', dest='blacklist_bed',
       help='Set blacklist nucleotides to a baseline value.')
+  parser.add_option('--black_pct', dest='blacklist_pct',
+      default=0.5, type='float',
+      help='Clip blacklisted regions to this distribution value [Default: %default')
   parser.add_option('-c', dest='clip',
       default=None, type='float',
       help='Clip values post-summary to a maximum [Default: %default]')
   parser.add_option('--clip_soft', dest='clip_soft',
       default=None, type='float',
       help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
+  parser.add_option('--clip_pct', dest='clip_pct',
+      default=0.9999, type='float',
+      help='Clip extreme values to this distribution value [Default: %default')
   parser.add_option('--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
@@ -95,7 +101,7 @@ def main():
   # initialize sequences coverage file
   seqs_cov_open = h5py.File(seqs_cov_file, 'w')
   # seqs_cov_open.create_dataset('targets', shape=(num_seqs, target_length), dtype='float16')
-  targets_list = []
+  targets = []
 
   # open genome coverage file
   genome_cov_open = CovFace(genome_cov_file)
@@ -113,7 +119,7 @@ def main():
 
     # determine baseline coverage
     if target_length >= 8:
-      baseline_cov = np.percentile(seq_cov_nt, 10)
+      baseline_cov = np.percentile(seq_cov_nt, 100*options.blacklist_pct)
       baseline_cov = np.nan_to_num(baseline_cov)
     else:
       baseline_cov = 0
@@ -124,7 +130,9 @@ def main():
         # adjust for sequence indexes
         black_seq_start = black_interval.begin - mseq.start
         black_seq_end = black_interval.end - mseq.start
-        seq_cov_nt[black_seq_start:black_seq_end] = baseline_cov
+        black_seq_values = seq_cov_nt[black_seq_start:black_seq_end]
+        seq_cov_nt[black_seq_start:black_seq_end] = np.clip(black_seq_values, -baseline_cov, baseline_cov)
+        # seq_cov_nt[black_seq_start:black_seq_end] = baseline_cov
 
     # set NaN's to baseline
     if not options.interp_nan:
@@ -139,6 +147,9 @@ def main():
     seq_cov = seq_cov_nt.reshape(target_length, options.pool_width)
     if options.sum_stat == 'sum':
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
+    elif options.sum_stat == 'sum_sqrt':
+      seq_cov = seq_cov.sum(axis=1, dtype='float32')
+      seq_cov = np.sqrt(seq_cov)
     elif options.sum_stat in ['mean', 'avg']:
       seq_cov = seq_cov.mean(axis=1, dtype='float32')
     elif options.sum_stat == 'median':
@@ -158,20 +169,24 @@ def main():
       clip_mask = (seq_cov > options.clip_soft)
       seq_cov[clip_mask] = options.clip_soft + np.sqrt(seq_cov[clip_mask] - options.clip_soft)
     if options.clip is not None:
-        seq_cov = np.clip(seq_cov, 0, options.clip)
+      seq_cov = np.clip(seq_cov, -options.clip, options.clip)
 
     # scale
     seq_cov = options.scale * seq_cov
 
     # save
-    targets_list.append(seq_cov.astype('float16'))
+    targets.append(seq_cov.astype('float16'))
 
     # write
     # seqs_cov_open['targets'][si,:] = seq_cov.astype('float16')
 
+  # clip extreme values
+  targets = np.array(targets, dtype='float16')
+  extreme_clip = np.percentile(targets, 100*options.clip_pct)
+  targets = np.clip(targets, -extreme_clip, extreme_clip)
+
   # write all
-  seqs_cov_open.create_dataset('targets', dtype='float16',
-    data=np.array(targets_list, dtype='float16'))
+  seqs_cov_open.create_dataset('targets', data=targets, dtype='float16')
 
   # close genome coverage file
   genome_cov_open.close()

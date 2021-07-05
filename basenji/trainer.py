@@ -355,8 +355,8 @@ class Trainer:
     # checkpoint manager
     ckpt = tf.train.Checkpoint(model=seqnn_model.model, optimizer=self.optimizer)
     manager = tf.train.CheckpointManager(ckpt, self.out_dir, max_to_keep=1)
-    ckpt.restore(manager.latest_checkpoint)
     if manager.latest_checkpoint:
+      ckpt.restore(manager.latest_checkpoint)
       ckpt_end = 5+manager.latest_checkpoint.find('ckpt-')
       epoch_start = int(manager.latest_checkpoint[ckpt_end:])
       print('Checkpoint restored at epoch %d, optimizer iteration %d.' % \
@@ -463,8 +463,15 @@ class Trainer:
       clip_norm_default = 1000000
     else:
       clip_norm_default = None
-    self.clip_norm = self.params.get('clip_norm', clip_norm_default)
 
+    global_clipnorm = self.params.get('global_clipnorm', clip_norm_default)
+    if 'clip_norm' in self.params:
+      clip_norm = self.params['clip_norm']
+    elif 'clipnorm' in self.params:
+      clip_norm = self.params['clipnorm']
+    else:
+      clip_norm = clip_norm_default
+  
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()
     if optimizer_type == 'adam':
@@ -472,14 +479,16 @@ class Trainer:
           learning_rate=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
           beta_2=self.params.get('adam_beta2',0.999),
-          global_clipnorm=self.clip_norm,
+          clipnorm=clip_norm,
+          global_clipnorm=global_clipnorm,
           amsgrad=False) # reduces performance in my experience
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
           learning_rate=lr_schedule,
           momentum=self.params.get('momentum', 0.99),
-          global_clipnorm=self.clip_norm)
+          clipnorm=clip_norm,
+          global_clipnorm=global_clipnorm)
 
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)

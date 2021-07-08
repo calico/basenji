@@ -33,6 +33,7 @@ class RnaNN:
     # only necessary for my bespoke parameters
     # others are  best defaulted closer to the source
     self.augment_shift = [0]
+    self.num_targets = 1
 
   def build_model(self):
     ###################################################
@@ -87,7 +88,7 @@ class RnaNN:
     current = tf.keras.layers.ReLU()(current)
 
     # final
-    prediction = tf.keras.layers.Dense(1)(current)
+    prediction = tf.keras.layers.Dense(self.num_targets)(current)
 
     ###################################################
     # compile model(s)

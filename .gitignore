@@ -10,3 +10,5 @@ basenji.egg-info/
 */._.DS_Store
 **/.ipynb_checkpoints/
 data/hg19.fa*
+data/*
+manuscripts/basset/model_basset

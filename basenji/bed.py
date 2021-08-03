@@ -13,8 +13,15 @@
 # limitations under the License.
 # =========================================================================
 
+import json
+import os
 import sys
+import time
+import subprocess
 
+from intervaltree import IntervalTree
+import numpy as np
+import pandas as pd
 import pysam
 
 from basenji import dna_io
@@ -106,3 +113,122 @@ def read_bed_coords(bed_file, seq_len):
     seqs_coords.append((chrm,seq_start,seq_end))
 
   return seqs_coords
+
+
+def write_bedgraph(test_preds, test_targets, data_dir, out_dir, split_label, bedgraph_indexes=None):
+  """Write BED graph files for predictions and targets."""
+  
+  # get shapes
+  num_seqs, target_length, num_targets = test_targets.shape
+
+  # set bedgraph indexes
+  if bedgraph_indexes is None:
+    bedgraph_indexes = np.arange(num_targets)
+
+  # read data parameters
+  with open('%s/statistics.json'%data_dir) as data_open:
+    data_stats = json.load(data_open)
+    pool_width = data_stats['pool_width']
+    crop_bp = data_stats['crop_bp']
+
+  # read sequence positions
+  seqs_df = pd.read_csv('%s/sequences.bed'%data_dir, sep='\t',
+    names=['chr','start','end','split'])
+  seqs_df = seqs_df[seqs_df.split == split_label]
+
+  # initialize output directory
+  os.makedirs('%s/bedgraph' % out_dir, exist_ok=True)
+
+  for ti in bedgraph_indexes:
+    print('Writing %d bedgraph...' % ti, end='')
+    t0 = time.time()
+
+    # slice preds/targets
+    test_preds_ti = test_preds[:,:,ti]
+    test_targets_ti = test_targets[:,:,ti]
+
+    # initialize raw predictions/targets
+    preds_out = open('%s/bedgraph/preds_t%d.bedgraph' % (out_dir, ti), 'w')
+    targets_out = open('%s/bedgraph/targets_t%d.bedgraph' % (out_dir, ti), 'w')
+
+    # write raw predictions/targets
+    for si in range(num_seqs):
+      seq_chr = seqs_df.iloc[si].chr
+
+      bin_start = seqs_df.iloc[si].start + crop_bp
+      for bi in range(target_length):
+        bin_end = bin_start + pool_width
+        cols = [seq_chr, str(bin_start), str(bin_end), str(test_preds_ti[si,bi])]
+        print('\t'.join(cols), file=preds_out)
+        cols = [seq_chr, str(bin_start), str(bin_end), str(test_targets_ti[si,bi])]
+        print('\t'.join(cols), file=targets_out)
+        bin_start = bin_end
+
+    preds_out.close()
+    targets_out.close()
+
+    print('DONE in %ds' % (time.time()-t0))
+
+
+def write_bedgraph_v1(test_preds, test_targets, data_dir, out_dir, split_label, bedgraph_indexes=None):
+  """Write BED graph files for predictions and targets."""
+  
+  # get shapes
+  num_seqs, target_length, num_targets = test_targets.shape
+
+  # set bedgraph indexes
+  if bedgraph_indexes is None:
+    bedgraph_indexes = np.arange(num_targets)
+
+  # read data parameters
+  with open('%s/statistics.json'%data_dir) as data_open:
+    data_stats = json.load(data_open)
+    pool_width = data_stats['pool_width']
+    crop_bp = data_stats['crop_bp']
+
+  # read sequence positions
+  seqs_df = pd.read_csv('%s/sequences.bed'%data_dir, sep='\t',
+    names=['chr','start','end','split'])
+  seqs_df = seqs_df[seqs_df.split == split_label]
+
+  # initialize output directory
+  os.makedirs('%s/bedgraph' % out_dir, exist_ok=True)
+
+  for ti in bedgraph_indexes:
+    print('Writing %d bedgraph...' % ti, end='')
+    t0 = time.time()
+
+    # slice preds/targets
+    test_preds_ti = test_preds[:,:,ti]
+    test_targets_ti = test_targets[:,:,ti]
+
+    # initialize predictions/targets
+    preds_out = open('%s/bedgraph/preds_t%d.bedgraph' % (out_dir, ti), 'w')
+    targets_out = open('%s/bedgraph/targets_t%d.bedgraph' % (out_dir, ti), 'w')
+
+    # save written
+    intervals_written = {}
+
+    # write predictions/targets
+    for si in range(num_seqs):
+      seq_chr = seqs_df.iloc[si].chr
+      if seq_chr not in intervals_written:
+        intervals_written[seq_chr] = IntervalTree()
+
+      bin_start = seqs_df.iloc[si].start + crop_bp
+      for bi in range(target_length):
+        bin_end = bin_start + pool_width
+        if intervals_written[seq_chr][bin_start:bin_end]:
+          pass
+        else:
+          intervals_written[seq_chr][bin_start:bin_end] = True
+          cols = [seq_chr, str(bin_start), str(bin_end), str(test_preds_ti[si,bi])]
+          print('\t'.join(cols), file=preds_out)
+          cols = [seq_chr, str(bin_start), str(bin_end), str(test_targets_ti[si,bi])]
+          print('\t'.join(cols), file=targets_out)
+        bin_start = bin_end
+
+    preds_out.close()
+    targets_out.close()
+
+    print('DONE in %ds' % (time.time()-t0))

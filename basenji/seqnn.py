@@ -73,6 +73,8 @@ class SeqNN():
       block_varnames = block_func.__init__.__code__.co_varnames
 
     # set global defaults
+    # try to see if the SeqNN object has the following attributes:
+    # if they do, put them in a dictionary
     global_vars = ['activation', 'batch_norm', 'bn_momentum', 'bn_type',
       'l2_scale', 'l1_scale', 'padding', 'kernel_initializer']
     for gv in global_vars:

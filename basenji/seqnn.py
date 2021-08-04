@@ -43,10 +43,19 @@ class SeqNN():
     self.augment_shift = [0]
 
   def build_block(self, current, block_params):
-    """Construct a SeqNN block.
+    """
+    Construct a SeqNN layer, and set it's previous layer to be the `current` 
+    parameter.
+
     Args:
+        current (tf.keras.layers.Layer): The previous later to attach this new 
+        block to.
+
+        block_params (dict): The parameters for this specific block, in order 
+        of the elements of model[trunk]
+
     Returns:
-      current
+        [type]: [description]
     """
     block_args = {}
 

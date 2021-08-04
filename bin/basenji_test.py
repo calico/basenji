@@ -37,6 +37,7 @@ matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from basenji import bed
 from basenji import dataset
 from basenji import plots
 from basenji import seqnn
@@ -138,7 +139,7 @@ def main():
   loss_label = params_train.get('loss', 'poisson').lower()
   spec_weight = params_train.get('spec_weight', 1)
   loss_fn = trainer.parse_loss(loss_label, spec_weight=spec_weight)
-
+  
   # evaluate
   test_loss, test_metric1, test_metric2 = seqnn_model.evaluate(eval_data, loss=loss_fn)
 
@@ -173,7 +174,7 @@ def main():
 
   targets_acc_df.to_csv('%s/acc.txt'%options.out_dir, sep='\t',
                         index=False, float_format='%.5f')
-
+  
   #######################################################
   # predict?
 
@@ -194,7 +195,7 @@ def main():
 
     if options.bedgraph_indexes is not None:
       bedgraph_indexes = [int(ti) for ti in options.bedgraph_indexes.split(',')]
-      write_bedgraph(test_preds, test_targets, data_dir,
+      bed.write_bedgraph(test_preds, test_targets, data_dir,
         options.out_dir, options.split_label, bedgraph_indexes)
 
   #######################################################
@@ -388,59 +389,6 @@ def test_peaks(test_preds, test_targets, peaks_out_file):
 
     print('Test AUROC:     %7.5f' % np.mean(aurocs))
     print('Test AUPRC:     %7.5f' % np.mean(auprcs))
-
-
-def write_bedgraph(test_preds, test_targets, data_dir, out_dir, split_label, bedgraph_indexes):
-  # get shapes
-  num_seqs, target_length, num_targets = test_targets.shape
-
-  # read data parameters
-  with open('%s/statistics.json'%data_dir) as data_open:
-    data_stats = json.load(data_open)
-    pool_width = data_stats['pool_width']
-    crop_bp = data_stats['crop_bp']
-
-  # read sequence positions
-  seqs_df = pd.read_csv('%s/sequences.bed'%data_dir, sep='\t',
-    names=['chr','start','end','split'])
-  seqs_df = seqs_df[seqs_df.split == split_label]
-
-  # initialize output directory
-  os.makedirs('%s/bedgraph' % out_dir, exist_ok=True)
-
-  for ti in bedgraph_indexes:
-    # slice preds/targets
-    test_preds_ti = test_preds[:,:,ti]
-    test_targets_ti = test_targets[:,:,ti]
-
-    # initialize predictions/targets
-    preds_out = open('%s/bedgraph/preds_t%d.bedgraph' % (out_dir, ti), 'w')
-    targets_out = open('%s/bedgraph/targets_t%d.bedgraph' % (out_dir, ti), 'w')
-
-    # save written
-    intervals_written = {}
-
-    # write predictions/targets
-    for si in range(num_seqs):
-      seq_chr = seqs_df.iloc[si].chr
-      if seq_chr not in intervals_written:
-        intervals_written[seq_chr] = IntervalTree()
-
-      bin_start = seqs_df.iloc[si].start + crop_bp
-      for bi in range(target_length):
-        bin_end = bin_start + pool_width
-        if intervals_written[seq_chr][bin_start:bin_end]:
-          pass
-        else:
-          intervals_written[seq_chr][bin_start:bin_end] = True
-          cols = [seq_chr, str(bin_start), str(bin_end), str(test_preds_ti[si,bi])]
-          print('\t'.join(cols), file=preds_out)
-          cols = [seq_chr, str(bin_start), str(bin_end), str(test_targets_ti[si,bi])]
-          print('\t'.join(cols), file=targets_out)
-        bin_start = bin_end
-
-    preds_out.close()
-    targets_out.close()
 
 
 ################################################################################

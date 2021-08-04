@@ -259,7 +259,7 @@ def main():
                           queue=options.queue,
                           cpu=num_cpu, gpu=num_gpu,
                           mem=75000,
-                          time='6:00:00')
+                          time='12:00:00')
           jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)

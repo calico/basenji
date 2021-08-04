@@ -30,8 +30,11 @@ class SeqNN():
 
   def __init__(self, params):
     self.set_defaults()
+    print("===+===")
     for key, value in params.items():
+      print(key,value)
       self.__setattr__(key, value)
+    print("===+===")
     self.build_model()
     self.ensemble = None
     self.embed = None
@@ -56,7 +59,7 @@ class SeqNN():
 
     Returns:
         [type]: [description]
-    """
+    """    
     block_args = {}
 
     # extract name
@@ -98,6 +101,16 @@ class SeqNN():
     return current
 
   def build_model(self, save_reprs=False):
+    """
+    Using the functional API for tensorflow, programmatically builds a neural
+    network, according to the attributes set under the 'model' key in 
+    the config JSON.
+
+    see generic_params.json for further details
+
+    Args:
+        save_reprs (bool, optional): [description]. Defaults to False.
+    """    
     ###################################################
     # inputs
     ###################################################
@@ -114,6 +127,9 @@ class SeqNN():
     ###################################################
     # build convolution blocks
     ###################################################
+    # iterate through the elements of model[trunk], generate a layer, and attach
+    # it to the end of the previous layer
+    # this current variable references to the final layer specified in model[trunk]
     for bi, block_params in enumerate(self.trunk):
       current = self.build_block(current, block_params)
 
@@ -187,6 +203,7 @@ class SeqNN():
 
 
   def build_embed(self, conv_layer_i, batch_norm=True):
+
     if conv_layer_i == -1:
       self.embed = tf.keras.Model(inputs=self.model.inputs,
                                   outputs=self.model.inputs)

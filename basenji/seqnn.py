@@ -13,6 +13,7 @@
 # limitations under the License.
 # =========================================================================
 from __future__ import print_function
+import json
 
 import pdb
 import sys
@@ -395,3 +396,13 @@ class SeqNN():
       self.model_trunk.save(model_file, include_optimizer=False)
     else:
       self.model.save(model_file, include_optimizer=False)
+
+def main():
+  with open("/home/moody/basset/basenji/manuscripts/basset/model_basset/params.json") as params_open:
+    params = json.load(params_open)
+  params_model = params['model']
+  params_train = params['train']
+  seqnn_model = SeqNN(params_model)
+
+if __name__ == "__main__":
+  main()

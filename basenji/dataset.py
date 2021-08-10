@@ -200,7 +200,8 @@ class SeqDataset:
       # initialize dataset from TFRecords glob
       tfr_files = natsorted(glob.glob(self.tfr_path))
       if tfr_files:
-        dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+        # dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+        dataset = tf.data.Dataset.from_tensor_slices(tfr_files)
       else:
         print('Cannot order TFRecords %s' % self.tfr_path, file=sys.stderr)
         dataset = tf.data.Dataset.list_files(self.tfr_path)

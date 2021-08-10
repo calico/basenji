@@ -9,6 +9,7 @@
         "patience": 12,
         "train_epochs_min": 10
     },
+
     "model": {
         "seq_length": 1344,
 
@@ -41,11 +42,12 @@
             },
             {
                 "name": "dense_block",
-		"flatten": true,
+		        "flatten": true,
                 "units": 768,
                 "dropout": 0.2
             }
         ],
+
         "head": [
             {
                 "name": "final",

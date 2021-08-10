@@ -1258,6 +1258,9 @@ def concat_to_2d(inputs, **kwargs):
 ############################################################
 # Dictionary
 ############################################################
+"""
+dictionary that maps config strings to their definitions in this module 
+"""
 name_func = {
   'attention': attention,
   'center_slice': center_slice,

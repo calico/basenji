@@ -271,7 +271,9 @@ def hot1_insert(seq_1hot, pos, insert_seq):
 
 
 def hot1_rc(seqs_1hot):
-  """ Reverse complement a batch of one hot coded sequences """
+  """ Reverse complement a batch of one hot coded sequences,
+       while being robust to additional tracks beyond the four
+       nucleotides. """
 
   if seqs_1hot.ndim == 2:
     singleton = True
@@ -283,7 +285,6 @@ def hot1_rc(seqs_1hot):
 
   # reverse
   seqs_1hot_rc = seqs_1hot_rc[:, ::-1, :]
-  # seqs_1hot_rc[:,::-1,:]
 
   # swap A and T
   seqs_1hot_rc[:, :, [0, 3]] = seqs_1hot_rc[:, :, [3, 0]]

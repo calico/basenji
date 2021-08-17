@@ -113,7 +113,7 @@ def main():
   # setup model
   seqnn_model = rnann.RnaNN(params_model)
   seqnn_model.restore(model_file)
-  # seqnn_model.build_ensemble(options.shifts)
+  # seqnn_model.build_ensemble(False, options.shifts)
 
   #################################################################
   # generator
@@ -135,10 +135,10 @@ def main():
       transcript = genes_gtf.transcripts[tx_id]
 
       # skip features
-      tx_features = np.array([len(transcript.exons)], dtype='float32')
+      # tx_features = np.array([len(transcript.exons)], dtype='float32')
 
       # encode RNA input
-      tx_dna, tx_seq1 = rna_1hot_cds(transcript, genome_open)
+      tx_dna, tx_seq1 = rna_1hot_splice(transcript, genome_open)
 
       # correct strand
       if transcript.strand == '-':
@@ -150,7 +150,7 @@ def main():
       tx_seq1_yield = set_rna_length(tx_seq1_yield, params_model['seq_length'])
 
       # yield
-      yield tx_seq1_yield, tx_features
+      yield tx_seq1_yield #, tx_features
 
       # for each variant
       for vid in tx_variants:
@@ -179,7 +179,7 @@ def main():
           #   (variant.rsid, variant.ref_allele, variant.alt_allele, tx_dna[variant.pos_tx]), file=sys.stderr)
 
 
-        # substitue alternative allele
+        # substitute alternative allele
         vtx_seq1 = make_alt_1hot(tx_seq1, variant.pos_tx,
           variant.ref_allele, variant.alt_allele)
 
@@ -193,7 +193,7 @@ def main():
         vtx_seq1_yield = set_rna_length(vtx_seq1_yield, params_model['seq_length'])
 
         # yield
-        yield vtx_seq1_yield, tx_features
+        yield vtx_seq1_yield #, tx_features
 
 
   ################################################################
@@ -226,7 +226,7 @@ def main():
       print(ssd.shape)
 
       # print
-      cols = [vid, tx_id, '%.4f'%ssd]
+      cols = [vid, tx_id, '%.6f'%ssd]
       print('\t'.join(cols), file=ssd_out)
 
   # close genome
@@ -234,6 +234,102 @@ def main():
 
   # close SNP output
   ssd_out.close()
+
+def rna_1hot_splice(transcript, genome_open):
+  """Extract RNA nucleotides and add splice and coding frame channels.
+      Consider strand, but do not yet reverse complement, because its
+      easier to handle variant substitution."""
+
+   # exons RNA
+  tx_exons = transcript.fasta_exons(genome_open, stranded=False)
+  seq_len = len(tx_exons)
+
+  # CDS RNA
+  tx_cds = transcript.fasta_cds(genome_open, stranded=False)
+  if len(tx_cds) % 3 == 0:
+    valid_coding = True
+  else:
+    # print('WARNING: %d mod 3 == %d length:' % (len(tx_cds),len(tx_cds)%3), transcript)
+    valid_coding = False
+  cds_start = tx_exons.find(tx_cds)
+  assert(cds_start != -1)
+  cds_end = cds_start + len(tx_cds)
+
+  # add frame channel
+  frame_channel = np.zeros((seq_len,1))
+  if valid_coding:
+    aa_len = (cds_end - cds_start) // 3
+    if transcript.strand == '+':
+      frame_channel[cds_start:cds_end,0] = np.tile([1,0,0], aa_len)
+    else:
+      frame_channel[cds_start:cds_end,0] = np.tile([0,0,1], aa_len)
+
+  # splice track
+  splice_channel = np.zeros((seq_len,1))
+  ti = 0
+  exon_lens = [ex.end-ex.start for ex in transcript.exons]
+  for el in exon_lens:
+    if transcript.strand == '+':
+      ti += el
+      splice_channel[ti-1,0] = 1
+    else:
+      splice_channel[ti,0] = 1
+      ti += el
+
+  # 1 hot encode
+  tx_seq1 = dna_io.dna_1hot(tx_exons, n_uniform=True)
+  tx_seq1 = np.concatenate([tx_seq1, frame_channel, splice_channel], axis=-1)
+
+  return tx_exons, tx_seq1.astype('float32')
+
+
+def rna_1hot_splice_vikram(transcript, genome_open):
+  """Extract RNA nucleotides and add splice and coding frame channels.
+      Consider strand, but do not yet reverse complement, because its
+      easier to handle variant substitution."""
+
+  # exons RNA
+  tx_exons = transcript.fasta_exons(genome_open, stranded=False)
+  seq_len = len(tx_exons)
+
+  # CDS RNA
+  tx_cds = transcript.fasta_cds(genome_open, stranded=False)
+  if len(tx_cds) % 3 != 0:
+    pdb.set_trace()
+  assert(len(tx_cds) % 3 == 0)
+  cds_start = tx_exons.find(tx_cds)
+  assert(cds_start != -1)
+  cds_end = cds_start + len(tx_cds)
+
+  # add frame channel
+  frame_channel = np.zeros((seq_len,1))
+  aa_len = (cds_end - cds_start) // 3
+  if transcript.strand == '+':
+    frame_channel[cds_start:cds_end,0] = np.tile([1,0,0], aa_len)
+  else:
+    frame_channel[cds_start:cds_end,0] = np.tile([0,0,1], aa_len)
+
+  # splice tracks
+  splice5_channel = np.zeros((seq_len,1))
+  splice3_channel = np.zeros((seq_len,1))
+  ti = 0
+  exon_lens = [ex.end-ex.start for ex in transcript.exons]
+  for el in exon_lens:
+    if transcript.strand == '+':
+      splice5_channel[ti,0] = 1
+      ti += el
+      splice3_channel[ti-1,0] = 1
+    else:
+      splice3_channel[ti,0] = 1
+      ti += el
+      splice5_channel[ti-1,0] = 1
+
+  # 1 hot encode
+  tx_seq1 = dna_io.dna_1hot(tx_exons, n_uniform=True)
+  tx_seq1 = np.concatenate([tx_seq1, frame_channel, splice5_channel, splice3_channel], axis=-1)
+
+  return tx_exons, tx_seq1.astype('float32')
+
 
 
 def rna_1hot_cds(transcript, genome_open):
@@ -309,20 +405,17 @@ class PredStreamGen:
   def make_dataset(self):
     """ Construct Dataset object for this stream chunk. """
     seqs_1hot = []
-    seqs_features = []
     stream_end = self.stream_start+self.stream_seqs
     for si in range(self.stream_start, stream_end):
       try:
-        seq_1hot, seq_features = self.seqs_gen.__next__()
+        seq_1hot = self.seqs_gen.__next__()
         seqs_1hot.append(seq_1hot)
-        seqs_features.append(seq_features)
       except StopIteration:
         continue
 
     seqs_1hot = np.array(seqs_1hot)
-    seqs_features = np.array(seqs_features)
 
-    dataset = tf.data.Dataset.from_tensor_slices(((seqs_1hot,seqs_features),))
+    dataset = tf.data.Dataset.from_tensor_slices((seqs_1hot,))
     dataset = dataset.batch(self.batch_size)
 
     return dataset

@@ -40,7 +40,7 @@ class RnaNN:
     # inputs
     ###################################################
     # seq_depth = 5 if self.rna_mode == 'full' else 4
-    seq_depth = 7
+    seq_depth = 6
     sequence = tf.keras.Input(shape=(self.seq_length, seq_depth), name='sequence')
     # features = tf.keras.Input(shape=(self.num_features,), name='features')
     current = sequence

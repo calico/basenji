@@ -118,7 +118,7 @@ def main():
                 for j in range(i+1, num_benches):
                     if len(bench_aurocs[i]) == len(bench_aurocs[j]):
                         plt.figure(figsize=(6,6))
-                        sns.scatterplot(bench_aurocs[i], bench_aurocs[j],
+                        sns.scatterplot(x=bench_aurocs[i], y=bench_aurocs[j],
                                         color='black', linewidth=0, alpha=0.5)
                         ax = plt.gca()
 
@@ -179,7 +179,7 @@ def main():
                 hue_var = 'variants'
 
             plt.figure(figsize=(6,6))
-            sns.scatterplot('auroc1', 'auroc2', data=df_cmp_ij,
+            sns.scatterplot(x='auroc1', y='auroc2', data=df_cmp_ij,
                             hue=hue_var, linewidth=0, alpha=0.8)
             ax = plt.gca()
 

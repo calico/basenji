@@ -16,6 +16,7 @@
 
 from __future__ import print_function
 from optparse import OptionParser
+import gc
 import json
 import os
 import pdb
@@ -94,7 +95,7 @@ def main():
     params = json.load(params_open)
   params_model = params['model']
   params_train = params['train']
-  params_model['seq_length'] = data_stats['length_full']
+  params_model['seq_length'] = data_stats['length_t']
 
   # initialize model
   seqnn_model = rnann.RnaNN(params_model)
@@ -181,6 +182,9 @@ def main():
 
     # increment sequence
     si += 1
+
+    # clean memory
+    gc.collect()
     
   # close output HDF5
   scores_h5.close()
@@ -209,7 +213,7 @@ def satmut_gen(eval_data, mut_len):
         if seq_1hot[mi,ni] == 0:
           # copy and modify
           seq_mut_1hot = np.copy(seq_1hot)
-          seq_mut_1hot[mi,:] = 0
+          seq_mut_1hot[mi,:4] = 0
           seq_mut_1hot[mi,ni] = 1
           yield seq_mut_1hot
 

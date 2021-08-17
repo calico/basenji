@@ -52,10 +52,6 @@ def main():
     params_file = args[0]
     data_dir = args[1]
 
-  os.makedirs(options.out_dir, exist_ok=True)
-  if params_file != '%s/params.json' % options.out_dir:
-    shutil.copy(params_file, '%s/params.json' % options.out_dir)
-
   # read model parameters
   with open(params_file) as params_open:
     params = json.load(params_open)
@@ -71,7 +67,11 @@ def main():
   # set seq length
   # params_model['seq_length'] = data_stats['length_%s' % params_model['rna_mode']]
   # params_model['num_features'] = data_stats.get('num_features',0)
-  params_model['seq_length'] = data_stats['length_full']
+  params_model['seq_length'] = data_stats['length_t']
+
+  os.makedirs(options.out_dir, exist_ok=True)
+  if params_file != '%s/params.json' % options.out_dir:
+    shutil.copy(params_file, '%s/params.json' % options.out_dir)
   
   # for each fold
   for fi in range(num_folds):

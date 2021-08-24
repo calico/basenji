@@ -31,11 +31,8 @@ class SeqNN():
 
   def __init__(self, params):
     self.set_defaults()
-    # print("===+===")
     for key, value in params.items():
-      print(key,value)
       self.__setattr__(key, value)
-    # print("===+===")
     self.build_model()
     self.ensemble = None
     self.embed = None
@@ -98,10 +95,13 @@ class SeqNN():
     # otherwise, use the layer in blocks.py
     # 
     # pass all of the parameters associated with this block in as a keyword argument
+    
+    # basenji custom layer
     if block_name[0].islower():
       block_func = blocks.name_func[block_name]
       current = block_func(current, **block_args)
 
+    # keras functional style layer
     else:
       block_func = blocks.keras_func[block_name]
       current = block_func(**block_args)(current)
@@ -135,12 +135,9 @@ class SeqNN():
     ###################################################
     # build convolution blocks
     ###################################################
-    # iterate through the elements of model[trunk], generate a layer, and attach
+    # iterate through the elements of model[trunk], generate a block, and attach
     # it to the end of the previous layer
-    # this current variable references to the final layer specified in model[trunk]
     for bi, block_params in enumerate(self.trunk):
-      print(block_params)
-      print("======")
       current = self.build_block(current, block_params)
 
     # final activation

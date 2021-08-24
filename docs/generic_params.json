@@ -7,7 +7,8 @@
         "learning_rate": 0.005 [float],
         "momentum": 0.98 [float],
         "patience": 12 [int],
-        "train_epochs_min": 10 [int]
+        "train_epochs_min": 10 [int: default 1],
+        "train_epochs_max": 10 [int: default 10000]
     },
     "model": {
         "seq_length": 1344 [int],
@@ -21,7 +22,7 @@
         
         "trunk": [
             {
-                "name": "conv_block",
+                "name": "conv_block", [enum: see module variables in blocks.py]
                 "filters": 288,
                 "kernel_size": 17,
                 "pool_size": 3

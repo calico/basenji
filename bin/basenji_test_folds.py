@@ -116,11 +116,13 @@ def main():
     num_folds = min(options.fold_subset, num_folds)
 
   if options.queue == 'standard':
-  	num_cpu = 8
-  	num_gpu = 0
+    num_cpu = 8
+    num_gpu = 0
+    time_base = 18
   else:
-  	num_cpu = 2
-  	num_gpu = 1
+    num_cpu = 2
+    num_gpu = 1
+    time_base = 4
   
   ################################################################
   # test check
@@ -167,7 +169,7 @@ def main():
                         queue=options.queue,
                         cpu=num_cpu, gpu=num_gpu,
                         mem=23000,
-                        time='8:00:00')
+                        time='%d:00:00' % (2*time_base))
           jobs.append(j)
 
 
@@ -213,7 +215,7 @@ def main():
                       queue=options.queue,
                       cpu=num_cpu, gpu=num_gpu,
                       mem=23000,
-                      time='4:00:00')
+                      time='%d:00:00' % time_base)
         jobs.append(j)
 
   ################################################################
@@ -259,7 +261,7 @@ def main():
                           queue=options.queue,
                           cpu=num_cpu, gpu=num_gpu,
                           mem=75000,
-                          time='12:00:00')
+                          time='%d:00:00' % (3*time_base))
           jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)

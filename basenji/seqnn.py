@@ -75,6 +75,23 @@ class SeqNN():
     block_args.update(block_params)
     del block_args['name']
 
+    # save representations
+    if block_name == 'conv_tower_nac':
+      block_args['reprs'] = self.reprs
+
+    # U-net style concat helper
+    if block_name == 'concat_unet':
+      # find matching representation
+      concat_repr = None
+      for seq_repr in reversed(self.reprs[:-1]):
+        if seq_repr.shape[1] == current.shape[1]:
+          concat_repr = seq_repr
+          break
+      if concat_repr is None:
+        print('Could not find matching representation for length %d' % current.shape[1], sys.stderr)
+        exit(1)
+      block_args['concat'] = concat_repr
+
     # switch for block
     if block_name[0].islower():
       block_func = blocks.name_func[block_name]
@@ -86,7 +103,7 @@ class SeqNN():
 
     return current
 
-  def build_model(self, save_reprs=False):
+  def build_model(self, save_reprs=True):
     ###################################################
     # inputs
     ###################################################
@@ -103,8 +120,11 @@ class SeqNN():
     ###################################################
     # build convolution blocks
     ###################################################
+    self.reprs = []
     for bi, block_params in enumerate(self.trunk):
       current = self.build_block(current, block_params)
+      if save_reprs:
+        self.reprs.append(current)
 
     # final activation
     current = layers.activate(current, self.activation)

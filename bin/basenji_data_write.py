@@ -51,8 +51,6 @@ def main():
       help='Sequence end index [Default: %default]')
   parser.add_option('--te', dest='target_extend',
       default=None, type='int', help='Extend targets vector [Default: %default]')
-  parser.add_option('--ts', dest='target_start',
-      default=0, type='int', help='Write targets into vector starting at index [Default: %default')
   parser.add_option('-u', dest='umap_npy',
       help='Unmappable array numpy file')
   parser.add_option('--umap_clip', dest='umap_clip',
@@ -61,6 +59,9 @@ def main():
   parser.add_option('--umap_tfr', dest='umap_tfr',
       default=False, action='store_true',
       help='Save umap array into TFRecords [Default: %default]')
+  parser.add_option('-x', dest='extend_bp',
+      default=0, type='int',
+      help='Extend sequences on each side [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) != 4:
@@ -105,20 +106,13 @@ def main():
   ################################################################
   # read targets
 
-  # extend targets
-  num_targets_tfr = num_targets
-  if options.target_extend is not None:
-    assert(options.target_extend >= num_targets_tfr)
-    num_targets_tfr = options.target_extend
-
   # initialize targets
-  targets = np.zeros((num_seqs, seq_pool_len, num_targets_tfr), dtype='float16')
+  targets = np.zeros((num_seqs, seq_pool_len, num_targets), dtype='float16')
 
   # read each target
   for ti in range(num_targets):
     seqs_cov_open = h5py.File(seqs_cov_files[ti], 'r')
-    tii = options.target_start + ti
-    targets[:,:,tii] = seqs_cov_open['targets'][options.start_i:options.end_i,:]
+    targets[:,:,ti] = seqs_cov_open['targets'][options.start_i:options.end_i,:]
     seqs_cov_open.close()
 
   ################################################################
@@ -152,12 +146,15 @@ def main():
     for si in range(num_seqs):
       msi = options.start_i + si
       mseq = model_seqs[msi]
+      mseq_start = mseq.start - options.extend_bp
+      mseq_end = mseq.end + options.extend_bp
 
       # read FASTA
-      seq_dna = fasta_open.fetch(mseq.chr, mseq.start, mseq.end)
+      # seq_dna = fasta_open.fetch(mseq.chr, mseq.start, mseq.end)
+      seq_dna = fetch_dna(fasta_open, mseq.chr, mseq_start, mseq_end)
 
-      # one hot code
-      seq_1hot = dna_1hot(seq_dna)
+      # one hot code (N's as zero)
+      seq_1hot = dna_1hot(seq_dna, n_uniform=False, n_sample=False)
       # seq_1hot = dna_1hot_index(seq_dna) # more efficient, but fighting inertia
 
       # hash to bytes
@@ -175,6 +172,28 @@ def main():
       writer.write(example.SerializeToString())
 
     fasta_open.close()
+
+
+def fetch_dna(fasta_open, chrm, start, end):
+  """Fetch DNA when start/end may reach beyond chromosomes."""
+
+  # initialize sequence
+  seq_len = end - start
+  seq_dna = ''
+
+  # add N's for left over reach
+  if start < 0:
+    seq_dna = 'N'*(-start)
+    start = 0
+
+  # get dna
+  seq_dna += fasta_open.fetch(chrm, start, end)
+
+  # add N's for right over reach
+  if len(seq_dna) < seq_len:
+    seq_dna += 'N'*(seq_len-len(seq_dna))
+
+  return seq_dna
 
 
 def feature_bytes(values):

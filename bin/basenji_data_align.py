@@ -180,7 +180,8 @@ def main():
                   for ctg_start, ctg_end in genome_chr_contigs[gi][chrom]]
 
   # filter for large enough
-  contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
+  seq_tlength = options.seq_length - 2*options.crop_bp
+  contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= seq_tlength]
 
   # break up large contigs
   if options.break_t is not None:
@@ -238,7 +239,7 @@ def main():
       stride_fold = options.stride_train
 
     # stride sequences across contig
-    fold_mseqs_fi = contig_sequences(fold_contigs[fi], options.seq_length,
+    fold_mseqs_fi = contig_sequences(fold_contigs[fi], seq_tlength,
                                      stride_fold, options.snap, fold_labels[fi])
     fold_mseqs.append(fold_mseqs_fi)
 
@@ -264,8 +265,8 @@ def main():
   for gi in range(num_genomes):
     if options.umap_beds[gi] is not None:
       # annotate unmappable positions
-      mseqs_unmap = annotate_unmap(mseqs_genome[gi], options.umap_beds[gi], options.seq_length,
-                                   options.pool_width, options.crop_bp)
+      mseqs_unmap = annotate_unmap(mseqs_genome[gi], options.umap_beds[gi],
+                                   seq_tlength, options.pool_width)
 
       # filter unmappable
       mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)

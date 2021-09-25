@@ -203,7 +203,8 @@ def main():
       contigs = limit_contigs(contigs, peaks_bed)
 
     # filter for large enough
-    contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= options.seq_length]
+    seq_tlength = options.seq_length - 2*options.crop_bp
+    contigs = [ctg for ctg in contigs if ctg.end - ctg.start >= seq_tlength]
 
     # break up large contigs
     if options.break_t is not None:
@@ -275,7 +276,7 @@ def main():
         stride_fold = options.stride_train
 
       # stride sequences across contig
-      fold_mseqs_fi = contig_sequences(fold_contigs[fi], options.seq_length,
+      fold_mseqs_fi = contig_sequences(fold_contigs[fi], seq_tlength,
                                        stride_fold, options.snap, fold_labels[fi])
       fold_mseqs.append(fold_mseqs_fi)
 
@@ -300,8 +301,8 @@ def main():
         exit(1)
 
       # annotate unmappable positions
-      mseqs_unmap = annotate_unmap(mseqs, options.umap_bed, options.seq_length,
-                                   options.pool_width, options.crop_bp)
+      mseqs_unmap = annotate_unmap(mseqs, options.umap_bed,
+                                   seq_tlength, options.pool_width)
 
       # filter unmappable
       mseqs_map_mask = (mseqs_unmap.mean(axis=1, dtype='float64') < options.umap_t)
@@ -368,7 +369,7 @@ def main():
       print('Skipping existing %s' % seqs_cov_file, file=sys.stderr)
     else:
       cmd = 'basenji_data_read.py'
-      cmd += ' --crop %d' % options.crop_bp      
+      # cmd += ' --crop %d' % options.crop_bp
       cmd += ' -w %d' % options.pool_width
       cmd += ' -u %s' % targets_df['sum_stat'].iloc[ti]
       if clip_ti is not None:
@@ -431,6 +432,7 @@ def main():
       cmd += ' -s %d' % tfr_start
       cmd += ' -e %d' % tfr_end
       cmd += ' --umap_clip %f' % options.umap_clip
+      cmd += ' -x %d' % options.crop_bp
       if options.umap_tfr:
         cmd += ' --umap_tfr'
       if options.umap_bed is not None:
@@ -486,16 +488,15 @@ def main():
 
 
 ################################################################################
-def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width, crop_bp):
+def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width):
   """ Intersect the sequence segments with unmappable regions
          and annoate the segments as NaN to possible be ignored.
 
     Args:
       mseqs: list of ModelSeq's
       unmap_bed: unmappable regions BED file
-      seq_length: sequence length
+      seq_length: sequence length (after cropping)
       pool_width: pooled bin width
-      crop_bp: nucleotides cropped off ends
 
     Returns:
       seqs_unmap: NxL binary NA indicators
@@ -552,11 +553,6 @@ def annotate_unmap(mseqs, unmap_bed, seq_length, pool_width, crop_bp):
 
     seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end] = True
     assert(seqs_unmap[chr_start_indexes[seq_key], pool_seq_unmap_start:pool_seq_unmap_end].sum() == pool_seq_unmap_end-pool_seq_unmap_start)
-
-  # crop
-  if crop_bp > 0:
-    pool_crop = crop_bp // pool_width
-    seqs_unmap = seqs_unmap[:, pool_crop:-pool_crop]
 
   return seqs_unmap
 

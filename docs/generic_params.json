@@ -1,28 +1,31 @@
+// THIS IS NOT A VALID JSON PARAMTER FILE
+// THIS IS AN ANNOTATED JSON SHOWING ALL THE POSSIBLE CONFIGURATIONS, AND WHAT THEIR TYPES ARE
+
 {
     "train": {
-        "batch_size": 64,
-        "shuffle_buffer": 8192,
-        "optimizer": "sgd",
-        "loss": "bce",
-        "learning_rate": 0.005,
-        "momentum": 0.98,
-        "patience": 12,
-        "train_epochs_min": 10
+        "batch_size": 64 [int],
+        "shuffle_buffer": 8192 [int],
+        "optimizer": "sgd" [enum],
+        "loss": "bce" [enum],
+        "learning_rate": 0.005 [float],
+        "momentum": 0.98 [float],
+        "patience": 12 [int],
+        "train_epochs_min": 10 [int: default 1],
+        "train_epochs_max": 10 [int: default 10000]
     },
-
     "model": {
-        "seq_length": 1344,
+        "seq_length": 1344 [int],
 
-        "augment_rc": true,
-        "augment_shift": 3,
+        "augment_rc": true [bool],
+        "augment_shift": 3 [int],
 
-        "activation": "gelu",
-        "batch_norm": true,
-        "bn_momentum": 0.90,
+        "activation": "gelu" [enum],
+        "batch_norm": true [bool],
+        "bn_momentum": 0.90 [float],
         
         "trunk": [
             {
-                "name": "conv_block",
+                "name": "conv_block", [enum: see module variables in blocks.py]
                 "filters": 288,
                 "kernel_size": 17,
                 "pool_size": 3
@@ -46,8 +49,7 @@
                 "units": 768,
                 "dropout": 0.2
             }
-        ],
-
+        ] [array: SeqNN block ()],
         "head": [
             {
                 "name": "final",

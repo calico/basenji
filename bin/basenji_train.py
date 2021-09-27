@@ -41,6 +41,9 @@ Train Basenji model using given parameters and data.
 # main
 ################################################################################
 def main():
+  """
+  runner script that builds a model according to JSON params, and trains it
+  """  
   usage = 'usage: %prog [options] <params_file> <data1_dir> ...'
   parser = OptionParser(usage)
   parser.add_option('-k', dest='keras_fit',
@@ -108,6 +111,7 @@ def main():
     # one GPU
 
     # initialize model
+    # the keys from params_model become direct attributes of seqnn_model
     seqnn_model = seqnn.SeqNN(params_model)
 
     # restore

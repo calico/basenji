@@ -334,7 +334,7 @@ def main():
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
-def make_rep_data(data_dir, rep_data_dir, fi, ci):
+def make_rep_data(data_dir, rep_data_dir, fi, ci): 
   # read data parameters
   data_stats_file = '%s/statistics.json' % data_dir
   with open(data_stats_file) as data_stats_open:
@@ -353,6 +353,10 @@ def make_rep_data(data_dir, rep_data_dir, fi, ci):
   test_fold = fi
   valid_fold = (fi+1+ci) % num_folds
   train_folds = [fold for fold in range(num_folds) if fold not in [valid_fold,test_fold]]
+
+  # clear existing directory
+  if os.path.isdir(rep_data_dir):
+    shutil.rmtree(rep_data_dir)
 
   # make data directory
   os.makedirs(rep_data_dir, exist_ok=True)
@@ -386,37 +390,36 @@ def make_rep_data(data_dir, rep_data_dir, fi, ci):
 
   # sym link tfrecords
   rep_tfr_dir = '%s/tfrecords' % rep_data_dir
-  if not os.path.isdir(rep_tfr_dir):
-    os.mkdir(rep_tfr_dir)
+  os.mkdir(rep_tfr_dir)
 
-    # test tfrecords
-    ti = 0
-    test_tfrs = natsorted(glob.glob('%s/tfrecords/fold%d-*.tfr' % (data_dir, test_fold)))
-    for test_tfr in test_tfrs:
-      test_tfr = os.path.abspath(test_tfr)
-      test_rep_tfr = '%s/test-%d.tfr' % (rep_tfr_dir, ti)
-      os.symlink(test_tfr, test_rep_tfr)
-      ti += 1
+  # test tfrecords
+  ti = 0
+  test_tfrs = natsorted(glob.glob('%s/tfrecords/fold%d-*.tfr' % (data_dir, test_fold)))
+  for test_tfr in test_tfrs:
+    test_tfr = os.path.abspath(test_tfr)
+    test_rep_tfr = '%s/test-%d.tfr' % (rep_tfr_dir, ti)
+    os.symlink(test_tfr, test_rep_tfr)
+    ti += 1
 
-    # valid tfrecords
-    ti = 0
-    valid_tfrs = natsorted(glob.glob('%s/tfrecords/fold%d-*.tfr' % (data_dir, valid_fold)))
-    for valid_tfr in valid_tfrs:
-      valid_tfr = os.path.abspath(valid_tfr)
-      valid_rep_tfr = '%s/valid-%d.tfr' % (rep_tfr_dir, ti)
-      os.symlink(valid_tfr, valid_rep_tfr)
-      ti += 1
+  # valid tfrecords
+  ti = 0
+  valid_tfrs = natsorted(glob.glob('%s/tfrecords/fold%d-*.tfr' % (data_dir, valid_fold)))
+  for valid_tfr in valid_tfrs:
+    valid_tfr = os.path.abspath(valid_tfr)
+    valid_rep_tfr = '%s/valid-%d.tfr' % (rep_tfr_dir, ti)
+    os.symlink(valid_tfr, valid_rep_tfr)
+    ti += 1
 
-    # train tfrecords
-    ti = 0
-    train_tfrs = []
-    for tfi in train_folds:
-      train_tfrs += natsorted(glob.glob('%s/tfrecords/fold%d-*.tfr' % (data_dir, tfi)))
-    for train_tfr in train_tfrs:
-      train_tfr = os.path.abspath(train_tfr)
-      train_rep_tfr = '%s/train-%d.tfr' % (rep_tfr_dir, ti)
-      os.symlink(train_tfr, train_rep_tfr)
-      ti += 1
+  # train tfrecords
+  ti = 0
+  train_tfrs = []
+  for tfi in train_folds:
+    train_tfrs += natsorted(glob.glob('%s/tfrecords/fold%d-*.tfr' % (data_dir, tfi)))
+  for train_tfr in train_tfrs:
+    train_tfr = os.path.abspath(train_tfr)
+    train_rep_tfr = '%s/train-%d.tfr' % (rep_tfr_dir, ti)
+    os.symlink(train_tfr, train_rep_tfr)
+    ti += 1
 
 
 def options_string(options, train_options, rep_dir):

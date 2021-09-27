@@ -22,8 +22,8 @@ from basenji import layers
 ############################################################
 def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activation_end=None,
     strides=1, dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
-    pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
-    kernel_initializer='he_normal', padding='same'):
+    pool_size=1, pool_type='max', batch_norm=False, bn_momentum=0.99, bn_gamma=None,
+    bn_type='standard', kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block.
 
   Args:
@@ -98,17 +98,21 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
     
   # Pool
   if pool_size > 1:
-    current = tf.keras.layers.MaxPool1D(
-      pool_size=pool_size,
-      padding=padding)(current)
+    if pool_type == 'softmax':
+      current = layers.SoftmaxPool1D(
+        pool_size=pool_size)(current)
+    else:
+      current = tf.keras.layers.MaxPool1D(
+        pool_size=pool_size,
+        padding=padding)(current)
 
   return current
 
 
-def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
-    l2_scale=0, residual=False, dropout=0, dropout_residual=0, pool_size=1, 
-    batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
-    conv_type='standard', kernel_initializer='he_normal', padding='same'):
+def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1, l2_scale=0,
+     residual=False, dropout=0, dropout_residual=0, pool_size=1, pool_type='max',
+     batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
+     conv_type='standard', kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block, assumed to be operating on DNA.
 
   Args:
@@ -187,17 +191,21 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
 
   # Pool
   if pool_size > 1:
-    current = tf.keras.layers.MaxPool1D(
-      pool_size=pool_size,
-      padding=padding)(current)
+    if pool_type == 'softmax':
+      current = layers.SoftmaxPool1D(
+        pool_size=pool_size)(current)
+    else:
+      current = tf.keras.layers.MaxPool1D(
+        pool_size=pool_size,
+        padding=padding)(current)
 
   return current
 
 
 def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
     dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
-    pool_size=1, batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
-    kernel_initializer='he_normal', padding='same'):
+    pool_size=1, pool_type='max', batch_norm=False, bn_momentum=0.99, bn_gamma=None,
+    bn_type='standard', kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block.
 
   Args:
@@ -266,12 +274,78 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
     
   # Pool
   if pool_size > 1:
-    current = tf.keras.layers.MaxPool1D(
-      pool_size=pool_size,
-      padding=padding)(current)
+    if pool_type == 'softmax':
+      current = layers.SoftmaxPool1D(
+        pool_size=pool_size)(current)
+    else:
+      current = tf.keras.layers.MaxPool1D(
+        pool_size=pool_size,
+        padding=padding)(current)
 
   return current
 
+
+
+def tconv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
+    l2_scale=0, dropout=0, conv_type='standard', batch_norm=False, bn_momentum=0.99,
+    bn_gamma=None, bn_type='standard', kernel_initializer='he_normal', padding='same'):
+  """Construct a single transposed convolution block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    filters:       Conv1D filters
+    kernel_size:   Conv1D kernel_size
+    activation:    relu/gelu/etc
+    strides:       Conv1D strides
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    conv_type:     Conv1D layer type
+    batch_norm:    Apply batch normalization
+    bn_momentum:   BatchNorm momentum
+
+  Returns:
+    [batch_size, stride*seq_length, features] output sequence
+  """
+
+  # flow through variable current
+  current = inputs
+
+  # choose batch norm type
+  if bn_type == 'sync':
+    bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
+  else:
+    bn_layer = tf.keras.layers.BatchNormalization
+
+  if filters is None:
+    filters = inputs.shape[-1]
+
+  # batch norm
+  if batch_norm:
+    current = bn_layer(
+      momentum=bn_momentum)(current)
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # convolution
+  current = tf.keras.layers.Conv1DTranspose(
+    filters=filters,
+    kernel_size=kernel_size,
+    strides=stride,
+    padding='same',
+    use_bias=True,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+    
+  return current
+
+def concat_unet(inputs, concat, **kwargs):
+  current = tf.keras.layers.Concatenate()([inputs,concat])
+  return current
 
 def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
     kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1,
@@ -461,7 +535,7 @@ def conv_tower(inputs, filters_init, filters_end=None, filters_mult=None,
 
 
 def conv_tower_nac(inputs, filters_init, filters_end=None, filters_mult=None,
-                   divisible_by=1, repeat=1, **kwargs):
+                   divisible_by=1, repeat=1, reprs=[], **kwargs):
   """Construct a reducing convolution block.
 
   Args:
@@ -471,6 +545,7 @@ def conv_tower_nac(inputs, filters_init, filters_end=None, filters_mult=None,
     filters_mult:  Multiplier for Conv1D filters
     divisible_by:  Round filters to be divisible by (eg a power of two)
     repeat:        Tower repetitions
+    reprs:         Append representations.
 
   Returns:
     [batch_size, seq_length, features] output sequence
@@ -496,6 +571,9 @@ def conv_tower_nac(inputs, filters_init, filters_end=None, filters_mult=None,
       filters=_round(rep_filters),
       **kwargs)
 
+    # save representation
+    reprs.append(current)
+
     # update filters
     rep_filters *= filters_mult
 
@@ -503,8 +581,8 @@ def conv_tower_nac(inputs, filters_init, filters_end=None, filters_mult=None,
 
 
 def res_tower(inputs, filters_init, filters_end=None, filters_mult=None,
-              kernel_size=1, dropout=0, pool_size=2, divisible_by=1,
-              repeat=1, num_convs=2, **kwargs):
+              kernel_size=1, dropout=0, pool_size=2, pool_type='max',
+              divisible_by=1, repeat=1, num_convs=2, **kwargs):
   """Construct a reducing convolution block.
 
   Args:
@@ -564,9 +642,13 @@ def res_tower(inputs, filters_init, filters_end=None, filters_mult=None,
 
     # pool
     if pool_size > 1:
-      current = tf.keras.layers.MaxPool1D(
-        pool_size=pool_size,
-        padding='same')(current)
+      if pool_type == 'softmax':
+        current = layers.SoftmaxPool1D(
+          pool_size=pool_size)(current)
+      else:
+        current = tf.keras.layers.MaxPool1D(
+          pool_size=pool_size,
+          padding='same')(current)
 
     # update filters
     rep_filters *= filters_mult
@@ -1268,6 +1350,7 @@ name_func = {
   'concat_dist_2d': concat_dist_2d,
   'concat_position': concat_position,
   'concat_to_2d': concat_to_2d,
+  'concat_unet': concat_unet,
   'conv_block': conv_block,  
   'conv_dna': conv_dna,  
   'conv_nac': conv_nac,  
@@ -1290,6 +1373,7 @@ name_func = {
   'symmetrize_2d':symmetrize_2d,
   'squeeze_excite': squeeze_excite,
   'res_tower': res_tower,
+  'tconv_nac': tconv_nac, 
   'transformer': transformer,
   'transformer_tower': transformer_tower,
   'upper_tri': upper_tri,

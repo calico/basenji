@@ -149,7 +149,7 @@ def main():
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
     elif options.sum_stat == 'sum_sqrt':
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
-      seq_cov = np.sqrt(seq_cov)
+      seq_cov = seq_cov**0.75
     elif options.sum_stat in ['mean', 'avg']:
       seq_cov = seq_cov.mean(axis=1, dtype='float32')
     elif options.sum_stat == 'median':

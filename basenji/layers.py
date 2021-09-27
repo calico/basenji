@@ -760,6 +760,57 @@ class GlobalContext(tf.keras.layers.Layer):
 
     return xs
 
+
+############################################################
+# Pooling
+############################################################
+class SoftmaxPool1D(tf.keras.layers.Layer):
+  """Pooling operation with optional weights."""
+
+  def __init__(self,
+               pool_size: int = 2,
+               per_channel: bool = False,
+               init_gain: float = 2.0):
+    """Softmax pooling.
+
+    Args:
+      pool_size: Pooling size, same as in Max/AvgPooling.
+      per_channel: If True, the logits/softmax weights will be computed for
+        each channel separately. If False, same weights will be used across all
+        channels.
+      init_gain: When 0.0 is equivalent to avg pooling, and when
+        ~2.0 and it's equivalent to max pooling.
+    """
+    super(SoftmaxPool1D, self).__init__()
+    self.pool_size = pool_size
+    self.per_channel = per_channel
+    self.init_gain = init_gain
+    self.logit_linear = None
+
+  def build(self, input_shape):
+    self.num_channels = input_shape[-1]
+    self.logit_linear = tf.keras.layers.Dense(
+        units=self.num_channels if self.per_channel else 1,
+        use_bias=False,
+        kernel_initializer=tf.keras.initializers.Identity(self.init_gain))
+
+  def call(self, inputs):
+    _, seq_length, num_channels = inputs.shape
+    inputs = tf.reshape(inputs,
+        (-1, seq_length // self.pool_size, self.pool_size, num_channels))
+    return tf.reduce_sum(
+        inputs * tf.nn.softmax(self.logit_linear(inputs), axis=-2),
+        axis=-2)
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+      'pool_size': self.pool_size,
+      'init_gain': self.init_gain
+    })
+    return config
+
+
 ############################################################
 # Position
 ############################################################

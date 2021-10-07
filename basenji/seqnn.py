@@ -376,3 +376,34 @@ class SeqNN():
       self.model_trunk.save(model_file, include_optimizer=False)
     else:
       self.model.save(model_file, include_optimizer=False)
+
+  def step(self, step=2, head_i=None):
+    """ Step positions across sequence. """
+    # choose model
+    if self.embed is not None:
+      model = self.embed
+    elif self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
+      model = self.models[head_i]
+    else:
+      model = self.model
+
+    # sequence input
+    sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+
+    # predict and step across positions
+    preds = model(sequence)
+    step_positions = np.arange(preds.shape[1], step=step)
+    preds_step = tf.gather(preds, step_positions, axis=-2)
+    model_step = tf.keras.Model(inputs=sequence, outputs=preds_step)
+
+    # replace model
+    if self.embed is not None:  
+      self.embed = model_step
+    elif self.ensemble is not None:
+      self.ensemble = model_step
+    elif head_i is not None:
+      self.models[head_i] = model_step
+    else:
+      self.model = model_step

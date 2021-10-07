@@ -156,24 +156,6 @@ class Trainer:
       valid_r2.append(metrics.R2(num_targets, name='valid%d_r2'%di))
 
     # generate decorated train steps
-    """
-    train_steps = []
-    for di in range(self.num_datasets):
-      model = seqnn_model.models[di]
-
-      @tf.function
-      def train_step(x, y):
-        with tf.GradientTape() as tape:
-          pred = model(x, training=tf.constant(True))
-          loss = self.loss_fn(y, pred) + sum(model.losses)
-        train_loss[di](loss)
-        train_r[di](y, pred)
-        train_r2[di](y, pred)
-        gradients = tape.gradient(loss, model.trainable_variables)
-        self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
-      train_steps.append(train_step)
-    """
     @tf.function
     def train_step0(x, y):
       with tf.GradientTape() as tape:
@@ -213,6 +195,22 @@ class Trainer:
         valid_r[1](y, pred)
         valid_r2[1](y, pred)
 
+    # checkpoint manager
+    managers = []
+    for di in range(2):
+      ckpt = tf.train.Checkpoint(model=seqnn_model.models[di], optimizer=self.optimizer)
+      ckpt_dir = '%s/model%d' % (self.out_dir, di)
+      manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=1)
+      if manager.latest_checkpoint:
+        ckpt.restore(manager.latest_checkpoint)
+        ckpt_end = 5+manager.latest_checkpoint.find('ckpt-')
+        epoch_start = int(manager.latest_checkpoint[ckpt_end:])
+        print('Checkpoint restored at epoch %d, optimizer iteration %d.' % \
+          (epoch_start, self.optimizer.iterations))
+      else:
+        print('No checkpoints found.')
+      epoch_start = 0
+      managers.append(manager)
 
     # improvement variables
     valid_best = [-np.inf]*self.num_datasets
@@ -264,14 +262,17 @@ class Trainer:
           early_stop_stat = valid_r[di].result().numpy()
 
           # checkpoint
-          model.save('%s/model%d_check.h5' % (self.out_dir, di))
+          managers[di].save()
+          model.save('%s/model%d_check.h5' % (self.out_dir, di),
+                     include_optimizer=False)
 
           # check best
           if early_stop_stat > valid_best[di]:
             print(' - best!', end='')
             unimproved[di] = 0
             valid_best[di] = early_stop_stat
-            model.save('%s/model%d_best.h5' % (self.out_dir, di))
+            model.save('%s/model%d_best.h5' % (self.out_dir, di),
+                       include_optimizer=False)
           else:
             unimproved[di] += 1
           print('', flush=True)
@@ -638,7 +639,7 @@ def safe_next(data_iter, retry=5, sleep=10):
   while d is None and attempts < retry:
     try:
       d = next(data_iter)
-    except tensorflow.python.framework.errors_impl.AbortedError:
+    except tf.python.framework.errors_impl.AbortedError:
       print('AbortedError, which has previously indicated NFS daemon restart.', file=sys.stderr)
       time.sleep(sleep)
     attempts += 1

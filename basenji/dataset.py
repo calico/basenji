@@ -194,7 +194,7 @@ class SeqDataset:
       print('%s has %d sequences with 0 targets' % (self.tfr_path, self.num_seqs), flush=True)
 
 
-  def numpy(self, return_inputs=True, return_outputs=True, step=1):
+  def numpy(self, return_inputs=True, return_outputs=True, step=1, dtype='float16'):
     """ Convert TFR inputs and/or outputs to numpy arrays."""
     with tf.name_scope('numpy'):
       # initialize dataset from TFRecords glob
@@ -227,7 +227,8 @@ class SeqDataset:
 
       # targets
       if return_outputs:
-        targets1 = targets_raw.numpy().reshape((self.target_length,-1))
+        targets1 = targets_raw.numpy().astype(dtype)
+        targets1 = np.reshape(targets1, (self.target_length,-1))
         if step > 1:
           step_i = np.arange(0, self.target_length, step)
           targets1 = targets1[step_i,:]
@@ -235,7 +236,7 @@ class SeqDataset:
 
     # make arrays
     seqs_1hot = np.array(seqs_1hot)
-    targets = np.array(targets)
+    targets = np.array(targets, dtype=dtype)
 
     # return
     if return_inputs and return_outputs:

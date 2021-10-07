@@ -84,6 +84,9 @@ def main():
   parser.add_option('--spec', dest='specificity',
       default=False, action='store_true',
       help='Test specificity [Default: %default]')
+  parser.add_option('--spec_step', dest='spec_step',
+      default=1, type='int',
+      help='Positional step for specificity predict [Default: %default]')
   parser.add_option('--train', dest='train',
       default=False, action='store_true',
       help='Test on the training set, too [Default: %default]')
@@ -245,6 +248,7 @@ def main():
           cmd += ' basenji_test_specificity.py'
           cmd += ' --head %d' % head_i
           cmd += ' -o %s' % out_dir
+          cmd += ' -s %d' % options.spec_step
           if options.rc:
             cmd += ' --rc'
           if options.shifts:
@@ -260,7 +264,7 @@ def main():
                           err_file='%s.err'%out_dir,
                           queue=options.queue,
                           cpu=num_cpu, gpu=num_gpu,
-                          mem=75000,
+                          mem=90000,
                           time='%d:00:00' % (3*time_base))
           jobs.append(j)
 

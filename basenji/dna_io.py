@@ -26,14 +26,14 @@ import numpy as np
 # Methods to load the training data.
 ################################################################################
 
-def dna_1hot(seq, seq_len=None, n_uniform=False):
+def dna_1hot(seq, seq_len=None, n_uniform=False, n_sample=False):
   """ dna_1hot
 
     Args:
       seq:       nucleotide sequence.
       seq_len:   length to extend/trim sequences to.
       n_uniform: represent N's as 0.25, forcing float16,
-                 rather than sampling.
+      n_sample:  sample ACGT for N
 
     Returns:
       seq_code: length by nucleotides array representation.
@@ -72,9 +72,9 @@ def dna_1hot(seq, seq_len=None, n_uniform=False):
       else:
         if n_uniform:
           seq_code[i, :] = 0.25
-        else:
+        elif n_sample:
           ni = random.randint(0,3)
-          seq_code[i, ni] = 1          
+          seq_code[i, ni] = 1
 
   return seq_code
 

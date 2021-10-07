@@ -16,6 +16,7 @@
 
 from __future__ import print_function
 from optparse import OptionParser
+import gc
 import json
 import os
 import pdb
@@ -48,6 +49,9 @@ Test the accuracy of a trained model on targets/predictions normalized across ta
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <data_dir>'
   parser = OptionParser(usage)
+  parser.add_option('-c', dest='class_min',
+      default=2, type='int',
+      help='Minimum target class size to consider [Default: %default]')
   parser.add_option('--head', dest='head_i',
       default=0, type='int',
       help='Parameters head to test [Default: %default]')
@@ -57,6 +61,9 @@ def main():
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average the fwd and rc predictions [Default: %default]')
+  parser.add_option('-s','--step', dest='step',
+      default=1, type='int',
+      help='Step across positions [Default: %default]')
   parser.add_option('--save', dest='save',
       default=False, action='store_true',
       help='Save targets and predictions numpy arrays [Default: %default]')
@@ -135,6 +142,8 @@ def main():
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file, options.head_i)
+  if options.step > 1:
+    seqnn_model.step(options.step)
   seqnn_model.build_ensemble(options.rc, options.shifts)
   seqnn_model.downcast()
 
@@ -146,9 +155,9 @@ def main():
   # predict
   eval_preds = seqnn_model.predict(eval_data, verbose=1)
   print('')
-  
+
   # targets
-  eval_targets = eval_data.numpy(return_inputs=False, return_outputs=True)
+  eval_targets = eval_data.numpy(return_inputs=False, step=options.step)
 
   # flatten
   eval_preds = np.reshape(eval_preds, (-1,num_targets))
@@ -163,16 +172,16 @@ def main():
     class_mask = np.array(targets_df['class'] == tc)
     num_targets_class = class_mask.sum()
 
-    if num_targets_class == 1:
+    if num_targets_class < options.class_min:
       targets_spec[class_mask] = np.nan
     else:
       # slice class
-      eval_preds_class = eval_preds[:,class_mask].astype('float32')
-      eval_targets_class = eval_targets[:,class_mask].astype('float32')
+      eval_preds_class = eval_preds[:,class_mask]
+      eval_targets_class = eval_targets[:,class_mask]
 
       # highly variable filter
       if options.high_var_pct < 1:
-        eval_targets_var = eval_targets_class.var(axis=1)
+        eval_targets_var = eval_targets_class.var(axis=1, dtype='float32')
         high_var_t = np.percentile(eval_targets_var, 100*(1-options.high_var_pct))
         high_var_mask = (eval_targets_var >= high_var_t)
 
@@ -184,19 +193,24 @@ def main():
       eval_targets_norm = quantile_normalize(eval_targets_class)
 
       # mean normalize
-      eval_preds_norm = eval_preds_norm - eval_preds_norm.mean(axis=-1, keepdims=True)
-      eval_targets_norm = eval_targets_norm - eval_targets_norm.mean(axis=-1, keepdims=True)
+      eval_preds_norm -= eval_preds_norm.mean(axis=-1, keepdims=True)
+      eval_targets_norm -= eval_targets_norm.mean(axis=-1, keepdims=True)
 
       # compute correlations
       pearsonr_class = np.zeros(num_targets_class)
       for ti in range(num_targets_class):
-        pearsonr_class[ti] = pearsonr(eval_preds_norm[:,ti], eval_targets_norm[:,ti])[0]
+        eval_preds_norm_ti = eval_preds_norm[:,ti].astype('float32')
+        eval_targets_norm_ti = eval_targets_norm[:,ti].astype('float32')
+        pearsonr_class[ti] = pearsonr(eval_preds_norm_ti, eval_targets_norm_ti)[0]
 
       # save
       targets_spec[class_mask] = pearsonr_class
 
       # print
-      print('%-15s  %4d  %.4f' % (tc, num_targets_class, pearsonr_class[ti]))
+      print('%-15s  %4d  %.4f' % (tc, num_targets_class, pearsonr_class[ti]), flush=True)
+
+      # clean
+      gc.collect()
 
   # write target-level statistics
   targets_acc_df = pd.DataFrame({

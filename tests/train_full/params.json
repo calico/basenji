@@ -17,7 +17,7 @@
 	"ensemble_rc": true,
 
         "activation": "relu",
-        "batch_norm": true,
+        "norm_type": "batch",
         "bn_momentum": 0.92,
 
         "trunk": [
@@ -57,7 +57,7 @@
             }
         ],
         "head_seq": {
-	    "name": "dense",
+	    "name": "final",
 	    "units": 1312,
 	    "activation": "softplus"
 	}

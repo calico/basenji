@@ -19,10 +19,6 @@ from typing import Optional, List
 import numpy as np
 import tensorflow as tf
 
-# from tensor2tensor.layers.common_attention import attention_bias_proximal
-# from tensor2tensor.layers.common_attention import _generate_relative_positions_embeddings
-# from tensor2tensor.layers.common_attention import _relative_attention_inner
-
 ############################################################
 # Basic
 ############################################################
@@ -383,6 +379,8 @@ class MultiheadAttention(tf.keras.layers.Layer):
                num_position_features=None,
                positional_dropout_rate=0,
                zero_initialize=True,
+               transpose_stride=0,
+               gated=False,
                initializer=None):
     """Creates a MultiheadAttention module.
        Original version written by Ziga Avsec.
@@ -412,6 +410,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
     self._num_heads = heads
     self._attention_dropout_rate = attention_dropout_rate
     self._scaling = scaling
+    self._gated = gated
     self._relative_position_symmetric = relative_position_symmetric
     self._relative_position_functions = relative_position_functions
     if num_position_features is None:
@@ -446,11 +445,27 @@ class MultiheadAttention(tf.keras.layers.Layer):
         name='v_layer',
         use_bias=False,
         kernel_initializer=self._initializer)
+    if self._gated:
+      self._gate_layer = tf.keras.layers.Dense(
+          embedding_size,
+          activation='activation',
+          name='gate',
+          use_bias=False,
+          kernel_initializer=self._initializer)
     w_init = tf.keras.initializers.Zeros() if zero_initialize else self._initializer
-    self._embedding_layer = tf.keras.layers.Dense(
-        embedding_size,
-        name='embedding_layer',
-        kernel_initializer=w_init)
+    if transpose_stride > 0:
+      self._embedding_layer = tf.keras.layers.Conv1DTranspose(
+          filters=embedding_size,
+          kernel_size=3,
+          strides=transpose_stride,
+          padding='same',
+          kernel_initializer=w_init)
+    else:
+      self._embedding_layer = tf.keras.layers.Dense(
+          embedding_size,
+          name='embedding_layer',
+          kernel_initializer=w_init)
+
 
     # Create relative position layers
     self._r_k_layer = tf.keras.layers.Dense(
@@ -497,12 +512,6 @@ class MultiheadAttention(tf.keras.layers.Layer):
 
     # Project positions to form relative keys.
     distances = tf.range(-seq_len + 1, seq_len, dtype=tf.float32)[tf.newaxis]
-    # positional_encodings = positional_features_all(
-    #     positions=distances,
-    #     feature_size=self._num_position_features,
-    #     seq_length=seq_len,
-    #     feature_functions=self._relative_position_functions,
-    #     symmetric=self._relative_position_symmetric)
     positional_encodings = positional_features(
         positions=distances,
         feature_size=self._num_position_features,
@@ -534,10 +543,14 @@ class MultiheadAttention(tf.keras.layers.Layer):
     # Transpose and reshape the output.
     output = tf.matmul(weights, v)  # [B, H, T', V]
     output_transpose = tf.transpose(output, [0, 2, 1, 3])  # [B, T', H, V]
-
-    # Final linear layer
     attended_inputs = tf.reshape(output_transpose,
                                  shape=[-1, seq_len, embedding_size])
+
+    # Gate
+    if self._gated:
+      attended_inputs = self._gate_layer(attended_inputs)
+
+    # Final linear layer
     output = self._embedding_layer(attended_inputs)
 
     return output

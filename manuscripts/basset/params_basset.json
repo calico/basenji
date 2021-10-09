@@ -16,7 +16,7 @@
         "augment_shift": 3,
 
         "activation": "gelu",
-        "batch_norm": true,
+        "norm_type": "batch",
         "bn_momentum": 0.90,
         
         "trunk": [

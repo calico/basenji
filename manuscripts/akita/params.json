@@ -16,7 +16,7 @@
         "augment_rc": true,
         "augment_shift": 11,
         "activation": "relu",
-        "batch_norm": true,
+        "norm_type": "batch",
         "bn_momentum": 0.9265,
         "trunk": [
             {

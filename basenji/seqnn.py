@@ -64,7 +64,7 @@ class SeqNN():
       block_varnames = block_func.__init__.__code__.co_varnames
 
     # set global defaults
-    global_vars = ['activation', 'batch_norm', 'bn_momentum', 'bn_type',
+    global_vars = ['activation', 'batch_norm', 'bn_momentum', 'norm_type',
       'l2_scale', 'l1_scale', 'padding', 'kernel_initializer']
     for gv in global_vars:
       gv_value = getattr(self, gv, False)

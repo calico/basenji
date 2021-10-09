@@ -21,9 +21,9 @@ from basenji import layers
 # Convolution
 ############################################################
 def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activation_end=None,
-    strides=1, dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
-    pool_size=1, pool_type='max', batch_norm=False, bn_momentum=0.99, bn_gamma=None,
-    bn_type='standard', kernel_initializer='he_normal', padding='same'):
+    strides=1, dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', 
+    pool_size=1, pool_type='max', norm_type=None, bn_momentum=0.99, norm_gamma=None,
+    residual=False, kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block.
 
   Args:
@@ -38,9 +38,9 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
     conv_type:     Conv1D layer type
     residual:      Residual connection boolean
     pool_size:     Max pool width
-    batch_norm:    Apply batch normalization
+    norm_type:     Apply batch or layer normalization
     bn_momentum:   BatchNorm momentum
-    bn_gamma:      BatchNorm gamma (defaults according to residual)
+    norm_gamma:    BatchNorm gamma (defaults according to residual)
 
   Returns:
     [batch_size, seq_length, features] output sequence
@@ -67,22 +67,21 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
     kernel_size=kernel_size,
     strides=strides,
     padding='same',
-    use_bias=False,
+    use_bias=(norm_type is None),
     dilation_rate=dilation_rate,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
 
-  # batch norm
-  if batch_norm:
-    if bn_gamma is None:
-      bn_gamma = 'zeros' if residual else 'ones'
-    if bn_type == 'sync':
-      bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
-    else:
-      bn_layer = tf.keras.layers.BatchNormalization
-    current = bn_layer(
-      momentum=bn_momentum,
-      gamma_initializer=bn_gamma)(current)
+  # normalize
+  if norm_type == 'batch-sync':
+    current = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'batch':
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'layer':
+    current = tf.keras.layers.LayerNormalization(
+      gamma_initializer=norm_gamma)(current)
 
   # dropout
   if dropout > 0:
@@ -111,7 +110,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
 
 def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1, l2_scale=0,
      residual=False, dropout=0, dropout_residual=0, pool_size=1, pool_type='max',
-     batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
+     norm_type=None, bn_momentum=0.99, norm_gamma=None,
      conv_type='standard', kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block, assumed to be operating on DNA.
 
@@ -125,7 +124,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
     dropout:       Dropout rate probability
     conv_type:     Conv1D layer type
     pool_size:     Max pool width
-    batch_norm:    Apply batch normalization
+    norm_type:     Apply batch or layer normalization
     bn_momentum:   BatchNorm momentum
 
   Returns:
@@ -141,12 +140,6 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
   else:
     conv_layer = tf.keras.layers.Conv1D
 
-  # choose batch norm type
-  if bn_type == 'sync':
-    bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
-  else:
-    bn_layer = tf.keras.layers.BatchNormalization
-
   if filters is None:
     filters = inputs.shape[-1]
 
@@ -156,7 +149,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
     kernel_size=kernel_size,
     strides=strides,
     padding='same',
-    use_bias=~(batch_norm or residual),
+    use_bias=True, # (norm_type is None and not residual), TEMP
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
 
@@ -167,9 +160,8 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
       l2_scale=l2_scale,
       dropout=dropout_residual,
       conv_type=conv_type,
-      batch_norm=batch_norm,
+      norm_type=norm_type,
       bn_momentum=bn_momentum,
-      bn_type=bn_type,
       kernel_initializer=kernel_initializer)
 
     # residual add
@@ -177,10 +169,15 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
     current = tf.keras.layers.Add()([current,rcurrent])
 
   else:
-    # batch norm
-    if batch_norm:
-      current = bn_layer(
+    # normalize
+    if norm_type == 'batch-sync':
+      current = tf.keras.layers.experimental.SyncBatchNormalization(
         momentum=bn_momentum)(current)
+    elif norm_type == 'batch':
+      current = tf.keras.layers.BatchNormalization(
+        momentum=bn_momentum)(current)
+    elif norm_type == 'layer':
+      current = tf.keras.layers.LayerNormalization()(current)
 
     # activation
     current = layers.activate(current, activation)
@@ -204,8 +201,8 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
 
 def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
     dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
-    pool_size=1, pool_type='max', batch_norm=False, bn_momentum=0.99, bn_gamma=None,
-    bn_type='standard', kernel_initializer='he_normal', padding='same'):
+    pool_size=1, pool_type='max', norm_type=None, bn_momentum=0.99, norm_gamma=None,
+    kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block.
 
   Args:
@@ -220,7 +217,7 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
     conv_type:     Conv1D layer type
     residual:      Residual connection boolean
     pool_size:     Max pool width
-    batch_norm:    Apply batch normalization
+    norm_type:     Apply batch or layer normalization
     bn_momentum:   BatchNorm momentum
 
   Returns:
@@ -236,19 +233,18 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
   else:
     conv_layer = tf.keras.layers.Conv1D
 
-  # choose batch norm type
-  if bn_type == 'sync':
-    bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
-  else:
-    bn_layer = tf.keras.layers.BatchNormalization
-
   if filters is None:
     filters = inputs.shape[-1]
 
-  # batch norm
-  if batch_norm:
-    current = bn_layer(
+  # normalize
+  if norm_type == 'batch-sync':
+    current = tf.keras.layers.experimental.SyncBatchNormalization(
       momentum=bn_momentum)(current)
+  elif norm_type == 'batch':
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum)(current)
+  elif norm_type == 'layer':
+    current = tf.keras.layers.LayerNormalization()(current)
 
   # activation
   current = layers.activate(current, activation)
@@ -285,10 +281,9 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
   return current
 
 
-
 def tconv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
-    l2_scale=0, dropout=0, conv_type='standard', batch_norm=False, bn_momentum=0.99,
-    bn_gamma=None, bn_type='standard', kernel_initializer='he_normal', padding='same'):
+    l2_scale=0, dropout=0, conv_type='standard', norm_type=None, bn_momentum=0.99,
+    norm_gamma=None, kernel_initializer='he_normal', padding='same'):
   """Construct a single transposed convolution block.
 
   Args:
@@ -300,7 +295,7 @@ def tconv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
     l2_scale:      L2 regularization weight.
     dropout:       Dropout rate probability
     conv_type:     Conv1D layer type
-    batch_norm:    Apply batch normalization
+    norm_type:     Apply batch or layer normalization
     bn_momentum:   BatchNorm momentum
 
   Returns:
@@ -310,19 +305,18 @@ def tconv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
   # flow through variable current
   current = inputs
 
-  # choose batch norm type
-  if bn_type == 'sync':
-    bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
-  else:
-    bn_layer = tf.keras.layers.BatchNormalization
-
   if filters is None:
     filters = inputs.shape[-1]
 
-  # batch norm
-  if batch_norm:
-    current = bn_layer(
+  # normalize
+  if norm_type == 'batch-sync':
+    current = tf.keras.layers.experimental.SyncBatchNormalization(
       momentum=bn_momentum)(current)
+  elif norm_type == 'batch':
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum)(current)
+  elif norm_type == 'layer':
+    current = tf.keras.layers.LayerNormalization()(current)
 
   # activation
   current = layers.activate(current, activation)
@@ -349,7 +343,7 @@ def concat_unet(inputs, concat, **kwargs):
 
 def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
     kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1,
-    batch_norm=False, bn_momentum=0.99, bn_gamma='ones', bn_type='standard', 
+    norm_type=None, bn_momentum=0.99, norm_gamma='ones',
     kernel_initializer='he_normal', symmetric=False):
   """Construct a single 2D convolution block.   """
 
@@ -371,20 +365,21 @@ def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard',
     kernel_size=kernel_size,
     strides=strides,
     padding='same',
-    use_bias=False,
+    use_bias=(norm_type is None),
     dilation_rate=dilation_rate,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
 
-  # batch norm
-  if batch_norm:
-    if bn_type == 'sync':
-      bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
-    else:
-      bn_layer = tf.keras.layers.BatchNormalization
-    current = bn_layer(
-      momentum=bn_momentum,
-      gamma_initializer=bn_gamma)(current)
+  # normalize
+  if norm_type == 'batch-sync':
+    current = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'batch':
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'layer':
+    current = tf.keras.layers.LayerNormalization(
+      gamma_initializer=norm_gamma)(current)
 
   # dropout
   if dropout > 0:
@@ -756,7 +751,82 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
 
   return final
 
-def transformer_tower(inputs, repeat=2, **kwargs):
+def transformer2(inputs, key_size=None, heads=1, out_size=None, 
+    activation='relu', num_position_features=None, dense_expansion=2.0,
+    attention_dropout=0.05, position_dropout=0.01, dropout=0.25, **kwargs):
+  """Construct a transformer block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    key_size:        Conv block repetitions
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+  if out_size is None:
+    out_size = inputs.shape[-1]
+    assert(out_size % heads == 0)
+    value_size = out_size // heads
+
+  # convolution to decrease length
+  current = conv_nac(inputs, filters=2*key_size, pool_size=2, **kwargs)
+
+  # layer norm
+  current = tf.keras.layers.LayerNormalization()(current)
+
+  # multi-head attention
+  current = layers.MultiheadAttention(value_size=value_size,
+    key_size=key_size,
+    heads=heads,
+    num_position_features=num_position_features,
+    attention_dropout_rate=attention_dropout,
+    positional_dropout_rate=position_dropout,
+    transpose_stride=2)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # concatenate and transform
+  current = tf.keras.layers.Concatenate()([inputs,current])
+  current = tf.keras.layers.Dense(out_size)(current)
+
+  # residual
+  # current = tf.keras.layers.Add()([inputs,current])
+
+  if dense_expansion == 0:
+    final = current
+  else:
+    current_mha = current
+
+    # layer norm
+    current = tf.keras.layers.LayerNormalization()(current)
+
+    # dense
+    expansion_filters = int(dense_expansion*out_size)
+    current = tf.keras.layers.Dense(expansion_filters)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # activation 
+    current = layers.activate(current, 'relu')
+
+    # dense
+    current = tf.keras.layers.Dense(out_size)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # residual
+    final = tf.keras.layers.Add()([current_mha,current])
+
+  return final
+
+
+def transformer_tower(inputs, repeat=2, block_type='transformer', **kwargs):
   """Construct a tower of repeated transformer blocks.
 
   Args:
@@ -766,9 +836,17 @@ def transformer_tower(inputs, repeat=2, **kwargs):
   Returns:
     [batch_size, seq_length, features] output sequence
   """
+
+  if block_type == 'lambda':
+    transformer_block = transformer_lambda
+  elif block_type == 'transformer2':
+    transformer_block = transformer2
+  else:
+    transformer_block = transformer
+
   current = inputs
   for ri in range(repeat):
-    current = transformer(current, **kwargs)
+    current = transformer_block(current, **kwargs)
   return current
 
 
@@ -981,7 +1059,7 @@ def dilated_dense(inputs, filters, kernel_size=3, rate_mult=2,
 
 
 def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0,
-    repeat=1, conv_type='standard', batch_norm=False, round=False, **kwargs):
+    repeat=1, conv_type='standard', norm_type=None, round=False, **kwargs):
   """Construct a residual dilated convolution block.
 
   Args:
@@ -1004,20 +1082,20 @@ def dilated_residual(inputs, filters, kernel_size=3, rate_mult=2, dropout=0,
       kernel_size=kernel_size,
       dilation_rate=int(np.round(dilation_rate)),
       conv_type=conv_type,
-      batch_norm=batch_norm,
-      bn_gamma='ones',
+      norm_type=norm_type,
+      norm_gamma='ones',
       **kwargs)
 
     # return
     current = conv_block(current,
       filters=rep_input.shape[-1],
       dropout=dropout,
-      batch_norm=batch_norm,
-      bn_gamma='zeros',
+      norm_type=norm_type,
+      norm_gamma='zeros',
       **kwargs)
 
     # InitZero
-    if not batch_norm:
+    if norm_type is None:
       current = layers.Scale()(current)
 
     # residual add
@@ -1090,14 +1168,14 @@ def dilated_residual_2d(inputs, filters, kernel_size=3, rate_mult=2,
       filters=filters,
       kernel_size=kernel_size,
       dilation_rate=int(np.round(dilation_rate)),
-      bn_gamma='ones',
+      norm_gamma='ones',
       **kwargs)
 
     # return
     current = conv_block_2d(current,
       filters=rep_input.shape[-1],
       dropout=dropout,
-      bn_gamma='zeros',
+      norm_gamma='zeros',
       **kwargs)
 
     # residual add
@@ -1172,7 +1250,7 @@ def factor_inverse(inputs, components_file, **kwargs):
 ############################################################
 def dense_block(inputs, units=None, activation='relu', activation_end=None,
     flatten=False, dropout=0, l2_scale=0, l1_scale=0, residual=False,
-    batch_norm=False, bn_momentum=0.99, bn_gamma=None, bn_type='standard',
+    norm_type=None, bn_momentum=0.99, norm_gamma=None,
     kernel_initializer='he_normal', **kwargs):
   """Construct a single convolution block.
 
@@ -1209,22 +1287,23 @@ def dense_block(inputs, units=None, activation='relu', activation_end=None,
   # dense
   current = tf.keras.layers.Dense(
     units=units,
-    use_bias=(not batch_norm),
+    use_bias=(norm_type is None),
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
     )(current)
 
-  # batch norm
-  if batch_norm:
-    if bn_gamma is None:
-      bn_gamma = 'zeros' if residual else 'ones'
-    if bn_type == 'sync':
-      bn_layer = tf.keras.layers.experimental.SyncBatchNormalization
-    else:
-      bn_layer = tf.keras.layers.BatchNormalization
-    current = bn_layer(
-      momentum=bn_momentum,
-      gamma_initializer=bn_gamma)(current)
+  # normalize
+  if bn_gamma is None:
+    bn_gamma = 'zeros' if residual else 'ones'
+  if norm_type == 'batch-sync':
+    current = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'batch':
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'layer':
+    current = tf.keras.layers.LayerNormalization(
+      gamma_initializer=norm_gamma)(current)
 
   # dropout
   if dropout > 0:

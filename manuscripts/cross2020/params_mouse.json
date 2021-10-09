@@ -12,7 +12,7 @@
         "target_length": 1024,
 
         "activation": "gelu",
-        "batch_norm": true,
+        "norm_type": "batch",
         "bn_momentum": 0.9,
 
         "trunk": [

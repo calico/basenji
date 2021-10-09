@@ -19,6 +19,8 @@ from typing import Optional, List
 import numpy as np
 import tensorflow as tf
 
+from einops.layers.tensorflow import Rearrange
+
 ############################################################
 # Basic
 ############################################################
@@ -562,6 +564,95 @@ class MultiheadAttention(tf.keras.layers.Layer):
       'key_size': self._key_size
     })
     return config
+
+
+def calc_rel_pos(n):
+  pos = tf.meshgrid(tf.range(n), tf.range(n), indexing = 'ij')
+  rel_pos = pos[0] - pos[1]
+  rel_pos += n - 1
+  rel_pos = rel_pos[:,:,None]
+  return rel_pos
+
+def position_features_powmask(seq_len, features=20, symmetric=True):
+  base = np.exp(np.log(seq_len+1) / features).astype('float32')
+  rel_dist = tf.range(1-seq_len, seq_len, dtype=tf.float32)
+  if symmetric:
+    rel_dist = tf.abs(rel_dist)
+  rel_thresh = np.array([base**fi for fi in range(features)])
+  rel_feat = tf.stack([rel_dist < rel_thresh[fi] for fi in range(features)])
+  return tf.transpose(rel_feat)
+
+
+class Lambda1D(tf.keras.layers.Layer):
+  def __init__(self, key_size, heads=1, value_size=None, initializer=None):
+    super().__init__()
+    self.key_size = key_size
+    self.heads = heads
+    self.value_size = value_size
+    self.out_size = self.value_size * self.heads
+    self.initializer = initializer
+    if self.initializer is None:
+      self.initializer = tf.keras.initializers.VarianceScaling(scale=2.0)
+
+    self.to_q = tf.keras.layers.Dense(self.key_size*self.heads,
+                                      use_bias=False, name='to_q',
+                                      kernel_initializer=self.initializer)
+    self.to_k = tf.keras.layers.Dense(self.key_size,
+                                      use_bias=False, name='to_k',
+                                      kernel_initializer=self.initializer)
+    self.to_v = tf.keras.layers.Dense(self.value_size,
+                                      use_bias=False, name='to_v',
+                                      kernel_initializer=self.initializer)
+    self.to_o = tf.keras.layers.Dense(self.out_size,
+                                      use_bias=True, name='to_o',
+                                      kernel_initializer=tf.keras.initializers.Zeros())
+
+    self.norm_q = tf.keras.layers.BatchNormalization(name='norm_q')
+    self.norm_v = tf.keras.layers.BatchNormalization(name='norm_v')
+
+  def build(self, input_shape):
+    self.seq_len = input_shape[1]
+    self.rel_feat = position_features_powmask(self.seq_len)
+    self.pos_encoder = tf.keras.layers.Dense(self.key_size, use_bias=True,
+                                             kernel_initializer=self.initializer)
+    self.rel_pos = calc_rel_pos(self.seq_len)
+
+  def call(self, x, **kwargs):
+    # project
+    queries = self.to_q(x) # b n (k h)
+    keys = self.to_k(x) # b n k
+    values = self.to_v(x) # b n v
+
+    # normalize
+    queries = self.norm_q(queries)
+    values = self.norm_v(values)
+
+    # transform
+    queries = Rearrange('b n (h k) -> b h n k', h=self.heads)(queries)
+    keys = tf.nn.softmax(keys)
+
+    # content
+    content_lambda = tf.einsum('bnk, bnv -> bkv', keys, values)
+
+    # position
+    rel_pos_emb = self.pos_encoder(self.rel_feat)
+    rel_pos_mat = tf.gather_nd(rel_pos_emb, self.rel_pos)
+    position_lambdas = tf.einsum('nmk, bmv -> bnkv', rel_pos_mat, values)
+
+    # outputs
+    content_output = tf.einsum('bhnk, bkv -> bnhv', queries, content_lambda)
+    position_output = tf.einsum('bhnk, bnkv -> bnhv', queries, position_lambdas)
+    output = tf.reshape(content_output + position_output, (-1, self.seq_len, self.out_size))
+
+    # embedding
+    output = self.to_o(output)
+
+    return output
+
+  def get_config(self):
+    config = {'value_size': self.value_size}
+    base_config = super(Lambda1D, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))
 
 
 class WheezeExcite(tf.keras.layers.Layer):

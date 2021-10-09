@@ -829,7 +829,69 @@ def transformer2(inputs, key_size=None, heads=1, out_size=None,
 
   return final
 
+def transformer_lambda(inputs, key_size=None, heads=1, out_size=None,
+    num_position_features=None, activation='relu', dense_expansion=2.0,
+    dropout=0.25, **kwargs):
+  """Construct a transformer block.
 
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    key_size:        Conv block repetitions
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+  if out_size is None:
+    out_size = inputs.shape[-1]
+    assert(out_size % heads == 0)
+    value_size = out_size // heads
+    
+  # layer norm
+  current = tf.keras.layers.LayerNormalization()(inputs)
+
+  # multi-head attention
+  current = layers.Lambda1D(value_size=value_size,
+    key_size=key_size,
+    heads=heads)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # residual
+  current = tf.keras.layers.Add()([inputs,current])
+
+  if dense_expansion == 0:
+    final = current
+  else:
+    current_mha = current
+
+    # layer norm
+    current = tf.keras.layers.LayerNormalization()(current)
+
+    # dense
+    expansion_filters = int(dense_expansion*out_size)
+    current = tf.keras.layers.Dense(expansion_filters)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # activation 
+    current = layers.activate(current, 'relu')
+
+    # dense
+    current = tf.keras.layers.Dense(out_size)(current)
+
+    # dropout
+    if dropout > 0:
+      current = tf.keras.layers.Dropout(dropout)(current)
+
+    # residual
+    final = tf.keras.layers.Add()([current_mha,current])
+
+  return final
+  
 def transformer_tower(inputs, repeat=2, block_type='transformer', **kwargs):
   """Construct a tower of repeated transformer blocks.
 

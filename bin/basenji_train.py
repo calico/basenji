@@ -92,7 +92,7 @@ def main():
     train_data.append(dataset.SeqDataset(data_dir,
     split_label='train',
     batch_size=params_train['batch_size'],
-    shuffle_buffer=params_train.get('shuffle_buffer',128),
+    shuffle_buffer=params_train.get('shuffle_buffer', 128),
     mode='train',
     tfr_pattern=options.tfr_train_pattern))
 

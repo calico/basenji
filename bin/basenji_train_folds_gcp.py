@@ -114,8 +114,8 @@ def main():
   if len(args) < 2:
     parser.error('Must provide parameters and data directory.')
   else:
-    params_file = os.path.abspath(args[0])
-    data_dirs = [os.path.abspath(arg) for arg in args[1:]]
+    params_file = args[0]
+    data_dirs = args[1:]
 
   # read model parameters
   with open(params_file) as params_open:
@@ -157,16 +157,17 @@ def main():
 
           # create VM
           gcp_create = 'gcloud compute --project=seqnn-170614 instances create %s' % vm_name
-          gcp_create += ' --subnet=default --maintenance-policy=TERMINATE --service-account=1090276179925-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append --boot-disk-size=128gb --boot-disk-type=pd-balanced --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any --metadata="install-nvidia-driver=True"'
+          gcp_create += ' --subnet=default --maintenance-policy=TERMINATE --service-account=1090276179925-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append --boot-disk-size=1024gb --boot-disk-type=pd-balanced --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any --metadata="install-nvidia-driver=True"'
           gcp_create += ' --machine-type=a2-highgpu-1g'
           gcp_create += ' --accelerator=type=nvidia-tesla-a100,count=1'
           gcp_create += ' --zone=%s' % options.zone
           gcp_create += ' --source-snapshot=%s' % options.disk_snap
           gcp_create += ' --boot-disk-device-name=%s' % vm_name
+          # print(gcp_create)
           subprocess.call(gcp_create, shell=True)
 
         # scp/ssh needs time
-        time.sleep(10)
+        time.sleep(15)
 
         # copy params
         gcp_params = 'gcloud compute scp %s %s:./' % (params_file, vm_name)
@@ -183,7 +184,6 @@ def main():
 
     import util
     util.exec_par(jobs, verbose=True)
-
 
   #######################################################
   # prep directory

@@ -564,65 +564,6 @@ class MultiheadAttention(tf.keras.layers.Layer):
     return config
 
 
-class Attention(tf.keras.layers.Layer):
-  def __init__(self, max_relative_position, dropout=0):
-    super(Attention, self).__init__()
-    self.max_relative_position = max_relative_position
-    self.dropout = dropout
-
-  def build(self, input_shape):
-    # extract shapes
-    qs, vs, ks = input_shape
-    seq_length = qs[-2]
-    depth_kq = qs[-1]
-    depth_q = ks[-1]
-    assert(depth_kq == depth_q)
-    depth_v = vs[-1]
-
-    # initialize bias
-    self.attn_bias = attention_bias_proximal(seq_length)
-
-    # initialize relative positions
-    self.relations_keys = _generate_relative_positions_embeddings(
-      seq_length, seq_length, depth_kq, self.max_relative_position,
-      "relative_positions_keys")
-    self.relations_values = _generate_relative_positions_embeddings(
-      seq_length, seq_length, depth_v, self.max_relative_position,
-      "relative_positions_values")
-    # tf.contrib.summary.histogram('relations_keys', self.relations_keys)
-    # tf.contrib.summary.histogram('relations_values', self.relations_values)
-
-  def call(self, qvk):
-    query, value, key = qvk
-
-    # expand to fake multi-head
-    key = tf.expand_dims(key, axis=1)
-    query = tf.expand_dims(query, axis=1)
-    value = tf.expand_dims(value, axis=1)
-
-    # Compute self attention considering the relative position embeddings.
-    logits = _relative_attention_inner(query, key, self.relations_keys, True)
-    logits += self.attn_bias
-
-    weights = tf.nn.softmax(logits, name="attention_weights")
-    weights = tf.nn.dropout(weights, rate=self.dropout)
-
-    z = _relative_attention_inner(weights, value, self.relations_values, False)
-
-    # slice single head
-    z = z[:,0,:,:]
-
-    return z
-
-  def get_config(self):
-    config = super().get_config().copy()
-    config.update({
-      'max_relative_position': self.max_relative_position,
-      'dropout': self.dropout
-    })
-    return config
-
-
 class WheezeExcite(tf.keras.layers.Layer):
   def __init__(self, pool_size):
     super(WheezeExcite, self).__init__()

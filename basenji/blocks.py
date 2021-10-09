@@ -110,7 +110,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
 
 def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1, l2_scale=0,
      residual=False, dropout=0, dropout_residual=0, pool_size=1, pool_type='max',
-     norm_type=None, bn_momentum=0.99, norm_gamma=None,
+     norm_type=None, bn_momentum=0.99, norm_gamma=None, use_bias=None,
      conv_type='standard', kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block, assumed to be operating on DNA.
 
@@ -143,13 +143,17 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
   if filters is None:
     filters = inputs.shape[-1]
 
+  # need option to define for older models
+  if use_bias is None:
+    use_bias = (norm_type is None and not residual)
+
   # convolution
   current = conv_layer(
     filters=filters,
     kernel_size=kernel_size,
     strides=strides,
     padding='same',
-    use_bias=True, # (norm_type is None and not residual), TEMP
+    use_bias=use_bias,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
 

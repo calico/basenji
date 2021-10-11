@@ -1,7 +1,7 @@
 #!/bin/sh
 
 mkdir -p data/tfrecords
-cd tfrecords
+
 for i in $(seq 0 27)
 do
     echo $i

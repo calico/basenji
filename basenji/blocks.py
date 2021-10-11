@@ -1328,7 +1328,6 @@ def concat_to_2d(inputs, **kwargs):
 # Dictionary
 ############################################################
 name_func = {
-  'attention': attention,
   'center_slice': center_slice,
   'center_average': center_average,
   'concat_dist_2d': concat_dist_2d,
@@ -1352,7 +1351,6 @@ name_func = {
   'factor_inverse': factor_inverse,
   'final': final,
   'global_context': global_context,
-  'multihead_attention': multihead_attention,
   'one_to_two': one_to_two,
   'symmetrize_2d':symmetrize_2d,
   'squeeze_excite': squeeze_excite,

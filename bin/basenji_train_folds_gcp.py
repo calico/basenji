@@ -101,6 +101,9 @@ def main():
   gcp_options = OptionGroup(parser, 'GCP options')
   gcp_options.add_option('-d', '--disk', dest='disk_snap',
       default='tf26-snap')
+  gcp_options.add_option('-i', '--init', dest='initialize',
+      default=False, action='store_true',
+      help='Prepare VMs but do not run commands [Default: %default]')
   gcp_options.add_option('-v', '--vm', dest='vm_base',
       default='tf26')
   gcp_options.add_option('-w', dest='worker',
@@ -121,6 +124,7 @@ def main():
   with open(params_file) as params_open:
     params = json.load(params_open)
   params_train = params['train']
+  num_gpu = params_train.get('num_gpu', 1)
 
   #######################################################
   # prep work
@@ -158,8 +162,8 @@ def main():
           # create VM
           gcp_create = 'gcloud compute --project=seqnn-170614 instances create %s' % vm_name
           gcp_create += ' --subnet=default --maintenance-policy=TERMINATE --service-account=1090276179925-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append --boot-disk-size=1024gb --boot-disk-type=pd-balanced --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any --metadata="install-nvidia-driver=True"'
-          gcp_create += ' --machine-type=a2-highgpu-1g'
-          gcp_create += ' --accelerator=type=nvidia-tesla-a100,count=1'
+          gcp_create += ' --machine-type=a2-highgpu-%dg' % num_gpu
+          gcp_create += ' --accelerator=type=nvidia-tesla-a100,count=%d' % num_gpu
           gcp_create += ' --zone=%s' % options.zone
           gcp_create += ' --source-snapshot=%s' % options.disk_snap
           gcp_create += ' --boot-disk-device-name=%s' % vm_name
@@ -173,7 +177,6 @@ def main():
         gcp_params = 'gcloud compute scp %s %s:./' % (params_file, vm_name)
         subprocess.call(gcp_params, shell=True)
 
-
         # launch worker
         cmd_fold = '%s %s/basenji_train_folds_gcp.py' % (python_path, basenji_path)
         cmd_fold += ' %s' % options_string(parser, options)
@@ -182,8 +185,9 @@ def main():
         gcp_fold = 'gcloud compute ssh %s --command "%s"' % (vm_name, cmd_fold)
         jobs.append(gcp_fold)
 
-    import util
-    util.exec_par(jobs, verbose=True)
+    if not options.initialize:
+      import util
+      util.exec_par(jobs, verbose=True)
 
   #######################################################
   # prep directory

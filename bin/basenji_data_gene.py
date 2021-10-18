@@ -78,7 +78,7 @@ def main():
   # read genes and targets
 
   genes_raw_df = gff_df(tss_gff_file, options.gene_index)
-  expr_raw_df = pd.read_csv(expr_file, index_col=0)
+  expr_raw_df = load_expr(expr_file)
   if options.sqrt:
     expr_raw_df = np.sqrt(expr_raw_df)
 
@@ -535,6 +535,34 @@ def gff_df(gff_file, gene_index):
 
   df.set_index(gene_index, inplace=True)
 
+  return df
+
+################################################################################
+def load_expr(expr_file: str) -> pd.DataFrame:
+  """Load gene expression data as a [Genes, Samples] matrix.
+  
+  Parameters
+  ----------
+  expr_file : str
+    path to an expression file {csv, tsv, h5ad}.
+  
+  Returns
+  -------
+  pd.DataFrame
+    [Genes, Samples] where gene names are indices, task names are columns.
+  """
+  ext = expr_file.split(".")[-1].lower()
+  if ext == "csv":
+    df = pd.read_csv(expr_file, delimiter=",", index_col=0)
+  elif ext == "tsv":
+    df = pd.read_csv(expr_file, delimiter="\t", index_col=0)
+  elif ext == "h5ad":
+    import anndata
+    adata = anndata.read_h5ad(expr_file)
+    df = pd.DataFrame(adata.X, index=adata.obs_names, columns=adata.var_names).T
+  else:
+    msg = f"{ext} is not a valid expression file extension. Must be csv, tsv, h5ad"
+    raise ValueError(msg)
   return df
 
 ################################################################################

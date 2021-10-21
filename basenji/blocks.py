@@ -442,7 +442,7 @@ def xception_block(inputs, filters=None, kernel_size=1,
       dropout=dropout,
       **kwargs)
 
-  # should the last conv_block be set to bn_gamma='zeros'?
+  # should the last conv_block be set to norm_gamma='zeros'?
   # I don't think so since we really need that new information
 
   # max pool
@@ -689,7 +689,7 @@ def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 ############################################################
 # Attention
 ############################################################
-def transformer(inputs, key_size=None, heads=1, out_size=None,
+def transformer(inputs, key_size=None, heads=1, out_size=None, l2_scale=0,
     num_position_features=None, activation='relu', dense_expansion=2.0,
     attention_dropout=0.05, position_dropout=0.01, dropout=0.25, **kwargs):
   """Construct a transformer block.
@@ -715,7 +715,8 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
     heads=heads,
     num_position_features=num_position_features,
     attention_dropout_rate=attention_dropout,
-    positional_dropout_rate=position_dropout)(current)
+    positional_dropout_rate=position_dropout,
+    l2_scale=l2_scale)(current)
 
   # dropout
   if dropout > 0:
@@ -1112,7 +1113,7 @@ def dense_block(inputs, units=None, activation='relu', activation_end=None,
     residual:       Residual connection boolean
     batch_norm:     Apply batch normalization
     bn_momentum:    BatchNorm momentum
-    bn_gamma:       BatchNorm gamma (defaults according to residual)
+    norm_gamma:       BatchNorm gamma (defaults according to residual)
 
   Returns:
     [batch_size, seq_length(?), features] output sequence
@@ -1139,8 +1140,8 @@ def dense_block(inputs, units=None, activation='relu', activation_end=None,
     )(current)
 
   # normalize
-  if bn_gamma is None:
-    bn_gamma = 'zeros' if residual else 'ones'
+  if norm_gamma is None:
+    norm_gamma = 'zeros' if residual else 'ones'
   if norm_type == 'batch-sync':
     current = tf.keras.layers.experimental.SyncBatchNormalization(
       momentum=bn_momentum, gamma_initializer=norm_gamma)(current)

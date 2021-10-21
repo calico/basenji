@@ -381,7 +381,8 @@ class MultiheadAttention(tf.keras.layers.Layer):
                zero_initialize=True,
                transpose_stride=0,
                gated=False,
-               initializer=None):
+               initializer=None,
+               l2_scale=0):
     """Creates a MultiheadAttention module.
        Original version written by Ziga Avsec.
 
@@ -422,7 +423,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
     else:
       self._num_position_features = num_position_features
     self._positional_dropout_rate = positional_dropout_rate
-
+    self._l2_scale = l2_scale
     self._initializer = initializer
     if self._initializer is None:
       self._initializer = tf.keras.initializers.VarianceScaling(scale=2.0)
@@ -434,16 +435,19 @@ class MultiheadAttention(tf.keras.layers.Layer):
         key_proj_size,
         name='q_layer',
         use_bias=False,
+        kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
     self._k_layer = tf.keras.layers.Dense(
         key_proj_size,
         name='k_layer',
         use_bias=False,
+        kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
     self._v_layer = tf.keras.layers.Dense(
         embedding_size,
         name='v_layer',
         use_bias=False,
+        kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
     if self._gated:
       self._gate_layer = tf.keras.layers.Dense(
@@ -451,6 +455,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
           activation='activation',
           name='gate',
           use_bias=False,
+          kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
           kernel_initializer=self._initializer)
     w_init = tf.keras.initializers.Zeros() if zero_initialize else self._initializer
     if transpose_stride > 0:
@@ -459,19 +464,21 @@ class MultiheadAttention(tf.keras.layers.Layer):
           kernel_size=3,
           strides=transpose_stride,
           padding='same',
+          kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
           kernel_initializer=w_init)
     else:
       self._embedding_layer = tf.keras.layers.Dense(
           embedding_size,
           name='embedding_layer',
+          kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
           kernel_initializer=w_init)
-
 
     # Create relative position layers
     self._r_k_layer = tf.keras.layers.Dense(
         key_proj_size,
         name='r_k_layer',
         use_bias=False,
+        kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
     self._r_w_bias = self.add_weight('r_w_bias',
           shape=[1, self._num_heads, 1, self._key_size],

@@ -20,6 +20,7 @@ import numpy as np
 import tensorflow as tf
 
 from basenji import layers
+from basenji import metrics
 
 class RnaNN:
   def __init__(self, params):
@@ -31,18 +32,19 @@ class RnaNN:
 
   def set_defaults(self):
     # only necessary for my bespoke parameters
-    # others are  best defaulted closer to the source
+    # others are best defaulted closer to the source
+    self.seq_depth = 6
     self.augment_shift = [0]
     self.num_targets = 1
+    self.initializer = 'he_normal'
+    self.l2_scale = 0
+    self.activation = 'relu'
 
   def build_model(self):
     ###################################################
     # inputs
     ###################################################
-    # seq_depth = 5 if self.rna_mode == 'full' else 4
-    seq_depth = 6
-    sequence = tf.keras.Input(shape=(self.seq_length, seq_depth), name='sequence')
-    # features = tf.keras.Input(shape=(self.num_features,), name='features')
+    sequence = tf.keras.Input(shape=(self.seq_length, self.seq_depth), name='sequence')
     current = sequence
 
     # augmentation
@@ -55,37 +57,37 @@ class RnaNN:
 
     # RNA convolution
     current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=self.kernel_size, padding='valid',
-                                     kernel_initializer='he_normal',
+                                     kernel_initializer=self.initializer,
                                      kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
     current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
     current = tf.keras.layers.Dropout(self.dropout)(current)
-    current = tf.keras.layers.ReLU()(current)
+    current = layers.activate(current, self.activation)
+    # current = tf.keras.layers.ReLU()(current)
     current = tf.keras.layers.MaxPooling1D()(current)
 
     # middle convolutions
     for mi in range(self.num_layers-1):
       current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=self.kernel_size, padding='valid',
-                                       kernel_initializer='he_normal',
+                                       kernel_initializer=self.initializer,
                                        kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
       current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
       current = tf.keras.layers.Dropout(self.dropout)(current)
-      current = tf.keras.layers.ReLU()(current)
+      # current = tf.keras.layers.ReLU()(current)
+      current = layers.activate(current, self.activation)
       current = tf.keras.layers.MaxPooling1D()(current)
 
     # aggregate sequence
-    current = tf.keras.layers.LSTM(self.filters, go_backwards=True, kernel_initializer='he_normal',
+    current = tf.keras.layers.LSTM(self.filters, go_backwards=True, kernel_initializer=self.initializer,
                                    kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
-
-    # concat features
-    # current = tf.keras.layers.Concatenate()([current, features])
 
     # penultimate
     current = tf.keras.layers.Dense(self.filters,
-                                    kernel_initializer='he_normal',
+                                    kernel_initializer=self.initializer,
                                     kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
     current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
     current = tf.keras.layers.Dropout(self.dropout)(current)
-    current = tf.keras.layers.ReLU()(current)
+    # current = tf.keras.layers.ReLU()(current)
+    current = layers.activate(current, self.activation)
 
     # final
     prediction = tf.keras.layers.Dense(self.num_targets)(current)
@@ -93,21 +95,85 @@ class RnaNN:
     ###################################################
     # compile model(s)
     ###################################################
-    # self.model = tf.keras.Model(inputs=[sequence,features], outputs=prediction)
-    self.model = tf.keras.Model(inputs=sequence, outputs=prediction)
+    # self.model = tf.keras.Model(inputs=sequence, outputs=prediction)
+    # print(self.model.summary())
+
+    # required to use Trainer
+    self.models = []
+    self.models.append(tf.keras.Model(inputs=sequence, outputs=prediction))
+    self.model = self.models[0]
     print(self.model.summary())
 
-  def predict(self, seq_data, generator=False, **kwargs):
+  def build_ensemble(self, ensemble_shifts=[0]):
+    """ Build ensemble of models computing on augmented input sequences. """
+    if len(ensemble_shifts) > 1:
+      # sequence input
+      sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+      sequences = [sequence]
+
+      # generate shifted sequences
+      sequences = layers.EnsembleShift(ensemble_shifts)(sequences)
+
+      # predict each sequence
+      preds = [self.model(seq) for seq in sequences]
+
+      # create layer
+      preds_avg = tf.keras.layers.Average()(preds)
+
+      # create meta model
+      self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
+
+  def evaluate(self, seq_data, head_i=None, loss='mse'):
+    """ Evaluate model on SeqDataset. """
+
+    # choose model
+    if self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
+      model = self.models[head_i]
+    else:
+      model = self.model
+
+    # compile with dense metrics
+    num_targets = model.output_shape[-1]
+   
+    model.compile(optimizer=tf.keras.optimizers.SGD(),
+                  loss=loss,
+                  metrics=[metrics.PearsonR(num_targets, summarize=False),
+                           metrics.R2(num_targets, summarize=False)])
+
+    # evaluate
+    return model.evaluate(seq_data.dataset)
+
+  def predict(self, seq_data, head_i=None, generator=False, **kwargs):
     """ Predict targets for SeqDataset. """
+    # choose model
+    if self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
+      model = self.models[head_i]
+    else:
+      model = self.model
+
     dataset = getattr(seq_data, 'dataset', None)
     if dataset is None:
       dataset = seq_data
 
     if generator:
-      return self.model.predict_generator(dataset, **kwargs)
+      return model.predict_generator(dataset, **kwargs)
     else:
-      return self.model.predict(dataset, **kwargs)
+      return model.predict(dataset, **kwargs)
 
-  def restore(self, model_file):
+  def restore(self, model_file, head_i=0, trunk=False):
     """ Restore weights from saved model. """
-    self.model.load_weights(model_file)
+    if trunk:
+      self.model_trunk.load_weights(model_file)
+    else:
+      self.models[head_i].load_weights(model_file)
+      self.model = self.models[head_i]
+
+  def save(self, model_file, trunk=False):
+    if trunk:
+      self.model_trunk.save(model_file, include_optimizer=False)
+    else:
+      self.model.save(model_file, include_optimizer=False)

@@ -20,13 +20,15 @@ import json
 import os
 import shutil
 import sys
-import time
 
 import numpy as np
 import tensorflow as tf
 
 from basenji import dataset
-from basenji import rnann
+try:
+  import rnann
+except:
+  from basenji import rnann
 from basenji import trainer
 
 """
@@ -39,7 +41,7 @@ Train Saluki model using given parameters and data on RNA sequence.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <data_dir>'
+  usage = 'usage: %prog [options] <params_file> <data1_dir> ...'
   parser = OptionParser(usage)
   parser.add_option('-o', dest='out_dir',
       default='train_out',
@@ -50,68 +52,50 @@ def main():
     parser.error('Must provide parameters and data directory.')
   else:
     params_file = args[0]
-    data_dir = args[1]
+    data_dirs = args[1:]
 
   # read model parameters
   with open(params_file) as params_open:
     params = json.load(params_open)
   params_model = params['model']
   params_train = params['train']
-
-  # read data stats
-  data_stats_file = '%s/statistics.json' % data_dir
-  with open(data_stats_file) as data_stats_open:
-    data_stats = json.load(data_stats_open)
-  num_folds = data_stats['num_folds']
-
-  # set seq length
-  # params_model['seq_length'] = data_stats['length_%s' % params_model['rna_mode']]
-  # params_model['num_features'] = data_stats.get('num_features',0)
-  params_model['seq_length'] = data_stats['length_t']
-
   os.makedirs(options.out_dir, exist_ok=True)
   if params_file != '%s/params.json' % options.out_dir:
     shutil.copy(params_file, '%s/params.json' % options.out_dir)
-  
-  # for each fold
-  for fi in range(num_folds):
-    fold_out_dir = '%s/f%d' % (options.out_dir,fi)
-    os.makedirs(fold_out_dir, exist_ok=True)
 
-    # divide train/test
-    split_labels_eval = ['fold%d'%fi]
-    split_labels_train = []
-    for fj in range(num_folds):
-      if fi != fj:
-        split_labels_train.append('fold%d'%fj)
+  # read datasets
+  train_data = []
+  eval_data = []
 
-    # initialize train data
-    train_data = dataset.RnaDataset(data_dir,
-      split_labels=split_labels_train,
+  for data_dir in data_dirs:
+    # load train data
+    train_data.append(dataset.RnaDataset(data_dir,
+      split_label='train',
       batch_size=params_train['batch_size'],
-      shuffle_buffer=params_train.get('shuffle_buffer',1024),
-      mode='train')
-    # rna_mode=params_model['rna_mode'],
+      shuffle_buffer=params_train.get('shuffle_buffer', 1024),
+      mode='train'))
 
-    # initialize eval data
-    eval_data = dataset.RnaDataset(data_dir,
-      split_labels=split_labels_eval,
+    # load eval data
+    eval_data.append(dataset.RnaDataset(data_dir,
+      split_label='valid',
       batch_size=params_train['batch_size'],
-      mode='eval')
-    # rna_mode=params_model['rna_mode'],
+      mode='eval'))
 
-    # initialize model
-    seqnn_model = rnann.RnaNN(params_model)
+  # initialize model
+  seqnn_model = rnann.RnaNN(params_model)
 
-    # initialize trainer
-    seqnn_trainer = trainer.RnaTrainer(params_train, train_data, 
-                                       eval_data, fold_out_dir)
+  # initialize trainer
+  seqnn_trainer = trainer.Trainer(params_train, train_data, 
+                                  eval_data, options.out_dir)
+  # compile model
+  seqnn_trainer.compile(seqnn_model)
 
-    # compile model
-    seqnn_trainer.compile(seqnn_model)
+  # fit
+  if len(data_dirs) == 1:
+    seqnn_trainer.fit_tape(seqnn_model)
+  else:
+    seqnn_trainer.fit2(seqnn_model)
 
-    # train model
-    seqnn_trainer.fit(seqnn_model)
 
 ################################################################################
 # __main__

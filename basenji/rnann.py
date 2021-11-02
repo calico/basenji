@@ -39,6 +39,7 @@ class RnaNN:
     self.initializer = 'he_normal'
     self.l2_scale = 0
     self.activation = 'relu'
+    self.residual = False
 
   def build_model(self):
     ###################################################
@@ -57,40 +58,68 @@ class RnaNN:
 
     # RNA convolution
     current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=self.kernel_size, padding='valid',
-                                     kernel_initializer=self.initializer,
+                                     kernel_initializer=self.initializer, use_bias=False,
                                      kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
-    current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
-    current = tf.keras.layers.Dropout(self.dropout)(current)
-    current = layers.activate(current, self.activation)
-    # current = tf.keras.layers.ReLU()(current)
-    current = tf.keras.layers.MaxPooling1D()(current)
+    if self.residual:
+      initial = current
+      current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
+      current = layers.activate(current, self.activation)
+      current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=1, padding='valid',
+                                       kernel_initializer=self.initializer,
+                                       kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
+      current = tf.keras.layers.Dropout(self.dropout)(current)
+      current = layers.Scale()(current)
+      current = tf.keras.layers.Add()([initial,current])
 
     # middle convolutions
-    for mi in range(self.num_layers-1):
+    for mi in range(self.num_layers):
+      current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
+      current = layers.activate(current, self.activation)
       current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=self.kernel_size, padding='valid',
                                        kernel_initializer=self.initializer,
                                        kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
-      current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
       current = tf.keras.layers.Dropout(self.dropout)(current)
-      # current = tf.keras.layers.ReLU()(current)
-      current = layers.activate(current, self.activation)
+      if self.residual:
+        initial = current
+        current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
+        current = layers.activate(current, self.activation)
+        current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=1, padding='valid',
+                                         kernel_initializer=self.initializer,
+                                         kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
+        current = tf.keras.layers.Dropout(self.dropout)(current)
+        current = layers.Scale()(current)
+        current = tf.keras.layers.Add()([initial,current])
       current = tf.keras.layers.MaxPooling1D()(current)
 
     # aggregate sequence
+    current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
+    current = layers.activate(current, self.activation)
     current = tf.keras.layers.LSTM(self.filters, go_backwards=True, kernel_initializer=self.initializer,
                                    kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
 
     # penultimate
+    current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
+    current = layers.activate(current, self.activation)
     current = tf.keras.layers.Dense(self.filters,
                                     kernel_initializer=self.initializer,
                                     kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
-    current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
     current = tf.keras.layers.Dropout(self.dropout)(current)
-    # current = tf.keras.layers.ReLU()(current)
-    current = layers.activate(current, self.activation)
+    if self.residual:
+      initial = current
+      current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
+      current = layers.activate(current, self.activation)
+      current = tf.keras.layers.Dense(self.filters,
+                                      kernel_initializer=self.initializer,
+                                      kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
+      current = tf.keras.layers.Dropout(self.dropout)(current)
+      current = layers.Scale()(current)
+      current = tf.keras.layers.Add()([initial,current])
 
     # final
-    prediction = tf.keras.layers.Dense(self.num_targets)(current)
+    current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
+    current = layers.activate(current, self.activation)
+    prediction = tf.keras.layers.Dense(self.num_targets,
+                                       kernel_initializer=self.initializer)(current)
 
     ###################################################
     # compile model(s)

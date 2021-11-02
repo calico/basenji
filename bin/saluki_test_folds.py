@@ -40,7 +40,7 @@ Train Basenji model replicates using given parameters and data.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <ref_dir> <exp_dir> <data_dir>'
+  usage = 'usage: %prog [options] <exp_dir> <data_dir>'
   parser = OptionParser(usage)
   parser.add_option('-a', '--alt', dest='alternative',
       default='two-sided', help='Statistical test alternative [Default: %default]')
@@ -53,14 +53,14 @@ def main():
       default='Reference', help='Reference label [Default: %default]')
   parser.add_option('-o', dest='out_stem',
       default=None, help='Output plot stem [Default: %default]')
+  parser.add_option('-r', dest='ref_dir')
   (options, args) = parser.parse_args()
 
-  if len(args) < 3:
-    parser.error('Must provide parameters file and data directory')
+  if len(args) < 2:
+    parser.error('Must provide exeriment and data directory')
   else:
-    ref_dir = args[0]
-    exp_dir = args[1]
-    data_dir = os.path.abspath(args[2])
+    exp_dir = args[0]
+    data_dir = os.path.abspath(args[1])
 
   # read data parameters
   data_stats_file = '%s/statistics.json' % data_dir
@@ -71,23 +71,26 @@ def main():
   num_folds = len([dkey for dkey in data_stats if dkey.startswith('fold')])
 
   # read training metrics
-  ref_folds = read_metrics(ref_dir, num_folds)
+  if options.ref_dir is not None:
+    ref_folds = read_metrics(options.ref_dir, num_folds)
   exp_folds = read_metrics(exp_dir, num_folds)
 
-  for metric in ref_folds:
+  for metric in exp_folds:
     print('\n%s:' % metric)
 
-    ref_mean = ref_folds[metric].mean()
-    ref_stdm = ref_folds[metric].std() / np.sqrt(len(ref_folds[metric]))
-    print('%12s: %.4f (%.4f)' % (options.label_ref, ref_mean, ref_stdm))
+    if options.ref_dir is not None:
+      ref_mean = ref_folds[metric].mean()
+      ref_stdm = ref_folds[metric].std() / np.sqrt(len(ref_folds[metric]))
+      print('%12s: %.4f (%.4f)' % (options.label_ref, ref_mean, ref_stdm))
 
     exp_mean = exp_folds[metric].mean()
     exp_stdm = exp_folds[metric].std() / np.sqrt(len(exp_folds[metric]))
     print('%12s: %.4f (%.4f)' % (options.label_exp, exp_mean, exp_stdm))
   
-    mwp, tp = stat_tests(ref_folds[metric], exp_folds[metric], options.alternative)
-    print('Mann-Whitney U p-value: %.3g' % mwp)
-    print('T-test p-value: %.3g' % tp)
+    if options.ref_dir is not None:
+      mwp, tp = stat_tests(ref_folds[metric], exp_folds[metric], options.alternative)
+      print('Mann-Whitney U p-value: %.3g' % mwp)
+      print('T-test p-value: %.3g' % tp)
 
 
 def jointplot(ref_cors, exp_cors, out_pdf, label1, label2):

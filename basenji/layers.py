@@ -121,7 +121,6 @@ class Scale(tf.keras.layers.Layer):
     })
     return config
 
-
 class PolyReLU(tf.keras.layers.Layer):
   def __init__(self, shift=0):
     super(PolyReLU, self).__init__()

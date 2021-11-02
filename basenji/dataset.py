@@ -248,15 +248,15 @@ class SeqDataset:
 
 
 class RnaDataset:
-  def __init__(self, data_dir, batch_size, mode='eval', #, rna_mode
-               shuffle_buffer=1024, split_labels=None):
+  def __init__(self, data_dir, split_label, batch_size,
+               mode='eval', shuffle_buffer=1024):
     """Initialize basic parameters; run make_dataset."""
 
     self.data_dir = data_dir
     self.batch_size = batch_size
     self.shuffle_buffer = shuffle_buffer
     self.mode = mode
-    self.split_labels = split_labels
+    self.split_label = split_label
 
     # read data parameters
     data_stats_file = '%s/statistics.json' % self.data_dir
@@ -268,9 +268,7 @@ class RnaDataset:
     self.target_length = data_stats['target_length']
     self.num_targets = data_stats['num_targets']
 
-    self.num_seqs = 0
-    for split_label in self.split_labels:
-      self.num_seqs += data_stats['%s_seqs' % split_label]
+    self.num_seqs = data_stats['%s_seqs' % self.split_label]
 
     self.make_dataset()
 
@@ -316,6 +314,8 @@ class RnaDataset:
 
       # concatenate input tracks
       inputs = tf.concat([sequence,coding,splice], axis=1)
+      # inputs = tf.concat([sequence,splice], axis=1)
+      # inputs = tf.concat([sequence,coding], axis=1)
 
       # pad to zeros to full length
       paddings = [[0, self.length_t-seq_lengths[0]],[0,0]]
@@ -329,18 +329,16 @@ class RnaDataset:
     """Make Dataset w/ transformations."""
 
     # collect tfrecords
-    tfr_files = []
-    for split_label in self.split_labels:
-      tfr_path = '%s/tfrecords/%s-*.tfr' % (self.data_dir, split_label)
-      tfr_files += natsorted(glob.glob(tfr_path))
+    tfr_path = '%s/tfrecords/%s-*.tfr' % (self.data_dir, self.split_label)
+    tfr_files = natsorted(glob.glob(tfr_path))
 
     # initialize tf.data
     if tfr_files:
       # dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
       dataset = tf.data.Dataset.from_tensor_slices(tfr_files)
     else:
-      print('Cannot order TFRecords %s' % self.tfr_path, file=sys.stderr)
-      dataset = tf.data.Dataset.list_files(self.tfr_path)
+      print('Cannot order TFRecords %s' % tfr_path, file=sys.stderr)
+      dataset = tf.data.Dataset.list_files(tfr_path)
 
     # train
     if self.mode == 'train':
@@ -372,6 +370,7 @@ class RnaDataset:
 
     # hold on
     self.dataset = dataset
+
 
 class RnaDatasetVikram:
   def __init__(self, data_dir, batch_size, mode='eval', #, rna_mode

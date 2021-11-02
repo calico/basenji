@@ -411,10 +411,11 @@ class Trainer:
         seqnn_model.save('%s/model_check.h5'%self.out_dir)
 
         # check best
-        if valid_r_epoch > valid_best:
+        valid_best_epoch = valid_r_epoch + valid_r2_epoch/4
+        if valid_best_epoch > valid_best:
           print(' - best!', end='')
           unimproved = 0
-          valid_best = valid_r_epoch
+          valid_best = valid_best_epoch
           seqnn_model.save('%s/model_best.h5'%self.out_dir)
         else:
           unimproved += 1
@@ -463,7 +464,14 @@ class Trainer:
       clip_norm_default = 1000000
     else:
       clip_norm_default = None
-    clip_norm = self.params.get('clip_norm', clip_norm_default)
+
+    global_clipnorm = self.params.get('global_clipnorm', clip_norm_default)
+    if 'clip_norm' in self.params:
+      clip_norm = self.params['clip_norm']
+    elif 'clipnorm' in self.params:
+      clip_norm = self.params['clipnorm']
+    else:
+      clip_norm = clip_norm_default
 
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()
@@ -472,14 +480,16 @@ class Trainer:
           learning_rate=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
           beta_2=self.params.get('adam_beta2',0.999),
-          global_clipnorm=clip_norm,
-          amsgrad=False)
+          clipnorm=clip_norm,
+          global_clipnorm=global_clipnorm,
+          amsgrad=False) # reduces performance in my experience
 
     elif optimizer_type in ['sgd', 'momentum']:
       self.optimizer = tf.keras.optimizers.SGD(
           learning_rate=lr_schedule,
           momentum=self.params.get('momentum', 0.99),
-          global_clipnorm=clip_norm)
+          clipnorm=clip_norm,
+          global_clipnorm=global_clipnorm)
 
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)
@@ -492,17 +502,21 @@ class RnaTrainer:
                strategy=None, num_gpu=1, keras_fit=True):
     self.params = params
     self.train_data = train_data
+    if type(self.train_data) is not list:
+      self.train_data = [self.train_data]
     self.eval_data = eval_data
+    if type(self.eval_data) is not list:
+      self.eval_data = [self.eval_data]
     self.out_dir = out_dir
-    self.batch_size = self.train_data.batch_size
+    self.batch_size = self.train_data[0].batch_size
     self.compiled = False
 
     # early stopping
     self.patience = self.params.get('patience', 20)
 
     # compute batches/epoch
-    self.train_epoch_batches = self.train_data.batches_per_epoch()
-    self.eval_epoch_batches = self.eval_data.batches_per_epoch()
+    self.train_epoch_batches = self.train_data[0].batches_per_epoch()
+    self.eval_epoch_batches = self.eval_data[0].batches_per_epoch()
     self.train_epochs_min = self.params.get('train_epochs_min', 1)
     self.train_epochs_max = self.params.get('train_epochs_max', 10000)
 
@@ -539,11 +553,11 @@ class RnaTrainer:
                  early_stop, save_best, history]
 
     seqnn_model.model.fit(
-      self.train_data.dataset,
+      self.train_data[0].dataset,
       epochs=self.train_epochs_max,
       steps_per_epoch=self.train_epoch_batches,
       callbacks=callbacks,
-      validation_data=self.eval_data.dataset,
+      validation_data=self.eval_data[0].dataset,
       validation_steps=self.eval_epoch_batches)
 
   def make_optimizer(self):

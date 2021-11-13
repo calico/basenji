@@ -40,6 +40,9 @@ class RnaNN:
     self.l2_scale = 0
     self.activation = 'relu'
     self.residual = False
+    self.heads = 1
+    self.go_backwards = True
+    self.num_dlayers = 0
 
   def build_model(self):
     ###################################################
@@ -91,11 +94,30 @@ class RnaNN:
         current = tf.keras.layers.Add()([initial,current])
       current = tf.keras.layers.MaxPooling1D()(current)
 
+    # dilated residual convolutions
+    # drate = 1.0
+    # for di in range(self.num_dlayers):
+    #   initial = current
+    #   drate *= 2.0
+    #   current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
+    #   current = layers.activate(current, self.activation)
+    #   current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=3, padding='same',
+    #                                    kernel_initializer=self.initializer, dilation_rate=int(np.round(drate)),
+    #                                    kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
+    #   current = tf.keras.layers.Dropout(self.dropout)(current)
+    #   current = layers.Scale()(current)
+    #   current = tf.keras.layers.Add()([initial,current])
+
     # aggregate sequence
     current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
     current = layers.activate(current, self.activation)
-    current = tf.keras.layers.LSTM(self.filters, go_backwards=True, kernel_initializer=self.initializer,
+    current = tf.keras.layers.LSTM(self.filters, go_backwards=self.go_backwards, kernel_initializer=self.initializer,
                                    kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
+    # current = tf.keras.layers.LSTM(self.filters,
+    #   return_sequences=True,
+    #   kernel_initializer=self.initializer,
+    #   kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
+    # current = layers.LengthAverage()(current, sequence)
 
     # penultimate
     current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
@@ -115,21 +137,19 @@ class RnaNN:
       current = layers.Scale()(current)
       current = tf.keras.layers.Add()([initial,current])
 
-    # final
+    # final representation
     current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
     current = layers.activate(current, self.activation)
-    prediction = tf.keras.layers.Dense(self.num_targets,
-                                       kernel_initializer=self.initializer)(current)
 
     ###################################################
     # compile model(s)
     ###################################################
-    # self.model = tf.keras.Model(inputs=sequence, outputs=prediction)
-    # print(self.model.summary())
-
-    # required to use Trainer
     self.models = []
-    self.models.append(tf.keras.Model(inputs=sequence, outputs=prediction))
+    for hi in range(self.heads):
+      prediction = tf.keras.layers.Dense(self.num_targets,
+                                         kernel_initializer=self.initializer)(current)
+      self.models.append(tf.keras.Model(inputs=sequence, outputs=prediction))
+    
     self.model = self.models[0]
     print(self.model.summary())
 

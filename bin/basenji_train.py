@@ -60,6 +60,9 @@ def main():
   parser.add_option('--tfr_eval', dest='tfr_eval_pattern',
       default=None,
       help='Evaluation TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
+  parser.add_option('--head', type=int, default=0, dest="head",
+      help='model head to load for pretrained weights. [Default: %default]',
+  )
   (options, args) = parser.parse_args()
 
   if len(args) < 2:
@@ -97,11 +100,15 @@ def main():
     tfr_pattern=options.tfr_train_pattern))
 
     # load eval data
-    eval_data.append(dataset.SeqDataset(data_dir,
-    split_label='valid',
-    batch_size=params_train['batch_size'],
-    mode='eval',
-    tfr_pattern=options.tfr_eval_pattern))
+    eval_data.append(
+      dataset.SeqDataset(
+        data_dir,
+        split_label='valid',
+        batch_size=params_train['batch_size'],
+        mode='eval',
+        tfr_pattern=options.tfr_eval_pattern,
+      )
+    )
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################
@@ -112,7 +119,7 @@ def main():
 
     # restore
     if options.restore:
-      seqnn_model.restore(options.restore, trunk=options.trunk)
+      seqnn_model.restore(options.restore, trunk=options.trunk, head_i=options.head)
 
     # initialize trainer
     seqnn_trainer = trainer.Trainer(params_train, train_data, 

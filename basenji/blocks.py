@@ -1139,8 +1139,8 @@ def dense_block(inputs, units=None, activation='relu', activation_end=None,
     )(current)
 
   # normalize
-  if bn_gamma is None:
-    bn_gamma = 'zeros' if residual else 'ones'
+  if norm_gamma is None:
+    norm_gamma = 'zeros' if residual else 'ones'
   if norm_type == 'batch-sync':
     current = tf.keras.layers.experimental.SyncBatchNormalization(
       momentum=bn_momentum, gamma_initializer=norm_gamma)(current)

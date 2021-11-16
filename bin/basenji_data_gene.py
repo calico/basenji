@@ -14,7 +14,7 @@ import pandas as pd
 import tensorflow as tf
 
 from basenji.dna_io import dna_1hot
-import gff
+from basenji import gff
 
 """
 basenji_data_gene.py
@@ -78,8 +78,10 @@ def main():
   # read genes and targets
 
   genes_raw_df = gff_df(tss_gff_file, options.gene_index)
+  # targets are pd.DataFrame [Genes, Samples]
   expr_raw_df = load_expr(expr_file)
   if options.sqrt:
+    # sqrt transform target expression
     expr_raw_df = np.sqrt(expr_raw_df)
 
   # filter for shared genes
@@ -96,8 +98,12 @@ def main():
   ################################################################
   # filter genes from chromosome ends
 
-  gene_valid_mask = sufficient_sequence(fasta_file, genes_df, 
-      options.seq_length, options.n_allowed_pct)
+  gene_valid_mask = sufficient_sequence(
+    fasta_file, 
+    genes_df, 
+    options.seq_length, 
+    options.n_allowed_pct,
+  )
   genes_df = genes_df.loc[gene_valid_mask]
   expr_df = expr_df.loc[gene_valid_mask]
 
@@ -507,7 +513,13 @@ def genes_bed(genes_df, bed_file):
 
 ################################################################################
 def gff_df(gff_file, gene_index):
-  """Read GFF w/ keys into DataFrame."""
+  """Read GFF w/ keys into DataFrame.
+  
+  Notes
+  -----
+  TODO: Add options to take center of a region, or choose the start vs. end bp
+  based on gene strand.
+  """
 
   chrms = []
   starts = []

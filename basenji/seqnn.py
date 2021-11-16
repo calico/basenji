@@ -62,7 +62,6 @@ class SeqNN():
       pass_all_globals = False
       block_func = blocks.keras_func[block_name]
       block_varnames = block_func.__init__.__code__.co_varnames
-
     # set global defaults
     global_vars = ['activation', 'batch_norm', 'bn_momentum', 'norm_type',
       'l2_scale', 'l1_scale', 'padding', 'kernel_initializer']
@@ -365,7 +364,10 @@ class SeqNN():
   def restore(self, model_file, head_i=0, trunk=False):
     """ Restore weights from saved model. """
     if trunk:
-      self.model_trunk.load_weights(model_file)
+      # NOTE: newer versions of keras will throw a ValueError if the number of layers
+      # in the checkpoint != layers in the destination model and `by_name=False`.
+      # `by_name=True` matches weights to layers using string names
+      self.model_trunk.load_weights(model_file, by_name=True)
     else:
       self.models[head_i].load_weights(model_file)
       self.model = self.models[head_i]

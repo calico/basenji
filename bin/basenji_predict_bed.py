@@ -22,6 +22,7 @@ import os
 import pdb
 import pickle
 import sys
+import logging
 
 import h5py
 import numpy as np
@@ -32,6 +33,7 @@ import tensorflow as tf
 
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
+logger = logging.getLogger(__name__)
 
 from basenji import bed
 from basenji import dna_io
@@ -156,9 +158,11 @@ def main():
   if type(preds_length) == tf.compat.v1.Dimension:
     preds_length = preds_length.value
     preds_depth = preds_depth.value
+  logger.debug(f"preds_length: {preds_length} | preds_depth {preds_depth}")
 
   preds_window = seqnn_model.model_strides[0]
   seq_crop = seqnn_model.target_crops[0]*preds_window
+  logger.debug(f"preds_window: {preds_window} | seq_crop {seq_crop}")
 
 
   #################################################################
@@ -188,16 +192,26 @@ def main():
 
   #################################################################
   # setup output
+  logger.debug(f"preds_length {preds_length} | preds_window {preds_window}")
 
-  assert(preds_length % 2 == 0)
+  # if `preds_length == 1`, we're using a Basset style model and should skip
+  # sequence length checks
+  if preds_length > 1:
+    assert(preds_length % 2 == 0)
+  else:
+    logger.warn("`preds_length=1`, assuming peak prediction model.")
   preds_mid = preds_length // 2
 
   assert(options.site_length % preds_window == 0)
   site_preds_length = options.site_length // preds_window
+  logger.debug(f"site_preds_length {site_preds_length} | preds_mid {preds_mid}")
 
-  assert(site_preds_length % 2 == 0)
+  if preds_length > 1:
+    assert(site_preds_length % 2 == 0)
   site_preds_start = preds_mid - site_preds_length//2
   site_preds_end = site_preds_start + site_preds_length
+
+  logger.debug(f"site_preds_start {site_preds_start} | site_preds_end {site_preds_end}")
 
   # initialize HDF5
   out_h5_file = '%s/predict.h5' % options.out_dir
@@ -206,7 +220,7 @@ def main():
   out_h5 = h5py.File(out_h5_file, 'w')
 
   # create predictions
-  if options.sum:
+  if options.sum or preds_length == 1:
     out_h5.create_dataset('preds', shape=(num_seqs, preds_depth), dtype='float16')
   else:
     out_h5.create_dataset('preds', shape=(num_seqs, site_preds_length, preds_depth), dtype='float16')
@@ -314,4 +328,5 @@ def bigwig_write(signal, seq_coords, bw_file, genome_file, seq_crop=0):
 # __main__
 ################################################################################
 if __name__ == '__main__':
+  # logging.basicConfig(level=logging.DEBUG)
   main()

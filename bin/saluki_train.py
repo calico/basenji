@@ -24,7 +24,10 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-from basenji import dataset
+try:
+  import dataset
+except:
+  from basenji import dataset
 try:
   import rnann
 except:
@@ -48,7 +51,7 @@ def main():
       help='Output directory for test statistics [Default: %default]')
   (options, args) = parser.parse_args()
 
-  if len(args) != 2:
+  if len(args) < 2:
     parser.error('Must provide parameters and data directory.')
   else:
     params_file = args[0]

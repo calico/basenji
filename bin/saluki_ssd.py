@@ -201,7 +201,7 @@ def main():
 
   # initialize output table
   ssd_out = open('%s/ssd.tsv' % options.out_dir, 'w')
-  headers = ['variant', 'transcript', 'SSD']
+  headers = ['variant', 'transcript'] + ['SSD%d'%si for si in range(params_model['num_targets'])]
   print('\t'.join(headers), file=ssd_out)
 
   # initialize predictions stream
@@ -226,7 +226,8 @@ def main():
       print(ssd.shape)
 
       # print
-      cols = [vid, tx_id, '%.6f'%ssd]
+      # cols = [vid, tx_id, '%.6f'%ssd]
+      cols = [vid, tx_id] + ['%.6f'%s for s in ssd]
       print('\t'.join(cols), file=ssd_out)
 
   # close genome

@@ -18,6 +18,7 @@ from optparse import OptionParser
 import glob
 import os
 import pickle
+import pdb
 import shutil
 import subprocess
 import sys
@@ -48,8 +49,8 @@ def main():
       default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-g', dest='genes_gtf',
-    default='/home/drk/rnaml/data/genes/gencode36_saluki.gtf',
-    help='Genes GTF [Default: %default]')
+      default='/home/drk/rnaml/data/genes/gencode36_saluki.gtf',
+      help='Genes GTF [Default: %default]')
   parser.add_option('-o',dest='out_dir',
       default='ssd_gtex',
       help='Output directory for tables and plots [Default: %default]')
@@ -58,6 +59,9 @@ def main():
       help='Ensemble prediction shifts [Default: %default]')
 
   # multi
+  parser.add_option('-d', dest='data_head',
+      default=None, type='int',
+      help='Index for dataset/head [Default: %default]')
   parser.add_option('-e', dest='conda_env',
       default='tf2.4-rna',
       help='Anaconda environment [Default: %default]')
@@ -95,10 +99,17 @@ def main():
       exit(1)
     os.mkdir(options.out_dir)
 
-  num_folds = len(glob.glob('%s/f*/model_best.h5' % models_dir))
+  model_str = 'model_best.h5'
+  if options.data_head is not None:
+    model_str = 'model%d_best.h5' % options.data_head
+
+  num_folds = len(glob.glob('%s/f*_c0/train/%s' % (models_dir,model_str)))
+  num_crosses = len(glob.glob('%s/f0_c*/train/%s' % (models_dir,model_str)))
+  print('Folds %d, Crosses %d' % (num_folds, num_crosses))
   if not options.restart:
     for fi in range(num_folds):
-      os.mkdir('%s/f%d' % (options.out_dir, fi))
+      for ci in range(num_crosses):
+        os.mkdir('%s/f%d_c%d' % (options.out_dir, fi, ci))
 
   # pickle options
   options_pkl_file = '%s/options.pkl' % options.out_dir
@@ -118,32 +129,33 @@ def main():
   jobs = []
   for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
     for fi in range(num_folds):
-      model_file = '%s/f%d/model_best.h5' % (models_dir, fi)
+      for ci in range(num_crosses):
+        model_file = '%s/f%d_c%d/train/%s' % (models_dir, fi, ci, model_str)
 
-      # positive job
-      job_base = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0]
-      out_dir = '%s/f%d/%s' % (options.out_dir, fi, job_base)
-      if not options.restart or not os.path.isfile('%s/ssd.tsv'%out_dir):
-        cmd = '%s -o %s %s %s' % (cmd_base, out_dir, model_file, gtex_pos_vcf)
-        name = '%s_%s' % (options.name, job_base)
-        j = slurm.Job(cmd, name,
-            '%s.out'%out_dir, '%s.err'%out_dir,
-            queue=options.queue, gpu=1,
-            mem=22000, time='1-0:0:0')
-        jobs.append(j)
+        # positive job
+        job_base = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0]
+        out_dir = '%s/f%d_c%d/%s' % (options.out_dir, fi, ci, job_base)
+        if not options.restart or not os.path.isfile('%s/ssd.tsv'%out_dir):
+          cmd = '%s -o %s %s %s' % (cmd_base, out_dir, model_file, gtex_pos_vcf)
+          name = '%s_%s' % (options.name, job_base)
+          j = slurm.Job(cmd, name,
+              '%s.out'%out_dir, '%s.err'%out_dir,
+              queue=options.queue, gpu=1,
+              mem=22000, time='1-0:0:0')
+          jobs.append(j)
 
-      # negative job
-      gtex_neg_vcf = gtex_pos_vcf.replace('_pos.','_neg.')
-      job_base = os.path.splitext(os.path.split(gtex_neg_vcf)[1])[0]
-      out_dir = '%s/f%d/%s' % (options.out_dir, fi, job_base)
-      if not options.restart or not os.path.isfile('%s/ssd.tsv'%out_dir):
-        cmd = '%s -o %s %s %s' % (cmd_base, out_dir, model_file, gtex_neg_vcf)
-        name = '%s_%s' % (options.name, job_base)
-        j = slurm.Job(cmd, name,
-            '%s.out'%out_dir, '%s.err'%out_dir,
-            queue=options.queue, gpu=1,
-            mem=22000, time='1-0:0:0')
-        jobs.append(j)
+        # negative job
+        gtex_neg_vcf = gtex_pos_vcf.replace('_pos.','_neg.')
+        job_base = os.path.splitext(os.path.split(gtex_neg_vcf)[1])[0]
+        out_dir = '%s/f%d_c%d/%s' % (options.out_dir, fi, ci, job_base)
+        if not options.restart or not os.path.isfile('%s/ssd.tsv'%out_dir):
+          cmd = '%s -o %s %s %s' % (cmd_base, out_dir, model_file, gtex_neg_vcf)
+          name = '%s_%s' % (options.name, job_base)
+          j = slurm.Job(cmd, name,
+              '%s.out'%out_dir, '%s.err'%out_dir,
+              queue=options.queue, gpu=1,
+              mem=22000, time='1-0:0:0')
+          jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
@@ -156,14 +168,14 @@ def main():
 
   for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
     tissue = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0][:-4]
-    ensemble_ssd(options.out_dir, tissue, 'pos', num_folds)
-    ensemble_ssd(options.out_dir, tissue, 'neg', num_folds)
+    ensemble_ssd(options.out_dir, tissue, 'pos', num_folds, num_crosses)
+    ensemble_ssd(options.out_dir, tissue, 'neg', num_folds, num_crosses)
 
 
   #######################################################
   # classify
 
-  cmd_base = 'saluki_bench_classify.py -a -i 100 -p 2 -r 44 -s'
+  cmd_base = 'saluki_bench_classify.py -a -i 100 --msl 4 -p 2 -r 44 -s'
 
   jobs = []
   for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
@@ -182,19 +194,21 @@ def main():
   slurm.multi_run(jobs, verbose=True)
 
 
-def ensemble_ssd(out_dir, tissue, posneg, num_folds):
-  # read fold0
-  ssd_file = '%s/f0/%s_%s/ssd.tsv' % (out_dir, tissue, posneg)
+def ensemble_ssd(out_dir, tissue, posneg, num_folds, num_crosses):
+  # read fold0, cross0
+  ssd_file = '%s/f0_c0/%s_%s/ssd.tsv' % (out_dir, tissue, posneg)
   ensemble_df = pd.read_csv(ssd_file, sep='\t')
 
   # add next folds
-  for fi in range(1, num_folds):
-    ssd_file = '%s/f%d/%s_%s/ssd.tsv' % (out_dir, fi, tissue, posneg)
-    fold_df = pd.read_csv(ssd_file, sep='\t')
-    ensemble_df.SSD += fold_df.SSD
+  for fi in range(num_folds):
+    for ci in range(num_crosses):
+      if fi != 0 or ci != 0:
+        ssd_file = '%s/f%d_c%d/%s_%s/ssd.tsv' % (out_dir, fi, ci, tissue, posneg)
+        fold_df = pd.read_csv(ssd_file, sep='\t')
+        ensemble_df.iloc[:,2:] += fold_df.iloc[:,2:]
 
   # take mean
-  ensemble_df.SSD /= num_folds
+  ensemble_df.iloc[:,2:] /= num_folds
 
   # write
   ssd_ens_dir = '%s/ensemble/%s_%s' % (out_dir, tissue, posneg)

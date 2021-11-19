@@ -42,7 +42,7 @@ class RnaNN:
     self.residual = False
     self.heads = 1
     self.go_backwards = True
-    self.num_dlayers = 0
+    self.rnn_type = 'gru'
 
   def build_model(self):
     ###################################################
@@ -94,30 +94,14 @@ class RnaNN:
         current = tf.keras.layers.Add()([initial,current])
       current = tf.keras.layers.MaxPooling1D()(current)
 
-    # dilated residual convolutions
-    # drate = 1.0
-    # for di in range(self.num_dlayers):
-    #   initial = current
-    #   drate *= 2.0
-    #   current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
-    #   current = layers.activate(current, self.activation)
-    #   current = tf.keras.layers.Conv1D(filters=self.filters, kernel_size=3, padding='same',
-    #                                    kernel_initializer=self.initializer, dilation_rate=int(np.round(drate)),
-    #                                    kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
-    #   current = tf.keras.layers.Dropout(self.dropout)(current)
-    #   current = layers.Scale()(current)
-    #   current = tf.keras.layers.Add()([initial,current])
-
     # aggregate sequence
     current = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
     current = layers.activate(current, self.activation)
-    current = tf.keras.layers.LSTM(self.filters, go_backwards=self.go_backwards, kernel_initializer=self.initializer,
-                                   kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
-    # current = tf.keras.layers.LSTM(self.filters,
-    #   return_sequences=True,
-    #   kernel_initializer=self.initializer,
-    #   kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
-    # current = layers.LengthAverage()(current, sequence)
+    rnn_layer = tf.keras.layers.GRU
+    if self.rnn_type == 'lstm':
+      rnn_layer = tf.keras.layers.LSTM
+    current = rnn_layer(self.filters, go_backwards=self.go_backwards, kernel_initializer=self.initializer,
+                        kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
 
     # penultimate
     current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)

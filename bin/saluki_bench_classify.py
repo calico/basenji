@@ -32,6 +32,9 @@ def main():
     parser.add_option('-i', dest='iterations',
             default=1, type='int',
             help='Cross-validation iterations [Default: %default]')
+    parser.add_option('--msl', dest='min_samples_leaf',
+            default=1, type='int',
+            help='Random forest min_samples_leaf [Default: %default]')
     parser.add_option('-o', dest='out_dir',
             default='class_out')
     parser.add_option('-p', dest='parallel_threads',
@@ -73,7 +76,7 @@ def main():
         # aurocs, fpr_folds, tpr_folds, fpr_full, tpr_full = ridge_roc(X, y, folds=8, alpha=10000)
         aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds = randfor_roc(X, y, folds=8,
                 iterations=options.iterations, random_state=options.random_seed,
-                n_jobs=options.parallel_threads)
+                n_jobs=options.parallel_threads, msl=options.min_samples_leaf)
 
         # save preds
         if options.save_preds:
@@ -100,8 +103,10 @@ def main():
 
 def read_ssd(ssd_file):
     df = pd.read_csv(ssd_file, sep='\t')
-    ssd = np.array(df.SSD, dtype='float64')
-    return np.expand_dims(ssd, axis=-1)
+    # ssd = np.array(df.SSD, dtype='float64')
+    ssd = np.array(df.iloc[:,2:], dtype='float64')
+    # return np.expand_dims(ssd, axis=-1)
+    return ssd
 
 
 ################################################################################

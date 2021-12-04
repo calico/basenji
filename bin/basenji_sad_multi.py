@@ -81,7 +81,7 @@ def main():
       default=False, action='store_true',
       help='Run without a GPU [Default: %default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf2.2-gpu',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   parser.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
@@ -133,7 +133,7 @@ def main():
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
         cmd += ' conda activate %s;' % options.conda_env
 
-      cmd += ' basenji_sad.py %s %s %d' % (
+      cmd += ' time basenji_sad.py %s %s %d' % (
           options_pkl_file, ' '.join(args), pi)
 
       name = '%s_p%d' % (options.name, pi)

@@ -81,9 +81,9 @@ def main():
   parser.add_option('--threads', dest='threads',
       default=False, action='store_true',
       help='Run CPU math and output in a separate thread [Default: %default]')
-  parser.add_option('-u', dest='penultimate',
-      default=False, action='store_true',
-      help='Compute SED in the penultimate layer [Default: %default]')
+  # parser.add_option('-u', dest='penultimate',
+  #     default=False, action='store_true',
+  #     help='Compute SED in the penultimate layer [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -160,15 +160,18 @@ def main():
     target_labels = targets_df.description
     target_slice = targets_df.index
 
-  if options.penultimate:
-    parser.error('Not implemented for TF2')
-
   #################################################################
   # setup model
+
+  # can we sum on GPU?
+  length_stats = set(['SAX','SAXR','SAR','ALT','REF'])
+  sum_length = length_stats.isdisjoint(set(options.sad_stats))
 
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
   seqnn_model.build_slice(target_slice)
+  if sum_length:
+    seqnn_model.build_sad()
   seqnn_model.build_ensemble(options.rc, options.shifts)
 
   targets_length = seqnn_model.target_lengths[0]
@@ -243,8 +246,13 @@ def main():
       snp_queue.put((ref_preds, alt_preds, si))
     else:
       # process SNP
-      write_snp(ref_preds, alt_preds, sad_out, si,
-                options.sad_stats, options.log_pseudo)
+      if sum_length:
+        print('Length summed')
+        write_snp(ref_preds, alt_preds, sad_out, si,
+                  options.sad_stats, options.log_pseudo)
+      else:
+        write_snp_len(ref_preds, alt_preds, sad_out, si,
+                      options.sad_stats, options.log_pseudo)
 
   if options.threads:
     # finish queue
@@ -343,8 +351,25 @@ def write_pct(sad_out, sad_stats):
       sad_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')
 
     
-def write_snp(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
-  """Write SNP predictions to HDF."""
+def write_snp(ref_preds_sum, alt_preds_sum, sad_out, si, sad_stats, log_pseudo):
+  """Write SNP predictions to HDF, assuming the length dimension has
+      been collapsed."""
+
+  # compare reference to alternative via mean subtraction
+  if 'SAD' in sad_stats:
+    sad = alt_preds_sum - ref_preds_sum
+    sad_out['SAD'][si,:] = sad.astype('float16')
+
+  # compare reference to alternative via mean log division
+  if 'SADR' in sad_stats:
+    sar = np.log2(alt_preds_sum + log_pseudo) \
+                   - np.log2(ref_preds_sum + log_pseudo)
+    sad_out['SADR'][si,:] = sar.astype('float16')
+
+
+def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
+  """Write SNP predictions to HDF, assuming the length dimension has
+      been maintained."""
 
   ref_preds = ref_preds.astype('float64')
   alt_preds = alt_preds.astype('float64')

@@ -78,7 +78,7 @@ def main():
 
   # _multi.py options
   parser.add_option('-e', dest='conda_env',
-      default='tf2.4',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   parser.add_option('--max_proc', dest='max_proc',
       default=None, type='int',

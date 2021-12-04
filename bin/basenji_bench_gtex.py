@@ -84,7 +84,7 @@ def main():
 
   # multi
   parser.add_option('-e', dest='conda_env',
-      default='tf2.4',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   parser.add_option('-g', dest='gtex_vcf_dir',
       default='/home/drk/seqnn/data/gtex_fine/susie_pip90')

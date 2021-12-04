@@ -54,7 +54,7 @@ def main():
       default=None, type='int',
       help='Reference Dataset index [Default:%default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf2.4',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   parser.add_option('-f', dest='fold_subset',
       default=None, type='int',

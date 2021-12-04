@@ -100,7 +100,7 @@ def main():
       default=1, type='int',
       help='Number of cross-fold rounds [Default:%default]')
   fold_options.add_option('-e', dest='conda_env',
-      default='tf2.4',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   fold_options.add_option('--label_exp', dest='label_exp',
       default='Experiment', help='Experiment label [Default: %default]')

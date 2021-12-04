@@ -67,7 +67,7 @@ def main():
 
   fold_options = OptionGroup(parser, 'cross-fold options')
   fold_options.add_option('--env', dest='conda_env',
-      default='tf2.4',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   fold_options.add_option('--name', dest='name',
       default='inject', help='SLURM name prefix [Default: %default]')

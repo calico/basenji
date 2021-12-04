@@ -42,7 +42,7 @@ def main():
       default=None, type='int',
       help='Dataset index [Default:%default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf2-gpu',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')

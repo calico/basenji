@@ -381,7 +381,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
                zero_initialize=True,
                transpose_stride=0,
                gated=False,
-               initializer=None,
+               initializer='he_normal',
                l2_scale=0):
     """Creates a MultiheadAttention module.
        Original version written by Ziga Avsec.
@@ -425,8 +425,6 @@ class MultiheadAttention(tf.keras.layers.Layer):
     self._positional_dropout_rate = positional_dropout_rate
     self._l2_scale = l2_scale
     self._initializer = initializer
-    if self._initializer is None:
-      self._initializer = tf.keras.initializers.VarianceScaling(scale=2.0)
 
     key_proj_size = self._key_size * self._num_heads
     embedding_size = self._value_size * self._num_heads
@@ -491,9 +489,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
 
   def _multihead_output(self, linear_layer, inputs):
     """Applies a standard linear to inputs and returns multihead output."""
-    
-    # output = snt.BatchApply(linear)(inputs)  # [B, T, H * KV]
-    output = linear_layer(inputs)
+    output = linear_layer(inputs) # [B, T, H * KV]
     _, seq_len, num_channels = output.shape
 
     # Split H * Channels into separate axes.
@@ -501,7 +497,6 @@ class MultiheadAttention(tf.keras.layers.Layer):
     output = tf.reshape(output, shape=[-1, seq_len, self._num_heads, num_kv_channels])
     # [B, T, H, KV] -> [B, H, T, KV]
     return tf.transpose(output, [0, 2, 1, 3])
-
 
   def call(self, inputs, training=False):
     # Initialise the projection layers.

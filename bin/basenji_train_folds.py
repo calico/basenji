@@ -85,7 +85,7 @@ def main():
       default=False, action='store_true',
       help='Restart training from checkpoint [Default: %default]')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf2.4',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('-f', dest='fold_subset',
       default=None, type='int',
@@ -143,6 +143,15 @@ def main():
   if options.fold_subset is not None:
     num_folds = min(options.fold_subset, num_folds)
 
+  if options.queue == 'standard':
+    num_cpu = 8
+    num_gpu = 0
+    time_base = 24
+  else:
+    num_cpu = 2
+    num_gpu = 1
+    time_base = 6
+
   #######################################################
   # train
 
@@ -151,13 +160,14 @@ def main():
   for ci in range(options.crosses):
     for fi in range(num_folds):
       rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
-      if options.restart and not options.checkpoint and os.path.isdir(rep_dir):
-        print('%s found and skipped.' % rep_dir)
-      else:
-        # make rep dir
-        os.makedirs(rep_dir, exist_ok=True)
+      os.makedirs(rep_dir, exist_ok=True)
 
-        # make rep data
+      train_dir = '%s/train' % rep_dir
+      if options.restart and not options.checkpoint and os.path.isdir(train_dir):
+        print('%s found and skipped.' % rep_dir)
+
+      else:
+        # make and collect data directories
         rep_data_dirs = []
         for di in range(num_data):
           rep_data_dirs.append('%s/data%d' % (rep_dir, di))
@@ -236,9 +246,9 @@ def main():
                             out_file='%s.out'%out_dir,
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
-                            cpu=1, gpu=1,
+                            cpu=num_cpu, gpu=num_gpu,
                             mem=23000,
-                            time='8:00:00')
+                            time='%d:00:00' % (2*time_base))
             jobs.append(basenji_job)
 
 
@@ -283,9 +293,9 @@ def main():
                             out_file='%s.out'%out_dir,
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
-                            cpu=1, gpu=1,
+                            cpu=num_cpu, gpu=num_gpu,
                             mem=23000,
-                            time='4:00:00')
+                            time='%d:00:00' % time_base)
             jobs.append(basenji_job)
 
   #######################################################
@@ -330,13 +340,14 @@ def main():
                             out_file='%s.out'%out_dir,
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
-                            cpu=1, gpu=1,
+                            cpu=num_cpu, gpu=num_gpu,
                             mem=90000,
-                            time='6:00:00')
+                            time='%d:00:00' % (3*time_base))
             jobs.append(basenji_job)
         
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)
+
 
 def make_rep_data(data_dir, rep_data_dir, fi, ci): 
   # read data parameters

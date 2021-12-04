@@ -79,18 +79,18 @@ class SeqNN():
     if block_name == 'conv_tower_nac':
       block_args['reprs'] = self.reprs
 
-    # U-net style concat helper
-    if block_name == 'concat_unet':
+    # U-net helper
+    if block_name[-5:] == '_unet':
       # find matching representation
-      concat_repr = None
+      unet_repr = None
       for seq_repr in reversed(self.reprs[:-1]):
-        if seq_repr.shape[1] == current.shape[1]:
-          concat_repr = seq_repr
+        if seq_repr.shape[1] == current.shape[1]*2:
+          unet_repr = seq_repr
           break
-      if concat_repr is None:
+      if unet_repr is None:
         print('Could not find matching representation for length %d' % current.shape[1], sys.stderr)
         exit(1)
-      block_args['concat'] = concat_repr
+      block_args['unet_repr'] = unet_repr
 
     # switch for block
     if block_name[0].islower():
@@ -231,13 +231,32 @@ class SeqNN():
         preds = [layers.SwitchReverseTriu(self.diagonal_offset)
                   ([self.model(seq), rp]) for (seq,rp) in sequences_rev]
       else:
-        preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+        if len(self.model.output_shape) == 2:
+          # length collapsed, skip reversal
+          preds = [self.model(seq) for (seq,rp) in sequences_rev]
+        else:
+          preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)
 
       # create meta model
       self.ensemble = tf.keras.Model(inputs=sequence, outputs=preds_avg)
+
+
+  def build_sad(self):
+    # sequence input
+    sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+
+    # predict
+    predictions = self.model(sequence)
+    preds_len = predictions.shape[1]
+
+    # sum pool
+    sad = preds_len * tf.keras.layers.GlobalAveragePooling1D()(predictions)
+
+    # replace model
+    self.model = tf.keras.Model(inputs=sequence, outputs=sad)
 
 
   def build_slice(self, target_slice=None):

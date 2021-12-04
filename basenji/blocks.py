@@ -285,6 +285,70 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
   return current
 
 
+def upsample_unet(inputs, unet_repr, activation='relu', stride=2,
+    l2_scale=0, dropout=0, norm_type=None, bn_momentum=0.99,
+    kernel_initializer='he_normal'):
+  """Construct a single transposed convolution block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    filters:       Conv1D filters
+    kernel_size:   Conv1D kernel_size
+    activation:    relu/gelu/etc
+    strides:       Conv1D strides
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    conv_type:     Conv1D layer type
+    norm_type:     Apply batch or layer normalization
+    bn_momentum:   BatchNorm momentum
+
+  Returns:
+    [batch_size, stride*seq_length, features] output sequence
+  """
+
+  # normalize
+  inputs = tf.keras.layers.LayerNormalization()(inputs)
+  unet_repr = tf.keras.layers.LayerNormalization()(unet_repr)
+
+  # upsample
+  inputs = tf.keras.layers.UpSampling1D(size=stride)(inputs)
+
+  # concatenate
+  current = tf.keras.layers.Concatenate()([unet_repr, inputs])
+
+  # activate
+  current = layers.activate(current, activation)
+
+  # dense
+  mid_units = int(1.5*unet_repr.shape[-1])
+  current = tf.keras.layers.Dense(
+    units=mid_units,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # activate
+  current = layers.activate(current, activation)
+
+  # dense
+  current = tf.keras.layers.Dense(
+    units=unet_repr.shape[-1],
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # residual
+  current = tf.keras.layers.Add()([unet_repr,current])
+    
+  return current
+
+
 def tconv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
     l2_scale=0, dropout=0, conv_type='standard', norm_type=None, bn_momentum=0.99,
     norm_gamma=None, kernel_initializer='he_normal', padding='same'):
@@ -341,8 +405,8 @@ def tconv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
     
   return current
 
-def concat_unet(inputs, concat, **kwargs):
-  current = tf.keras.layers.Concatenate()([inputs,concat])
+def concat_unet(inputs, unet_repr, **kwargs):
+  current = tf.keras.layers.Concatenate()([inputs,unet_repr])
   return current
 
 def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
@@ -689,9 +753,11 @@ def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 ############################################################
 # Attention
 ############################################################
-def transformer(inputs, key_size=None, heads=1, out_size=None, l2_scale=0,
-    num_position_features=None, activation='relu', dense_expansion=2.0,
-    attention_dropout=0.05, position_dropout=0.01, dropout=0.25, **kwargs):
+def transformer(inputs, key_size=None, heads=1, out_size=None, 
+    activation='relu', dense_expansion=2.0, dropout=0.25,
+    attention_dropout=0.05, position_dropout=0.01, 
+    l2_scale=0, mha_l2_scale=0, num_position_features=None,
+    mha_initializer='he_normal', kernel_initializer='he_normal', **kwargs):
   """Construct a transformer block.
 
   Args:
@@ -716,7 +782,8 @@ def transformer(inputs, key_size=None, heads=1, out_size=None, l2_scale=0,
     num_position_features=num_position_features,
     attention_dropout_rate=attention_dropout,
     positional_dropout_rate=position_dropout,
-    l2_scale=l2_scale)(current)
+    initializer=mha_initializer,
+    l2_scale=mha_l2_scale)(current)
 
   # dropout
   if dropout > 0:
@@ -735,7 +802,10 @@ def transformer(inputs, key_size=None, heads=1, out_size=None, l2_scale=0,
 
     # dense
     expansion_filters = int(dense_expansion*out_size)
-    current = tf.keras.layers.Dense(expansion_filters)(current)
+    current = tf.keras.layers.Dense(
+      units=expansion_filters,
+      kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+      kernel_initializer=kernel_initializer)(current)
 
     # dropout
     if dropout > 0:
@@ -745,7 +815,10 @@ def transformer(inputs, key_size=None, heads=1, out_size=None, l2_scale=0,
     current = layers.activate(current, 'relu')
 
     # dense
-    current = tf.keras.layers.Dense(out_size)(current)
+    current = tf.keras.layers.Dense(
+      units=out_size,
+      kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+      kernel_initializer=kernel_initializer)(current)
 
     # dropout
     if dropout > 0:
@@ -755,6 +828,7 @@ def transformer(inputs, key_size=None, heads=1, out_size=None, l2_scale=0,
     final = tf.keras.layers.Add()([current_mha,current])
 
   return final
+
 
 def transformer2(inputs, key_size=None, heads=1, out_size=None, 
     activation='relu', num_position_features=None, dense_expansion=2.0,
@@ -774,7 +848,10 @@ def transformer2(inputs, key_size=None, heads=1, out_size=None,
     value_size = out_size // heads
 
   # convolution to decrease length
-  current = conv_nac(inputs, filters=2*key_size, pool_size=2, **kwargs)
+  current = conv_nac(inputs,
+    filters=min(4*key_size, inputs.shape[-1]),
+    kernel_size=3,
+    pool_size=2, **kwargs)
 
   # layer norm
   current = tf.keras.layers.LayerNormalization()(current)
@@ -797,7 +874,7 @@ def transformer2(inputs, key_size=None, heads=1, out_size=None,
   current = tf.keras.layers.Dense(out_size)(current)
 
   # residual
-  # current = tf.keras.layers.Add()([inputs,current])
+  current = tf.keras.layers.Add()([inputs,current])
 
   if dense_expansion == 0:
     final = current
@@ -1298,6 +1375,7 @@ name_func = {
   'transformer': transformer,
   'transformer_tower': transformer_tower,
   'upper_tri': upper_tri,
+  'upsample_unet': upsample_unet,
   'wheeze_excite': wheeze_excite,
   'xception_block': xception_block,
   'xception_tower': xception_tower,

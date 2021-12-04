@@ -261,8 +261,12 @@ def randfor_roc(X, y, folds=8, iterations=1,
 
 def read_indel(sad_file, indel_abs=True, indel_bool=False):
     with h5py.File(sad_file, 'r') as sad_open:
-        ref_alleles = [ra.decode('UTF-8') for ra in sad_open['ref_allele']]
-        alt_alleles = [aa.decode('UTF-8') for aa in sad_open['alt_allele']]
+        try:
+            ref_alleles = [ra.decode('UTF-8') for ra in sad_open['ref_allele']]
+            alt_alleles = [aa.decode('UTF-8') for aa in sad_open['alt_allele']]
+        except KeyError:
+            ref_alleles = [ra.decode('UTF-8') for ra in sad_open['ref']]
+            alt_alleles = [aa.decode('UTF-8') for aa in sad_open['alt']]
     num_variants = len(ref_alleles)
     indels = np.array([len(ref_alleles[vi])-len(alt_alleles[vi]) for vi in range(num_variants)])
     if indel_abs:

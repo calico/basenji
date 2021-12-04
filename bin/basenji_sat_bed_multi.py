@@ -75,7 +75,7 @@ def main():
 
   # _multi.py options
   parser.add_option('-e', dest='conda_env',
-      default='tf2.4',
+      default='tf2.6',
       help='Anaconda environment [Default: %default]')
   parser.add_option('--max_proc', dest='max_proc',
       default=None, type='int',
@@ -87,7 +87,7 @@ def main():
       default=None, type='int',
       help='Number of processes, passed by multi script')
   parser.add_option('-q', dest='queue',
-      default='k80',
+      default='gtx1080ti',
       help='SLURM queue on which to run the jobs [Default: %default]')
   parser.add_option('-r', '--restart', dest='restart',
       default=False, action='store_true',

@@ -87,6 +87,9 @@ def main():
   parser.add_option('--spec_step', dest='spec_step',
       default=1, type='int',
       help='Positional step for specificity predict [Default: %default]')
+  parser.add_option('--status', dest='status',
+      default=False, action='store_true',
+      help='Update metric status; do not run jobs [Default: %default]')
   parser.add_option('--train', dest='train',
       default=False, action='store_true',
       help='Test on the training set, too [Default: %default]')
@@ -121,11 +124,11 @@ def main():
   if options.queue == 'standard':
     num_cpu = 8
     num_gpu = 0
-    time_base = 18
+    time_base = 24
   else:
     num_cpu = 2
     num_gpu = 1
-    time_base = 4
+    time_base = 6
   
   ################################################################
   # test check
@@ -268,7 +271,8 @@ def main():
                           time='%d:00:00' % (3*time_base))
           jobs.append(j)
 
-  slurm.multi_run(jobs, verbose=True)
+  if not options.status:
+    slurm.multi_run(jobs, verbose=True)
 
 
   if options.dataset_i is None:
@@ -302,7 +306,7 @@ def main():
       ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, options.metric)
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
-    print('\nTrain:')
+    print('\nTrain (%d reps):' % len(exp_cors))
     print('%12s %s: %.4f (%.4f)' % (options.label_exp, options.metric, exp_mean, exp_stdm))
     if options.ref_dir is not None:
       print('%12s %s: %.4f (%.4f)' % (options.label_ref, options.metric, ref_mean, ref_stdm))
@@ -327,7 +331,7 @@ def main():
 
     mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
-  print('\nTest:')
+  print('\nTest (%d reps):' % len(exp_cors))
   print('%12s %s: %.4f (%.4f)' % (options.label_exp, options.metric, exp_mean, exp_stdm))
   if options.ref_dir is not None:
     print('%12s %s: %.4f (%.4f)' % (options.label_ref, options.metric, ref_mean, ref_stdm))

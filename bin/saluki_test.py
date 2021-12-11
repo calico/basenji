@@ -36,13 +36,16 @@ matplotlib.use('PDF')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from basenji import dataset
 from basenji import plots
+from basenji import trainer
+try:
+  import dataset
+except:
+  from basenji import dataset
 try:
   import rnann
 except:
   from basenji import rnann
-from basenji import trainer
 
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()

@@ -178,7 +178,7 @@ def randfor_full(X, y, random_state=None, n_jobs=1):
     return model
 
 
-def randfor_roc(X, y, folds=8, iterations=1, random_state=None, n_jobs=1):
+def randfor_roc(X, y, folds=8, msl=1, iterations=1, random_state=None, n_jobs=1):
     """Compute ROC using a random forest."""
     aurocs = []
     fpr_folds = []
@@ -203,7 +203,7 @@ def randfor_roc(X, y, folds=8, iterations=1, random_state=None, n_jobs=1):
             else:
                 rs_rf = rs_iter+test_index[0]
             model = RandomForestClassifier(n_estimators=100, max_features='log2', max_depth=64,
-                                           min_samples_leaf=1, min_samples_split=2,
+                                           min_samples_leaf=msl, min_samples_split=2,
                                            random_state=rs_rf, n_jobs=n_jobs)
             model.fit(X[train_index,:], y[train_index])
 

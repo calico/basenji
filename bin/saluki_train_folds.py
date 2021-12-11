@@ -62,7 +62,7 @@ def main():
       default=1, type='int',
       help='Number of cross-fold rounds [Default:%default]')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf2.4-rna',
+      default='tf2.6-rna',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('-f', dest='fold_subset',
       default=None, type='int',

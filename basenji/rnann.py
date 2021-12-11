@@ -103,6 +103,15 @@ class RnaNN:
     current = rnn_layer(self.filters, go_backwards=self.go_backwards, kernel_initializer=self.initializer,
                         kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(current)
 
+    # attention = tf.keras.layers.LayerNormalization(epsilon=self.ln_epsilon)(current)
+    # attention = layers.activate(attention, self.activation)
+    # attention = tf.keras.layers.Dense(units=self.filters,
+    #                                   kernel_initializer=self.initializer,
+    #                                   kernel_regularizer=tf.keras.regularizers.l2(self.l2_scale))(attention)
+    # attention = tf.keras.layers.Softmax(axis=-2)(attention)
+    # current *= attention
+    # current = tf.keras.layers.GlobalAveragePooling1D()(current)
+
     # penultimate
     current = tf.keras.layers.BatchNormalization(momentum=self.bn_momentum)(current)
     current = layers.activate(current, self.activation)

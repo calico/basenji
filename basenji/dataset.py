@@ -268,7 +268,13 @@ class RnaDataset:
     self.target_length = data_stats['target_length']
     self.num_targets = data_stats['num_targets']
 
-    self.num_seqs = data_stats['%s_seqs' % self.split_label]
+    if self.split_label == '*':
+      self.num_seqs = 0
+      for dkey in data_stats:
+        if dkey[-5:] == '_seqs':
+          self.num_seqs += data_stats[dkey]
+    else:
+      self.num_seqs = data_stats['%s_seqs' % self.split_label]
 
     self.make_dataset()
 

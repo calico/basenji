@@ -63,7 +63,7 @@ def main():
       default=None, type='int',
       help='Index for dataset/head [Default: %default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf2.4-rna',
+      default='tf2.6-rna',
       help='Anaconda environment [Default: %default]')
   parser.add_option('--name', dest='name',
       default='gtex', help='SLURM name prefix [Default: %default]')
@@ -175,7 +175,9 @@ def main():
   #######################################################
   # classify
 
-  cmd_base = 'saluki_bench_classify.py -a -i 100 --msl 4 -p 2 -r 44 -s'
+  cmd_base = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+  cmd_base += ' conda activate %s;' % options.conda_env
+  cmd_base += ' saluki_bench_classify.py -a -i 100 --msl 4 -p 2 -r 44 -s'
 
   jobs = []
   for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):

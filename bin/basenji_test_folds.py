@@ -138,7 +138,7 @@ def main():
   if options.train:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (options.exp_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (options.exp_dir, fi, ci)
 
         if options.dataset_i is None:
           out_dir = '%s/test_train' % it_dir
@@ -184,7 +184,7 @@ def main():
   ################################################################
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      it_dir = '%s/f%d_c%d' % (options.exp_dir, fi, ci)
+      it_dir = '%s/f%dc%d' % (options.exp_dir, fi, ci)
 
       if options.dataset_i is None:
         out_dir = '%s/test' % it_dir
@@ -230,7 +230,7 @@ def main():
   if options.specificity:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (options.exp_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (options.exp_dir, fi, ci)
 
         if options.dataset_i is None:
           out_dir = '%s/test_spec' % it_dir
@@ -287,7 +287,7 @@ def main():
 
   # classification or regression
   if options.metric is None:
-	  with open('%s/f0_c0/%s/acc.txt' % (options.exp_dir,test_prefix)) as test0_open:
+	  with open('%s/f0c0/%s/acc.txt' % (options.exp_dir,test_prefix)) as test0_open:
 	    header = test0_open.readline().split()
 	    if 'pearsonr' in header:
 	      options.metric = 'pearsonr'
@@ -353,7 +353,6 @@ def main():
     if options.ref_dir is not None:
       ref_glob_str = '%s/*/%s_spec/acc.txt' % (options.ref_dir, test_ref_prefix)
       ref_cors, ref_mean, ref_stdm = read_metrics(ref_glob_str, options.metric)
-
       mwp, tp = stat_tests(ref_cors, exp_cors, options.alternative)
 
     print('\nSpecificity:')

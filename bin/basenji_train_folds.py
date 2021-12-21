@@ -116,19 +116,21 @@ def main():
     params_file = os.path.abspath(args[0])
     data_dirs = [os.path.abspath(arg) for arg in args[1:]]
 
-  # read model parameters
-  with open(params_file) as params_open:
-    params = json.load(params_open)
-  params_train = params['train']
-
   #######################################################
   # prep work
   
   if not options.restart and os.path.isdir(options.out_dir):
     print('Output directory %s exists. Please remove.' % options.out_dir)
     exit(1)
-  if not os.path.isdir(options.out_dir):
-    os.mkdir(options.out_dir)
+  os.makedirs(options.out_dir, exist_ok=True)
+
+  # read model parameters
+  with open(params_file) as params_open:
+    params = json.load(params_open)
+  params_train = params['train']
+
+  # copy params into output directory
+  shutil.copy(params_file, '%s/params.json' % options.out_dir)
 
   # read data parameters
   num_data = len(data_dirs)
@@ -152,6 +154,18 @@ def main():
     num_gpu = 1
     time_base = 6
 
+  # arrange data
+  for ci in range(options.crosses):
+    for fi in range(num_folds):
+      rep_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
+      os.makedirs(rep_dir, exist_ok=True)
+
+      # make data directories
+      for di in range(num_data):
+        rep_data_dir = '%s/data%d' % (rep_dir, di)
+        if not os.path.isdir(rep_data_dir):
+          make_rep_data(data_dirs[di], rep_data_dir, fi, ci)
+
   #######################################################
   # train
 
@@ -159,19 +173,17 @@ def main():
 
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
-      os.makedirs(rep_dir, exist_ok=True)
+      rep_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
 
       train_dir = '%s/train' % rep_dir
       if options.restart and not options.checkpoint and os.path.isdir(train_dir):
         print('%s found and skipped.' % rep_dir)
 
       else:
-        # make and collect data directories
+        # collect data directories
         rep_data_dirs = []
         for di in range(num_data):
           rep_data_dirs.append('%s/data%d' % (rep_dir, di))
-          make_rep_data(data_dirs[di], rep_data_dirs[-1], fi, ci)
 
         # if options.checkpoint:
         #   os.rename('%s/train.out' % rep_dir, '%s/train1.out' % rep_dir)
@@ -210,7 +222,7 @@ def main():
   if not options.test_train_off:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
 
         for di in range(num_data):
           if num_data == 1:
@@ -258,7 +270,7 @@ def main():
   if not options.test_off:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
 
         for di in range(num_data):
           if num_data == 1:
@@ -304,7 +316,7 @@ def main():
   if not options.spec_off:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
 
         for di in range(num_data):
           if num_data == 1:

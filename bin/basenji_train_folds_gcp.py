@@ -142,7 +142,7 @@ def main():
   if options.worker is None:
     for ci in range(options.crosses):
       for fi in range(options.num_folds):
-        rep_label = 'f%d-c%d' % (fi, ci)
+        rep_label = 'f%dc%d' % (fi, ci)
         vm_name = '%s-%s' % (options.vm_base, rep_label)
 
         # query VM status
@@ -201,7 +201,7 @@ def main():
 
     for ci in range(options.crosses):
       for fi in range(options.num_folds):
-        rep_label = 'f%d_c%d' % (fi, ci)
+        rep_label = 'f%dc%d' % (fi, ci)
         rep_dir = '%s/%s' % (options.out_dir, rep_label)
 
         # make rep dir
@@ -219,7 +219,7 @@ def main():
 
   for ci in range(options.crosses):
     for fi in range(options.num_folds):
-      rep_label = 'f%d-c%d' % (fi, ci)
+      rep_label = 'f%dc%d' % (fi, ci)
       rep_dir = '%s/%s' % (options.out_dir, rep_label)
       vm_name = '%s-%s' % (options.vm_base, rep_label)
 
@@ -288,7 +288,7 @@ def main():
   if not options.test_off:
     for ci in range(options.crosses):
       for fi in range(options.num_folds):
-        rep_label = 'f%d_c%d' % (fi, ci)
+        rep_label = 'f%dc%d' % (fi, ci)
         rep_dir = '%s/%s' % (options.out_dir, rep_label)
         vm_name = '%s-%s' % (options.vm_base, rep_label)
 
@@ -374,7 +374,7 @@ def main():
   if options.worker is None and not options.initialize:
     for ci in range(options.crosses):
       for fi in range(options.num_folds):
-        rep_label = 'f%d_c%d' % (fi, ci)
+        rep_label = 'f%dc%d' % (fi, ci)
         rep_dir = '%s/%s' % (options.out_dir, rep_label)
         vm_name = '%s-%s' % (options.vm_base, rep_label)
 

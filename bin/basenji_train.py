@@ -23,6 +23,7 @@ import sys
 import time
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
@@ -86,8 +87,14 @@ def main():
   # read datasets
   train_data = []
   eval_data = []
+  strand_pairs = []
 
   for data_dir in data_dirs:
+    # set strand pairs
+    targets_df = pd.read_csv('%s/targets.txt'%data_dir, sep='\t', index_col=0)
+    if 'strand_pair' in targets_df.columns:
+      strand_pairs.append(np.array(targets_df.strand_pair))
+
     # load train data
     train_data.append(dataset.SeqDataset(data_dir,
     split_label='train',
@@ -102,6 +109,8 @@ def main():
     batch_size=params_train['batch_size'],
     mode='eval',
     tfr_pattern=options.tfr_eval_pattern))
+
+  params_model['strand_pair'] = strand_pairs
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################

@@ -1045,8 +1045,9 @@ class StochasticReverseComplement(tf.keras.layers.Layer):
 
 class SwitchReverse(tf.keras.layers.Layer):
   """Reverse predictions if the inputs were reverse complemented."""
-  def __init__(self):
+  def __init__(self, strand_pair=None):
     super(SwitchReverse, self).__init__()
+    self.strand_pair = strand_pair
   def call(self, x_reverse):
     x = x_reverse[0]
     reverse = x_reverse[1]
@@ -1058,10 +1059,24 @@ class SwitchReverse(tf.keras.layers.Layer):
       rev_axes = [1,2]
     else:
       raise ValueError('Cannot recognize SwitchReverse input dimensions %d.' % xd)
+
+    xr = tf.keras.backend.switch(reverse,
+                                 tf.reverse(x, axis=rev_axes),
+                                 x)
     
-    return tf.keras.backend.switch(reverse,
-                                   tf.reverse(x, axis=rev_axes),
-                                   x)
+    if self.strand_pair is None:
+      xrs = xr
+    else:
+      xrs = tf.keras.backend.switch(reverse,
+                                    tf.gather(xr, self.strand_pair, axis=-1),
+                                    xr)
+    
+    return xrs
+
+  def get_config(self):
+    config = super().get_config().copy()
+    config['strand_pair'] = self.strand_pair
+    return config
 
 class SwitchReverseTriu(tf.keras.layers.Layer):
   def __init__(self, diagonal_offset):

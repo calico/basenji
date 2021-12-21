@@ -41,6 +41,7 @@ class SeqNN():
     # others are best defaulted closer to the source
     self.augment_rc = False
     self.augment_shift = [0]
+    self.strand_pair = []
 
   def build_block(self, current, block_params):
     """Construct a SeqNN block.
@@ -151,12 +152,17 @@ class SeqNN():
       for bi, block_params in enumerate(head):
         current = self.build_block(current, block_params)
 
+      if len(self.strand_pair) == 0:
+        strand_pair = None
+      else:
+        strand_pair = self.strand_pair[hi]
+
       # transform back from reverse complement
       if self.augment_rc:
         if self.preds_triu:
           current = layers.SwitchReverseTriu(self.diagonal_offset)([current, reverse_bool])
         else:
-          current = layers.SwitchReverse()([current, reverse_bool])
+          current = layers.SwitchReverse(strand_pair)([current, reverse_bool])
 
       # save head output
       self.head_output.append(current)
@@ -226,6 +232,11 @@ class SeqNN():
       else:
         sequences_rev = [(seq,tf.constant(False)) for seq in sequences]
 
+      if len(self.strand_pair) == 0:
+        strand_pair = None
+      else:
+        strand_pair = self.strand_pair[0]
+
       # predict each sequence
       if self.preds_triu:
         preds = [layers.SwitchReverseTriu(self.diagonal_offset)
@@ -234,8 +245,9 @@ class SeqNN():
         if len(self.model.output_shape) == 2:
           # length collapsed, skip reversal
           preds = [self.model(seq) for (seq,rp) in sequences_rev]
+          assert(strand_pair is None)  # not implemented yet
         else:
-          preds = [layers.SwitchReverse()([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+          preds = [layers.SwitchReverse(strand_pair)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)

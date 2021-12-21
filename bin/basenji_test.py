@@ -120,7 +120,11 @@ def main():
     params = json.load(params_open)
   params_model = params['model']
   params_train = params['train']
-  
+
+  # set strand pairs
+  if 'strand_pair' in targets_df.columns:
+    params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
+
   # construct eval data
   eval_data = dataset.SeqDataset(data_dir,
     split_label=options.split_label,

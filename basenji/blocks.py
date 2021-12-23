@@ -307,14 +307,14 @@ def upsample_unet(inputs, unet_repr, activation='relu', stride=2,
   """
 
   # normalize
-  inputs = tf.keras.layers.LayerNormalization()(inputs)
-  unet_repr = tf.keras.layers.LayerNormalization()(unet_repr)
+  current1 = tf.keras.layers.LayerNormalization()(inputs)
+  current2 = tf.keras.layers.LayerNormalization()(unet_repr)
 
   # upsample
-  inputs = tf.keras.layers.UpSampling1D(size=stride)(inputs)
+  current1 = tf.keras.layers.UpSampling1D(size=stride)(current1)
 
   # concatenate
-  current = tf.keras.layers.Concatenate()([unet_repr, inputs])
+  current = tf.keras.layers.Concatenate()([current2, current1])
 
   # activate
   current = layers.activate(current, activation)

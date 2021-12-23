@@ -129,7 +129,7 @@ def write_bedgraph(test_preds, test_targets, data_dir, out_dir, split_label, bed
   with open('%s/statistics.json'%data_dir) as data_open:
     data_stats = json.load(data_open)
     pool_width = data_stats['pool_width']
-    crop_bp = data_stats['crop_bp']
+    # crop_bp = data_stats['crop_bp']
 
   # read sequence positions
   seqs_df = pd.read_csv('%s/sequences.bed'%data_dir, sep='\t',
@@ -155,7 +155,8 @@ def write_bedgraph(test_preds, test_targets, data_dir, out_dir, split_label, bed
     for si in range(num_seqs):
       seq_chr = seqs_df.iloc[si].chr
 
-      bin_start = seqs_df.iloc[si].start + crop_bp
+      # ignore crop for new datasets
+      bin_start = seqs_df.iloc[si].start # + crop_bp
       for bi in range(target_length):
         bin_end = bin_start + pool_width
         cols = [seq_chr, str(bin_start), str(bin_end), str(test_preds_ti[si,bi])]

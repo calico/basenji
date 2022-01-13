@@ -379,6 +379,51 @@ class RnaDataset:
     self.dataset = dataset
 
 
+  def numpy(self, return_inputs=True, return_outputs=True):
+    """ Convert TFR inputs and/or outputs to numpy arrays."""
+    with tf.name_scope('numpy'):
+      # initialize dataset from TFRecords glob
+      tfr_path = '%s/tfrecords/%s-*.tfr' % (self.data_dir, self.split_label)
+      tfr_files = natsorted(glob.glob(tfr_path))
+      if tfr_files:
+        # dataset = tf.data.Dataset.list_files(tf.constant(tfr_files), shuffle=False)
+        dataset = tf.data.Dataset.from_tensor_slices(tfr_files)
+      else:
+        print('Cannot order TFRecords %s' % self.tfr_path, file=sys.stderr)
+        dataset = tf.data.Dataset.list_files(self.tfr_path)
+
+      # read TF Records
+      dataset = dataset.flat_map(file_to_records)
+      dataset = dataset.map(self.make_parser())
+      dataset = dataset.batch(1)
+
+    # initialize inputs and outputs
+    seqs_1hot = []
+    targets = []
+
+    # collect inputs and outputs
+    for seq_1hot, targets1 in dataset:
+      # sequence
+      if return_inputs:
+        seqs_1hot.append(seq_1hot.numpy())
+
+      # targets
+      if return_outputs:
+        targets.append(targets1.numpy())
+
+    # make arrays
+    seqs_1hot = np.array(seqs_1hot)
+    targets = np.array(targets)
+
+    # return
+    if return_inputs and return_outputs:
+      return seqs_1hot, targets
+    elif return_inputs:
+      return seqs_1hot
+    else:
+      return targets
+
+
 class RnaDatasetVikram:
   def __init__(self, data_dir, batch_size, mode='eval', #, rna_mode
                shuffle_buffer=1024, split_labels=None):

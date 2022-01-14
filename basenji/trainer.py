@@ -270,8 +270,12 @@ class Trainer:
         ckpt.restore(manager.latest_checkpoint)
         ckpt_end = 5+manager.latest_checkpoint.find('ckpt-')
         epoch_start = int(manager.latest_checkpoint[ckpt_end:])
+        if self.strategy is None:
+          opt_iters = self.optimizer.iterations
+        else:
+          opt_iters = self.optimizer.iterations.values[0]
         print('Checkpoint restored at epoch %d, optimizer iteration %d.' % \
-          (epoch_start, self.optimizer.iterations))
+            (epoch_start, opt_iters))
       else:
         print('No checkpoints found.')
       epoch_start = 0
@@ -437,9 +441,12 @@ class Trainer:
       ckpt.restore(manager.latest_checkpoint)
       ckpt_end = 5+manager.latest_checkpoint.find('ckpt-')
       epoch_start = int(manager.latest_checkpoint[ckpt_end:])
+      if self.strategy is None:
+        opt_iters = self.optimizer.iterations
+      else:
+        opt_iters = self.optimizer.iterations.values[0]
       print('Checkpoint restored at epoch %d, optimizer iteration %d.' % \
-        (epoch_start, self.optimizer.iterations))
-
+          (epoch_start, opt_iters))
     else:
       print('No checkpoints found.')
       epoch_start = 0

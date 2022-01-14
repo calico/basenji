@@ -166,6 +166,7 @@ def main():
         if not os.path.isdir(rep_data_dir):
           make_rep_data(data_dirs[di], rep_data_dir, fi, ci)
 
+
   #######################################################
   # train
 

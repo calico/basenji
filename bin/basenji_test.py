@@ -139,7 +139,6 @@ def main():
 
   #######################################################
   # evaluate
-
   loss_label = params_train.get('loss', 'poisson').lower()
   spec_weight = params_train.get('spec_weight', 1)
   loss_fn = trainer.parse_loss(loss_label, spec_weight=spec_weight)

@@ -285,9 +285,74 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
   return current
 
 
+def fpn_unet(inputs, unet_repr, activation='relu', stride=2,
+    l2_scale=0, dropout=0, norm_type=None, bn_momentum=0.99,
+    kernel_size=1, kernel_initializer='he_normal'):
+  """Construct a feature pyramid network block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    kernel_size:   Conv1D kernel_size
+    activation:    relu/gelu/etc
+    strides:       Conv1D strides
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    norm_type:     Apply batch or layer normalization
+    bn_momentum:   BatchNorm momentum
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+
+  # variables
+  current1 = inputs
+  current2 = unet_repr
+
+  # normalize
+  if norm_type == 'batch-sync':
+    current1 = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum)(current1)
+  elif norm_type == 'batch':
+    current1 = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum)(current1)
+  elif norm_type == 'layer':
+    current1 = tf.keras.layers.LayerNormalization()(current1)
+
+  # activate
+  current1 = layers.activate(current1, activation)
+  current2 = layers.activate(current2, activation)
+
+  # dense
+  current1 = tf.keras.layers.Dense(
+    units=unet_repr.shape[-1],
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current1)
+
+  # upsample
+  current1 = tf.keras.layers.UpSampling1D(size=stride)(current1)
+
+  # add
+  current2 = layers.Scale(initializer='ones')(current2)
+  current = tf.keras.layers.Add()([current1,current2])
+
+  # convolution
+  current = tf.keras.layers.SeparableConv1D(
+    filters=unet_repr.shape[-1],
+    kernel_size=kernel_size,
+    padding='same',
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+    
+  return current
+
+
 def upsample_unet(inputs, unet_repr, activation='relu', stride=2,
     l2_scale=0, dropout=0, norm_type=None, bn_momentum=0.99,
-    kernel_initializer='he_normal'):
+    kernel_size=1, kernel_initializer='he_normal'):
   """Construct a single transposed convolution block.
 
   Args:
@@ -306,9 +371,24 @@ def upsample_unet(inputs, unet_repr, activation='relu', stride=2,
     [batch_size, stride*seq_length, features] output sequence
   """
 
+  # variables
+  current1 = inputs
+  current2 = unet_repr
+
   # normalize
-  current1 = tf.keras.layers.LayerNormalization()(inputs)
-  current2 = tf.keras.layers.LayerNormalization()(unet_repr)
+  if norm_type == 'batch-sync':
+    current1 = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum)(current1)
+    current2 = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum)(current2)
+  elif norm_type == 'batch':
+    current1 = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum)(current1)
+    current2 = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum)(current2)
+  elif norm_type == 'layer':
+    current1 = tf.keras.layers.LayerNormalization()(current1)
+    current2 = tf.keras.layers.LayerNormalization()(current2)  
 
   # upsample
   current1 = tf.keras.layers.UpSampling1D(size=stride)(current1)
@@ -334,8 +414,10 @@ def upsample_unet(inputs, unet_repr, activation='relu', stride=2,
   current = layers.activate(current, activation)
 
   # dense
-  current = tf.keras.layers.Dense(
-    units=unet_repr.shape[-1],
+  current = tf.keras.layers.Conv1D(
+    filters=unet_repr.shape[-1],
+    kernel_size=kernel_size,
+    padding='same',
     kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
     kernel_initializer=kernel_initializer)(current)
 
@@ -754,8 +836,8 @@ def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 # Attention
 ############################################################
 def transformer(inputs, key_size=None, heads=1, out_size=None, 
-    activation='relu', dense_expansion=2.0, dropout=0.25,
-    attention_dropout=0.05, position_dropout=0.01, 
+    activation='relu', dense_expansion=2.0, content_position_bias=True,
+    dropout=0.25, attention_dropout=0.05, position_dropout=0.01, 
     l2_scale=0, mha_l2_scale=0, num_position_features=None,
     mha_initializer='he_normal', kernel_initializer='he_normal', **kwargs):
   """Construct a transformer block.
@@ -782,6 +864,7 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
     num_position_features=num_position_features,
     attention_dropout_rate=attention_dropout,
     positional_dropout_rate=position_dropout,
+    content_position_bias=content_position_bias,
     initializer=mha_initializer,
     l2_scale=mha_l2_scale)(current)
 
@@ -1375,6 +1458,7 @@ name_func = {
   'transformer': transformer,
   'transformer_tower': transformer_tower,
   'upper_tri': upper_tri,
+  'fpn_unet': fpn_unet,
   'upsample_unet': upsample_unet,
   'wheeze_excite': wheeze_excite,
   'xception_block': xception_block,

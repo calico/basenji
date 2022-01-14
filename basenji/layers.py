@@ -378,6 +378,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
                relative_position_functions=['positional_features_central_mask'],
                num_position_features=None,
                positional_dropout_rate=0,
+               content_position_bias=True,
                zero_initialize=True,
                transpose_stride=0,
                gated=False,
@@ -423,6 +424,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
     else:
       self._num_position_features = num_position_features
     self._positional_dropout_rate = positional_dropout_rate
+    self._content_position_bias = content_position_bias
     self._l2_scale = l2_scale
     self._initializer = initializer
 
@@ -531,8 +533,15 @@ class MultiheadAttention(tf.keras.layers.Layer):
     # Add shifted relative logits to content logits.
     # [B, H, T', T]
     content_logits = tf.matmul(q + self._r_w_bias, k, transpose_b=True)
-    # [B, H, T', 2T-1]
-    relative_logits = tf.matmul(q + self._r_r_bias, r_k, transpose_b=True)
+    if self._content_position_bias:
+      # [B, H, T', 2T-1]
+      relative_logits = tf.matmul(q + self._r_r_bias, r_k, transpose_b=True)
+    else:
+      # [1, H, 1, 2T-1]
+      relative_logits = tf.matmul(self._r_r_bias, r_k, transpose_b=True)
+      # [1, H, T', 2T-1]
+      relative_logits = tf.broadcast_to(relative_logits, shape=(1, self._num_heads, seq_len, 2*seq_len-1))
+
     #  [B, H, T', T]
     relative_logits = relative_shift(relative_logits)
     logits = content_logits + relative_logits

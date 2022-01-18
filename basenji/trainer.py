@@ -288,7 +288,7 @@ class Trainer:
     ################################################################
     # training loop
 
-    for ei in range(self.train_epochs_max):
+    for ei in range(epoch_start, self.train_epochs_max):
       if ei >= self.train_epochs_min and np.min(unimproved) > self.patience:
         break
       else:

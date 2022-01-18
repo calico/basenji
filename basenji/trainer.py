@@ -278,7 +278,7 @@ class Trainer:
             (epoch_start, opt_iters))
       else:
         print('No checkpoints found.')
-      epoch_start = 0
+        epoch_start = 0
       managers.append(manager)
 
     # improvement variables

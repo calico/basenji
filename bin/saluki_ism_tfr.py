@@ -27,6 +27,7 @@ import pandas as pd
 import tensorflow as tf
 
 from basenji import dataset
+from basenji import dna_io
 from basenji import rnann
 from basenji import stream
 
@@ -45,6 +46,9 @@ Compute in silico mutagenesis of sequences in tfrecords.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <data_dir>'
   parser = OptionParser(usage)
+  parser.add_option('-c', dest='coding_stop',
+    default=False, action='store_true',
+    help='Zero out coding track for stop codon mutations [Default: %default]')
   parser.add_option('-l', dest='mut_len',
       default=None, type='int',
       help='Length of 3\' sequence to mutate [Default: %default]')
@@ -89,6 +93,14 @@ def main():
     data_stats = json.load(data_stats_open)
   num_targets = data_stats['num_targets']
 
+  # read genes
+  genes_df = pd.read_csv('%s/genes.tsv' % data_dir, sep='\t', index_col=0)
+  if options.split_label == '*':
+    gene_ids = genes_df.Gene
+  else:
+    gene_ids = genes_df[genes_df.Split==options.split_label].Gene
+  gene_ids = np.array(gene_ids, dtype='S')
+
   # read model parameters
   with open(params_file) as params_open:
     params = json.load(params_open)
@@ -118,7 +130,7 @@ def main():
   num_seqs = eval_data.num_seqs
 
   # make sequence generator
-  seqs_gen = satmut_gen(eval_data, options.mut_len)
+  seqs_gen = satmut_gen(eval_data, options.mut_len, options.coding_stop)
 
 
   #################################################################
@@ -128,12 +140,15 @@ def main():
   if os.path.isfile(scores_h5_file):
     os.remove(scores_h5_file)
   scores_h5 = h5py.File(scores_h5_file, 'w')
+  scores_h5.create_dataset('genes', data=gene_ids)
   scores_h5.create_dataset('seqs', dtype='bool',
       shape=(num_seqs, options.mut_len, 4))
   scores_h5.create_dataset('coding', dtype='bool',
       shape=(num_seqs, options.mut_len))
   scores_h5.create_dataset('splice', dtype='bool',
       shape=(num_seqs, options.mut_len))
+  scores_h5.create_dataset('ref', dtype='float16',
+      shape=(num_seqs, num_targets))
   scores_h5.create_dataset('ism', dtype='float16',
       shape=(num_seqs, options.mut_len, 4, num_targets))
 
@@ -164,7 +179,8 @@ def main():
     # write reference sequence  
     seq_mut_len = min(seq_len, options.mut_len)
     seq_1hotc_mut = seq_1hotc[seq_len-seq_mut_len:seq_len]
-    scores_h5['seqs'][si,-seq_mut_len:,:] = seq_1hotc_mut[:,:4]
+    seq_1hot_mut = seq_1hotc_mut[:,:4]
+    scores_h5['seqs'][si,-seq_mut_len:,:] = seq_1hot_mut
     scores_h5['coding'][si,-seq_mut_len:] = seq_1hotc_mut[:,4]
     scores_h5['splice'][si,-seq_mut_len:] = seq_1hotc_mut[:,5]
 
@@ -178,7 +194,7 @@ def main():
     # for each mutated position
     for mi in range(seq_mut_len):
       # if position as nucleotide
-      if seq_1hot[mi].max() < 1:
+      if seq_1hot_mut[mi].max() < 1:
         # reference score
         seq_scores[mi,:,:] = preds_mut0
       else:
@@ -196,6 +212,7 @@ def main():
     seq_scores -= seq_scores.mean(axis=1, keepdims=True)
 
     # write to HDF5
+    scores_h5['ref'][si] = preds_mut0.astype('float16')
     scores_h5['ism'][si,-seq_mut_len:,:,:] = seq_scores.astype('float16')
 
     # increment sequence
@@ -208,9 +225,25 @@ def main():
   scores_h5.close()
 
 
-def satmut_gen(eval_data, mut_len):
+def find_codon_index(seq_1hotc, ii):
+  if seq_1hotc[ii,4] == 1:
+    ci = ii
+  elif ii-1 >= 0 and seq_1hotc[ii-1,4] == 1:
+    ci = ii - 1
+  elif ii-2 >= 0 and seq_1hotc[ii-2,4] == 1:
+    ci = ii - 2
+  else:
+    ci = None
+  return ci
+
+
+def satmut_gen(eval_data, mut_len, coding_stop=False):
   """Construct generator for 1 hot encoded saturation
      mutagenesis DNA sequences."""
+
+  # taa1 = dna_io.dna_1hot('TAA')
+  # tag1 = dna_io.dna_1hot('TAG')
+  # tga1 = dna_io.dna_1hot('TGA')
 
   for seq_1hotc, _ in eval_data.dataset:
     seq_1hotc = seq_1hotc.numpy()[0]
@@ -235,6 +268,15 @@ def satmut_gen(eval_data, mut_len):
             seq_mut_1hotc = np.copy(seq_1hotc)
             seq_mut_1hotc[mi,:4] = 0
             seq_mut_1hotc[mi,ni] = 1
+
+            if coding_stop:
+              ci = find_codon_index(seq_mut_1hotc, mi)
+              if ci is not None:
+                mut_codon_1hot = seq_mut_1hotc[ci:ci+3,:4]
+                mut_codon = dna_io.hot1_dna(mut_codon_1hot)
+                if mut_codon in ['TAA','TAG','TGA']:
+                  seq_mut_1hotc[ci:,4] = 0
+
             yield seq_mut_1hotc
 
 

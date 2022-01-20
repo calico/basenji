@@ -46,6 +46,9 @@ def main():
 
   # ism-tfr
   ism_options = OptionGroup(parser, 'saluki_ism_tfr.py options')
+  ism_options.add_option('-c', dest='coding_stop',
+      default=False, action='store_true',
+      help='Zero out coding track for stop codon mutations [Default: %default]')
   ism_options.add_option('-l', dest='mut_len',
       default=None, type='int',
       help='Length of 3\' sequence to mutate [Default: %default]')
@@ -138,16 +141,63 @@ def main():
   #######################################################
   # ensemble
 
-  # ensemble_dir = '%s/ensemble' % models_dir
-  # os.makedirs(ensemble_dir, exist_ok=True)
+  ensemble_dir = '%s/ensemble' % models_dir
+  os.makedirs(ensemble_dir, exist_ok=True)
+  
+  if options.split_label == '*':
+    # collect scores files
+    score_files = []
+    for fi in range(num_folds):
+      for ci in range(num_crosses):
+        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,out_dir)
+        score_files.append(score_file)
 
-  # if split_label == '*':
-  #   ensemble_all(models_dir, options.out_dir, num_folds, num_crosses)
-  # else:
-  #   ensemble_folds(models_dir, options.out_dir, num_folds, num_crosses)
+    # output file
+    ensemble_out_dir = '%s/%s' % (ensemble_dir, out_dir)
+    os.makedirs(ensemble_out_dir, exist_ok=True)
+    ensemble_file = '%s/scores.h5' % ensemble_out_dir
+
+    # make ensemble
+    ensemble_scores(score_files, ensemble_file)
+
+  else:
+    for fi in range(num_folds):
+      # collect scores files
+      score_files = []
+      for ci in range(num_crosses):
+        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,out_dir)
+        score_files.append(score_file)
+
+      # output file
+      ensemble_fold_dir = '%s/f%d' % (ensemble_dir, fi)
+      os.makedirs(ensemble_fold_dir, exist_ok=True)
+      ensemble_out_dir = '%s/%s' % (ensemble_fold_dir, out_dir)
+      os.makedirs(ensemble_out_dir, exist_ok=True)
+      ensemble_file = '%s/scores.h5' % ensemble_out_dir
+
+      # make ensemble
+      ensemble_scores(score_files, ensemble_file)
 
 
-"""
+def ensemble_scores(scores_files, ensemble_file):
+    # copy first
+    shutil.copy(scores_files[0], ensemble_file)
+
+    # read ism scores
+    rep_ism = []
+    for score_file in scores_files:
+      with h5py.File(score_file, 'r') as score_h5:
+        rep_ism.append(score_h5['ism'][:])
+
+    # take average
+    rep_ism = np.array(rep_ism, dtype='float32')
+    avg_ism = rep_ism.mean(axis=0).astype('float16')
+
+    # write to ensemble
+    with h5py.File(ensemble_file, 'a') as ensemble_h5:
+      ensemble_h5['ism'][:] = avg_ism
+
+'''
 # this is wrong because it writes one ensemble rather than one per fold.
 def ensemble_folds(models_dir, out_dir, num_folds, num_crosses):
   for fi in range(num_folds):
@@ -174,7 +224,8 @@ def ensemble_folds(models_dir, out_dir, num_folds, num_crosses):
     # write to ensemble
     with h5py.File(scores_ens_file, 'a') as scores_ens_h5:
       scores_ens_h5['ism'][:] = avg_ism
-"""
+'''
+
 
 def options_string(options, ism_options, out_dir):
   options_str = ''

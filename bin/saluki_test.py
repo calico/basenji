@@ -120,7 +120,6 @@ def main():
     split_label=options.split_label,
     batch_size=params_train['batch_size'],
     mode='eval')
-  #   tfr_pattern=options.tfr_pattern)
 
   # initialize model
   seqnn_model = rnann.RnaNN(params_model)
@@ -170,11 +169,19 @@ def main():
     test_targets = eval_data.numpy(return_inputs=False)
 
   if options.save:
+    # read genes
+    genes_df = pd.read_csv('%s/genes.tsv' % data_dir, sep='\t', index_col=0)
+    gene_ids = genes_df[genes_df.Split==options.split_label].Gene
+    gene_ids = np.array(gene_ids, dtype='S')
+
     preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')
     preds_h5.create_dataset('preds', data=test_preds)
+    preds_h5.create_dataset('genes', data=gene_ids)
     preds_h5.close()
+
     targets_h5 = h5py.File('%s/targets.h5' % options.out_dir, 'w')
     targets_h5.create_dataset('targets', data=test_targets)
+    targets_h5.create_dataset('genes', data=gene_ids)
     targets_h5.close()
 
 

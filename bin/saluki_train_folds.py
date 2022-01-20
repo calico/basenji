@@ -18,6 +18,7 @@ from optparse import OptionParser, OptionGroup
 import copy
 import glob
 import json
+from natsort import natsorted
 import os
 import pdb
 import pickle
@@ -25,7 +26,8 @@ import shutil
 import subprocess
 import sys
 
-from natsort import natsorted
+import numpy as np
+import pandas as pd
 
 import slurm
 
@@ -118,6 +120,18 @@ def main():
   if options.fold_subset is not None:
     num_folds = min(options.fold_subset, num_folds)
 
+  # arrange data
+  for ci in range(options.crosses):
+    for fi in range(num_folds):
+      rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+      os.makedirs(rep_dir, exist_ok=True)
+
+      # make data directories
+      for di in range(num_data):
+        rep_data_dir = '%s/data%d' % (rep_dir, di)
+        if not os.path.isdir(rep_data_dir):
+          make_rep_data(data_dirs[di], rep_data_dir, fi, ci)
+
   #######################################################
   # train
 
@@ -129,14 +143,10 @@ def main():
       if options.restart and os.path.isdir(rep_dir):
         print('%s found and skipped.' % rep_dir)
       else:
-        # make rep dir
-        os.mkdir(rep_dir)
-
-        # make rep data
+        # collect data directories
         rep_data_dirs = []
         for di in range(num_data):
           rep_data_dirs.append('%s/data%d' % (rep_dir, di))
-          make_rep_data(data_dirs[di], rep_data_dirs[-1], fi, ci)
 
         # train command
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
@@ -279,6 +289,10 @@ def make_rep_data(data_dir, rep_data_dir, fi, ci):
   valid_fold = (fi+1+ci) % num_folds
   train_folds = [fold for fold in range(num_folds) if fold not in [valid_fold,test_fold]]
 
+  # clear existing directory
+  if os.path.isdir(rep_data_dir):
+    shutil.rmtree(rep_data_dir)
+
   # make data directory
   os.mkdir(rep_data_dir)
 
@@ -288,6 +302,14 @@ def make_rep_data(data_dir, rep_data_dir, fi, ci):
   data_stats['train_seqs'] = sum([fold_seqs[tf] for tf in train_folds])
   with open('%s/statistics.json'%rep_data_dir, 'w') as data_stats_open:
     json.dump(data_stats, data_stats_open, indent=4)
+
+  # genes table
+  genes_df = pd.read_csv('%s/genes.tsv' % data_dir, sep='\t', index_col=0)
+  gene_split = np.array(['train']*genes_df.shape[0])
+  gene_split[genes_df.Fold==test_fold] = 'test'
+  gene_split[genes_df.Fold==valid_fold] = 'valid'
+  genes_df['Split'] = gene_split
+  genes_df.to_csv('%s/genes.tsv'%rep_data_dir, sep='\t')
 
   # copy targets
   # shutil.copy('%s/targets.txt'%data_dir, '%s/targets.txt'%rep_data_dir)

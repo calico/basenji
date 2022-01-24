@@ -42,14 +42,14 @@ class PredStreamGen:
       # update start
       self.stream_start = self.stream_end
 
-      if self.verbose:
-        print('Predicting from %d' % self.stream_start, flush=True)
-
       # predict
       self.stream_preds = self.model.predict(self.make_dataset())
 
       # update end
       self.stream_end = self.stream_start + self.stream_preds.shape[0]
+
+      if self.verbose:
+        print('Predicting %d-%d' % (self.stream_start, self.stream_end), flush=True)
 
     return self.stream_preds[i - self.stream_start]
 

@@ -21,7 +21,7 @@
         
         "trunk": [
             {
-                "name": "conv_block",
+                "name": "conv_dna",
                 "filters": 288,
                 "kernel_size": 17,
                 "pool_size": 3
@@ -29,7 +29,8 @@
             {
                 "name": "conv_tower",
                 "filters_init": 288,
-                "filters_mult": 1.122,
+		"filters_end": 512,
+		"divisible_by": 16,
                 "kernel_size": 5,
                 "pool_size": 2,
                 "repeat": 6

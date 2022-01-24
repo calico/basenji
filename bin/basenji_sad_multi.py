@@ -17,6 +17,7 @@
 from optparse import OptionParser
 import glob
 import os
+import pdb
 import pickle
 import shutil
 import subprocess
@@ -249,14 +250,7 @@ def collect_h5(file_name, out_dir, num_procs):
 def job_completed(options, pi):
   """Check whether a specific job has generated its
      output file."""
-  if options.out_txt:
-    out_file = '%s/job%d/sad_table.txt' % (options.out_dir, pi)
-  elif options.out_zarr:
-    out_file = '%s/job%d/sad.zarr' % (options.out_dir, pi)
-  elif options.csv:
-    out_file = '%s/job%d/sad_table.csv' % (options.out_dir, pi)
-  else:
-    out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
+  out_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
   return os.path.isfile(out_file) or os.path.isdir(out_file)
 
 

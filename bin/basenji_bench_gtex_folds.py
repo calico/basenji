@@ -136,13 +136,13 @@ def main():
 
   # count folds
   num_folds = 0
-  fold0_dir = '%s/f%d_c0' % (exp_dir, num_folds)
+  fold0_dir = '%s/f%dc0' % (exp_dir, num_folds)
   model_file = '%s/train/model_best.h5' % fold0_dir
   if options.data_head is not None:
     model_file = '%s/train/model%d_best.h5' % (fold0_dir, options.data_head)
   while os.path.isfile(model_file):
     num_folds += 1
-    fold0_dir = '%s/f%d_c0' % (exp_dir, num_folds)
+    fold0_dir = '%s/f%dc0' % (exp_dir, num_folds)
     model_file = '%s/train/model_best.h5' % fold0_dir
     if options.data_head is not None:
       model_file = '%s/train/model%d_best.h5' % (fold0_dir, options.data_head)
@@ -157,7 +157,7 @@ def main():
 
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+      it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
       name = '%s-f%dc%d' % (options.name, fi, ci)
 
       # update output directory
@@ -227,7 +227,7 @@ def main():
     sad_neg_files = []
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
         it_out_dir = '%s/%s' % (it_dir, options.out_dir)
         
         sad_pos_file = '%s/%s/sad.h5' % (it_out_dir, pos_base)
@@ -260,7 +260,7 @@ def main():
   jobs = []
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+      it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
       it_out_dir = '%s/%s' % (it_dir, options.out_dir)
 
       for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):

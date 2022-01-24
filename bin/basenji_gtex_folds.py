@@ -75,7 +75,7 @@ def main():
 
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      it_dir = '%s/f%d_c%d' % (exp_dir, fi, ci)
+      it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
 
       # check if done
       stats_file = '%s/gtex/Whole_Blood_class/stats.txt' % it_dir
@@ -117,7 +117,7 @@ def read_stats(exp_dir, num_folds, num_crosses):
   df_auroc = []
   for ci in range(num_crosses):
     for fi in range(num_folds):
-      it_dir = '%s/f%d_c%d/gtex' % (exp_dir, fi, ci)
+      it_dir = '%s/f%dc%d/gtex' % (exp_dir, fi, ci)
 
       tissue_stats_files = sorted(glob.glob('%s/*_class/stats.txt'%it_dir))
       for stats_file in tissue_stats_files:

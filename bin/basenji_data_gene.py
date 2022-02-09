@@ -50,9 +50,6 @@ def main():
   parser.add_option('-r', dest='seqs_per_tfr',
       default=256, type='int',
       help='Sequences per TFRecord file [Default: %default]')
-  parser.add_option('-s', dest='sqrt',
-      default=False, action='store_true',
-      help='Square root the expression values [Default: %default]')
   parser.add_option('-t', dest='test_pct_or_chr',
       default=0.1, type='str',
       help='Proportion of the data for testing [Default: %default]')
@@ -79,8 +76,6 @@ def main():
 
   genes_raw_df = gff_df(tss_gff_file, options.gene_index)
   expr_raw_df = pd.read_csv(expr_file, index_col=0)
-  if options.sqrt:
-    expr_raw_df = np.sqrt(expr_raw_df)
 
   # filter for shared genes
   shared_genes = set(genes_raw_df.index) & set(expr_raw_df.index)
@@ -416,14 +411,15 @@ def divide_genes_folds_bed(genes_df, split_bed_file, cluster_gene_distance):
       if gene.chr not in split_trees:
         genes_cc_splits.append(-1)
       else:
-        split_intervals = list(split_trees[gene.chr][gene.start])
+        ctg_intervals = list(split_trees[gene.chr][gene.start])
+        split_intervals = list(set([ctg.data for ctg in ctg_intervals]))
         if len(split_intervals) == 0:
           genes_cc_splits.append(-1)
         elif len(split_intervals) == 1:
-          genes_cc_splits.append(split_intervals[0].data)
+          genes_cc_splits.append(split_intervals[0])
         else:
-          print('Multiple overlapping contigs for gene.', file=sys.stderr)
-          exit(1)
+          genes_cc_splits.append(split_intervals[0])
+          print('WARNING: Multiple overlapping contigs for %s.' % gene.name, file=sys.stderr)
 
     # if component is unmapped    
     genes_cc_splits_set = sorted(set(genes_cc_splits))
@@ -437,7 +433,7 @@ def divide_genes_folds_bed(genes_df, split_bed_file, cluster_gene_distance):
       fi = np.argmax(fold_gene_gap)
       fold_genes[fi] += genes_cc
       fold_size[fi] += len(genes_cc)
-      print('Unmapped to fold%d' % fi)
+      # print('Unmapped to fold%d' % fi)
 
     else:
       # map according to overlap
@@ -563,9 +559,9 @@ def sufficient_sequence(fasta_file, genes_df, seq_length, n_allowed_pct):
 
     if n_requested > 0:
       if n_requested/seq_length < n_allowed_pct:                
-        print('Allowing %s with %d Ns' % (gene.Index, n_requested))
+        print('Allowing %s with %d Ns' % (gene.Index, n_requested), file=sys.stderr)
       else:
-        print('Skipping %s with %d Ns' % (gene.Index, n_requested))
+        print('Skipping %s with %d Ns' % (gene.Index, n_requested), file=sys.stderr)
         gene_valid[gi] = False
 
     gi += 1

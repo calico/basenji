@@ -34,7 +34,6 @@ class SeqNN():
       self.__setattr__(key, value)
     self.build_model()
     self.ensemble = None
-    self.embed = None
 
   def set_defaults(self):
     # only necessary for my bespoke parameters
@@ -152,10 +151,10 @@ class SeqNN():
       for bi, block_params in enumerate(head):
         current = self.build_block(current, block_params)
 
-      if len(self.strand_pair) == 0:
-        strand_pair = None
-      else:
+      if hi < len(self.strand_pair):
         strand_pair = self.strand_pair[hi]
+      else:
+        strand_pair = None
 
       # transform back from reverse complement
       if self.augment_rc:
@@ -203,15 +202,15 @@ class SeqNN():
 
   def build_embed(self, conv_layer_i, batch_norm=True):
     if conv_layer_i == -1:
-      self.embed = tf.keras.Model(inputs=self.model.inputs,
-                                  outputs=self.model.inputs)
+      self.model = self.model_trunk
+
     else:
       if batch_norm:
         conv_layer = self.get_bn_layer(conv_layer_i)
       else:
         conv_layer = self.get_conv_layer(conv_layer_i)
 
-      self.embed = tf.keras.Model(inputs=self.model.inputs,
+      self.model = tf.keras.Model(inputs=self.model.inputs,
                                   outputs=conv_layer.output)
 
 
@@ -290,9 +289,7 @@ class SeqNN():
   def downcast(self, dtype=tf.float16, head_i=None):
     """ Downcast model output type. """
     # choose model
-    if self.embed is not None:
-      model = self.embed
-    elif self.ensemble is not None:
+    if self.ensemble is not None:
       model = self.ensemble
     elif head_i is not None:
       model = self.models[head_i]
@@ -308,9 +305,7 @@ class SeqNN():
     model_down = tf.keras.Model(inputs=sequence, outputs=preds)
 
     # replace model
-    if self.embed is not None:  
-      self.embed = model_down
-    elif self.ensemble is not None:
+    if self.ensemble is not None:
       self.ensemble = model_down
     elif head_i is not None:
       self.models[head_i] = model_down
@@ -356,6 +351,12 @@ class SeqNN():
     """ Return specified convolution layer. """
     conv_layers = [layer for layer in self.model.layers if layer.name.startswith('conv')]
     return conv_layers[conv_layer_i]
+
+
+  def get_dense_layer(self, layer_i=0):
+    """ Return specified convolution layer. """
+    dense_layers = [layer for layer in self.model.layers if layer.name.startswith('dense')]
+    return dense_layers[layer_i]
 
 
   def get_conv_weights(self, conv_layer_i=0):
@@ -411,9 +412,7 @@ class SeqNN():
   def step(self, step=2, head_i=None):
     """ Step positions across sequence. """
     # choose model
-    if self.embed is not None:
-      model = self.embed
-    elif self.ensemble is not None:
+    if self.ensemble is not None:
       model = self.ensemble
     elif head_i is not None:
       model = self.models[head_i]
@@ -430,9 +429,7 @@ class SeqNN():
     model_step = tf.keras.Model(inputs=sequence, outputs=preds_step)
 
     # replace model
-    if self.embed is not None:  
-      self.embed = model_step
-    elif self.ensemble is not None:
+    if self.ensemble is not None:
       self.ensemble = model_step
     elif head_i is not None:
       self.models[head_i] = model_step

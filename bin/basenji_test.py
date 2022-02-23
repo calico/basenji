@@ -144,7 +144,7 @@ def main():
   loss_fn = trainer.parse_loss(loss_label, spec_weight=spec_weight)
   
   # evaluate
-  test_loss, test_metric1, test_metric2 = seqnn_model.evaluate(eval_data, loss=loss_fn)
+  test_loss, test_metric1, test_metric2 = seqnn_model.evaluate(eval_data, loss=loss_label)
 
   # print summary statistics
   print('\nTest Loss:         %7.5f' % test_loss)

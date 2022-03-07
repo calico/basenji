@@ -160,6 +160,78 @@ def main():
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
+  ################################################################
+  # Combine into whole body set
+
+  for fi in range(num_folds):
+    for ci in range(num_crosses):
+      # initialize
+      variant_scores = {}
+      pos_variants = set()
+      neg_variants = set()
+
+      # collect scores
+      for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
+
+        # read positives
+        job_base = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0]
+        out_dir = '%s/f%d_c%d/%s' % (options.out_dir, fi, ci, job_base)
+        ssd_file = '%s/ssd.tsv'%out_dir
+        if not os.path.isfile(ssd_file):
+          print('WARNING: no file %s' % ssd_file)
+        else:
+          for line in open(ssd_file):
+            a = line.split()
+            if a[0] == 'variant':
+              header = line.rstrip()
+            else:
+              vt = (a[0],a[1])
+              variant_scores[vt] = [float(x) for x in a[2:]]
+              pos_variants.add(vt)
+
+        # read negatives
+        gtex_neg_vcf = gtex_pos_vcf.replace('_pos.','_neg.')
+        job_base = os.path.splitext(os.path.split(gtex_neg_vcf)[1])[0]
+        out_dir = '%s/f%d_c%d/%s' % (options.out_dir, fi, ci, job_base)
+        ssd_file = '%s/ssd.tsv'%out_dir
+        if not os.path.isfile(ssd_file):
+          print('WARNING: no file %s' % ssd_file)
+        else:
+          for line in open(ssd_file):
+            a = line.split()
+            if a[0] == 'variant':
+              header = line.rstrip()
+            else:
+              vt = (a[0],a[1])
+              variant_scores[vt] = [float(x) for x in a[2:]]
+              neg_variants.add(vt)
+
+      posneg_variants = pos_variants & neg_variants
+      if len(posneg_variants) > 0 and fi == 0 and ci == 0:
+        print('Removing %d positive variants from negative set' % len(posneg_variants))
+        neg_variants -= posneg_variants
+
+      # write positive
+      out_dir = '%s/f%d_c%d/Body_Combined_pos' % (options.out_dir, fi, ci)
+      os.makedirs(out_dir, exist_ok=True)
+      ssd_out = open('%s/ssd.tsv'%out_dir, 'w')
+      print(header, file=ssd_out)
+      for vt in pos_variants:
+        cols = [vt[0], vt[1]] + [str(x) for x in variant_scores[vt]]
+        print('\t'.join(cols), file=ssd_out)
+      ssd_out.close()
+
+      # write negative
+      out_dir = '%s/f%d_c%d/Body_Combined_neg' % (options.out_dir, fi, ci)
+      os.makedirs(out_dir, exist_ok=True)
+      ssd_out = open('%s/ssd.tsv'%out_dir, 'w')
+      print(header, file=ssd_out)
+      for vt in neg_variants:
+        cols = [vt[0], vt[1]] + [str(x) for x in variant_scores[vt]]
+        print('\t'.join(cols), file=ssd_out)
+      ssd_out.close()
+
+
   #######################################################
   # ensemble
 
@@ -170,6 +242,10 @@ def main():
     tissue = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0][:-4]
     ensemble_ssd(options.out_dir, tissue, 'pos', num_folds, num_crosses)
     ensemble_ssd(options.out_dir, tissue, 'neg', num_folds, num_crosses)
+
+  tissue = 'Body_Combined'
+  ensemble_ssd(options.out_dir, tissue, 'pos', num_folds, num_crosses)
+  ensemble_ssd(options.out_dir, tissue, 'neg', num_folds, num_crosses)
 
 
   #######################################################
@@ -192,6 +268,18 @@ def main():
           queue='standard', cpu=2,
           mem=22000, time='1-0:0:0')
       jobs.append(j)
+
+  tissue = 'Body_Combined'
+  ssd_pos = '%s/ensemble/%s_pos/ssd.tsv' % (options.out_dir, tissue)
+  ssd_neg = '%s/ensemble/%s_neg/ssd.tsv' % (options.out_dir, tissue)
+  out_dir = '%s/ensemble/%s_class' % (options.out_dir, tissue)
+  if not options.restart or not os.path.isfile('%s/stats.txt' % out_dir):
+    cmd = '%s -o %s %s %s' % (cmd_base, out_dir, ssd_pos, ssd_neg)
+    j = slurm.Job(cmd, tissue,
+        '%s.out'%out_dir, '%s.err'%out_dir,
+        queue='standard', cpu=2,
+        mem=22000, time='1-0:0:0')
+    jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)
 

@@ -1,6 +1,6 @@
 ## Manuscript models and data
 
-[Cross-species regulatory sequence activity prediction. bioRxiv 6/2019.]()
+[Cross-species regulatory sequence activity prediction. PLoS Comp Bio 7/2020.](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1008050)
 
 *get_models.sh* - Download the saved TensorFlow models for human and mouse targets
 

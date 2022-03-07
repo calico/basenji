@@ -166,7 +166,8 @@ def main():
     mut_end = mut_start + options.mut_len
 
     # make sequence generator
-    seqs_gen = satmut_gen(seqs_dna, mut_start, mut_end)
+    # This is used to generate sequences for ISM
+    # seqs_gen = satmut_gen(seqs_dna, mut_start, mut_end)
 
     #################################################################
     # setup output
@@ -229,6 +230,11 @@ def main():
                 # TODO: This slice should happen earlier - reducing jacobian computation time.
                 grads = grads[:, mut_start:mut_end, :]
                 # grads.shape = (num_targets, mut_len, 4)
+                # Compute gradient * input
+                grads_x_inp = grads * seq_1hot_mut[:, mut_start:mut_end, :]
+                # Note: This operation is the same as iterating over each target and computing grad x input
+                # grad_x_inp.shape
+                print(grads_x_inp.shape)
 
             if 'center' in options_sad_stats:
                 raise NotImplementedError
@@ -244,7 +250,7 @@ def main():
             # seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
 
             # rearrange the "grads" array dimensions to be consistent with the ISM-style seq_scores
-            seq_scores = np.transpose(grads, axes=[1, 2, 0])
+            seq_scores = np.transpose(grads_x_inp, axes=[1, 2, 0])
             print(seq_scores.shape)
 
             # summary stat

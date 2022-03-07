@@ -121,7 +121,6 @@ class Scale(tf.keras.layers.Layer):
     })
     return config
 
-
 class PolyReLU(tf.keras.layers.Layer):
   def __init__(self, shift=0):
     super(PolyReLU, self).__init__()
@@ -183,6 +182,30 @@ class CenterAverage(tf.keras.layers.Layer):
       'center': self.center
     })
     return config
+
+
+class LengthAverage(tf.keras.layers.Layer):
+  def __init__(self):
+    super(LengthAverage, self).__init__()
+
+  def call(self, x, seq):
+    # focus on nt's
+    seq = seq[...,:4]
+
+    # collapse nt axis
+    seq_pos = tf.math.reduce_sum(seq, axis=-1)
+
+    # collapse length axis
+    seq_len = tf.math.reduce_sum(seq_pos, axis=-1)
+    seq_len = tf.expand_dims(seq_len, axis=-1)
+
+    # sum across length                                                         
+    x_sum = tf.math.reduce_mean(x, axis=-2)
+
+    # divide by true sequence length                                            
+    x_avg = x_sum / seq_len
+
+    return x_avg
 
 ############################################################
 # Attention
@@ -1192,7 +1215,7 @@ class StochasticShift(tf.keras.layers.Layer):
     })
     return config
 
-def shift_sequence(seq, shift, pad_value=0.25):
+def shift_sequence(seq, shift, pad_value=0):
   """Shift a sequence left or right by shift_amount.
 
   Args:

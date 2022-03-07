@@ -502,10 +502,11 @@ class Trainer:
         seqnn_model.save('%s/model_check.h5'%self.out_dir)
 
         # check best
-        if valid_r_epoch > valid_best:
+        valid_best_epoch = valid_r_epoch + valid_r2_epoch/4
+        if valid_best_epoch > valid_best:
           print(' - best!', end='')
           unimproved = 0
-          valid_best = valid_r_epoch
+          valid_best = valid_best_epoch
           seqnn_model.save('%s/model_best.h5'%self.out_dir)
         else:
           unimproved += 1
@@ -660,6 +661,7 @@ class EarlyStoppingMin(tf.keras.callbacks.EarlyStopping):
           if self.verbose > 0:
             print('Restoring model weights from the end of the best epoch.')
           self.model.set_weights(self.best_weights)
+
 
 class Cyclical1LearningRate(tf.keras.optimizers.schedules.LearningRateSchedule):
   """A LearningRateSchedule that uses cyclical schedule.

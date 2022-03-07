@@ -661,6 +661,7 @@ class SNP:
     """ Flip reference and first alt allele."""
     assert(len(self.alt_alleles) == 1)
     self.ref_allele, self.alt_alleles[0] = self.alt_alleles[0], self.ref_allele
+    self.alt_allele = self.alt_alleles[0]
     self.flipped = True
 
   def get_alleles(self):

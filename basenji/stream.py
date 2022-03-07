@@ -34,6 +34,7 @@ class PredStreamGen:
 
     self.stream_start = 0
     self.stream_end = 0
+    self.stream_preds = []
 
 
   def __getitem__(self, i):
@@ -43,6 +44,7 @@ class PredStreamGen:
       self.stream_start = self.stream_end
 
       # predict
+      del self.stream_preds
       self.stream_preds = self.model.predict(self.make_dataset())
 
       # update end

@@ -1,0 +1,29 @@
+{
+    "train": {
+        "batch_size": 64,
+        "optimizer": "adam",
+	"loss": "mse",
+        "learning_rate": 0.0001,
+        "adam_beta1": 0.90,
+        "adam_beta2": 0.998,
+        "global_clipnorm": 0.5,
+        "train_epochs_min": 100,
+	"train_epochs_max": 250,
+        "patience": 25
+    },
+    "model": {
+        "activation": "relu",
+	"rnn_type": "gru",
+	"seq_length": 12288,
+	"augment_shift": 3,
+	"num_targets": 1,
+	"heads": 2,
+        "filters": 64,
+        "kernel_size": 5,
+        "dropout": 0.3,
+        "l2_scale": 0.001,
+        "ln_epsilon": 0.007,
+        "num_layers": 6,
+        "bn_momentum": 0.90
+    }
+}

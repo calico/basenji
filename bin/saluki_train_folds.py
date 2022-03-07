@@ -140,7 +140,7 @@ def main():
   for ci in range(options.crosses):
     for fi in range(num_folds):
       rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
-      if options.restart and os.path.isdir(rep_dir):
+      if options.restart and os.path.isdir('%s/train'%rep_dir):
         print('%s found and skipped.' % rep_dir)
       else:
         # collect data directories
@@ -248,6 +248,7 @@ def main():
             basenji_cmd += ' conda activate %s;' % options.conda_env
             basenji_cmd += ' saluki_test.py'
             basenji_cmd += ' --head %d' % di
+            # basenji_cmd += ' --save'
             basenji_cmd += ' -o %s' % out_dir
             if options.shifts:
               basenji_cmd += ' --shifts %s' % options.shifts

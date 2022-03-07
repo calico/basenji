@@ -658,20 +658,27 @@ class GenomeCoverage:
       chrom = chrom[:-1]
 
     # get sequence
-    seq = self.fasta.fetch(chrom)
-    assert (len(seq) == len(coverage))
+    if chrom not in self.fasta.references:
+      print('%s not found in FASTA, so GC normalization skipped' % chrom)
+      norm_coverage = coverage
 
-    # compute GC boolean vector
-    seq_gc = np.array([nt in 'CG' for nt in seq], dtype='float32')
+    else:
+      seq = self.fasta.fetch(chrom)
+      assert (len(seq) == len(coverage))
 
-    # gaussian filter1d
-    seq_gc_gauss = gaussian_filter1d(seq_gc, sigma=self.fragment_sd, truncate=3)
+      # compute GC boolean vector
+      seq_gc = np.array([nt in 'CG' for nt in seq], dtype='float32')
 
-    # compute norm quantity
-    seq_gc_norm = self.gc_model.predict(seq_gc_gauss[:, np.newaxis])
+      # gaussian filter1d
+      seq_gc_gauss = gaussian_filter1d(seq_gc, sigma=self.fragment_sd, truncate=3)
 
-    # apply it
-    return coverage * np.exp(-seq_gc_norm + self.gc_base)
+      # compute norm quantity
+      seq_gc_norm = self.gc_model.predict(seq_gc_gauss[:, np.newaxis])
+
+      # apply it
+      norm_coverage = coverage * np.exp(-seq_gc_norm + self.gc_base)
+
+    return norm_coverage
 
   def learn_gc(self, fragment_sd=64, pseudocount=.01, out_dir=None):
     """ Learn a model to normalize for GC content.
@@ -757,28 +764,31 @@ class GenomeCoverage:
         seq_chrom = chroms_list[ci][:-1]
       else:
         seq_chrom = chroms_list[ci]
-      seq = self.fasta.fetch(seq_chrom, seq_start, seq_end)
 
-      # filter for clean sequences
-      if len(seq) == 2 * fragment_sd3 and seq.find('N') == -1:
+      # filter for chromosomes for which we have sequence
+      if seq_chrom in self.fasta.references:
+        seq = self.fasta.fetch(seq_chrom, seq_start, seq_end)
 
-        # compute GC%
-        seq_gc = np.array([nt in 'CG' for nt in seq], dtype='float32')
-        gauss_gc = (seq_gc * gauss_kernel).sum() * gauss_invsum
-        train_gc.append(gauss_gc)
-        train_pos.append(gi)
+        # filter for clean sequences
+        if len(seq) == 2 * fragment_sd3 and seq.find('N') == -1:
 
-        # compute coverage
-        seq_cov = self.unique_counts[gi - fragment_sd3:
-                                     gi + fragment_sd3] + pseudocount
-        if self.clip_max is not None:
-          seq_cov = np.clip(seq_cov, 0, 2)
-        gauss_cov = (seq_cov * gauss_kernel).sum() * gauss_invsum
-        train_cov.append(np.log2(gauss_cov))
+          # compute GC%
+          seq_gc = np.array([nt in 'CG' for nt in seq], dtype='float32')
+          gauss_gc = (seq_gc * gauss_kernel).sum() * gauss_invsum
+          train_gc.append(gauss_gc)
+          train_pos.append(gi)
 
-        # increment
-        nsample += 1
-        ntier += 1
+          # compute coverage
+          seq_cov = self.unique_counts[gi - fragment_sd3:
+                                       gi + fragment_sd3] + pseudocount
+          if self.clip_max is not None:
+            seq_cov = np.clip(seq_cov, 0, 2)
+          gauss_cov = (seq_cov * gauss_kernel).sum() * gauss_invsum
+          train_cov.append(np.log2(gauss_cov))
+
+          # increment
+          nsample += 1
+          ntier += 1
 
       # consider stoppping
       if nsample >= zero_stop or gsm > 0 and nsample >= nonzero_stop:
@@ -859,15 +869,17 @@ class GenomeCoverage:
         seq_chrom = chroms_list[ci][:-1]
       else:
         seq_chrom = chroms_list[ci]
-      seq = self.fasta.fetch(seq_chrom, seq_start, seq_end)
 
-      # filter for clean sequences
-      if len(seq) == 2 * fragment_sd3 and seq.find('N') == -1:
+      if seq_chrom in self.fasta.references:
+        seq = self.fasta.fetch(seq_chrom, seq_start, seq_end)
 
-        # compute GC%
-        seq_gc = np.array([nt in 'CG' for nt in seq], dtype='float32')
-        gauss_gc = (seq_gc * gauss_kernel).sum() * gauss_invsum
-        train_gc.append(gauss_gc)
+        # filter for clean sequences
+        if len(seq) == 2 * fragment_sd3 and seq.find('N') == -1:
+
+          # compute GC%
+          seq_gc = np.array([nt in 'CG' for nt in seq], dtype='float32')
+          gauss_gc = (seq_gc * gauss_kernel).sum() * gauss_invsum
+          train_gc.append(gauss_gc)
 
     # convert to arrays
     train_gc = np.array(train_gc)
@@ -1174,8 +1186,14 @@ class GenomeCoverage:
           chrom_pos = np.array(align.get_reference_positions())
 
         else:
-          # set alignment shift
+          # set alignment shift          
           align_shift_forward, align_shift_reverse = self.align_shifts(align)
+
+          # determine chromosome length
+          if self.stranded:
+            chrom_length = self.chrom_lengths['%s+'%align.reference_name]
+          else:
+            chrom_length = self.chrom_lengths[align.reference_name]
 
           # set alignment event position
           if align.is_reverse:
@@ -1183,7 +1201,7 @@ class GenomeCoverage:
             chrom_pos = max(chrom_pos, 0)
           else:
             chrom_pos = align.reference_start + align_shift_forward
-            chrom_pos = min(chrom_pos, self.chrom_lengths[align.reference_name]-1)
+            chrom_pos = min(chrom_pos, chrom_length-1)
 
           # make singleton list to sync w/ overlaps
           chrom_pos = np.array([chrom_pos])
@@ -1379,11 +1397,17 @@ class GenomeCoverage:
       multi_chrom, multi_start, multi_cigar, _ = multi_align_str.split(',')
       multi_strand = multi_start[0]
 
+      # determine chromosome length
+      if self.stranded:
+        multi_chrom_length = self.chrom_lengths['%s+'%multi_chrom]
+      else:
+        multi_chrom_length = self.chrom_lengths[multi_chrom]
+
       # determine shifted event position
       #  (are positions 0 or 1-based? SAM is 1-based so that's my best guess)
       if multi_strand == '+':
         multi_pos = int(multi_start[1:])-1 + align_shift_forward
-        multi_pos = min(multi_pos, self.chrom_lengths[multi_chrom]-1)
+        multi_pos = min(multi_pos, multi_chrom_length-1)
       elif multi_strand == '-':
         multi_pos = int(multi_start[1:])-1 + cigar_len(multi_cigar)-1 - align_shift_reverse
         multi_pos = max(multi_pos, 0)
@@ -1550,8 +1574,8 @@ class GenomeCoverage:
     else:
       bigwig = False
       if self.stranded:
-        fcov_out = h5py.File('%s+.h5' % os.path.splitext(output_file)[0], 'w')
-        rcov_out = h5py.File('%s-.h5' % os.path.splitext(output_file)[0], 'w')
+        fcov_out = h5py.File('%s+.w5' % os.path.splitext(output_file)[0], 'w')
+        rcov_out = h5py.File('%s-.w5' % os.path.splitext(output_file)[0], 'w')
       else:
         cov_out = h5py.File(output_file, 'w')
 

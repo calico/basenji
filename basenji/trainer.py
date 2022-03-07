@@ -19,6 +19,10 @@ import pdb
 
 import numpy as np
 import tensorflow as tf
+try:
+  import tensorflow_addons as tfa
+except ImportError:
+  pass
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
@@ -391,6 +395,8 @@ class Trainer:
         train_r(y, pred)
         train_r2(y, pred)
         gradients = tape.gradient(loss, model.trainable_variables)
+        if self.agc_clip is not None:
+          gradients = adaptive_clip_grad(model.trainable_variables, gradients, self.agc_clip)
         self.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
       @tf.function
@@ -556,11 +562,24 @@ class Trainer:
       clip_norm = self.params['clipnorm']
     else:
       clip_norm = clip_norm_default
+
+    # adaptive gradient clipping handled in fit method
+    self.agc_clip = self.params.get('agc_clip', None)
   
     # optimizer
     optimizer_type = self.params.get('optimizer', 'sgd').lower()
     if optimizer_type == 'adam':
       self.optimizer = tf.keras.optimizers.Adam(
+          learning_rate=lr_schedule,
+          beta_1=self.params.get('adam_beta1',0.9),
+          beta_2=self.params.get('adam_beta2',0.999),
+          clipnorm=clip_norm,
+          global_clipnorm=global_clipnorm,
+          amsgrad=False) # reduces performance in my experience
+
+    elif optimizer_type == 'adamw':
+      self.optimizer = tfa.optimizers.AdamW(
+          weight_decay=self.params.get('weight_decay',0),
           learning_rate=lr_schedule,
           beta_1=self.params.get('adam_beta1',0.9),
           beta_2=self.params.get('adam_beta2',0.999),
@@ -578,6 +597,40 @@ class Trainer:
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)
       exit(1)
+
+
+################################################################
+# AGC
+# https://github.com/sayakpaul/Adaptive-Gradient-Clipping
+
+def compute_norm(x, axis, keepdims):
+  return tf.math.reduce_sum(x ** 2, axis=axis, keepdims=keepdims) ** 0.5
+
+def unitwise_norm(x):
+  if len(x.get_shape()) <= 1:  # Scalars and vectors
+    axis = None
+    keepdims = False
+  elif len(x.get_shape()) in [2, 3]:  # Linear layers of shape IO or multihead linear
+    axis = 0
+    keepdims = True
+  elif len(x.get_shape()) == 4:  # Conv kernels of shape HWIO
+    axis = [0, 1, 2,]
+    keepdims = True
+  else:
+    raise ValueError(f"Got a parameter with shape not in [1, 2, 4]! {x}")
+  return compute_norm(x, axis, keepdims)
+
+def adaptive_clip_grad(parameters, gradients, clip_factor=0.1, eps=1e-3):
+  new_grads = []
+  for (params, grads) in zip(parameters, gradients):
+    p_norm = unitwise_norm(params)
+    max_norm = tf.math.maximum(p_norm, eps) * clip_factor
+    grad_norm = unitwise_norm(grads)
+    clipped_grad = grads * (max_norm / tf.math.maximum(grad_norm, 1e-6))
+    new_grad = tf.where(grad_norm < max_norm, grads, clipped_grad)
+    new_grads.append(new_grad)
+  return new_grads
+
 
 class EarlyStoppingMin(tf.keras.callbacks.EarlyStopping):
   """Stop training when a monitored quantity has stopped improving.

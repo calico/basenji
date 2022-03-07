@@ -171,7 +171,7 @@ def main():
           subprocess.call(gcp_create, shell=True)
 
         # scp/ssh needs time
-        time.sleep(20)
+        time.sleep(30)
 
         # copy params
         gcp_params = 'gcloud compute scp %s %s:./' % (params_file, vm_name)

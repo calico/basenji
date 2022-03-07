@@ -149,11 +149,11 @@ def main():
     score_files = []
     for fi in range(num_folds):
       for ci in range(num_crosses):
-        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,out_dir)
+        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,options.out_dir)
         score_files.append(score_file)
 
     # output file
-    ensemble_out_dir = '%s/%s' % (ensemble_dir, out_dir)
+    ensemble_out_dir = '%s/%s' % (ensemble_dir, options.out_dir)
     os.makedirs(ensemble_out_dir, exist_ok=True)
     ensemble_file = '%s/scores.h5' % ensemble_out_dir
 
@@ -165,13 +165,13 @@ def main():
       # collect scores files
       score_files = []
       for ci in range(num_crosses):
-        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,out_dir)
+        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,options.out_dir)
         score_files.append(score_file)
 
       # output file
       ensemble_fold_dir = '%s/f%d' % (ensemble_dir, fi)
       os.makedirs(ensemble_fold_dir, exist_ok=True)
-      ensemble_out_dir = '%s/%s' % (ensemble_fold_dir, out_dir)
+      ensemble_out_dir = '%s/%s' % (ensemble_fold_dir, options.out_dir)
       os.makedirs(ensemble_out_dir, exist_ok=True)
       ensemble_file = '%s/scores.h5' % ensemble_out_dir
 

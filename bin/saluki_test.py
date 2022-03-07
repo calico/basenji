@@ -38,20 +38,14 @@ import seaborn as sns
 
 from basenji import plots
 from basenji import trainer
-try:
-  import dataset
-except:
-  from basenji import dataset
-try:
-  import rnann
-except:
-  from basenji import rnann
+from basenji import dataset
+from basenji import rnann
 
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
 
 """
-basenji_test.py
+saluki_test.py
 
 Test the accuracy of a trained model.
 """
@@ -182,6 +176,7 @@ def main():
     targets_h5 = h5py.File('%s/targets.h5' % options.out_dir, 'w')
     targets_h5.create_dataset('targets', data=test_targets)
     targets_h5.create_dataset('genes', data=gene_ids)
+
     targets_h5.close()
 
 

@@ -132,7 +132,6 @@ def main():
   # make sequence generator
   seqs_gen = satmut_gen(eval_data, options.mut_len, options.coding_stop)
 
-
   #################################################################
   # setup output
 

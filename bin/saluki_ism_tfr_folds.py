@@ -30,11 +30,10 @@ import pandas as pd
 import slurm
 
 """
-saluki_bench_gtex.py
+saluki_ism_tfr_folds.py
 
-Compute SNP expression difference scores for variants in VCF files of
-fine-mapped GTEx variants to benchmark as features in a classification
-task.
+Compute ISM from sequences stored in TFRecords for an array
+of trained models on separate gene folds.
 """
 
 ################################################################################
@@ -225,7 +224,6 @@ def ensemble_folds(models_dir, out_dir, num_folds, num_crosses):
     with h5py.File(scores_ens_file, 'a') as scores_ens_h5:
       scores_ens_h5['ism'][:] = avg_ism
 '''
-
 
 def options_string(options, ism_options, out_dir):
   options_str = ''

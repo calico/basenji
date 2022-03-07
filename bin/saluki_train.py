@@ -24,14 +24,8 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-try:
-  import dataset
-except:
-  from basenji import dataset
-try:
-  import rnann
-except:
-  from basenji import rnann
+from basenji import dataset
+from basenji import rnann
 from basenji import trainer
 
 """

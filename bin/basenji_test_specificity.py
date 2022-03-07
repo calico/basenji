@@ -174,14 +174,27 @@ def main():
 
   for tc in target_classes:
     class_mask = np.array(targets_df['class'] == tc)
+    class_df = targets_df[class_mask]
     num_targets_class = class_mask.sum()
 
     if num_targets_class < options.class_min:
       targets_spec[class_mask] = np.nan
+
     else:
       # slice class
       eval_preds_class = eval_preds[:,class_mask]
       eval_targets_class = eval_targets[:,class_mask]
+
+      # fix stranded
+      stranded = (class_df.strand_pair != class_df.index).all()
+      if stranded:
+        np.save('%s/eval_preds_class.npy'%options.out_dir, eval_preds_class)
+        np.save('%s/eval_targets_class.npy'%options.out_dir, eval_targets_class)
+        
+        # reshape to concat +/-, assuming they're adjacent
+        num_targets_class //= 2
+        eval_preds_class = np.reshape(eval_preds_class, (-1, num_targets_class))
+        eval_targets_class = np.reshape(eval_targets_class, (-1, num_targets_class))
 
       # highly variable filter
       if options.high_var_pct < 1:
@@ -206,6 +219,9 @@ def main():
         eval_preds_norm_ti = eval_preds_norm[:,ti].astype('float32')
         eval_targets_norm_ti = eval_targets_norm[:,ti].astype('float32')
         pearsonr_class[ti] = pearsonr(eval_preds_norm_ti, eval_targets_norm_ti)[0]
+
+      if stranded:
+        pearsonr_class = np.repeat(pearsonr_class, 2)
 
       # save
       targets_spec[class_mask] = pearsonr_class

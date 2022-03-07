@@ -40,7 +40,7 @@ Benchmark Basenji model replicates on BED PhyloP task.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <exp_dir> <params_file> <data_dir>'
+  usage = 'usage: %prog [options] <params_file> <data_dir>'
   parser = OptionParser(usage)
 
   # sad options
@@ -186,7 +186,7 @@ def main():
           j = slurm.Job(cmd_sad, name,
               '%s.out'%sad_out_dir, '%s.err'%sad_out_dir,
               queue=options.queue, gpu=1,
-              mem=22000, time='1-0:0:0')
+              mem=22000, time='2-0:0:0')
           jobs.append(j)
 
         # negative job 
@@ -200,7 +200,7 @@ def main():
           j = slurm.Job(cmd_sad, name,
               '%s.out'%sad_out_dir, '%s.err'%sad_out_dir,
               queue=options.queue, gpu=1,
-              mem=22000, time='1-0:0:0')
+              mem=22000, time='2-0:0:0')
           jobs.append(j)
         
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,

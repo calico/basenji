@@ -313,7 +313,7 @@ class SeqNN():
       self.model = model_down
 
 
-  def evaluate(self, seq_data, head_i=None, loss='poisson'):
+  def evaluate(self, seq_data, head_i=None, loss_label='poisson', loss_fn=None):
     """ Evaluate model on SeqDataset. """
     # choose model
     if self.ensemble is not None:
@@ -326,14 +326,17 @@ class SeqNN():
     # compile with dense metrics
     num_targets = model.output_shape[-1]
 
-    if loss == 'bce':
+    if loss_fn is None:
+      loss_fn = loss_label
+
+    if loss_label == 'bce':
       model.compile(optimizer=tf.keras.optimizers.SGD(),
-                    loss=loss,
+                    loss=loss_fn,
                     metrics=[metrics.SeqAUC(curve='ROC', summarize=False),
                              metrics.SeqAUC(curve='PR', summarize=False)])
     else:      
       model.compile(optimizer=tf.keras.optimizers.SGD(),
-                    loss=loss,
+                    loss=loss_fn,
                     metrics=[metrics.PearsonR(num_targets, summarize=False),
                              metrics.R2(num_targets, summarize=False)])
 

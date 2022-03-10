@@ -225,7 +225,7 @@ def main():
                 preds_sum = tf.math.reduce_sum(preds, axis=1)
                 # compute the Jacobian
                 grads = tape.jacobian(preds_sum, input_seq)
-                grads = np.squeeze(grads)
+                grads = np.squeeze(grads, axis=(0, 2))
                 # TODO: Can this slice op. happen earlier to reduce jacobian computation time?
                 grads = grads[:, mut_start:mut_end, :]
                 # grads.shape = (num_targets, mut_len, 4)
@@ -242,7 +242,7 @@ def main():
                 # preds.shape = (1, 1024, num_targets)
                 preds_sum = tf.math.reduce_sum(preds[:, center_start:center_end,:], axis=1)
                 grads = tape.jacobian(preds_sum, input_seq)
-                grads = np.squeeze(grads)
+                grads = np.squeeze(grads, axis=(0, 2))
                 # TODO: This slice should happen earlier - reducing jacobian computation time.
                 grads = grads[:, mut_start:mut_end, :]
                 # grads.shape = (num_targets, mut_len, 4)

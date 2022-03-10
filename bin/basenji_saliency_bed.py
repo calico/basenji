@@ -221,7 +221,7 @@ def main():
             # record actions
             preds = seqnn_model.model(input_seq)
 
-            if 'sum' in options_sad_stats:
+            if 'sum' in options.sad_stats:
                 preds_sum = tf.math.reduce_sum(preds, axis=1)
                 # compute the Jacobian
                 grads = tape.jacobian(preds_sum, input_seq)
@@ -236,16 +236,16 @@ def main():
                 # grad_x_inp.shape
                 print(grads_x_inp.shape)
 
-            if 'center' in options_sad_stats:
+            if 'center' in options.sad_stats:
                 raise NotImplementedError
 
-            if 'scd' in options_sad_stats:
+            if 'scd' in options.sad_stats:
                 raise NotImplementedError
 
         # write to HDF5
         scores_h5['seqs'][si, :, :] = seq_1hot_mut[:, mut_start:mut_end, :]
 
-        for sad_stat in options_sad_stats:
+        for sad_stat in options.sad_stats:
             # initialize scores
             # seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
 

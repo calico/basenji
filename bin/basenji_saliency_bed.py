@@ -226,20 +226,31 @@ def main():
                 # compute the Jacobian
                 grads = tape.jacobian(preds_sum, input_seq)
                 grads = np.squeeze(grads)
-                # slice "grads" to only keep mut_start:mut_end
+                # TODO: Can this slice op. happen earlier to reduce jacobian computation time?
+                grads = grads[:, mut_start:mut_end, :]
+                # grads.shape = (num_targets, mut_len, 4)
+                # Compute gradient * input
+                grads_x_inp = grads * seq_1hot_mut[:, mut_start:mut_end, :]
+
+            if 'center' in options.sad_stats:
+                # find center
+                center_start = preds_length // 2
+                if preds_length % 2 == 0:
+                    center_end = center_start + 2
+                else:
+                    center_end = center_start + 1
+                # preds.shape = (1, 1024, num_targets)
+                preds_sum = tf.math.reduce_sum(preds[:, center_start:center_end,:], axis=1)
+                grads = tape.jacobian(preds_sum, input_seq)
+                grads = np.squeeze(grads)
                 # TODO: This slice should happen earlier - reducing jacobian computation time.
                 grads = grads[:, mut_start:mut_end, :]
                 # grads.shape = (num_targets, mut_len, 4)
                 # Compute gradient * input
                 grads_x_inp = grads * seq_1hot_mut[:, mut_start:mut_end, :]
-                # Note: This operation is the same as iterating over each target and computing grad x input
-                # grad_x_inp.shape
-                print(grads_x_inp.shape)
-
-            if 'center' in options.sad_stats:
-                raise NotImplementedError
 
             if 'scd' in options.sad_stats:
+                # scd is not directly applicable to gradient computations
                 raise NotImplementedError
 
         # write to HDF5

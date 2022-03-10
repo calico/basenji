@@ -265,8 +265,8 @@ def main():
                 print('Unrecognized summary statistic "%s"' % options_sad_stat)
                 exit(1)
 
-        # save scores.h5
-        scores_h5.close()
+    # save scores.h5
+    scores_h5.close()
 
 if __name__ == '__main__':
     main()

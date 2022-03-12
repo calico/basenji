@@ -14,3 +14,6 @@ All associated saved models as well as training, validation, and test TFRecords 
 in the datasets/deeplearning/train_gru subdirectory.
 
 All files in this [project](https://github.com/calico/basenji/tree/master/bin) directory, listed under saluki*.py, are also associated with this work.
+
+#### Note about ISM scores: 
+We mean-centered the ISM scores as a normalization for the four nucleotides at each position such that they sum to zero. The normalized ISM score at the reference nucleotide can be used as an importance score for that position.

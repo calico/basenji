@@ -1,3 +1,18 @@
+#!/usr/bin/env python
+# Copyright 2017 Calico LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =========================================================================
 from __future__ import print_function
 
 from optparse import OptionParser
@@ -19,12 +34,15 @@ import seaborn as sns
 from basenji import plots
 
 '''
-basenji_saliency_plot.py
+basenji_sat_plot.py
 
-Generate plots from scores HDF5 file output by saliency analysis
-via basenji_saliency_bed.py
+Generate plots from scores HDF5 file output by saturation mutagenesis analysis
+via basenji_sat_bed.py
 '''
 
+################################################################################
+# main
+################################################################################
 def main():
   usage = 'usage: %prog [options] <scores_file>'
   parser = OptionParser(usage)
@@ -34,9 +52,10 @@ def main():
   parser.add_option('-f', dest='figure_width',
       default=20, type='float',
       help='Figure width [Default: %default]')
-  parser.add_option('-g', dest='gain',
-      default=False, action='store_true',
-      help='Draw a sequence logo for the gain score, too [Default: %default]')
+  # Remove option for plotting the gain score, not relevant for a gradient analysis
+  # parser.add_option('-g', dest='gain',
+  #     default=False, action='store_true',
+  #     help='Draw a sequence logo for the gain score, too [Default: %default]')
   parser.add_option('-l', dest='plot_len',
       default=300, type='int',
       help='Length of centered sequence to mutate [Default: %default]')
@@ -57,6 +76,7 @@ def main():
   parser.add_option('--stat', dest='sad_stat',
       default='sum',
       help='SAD stat to display [Default: %default]')
+  # Plot for all targets
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
@@ -121,6 +141,9 @@ def main():
     # read scores
     scores = scores_h5[options.sad_stat][si,plot_start:plot_end,:,:]
 
+    # reference scores
+    ref_scores = scores[seq_1hot]
+
     for tii in range(num_targets):
       if options.targets_file is not None:
         ti = targets_df.index[tii]
@@ -129,32 +152,23 @@ def main():
 
       scores_ti = scores[:,:,ti]
 
+      # For ISM scores: compute scores relative to reference
+      # delta_ti = scores_ti - ref_scores[:,[ti]]
+
+      # compute scores gain
+      grad_x_inp = delta_ti.max(axis=1)
+
       # setup plot
       plt.figure(figsize=(options.figure_width, 6))
-      if options.gain:
-        grid_rows = 4
-      else:
-        grid_rows = 3
+      grid_rows = 1
       row_i = 0
-      ax_logo_loss = plt.subplot2grid(
+      ax_logo_grads = plt.subplot2grid(
           (grid_rows, spp['heat_cols']), (row_i, spp['logo_start']),
           colspan=spp['logo_span'])
       row_i += 1
-      if options.gain:
-        ax_logo_gain = plt.subplot2grid(
-          (grid_rows, spp['heat_cols']), (row_i, spp['logo_start']),
-          colspan=spp['logo_span'])
-        row_i += 1
-      ax_sad = plt.subplot2grid(
-          (grid_rows, spp['heat_cols']), (row_i, spp['sad_start']),
-          colspan=spp['sad_span'])
-      row_i += 1
-      ax_heat = plt.subplot2grid(
-          (grid_rows, spp['heat_cols']), (row_i, 0), colspan=spp['heat_cols'])
 
       # plot sequence logo
-      plot_seqlogo(ax_logo_loss, seq_1hot, scores_ti)
-
+      plot_seqlogo(ax_logo_grads, seq_1hot, grad_x_inp)
       plt.tight_layout()
       plt.savefig('%s/seq%d_t%d.%s' % (options.out_dir, si, ti, save_ext), dpi=600)
       plt.close()

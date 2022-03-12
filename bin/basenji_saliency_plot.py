@@ -156,7 +156,7 @@ def main():
       # delta_ti = scores_ti - ref_scores[:,[ti]]
 
       # compute scores gain
-      grad_x_inp = delta_ti.max(axis=1)
+      grad_x_inp = scores_ti.max(axis=1)
 
       # setup plot
       plt.figure(figsize=(options.figure_width, 6))

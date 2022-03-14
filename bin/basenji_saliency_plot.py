@@ -52,16 +52,9 @@ def main():
   parser.add_option('-f', dest='figure_width',
       default=20, type='float',
       help='Figure width [Default: %default]')
-  # Remove option for plotting the gain score, not relevant for a gradient analysis
-  # parser.add_option('-g', dest='gain',
-  #     default=False, action='store_true',
-  #     help='Draw a sequence logo for the gain score, too [Default: %default]')
   parser.add_option('-l', dest='plot_len',
       default=300, type='int',
       help='Length of centered sequence to mutate [Default: %default]')
-  parser.add_option('-m', dest='min_limit',
-      default=0.05, type='float',
-      help='Minimum heatmap limit [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='sat_plot', help='Output directory [Default: %default]')
   parser.add_option('--png', dest='save_png',
@@ -155,8 +148,8 @@ def main():
       # For ISM scores: compute scores relative to reference
       # delta_ti = scores_ti - ref_scores[:,[ti]]
 
-      # compute scores gain
-      grad_x_inp = scores_ti.max(axis=1)
+      # compute scores (gradient at reference nucleotides)
+      grad_x_inp = scores_ti[np.nonzero(scores_ti)]
 
       # setup plot
       plt.figure(figsize=(options.figure_width, 6))
@@ -197,18 +190,6 @@ def enrich_activity(seqs, seqs_1hot, targets, activity_enrich, target_indexes):
 
 
 def expand_4l(sat_lg_ti, seq_1hot):
-  """ Expand
-
-    In:
-        sat_lg_ti (l array): Sat mut loss/gain scores for a single sequence and
-        target.
-        seq_1hot (Lx4 array): One-hot coding for a single sequence.
-
-    Out:
-        sat_loss_4l (lx4 array): Score-hot coding?
-
-    """
-
   # determine satmut length
   satmut_len = sat_lg_ti.shape[0]
 
@@ -225,76 +206,6 @@ def expand_4l(sat_lg_ti, seq_1hot):
   sat_lg_4l = np.multiply(seq_1hot_sm, sat_lg_tile)
 
   return sat_lg_4l
-
-
-def plot_heat(ax, sat_delta_ti, min_limit):
-  """ Plot satmut deltas.
-
-    Args:
-        ax (Axis): matplotlib axis to plot to.
-        sat_delta_ti (4 x L_sm array): Single target delta matrix for saturated mutagenesis region,
-        min_limit (float): Minimum heatmap limit.
-    """
-
-  vlim = max(min_limit, np.nanmax(np.abs(sat_delta_ti)))
-  sns.heatmap(
-      sat_delta_ti,
-      linewidths=0,
-      cmap='RdBu_r',
-      vmin=-vlim,
-      vmax=vlim,
-      xticklabels=False,
-      ax=ax)
-  ax.yaxis.set_ticklabels('ACGT', rotation='horizontal')  # , size=10)
-
-
-def plot_predictions(ax, preds, satmut_len, seq_len, buffer):
-  """ Plot the raw predictions for a sequence and target
-        across the specificed saturated mutagenesis region.
-
-    Args:
-        ax (Axis): matplotlib axis to plot to.
-        preds (L array): Target predictions for one sequence.
-        satmut_len (int): Satmut length from which to determine
-                           the values to plot.
-        seq_len (int): Full sequence length.
-        buffer (int): Ignored buffer sequence on each side
-    """
-
-  # repeat preds across pool width
-  target_pool = (seq_len - 2 * buffer) // preds.shape[0]
-  epreds = preds.repeat(target_pool)
-
-  satmut_start = (epreds.shape[0] - satmut_len) // 2
-  satmut_end = satmut_start + satmut_len
-
-  ax.plot(epreds[satmut_start:satmut_end], linewidth=1)
-  ax.set_xlim(0, satmut_len)
-  ax.axhline(0, c='black', linewidth=1, linestyle='--')
-  for axis in ['top', 'bottom', 'left', 'right']:
-    ax.spines[axis].set_linewidth(0.5)
-
-
-def plot_sad(ax, sat_loss_ti, sat_gain_ti):
-  """ Plot loss and gain SAD scores.
-
-    Args:
-        ax (Axis): matplotlib axis to plot to.
-        sat_loss_ti (L_sm array): Minimum mutation delta across satmut length.
-        sat_gain_ti (L_sm array): Maximum mutation delta across satmut length.
-    """
-
-  rdbu = sns.color_palette('RdBu_r', 10)
-
-  ax.plot(-sat_loss_ti, c=rdbu[0], label='loss', linewidth=1)
-  ax.plot(sat_gain_ti, c=rdbu[-1], label='gain', linewidth=1)
-  ax.set_xlim(0, len(sat_loss_ti))
-  ax.legend()
-  # ax_sad.grid(True, linestyle=':')
-
-  ax.xaxis.set_ticks([])
-  for axis in ['top', 'bottom', 'left', 'right']:
-    ax.spines[axis].set_linewidth(0.5)
 
 
 def plot_seqlogo(ax, seq_1hot, sat_score_ti, pseudo_pct=0.05):

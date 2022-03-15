@@ -9,16 +9,8 @@ Basenji provides researchers with tools to:
 3. Annotate the distal regulatory elements that influence gene activity.
 4. Annotate the specific nucleotides that drive regulatory element function.
 
-## Akita
-#### 3D genome folding predictions with deep convolutional neural networks.
-
-Akita provides researchers with tools to:
-1. Train deep convolutional neural networks to predict 2D contact maps along very long chromosome-scale DNA sequences
-2. Score variants according to their predicted influence on contact maps across the sequence and/or for specific genes.
-3. Annotate the specific nucleotides that drive genome folding.
-
 ---------------------------------------------------------------------------------------------------
-### Basset successor
+#### Basset successor
 
 This codebase offers numerous improvements and generalizations to its predecessor [Basset](https://github.com/davek44/Basset), and I'll be using it for all of my ongoing work. Here are the salient changes.
 
@@ -28,8 +20,27 @@ This codebase offers numerous improvements and generalizations to its predecesso
 
 However, this codebase is general enough to implement the Basset model, too. I have instructions for how to do that [here](manuscripts/basset).
 
+---------------------------------------------------------------------------------------------------
+# Akita
+#### 3D genome folding predictions with deep convolutional neural networks.
+
+Akita provides researchers with tools to:
+1. Train deep convolutional neural networks to predict 2D contact maps along very long chromosome-scale DNA sequences
+2. Score variants according to their predicted influence on contact maps across the sequence and/or for specific genes.
+3. Annotate the specific nucleotides that drive genome folding.
 
 ---------------------------------------------------------------------------------------------------
+# Saluki
+#### mRNA half-life predictions with a hybrid convolutional and recurrent deep neural network.
+
+Saluki provides researchers with tools to:
+1. Train deep convolutional and recurrent neural networks to predict mRNA half-life from an mRNA sequence annotated with the first frame of each codon and splice site positions.
+2. Score variants according to their predicted influence on mRNA half-life, on full-length mRNAs or for a set of pre-defined variants.
+
+A full reproduction of the results presented in the paper, involving variant prediction, motif discovery, and insertional motif anlaysis, can be found [here](https://github.com/vagarwal87/saluki_paper).
+
+---------------------------------------------------------------------------------------------------
+
 ### Installation
 
 Basenji/Akita were developed with Python3 and a variety of scientific computing dependencies, which you can see and install via requirements.txt for pip and environment.yml for [Anaconda](https://www.continuum.io/downloads). For each case, we kept TensorFlow separate to allow you to choose the install method that works best for you. The codebase is compatible with the latest TensorFlow 2, but should also work with 1.15.

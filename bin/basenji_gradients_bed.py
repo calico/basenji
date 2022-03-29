@@ -241,3 +241,6 @@ def main():
     seqs_dna, seqs_coords = compute_grads.read_seqs()
     scores_h5 = compute_grads.setup_output(seqs_coords=seqs_coords)
     compute_grads.compute_gradients(seqs_dna=seqs_dna, scores_h5=scores_h5)
+
+if __name__ == '__main__':
+    main()

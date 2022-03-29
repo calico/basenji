@@ -71,8 +71,8 @@ class ComputeGradients():
 
         # determine mutation region limits
         seq_mid = self.params_model['seq_length'] // 2
-        mut_start = seq_mid - options.mut_up
-        mut_end = mut_start + options.mut_len
+        mut_start = seq_mid - self.options.mut_up
+        mut_end = mut_start + self.options.mut_len
 
         setattr(self, 'num_seqs', num_seqs)
         setattr(self, 'mut_start', mut_start)
@@ -89,7 +89,7 @@ class ComputeGradients():
         scores_h5 = h5py.File(scores_h5_file, 'w')
         scores_h5.create_dataset('seqs', dtype='bool',
                                  shape=(self.num_seqs, self.options.mut_len, 4))
-        for sad_stat in options.sad_stats:
+        for sad_stat in self.options.sad_stats:
             scores_h5.create_dataset(sad_stat, dtype='float16',
                                      shape=(self.num_seqs, self.options.mut_len, 4, self.num_targets))
 
@@ -146,7 +146,7 @@ class ComputeGradients():
                 # input_seq = tf.concat([input_left_flank, input_seq_wind, input_right_flank], axis=1)
                 preds = self.seqnn_model.model(tf.concat([input_left_flank, input_seq_wind, input_right_flank], axis=1),
                                           training=False)
-                if 'sum' in options_sad_stats:
+                if 'sum' in self.options.sad_stats:
                     preds_sum = tf.math.reduce_sum(preds, axis=1)
                     output_variables = [preds_sum[:, target_idx] for target_idx in range(self.num_targets)]
 

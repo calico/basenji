@@ -28,7 +28,7 @@ from basenji import stream
 
 
 '''
-basenji_saliency_bed.py: Compute the gradient * input for sequences in the input bed file.
+basenji_jacobian_bed.py: Compute the gradient * input for sequences in the input bed file.
 '''
 
 
@@ -234,7 +234,7 @@ def main():
             elif sad_stat == 'scd':
                 raise NotImplementedError
             else:
-                print('Unrecognized summary statistic "%s"' % options_sad_stat)
+                print('Unrecognized summary statistic "%s"' % sad_stat)
                 exit(1)
 
     # save scores.h5

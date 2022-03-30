@@ -28,7 +28,7 @@ from basenji import stream
 
 
 '''
-basenji_jacobian_bed.py: Compute the gradient * input for sequences in the input bed file.
+basenji_gradients_bed.py: Compute the gradient * input for sequences in the input bed file.
 '''
 
 class ComputeGradients():
@@ -213,6 +213,9 @@ def main():
     parser.add_option('-u', dest='mut_up',
                       default=0, type='int',
                       help='Nucleotides upstream of center sequence to mutate [Default: %default]')
+    parser.add_option('-mixed', dest='policy',
+                      default=False, action='store_true',
+                      help='Use a mixed float16 keras policy')
     (options, args) = parser.parse_args()
 
     if len(args) == 3:
@@ -235,8 +238,14 @@ def main():
         options.mut_up = options.mut_len // 2
         options.mut_down = options.mut_len - options.mut_up
 
+    if options.policy:
+        policy = mixed_precision.Policy('mixed_float16')
+        mixed_precision.set_global_policy(policy)
+        # This should set the policy for all tf layers and computations.
+
     # Compute gradients
     compute_grads = ComputeGradients(params_file=params_file, model_file=model_file, bed_file=bed_file, options=options)
+    # In setup model, options.policy is passed to SeqNN to override a 32 bit computation.
     compute_grads.setup_model()
     seqs_dna, seqs_coords = compute_grads.read_seqs()
     scores_h5 = compute_grads.setup_output(seqs_coords=seqs_coords)

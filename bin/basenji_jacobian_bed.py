@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pysam
 import tensorflow as tf
+from tensorflow.keras import mixed_precision
 
 if tf.__version__[0] == '1':
     tf.compat.v1.enable_eager_execution()
@@ -90,6 +91,7 @@ def main():
         options.mut_down = options.mut_len - options.mut_up
 
     if options.policy:
+        print('using the tf mixed float policy')
         policy = mixed_precision.Policy('mixed_float16')
         mixed_precision.set_global_policy(policy)
         # This should set the policy for all tf layers and computations.

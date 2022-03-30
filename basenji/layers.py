@@ -136,7 +136,13 @@ class GELU(tf.keras.layers.Layer):
     super(GELU, self).__init__(**kwargs)
   def call(self, x):
     # return tf.keras.activations.sigmoid(1.702 * x) * x
-    return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x
+    # DS TODO: tf.constant is by default a tf.float32
+    # Converting it to a tf.float16, as x is a tf.float16. Unclear why that is - dig into code.
+    # return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x
+    try:
+      return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x
+    except:
+      return tf.keras.activations.sigmoid(tf.constant(1.702, dtype='tf.float16') * x) * x
 
 class Softplus(tf.keras.layers.Layer):
   def __init__(self, exp_max=10000):

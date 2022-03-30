@@ -32,6 +32,8 @@ import numpy as np
 import pandas as pd
 import pysam
 import tensorflow as tf
+from tensorflow.keras import mixed_precision
+
 
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()

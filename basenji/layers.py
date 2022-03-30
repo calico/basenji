@@ -142,7 +142,7 @@ class GELU(tf.keras.layers.Layer):
     try:
       return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x
     except:
-      return tf.keras.activations.sigmoid(tf.constant(1.702, dtype='tf.float16') * x) * x
+      return tf.keras.activations.sigmoid(tf.constant(1.702, dtype=tf.float16) * x) * x
 
 class Softplus(tf.keras.layers.Layer):
   def __init__(self, exp_max=10000):

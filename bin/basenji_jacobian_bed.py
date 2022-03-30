@@ -64,7 +64,7 @@ def main():
     parser.add_option('-u', dest='mut_up',
                       default=0, type='int',
                       help='Nucleotides upstream of center sequence to mutate [Default: %default]')
-    parser.add_option('-mixed', dest='policy',
+    parser.add_option('--mixed', dest='policy',
                       default=False, action='store_true',
                       help='Use a mixed float16 keras policy')
     (options, args) = parser.parse_args()

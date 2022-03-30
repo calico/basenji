@@ -85,6 +85,9 @@ def main():
   parser.add_option('-u', dest='mut_up',
       default=0, type='int',
       help='Nucleotides upstream of center sequence to mutate [Default: %default]')
+  parser.add_option('--mixed', dest='policy',
+                    default=False, action='store_true',
+                    help='Use a mixed float16 keras policy')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -136,6 +139,12 @@ def main():
     assert(options.mut_len > 0)
     options.mut_up = options.mut_len // 2
     options.mut_down = options.mut_len - options.mut_up
+
+  if options.policy:
+    print('using the tf mixed float policy')
+    policy = mixed_precision.Policy('mixed_float16')
+    mixed_precision.set_global_policy(policy)
+    # This should set the policy for all tf layers and computations.
 
   #################################################################
   # read parameters and targets

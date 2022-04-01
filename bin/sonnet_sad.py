@@ -33,7 +33,7 @@ from basenji import dna_io
 from basenji import seqnn
 from basenji import stream
 from basenji import vcf as bvcf
-from basenji_sad import initialize_output_h5, write_pct, write_snp
+from basenji_sad import initialize_output_h5, write_pct, write_snp_len
 
 '''
 sonnet_sad.py
@@ -214,8 +214,8 @@ def main():
     pi += 1
 
     # process SNP
-    write_snp(ref_preds, alt_preds, sad_out, si,
-              options.sad_stats, options.log_pseudo)
+    write_snp_len(ref_preds, alt_preds, sad_out, si,
+                  options.sad_stats, options.log_pseudo)
 
   # close genome
   genome_open.close()

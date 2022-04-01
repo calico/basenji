@@ -272,18 +272,19 @@ class SeqNN():
 
   def build_slice(self, target_slice=None):
     if target_slice is not None:
-      if len(target_slice) < self.num_targets():
-        # sequence input
-        sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
+      # if len(target_slice) < self.num_targets():
 
-        # predict
-        predictions = self.model(sequence)
+      # sequence input
+      sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
 
-        # slice
-        predictions_slice = tf.gather(predictions, target_slice, axis=-1)
+      # predict
+      predictions = self.model(sequence)
 
-        # replace model
-        self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
+      # slice
+      predictions_slice = tf.gather(predictions, target_slice, axis=-1)
+
+      # replace model
+      self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
 
 
   def downcast(self, dtype=tf.float16, head_i=None):
@@ -377,7 +378,7 @@ class SeqNN():
       return self.models[head_i].output_shape[-1]
 
 
-  def predict(self, seq_data, head_i=None, generator=False, **kwargs):
+  def predict(self, seq_data, head_i=None, generator=False, stream=False, dtype='float16', **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
     if self.ensemble is not None:
@@ -392,9 +393,15 @@ class SeqNN():
       dataset = seq_data
 
     if generator:
-      return model.predict_generator(dataset, **kwargs)
+      return model.predict_generator(dataset, **kwargs).astype(dtype)
+    elif stream:
+      preds = []
+      for x, y in seq_data.dataset:
+        yh = model.predict(x, **kwargs)
+        preds.append(yh.astype(dtype))
+      return np.concatenate(preds, axis=0, dtype=dtype)
     else:
-      return model.predict(dataset, **kwargs)
+      return model.predict(dataset, **kwargs).astype(dtype)
 
 
   def restore(self, model_file, head_i=0, trunk=False):

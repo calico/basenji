@@ -184,7 +184,7 @@ def main():
 
   if options.save or options.peaks or options.accuracy_indexes is not None:
     # compute predictions
-    test_preds = seqnn_model.predict(eval_data).astype('float16')
+    test_preds = seqnn_model.predict(eval_data)
 
     # read targets
     test_targets = eval_data.numpy(return_inputs=False)
@@ -199,8 +199,9 @@ def main():
 
     if options.bedgraph_indexes is not None:
       bedgraph_indexes = [int(ti) for ti in options.bedgraph_indexes.split(',')]
+      bedg_out = '%s/bedgraph' % options.out_dir
       bed.write_bedgraph(test_preds, test_targets, data_dir,
-        options.out_dir, options.split_label, bedgraph_indexes)
+        bedg_out, options.split_label, bedgraph_indexes)
 
   #######################################################
   # peak call accuracy

@@ -137,7 +137,7 @@ def write_bedgraph(test_preds, test_targets, data_dir, out_dir, split_label, bed
   seqs_df = seqs_df[seqs_df.split == split_label]
 
   # initialize output directory
-  os.makedirs('%s/bedgraph' % out_dir, exist_ok=True)
+  os.makedirs(out_dir, exist_ok=True)
 
   for ti in bedgraph_indexes:
     print('Writing %d bedgraph...' % ti, end='')
@@ -148,8 +148,8 @@ def write_bedgraph(test_preds, test_targets, data_dir, out_dir, split_label, bed
     test_targets_ti = test_targets[:,:,ti]
 
     # initialize raw predictions/targets
-    preds_out = open('%s/bedgraph/preds_t%d.bedgraph' % (out_dir, ti), 'w')
-    targets_out = open('%s/bedgraph/targets_t%d.bedgraph' % (out_dir, ti), 'w')
+    preds_out = open('%s/preds_t%d.bedgraph' % (out_dir, ti), 'w')
+    targets_out = open('%s/targets_t%d.bedgraph' % (out_dir, ti), 'w')
 
     # write raw predictions/targets
     for si in range(num_seqs):

@@ -130,12 +130,12 @@ class PolyReLU(tf.keras.layers.Layer):
     y = tf.keras.activations.relu(x3)
     return y
 
-class GELU(tf.keras.layers.Layer):
-  def __init__(self, **kwargs):
-    super(GELU, self).__init__(**kwargs)
-  def call(self, x):
-    # return tf.keras.activations.sigmoid(1.702 * x) * x
-    return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x
+# class GELU(tf.keras.layers.Layer):
+#   def __init__(self, **kwargs):
+#     super(GELU, self).__init__(**kwargs)
+#   def call(self, x):
+#     # return tf.keras.activations.sigmoid(1.702 * x) * x
+#     return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x
 
 class Softplus(tf.keras.layers.Layer):
   def __init__(self, exp_max=10000):
@@ -1278,15 +1278,17 @@ def activate(current, activation, verbose=False):
   elif activation == 'polyrelu':
     current = PolyReLU()(current)
   elif activation == 'gelu':
-    current = GELU()(current)
+    current = tf.keras.activations.gelu(current, approximate=True)
   elif activation == 'sigmoid':
-    current = tf.keras.layers.Activation('sigmoid')(current)
+    current = tf.keras.activations.sigmoid(current)
   elif activation == 'tanh':
-    current = tf.keras.layers.Activation('tanh')(current)
+    current = tf.keras.activations.tanh(current)
   elif activation == 'exp':
     current = Exp()(current)
   elif activation == 'softplus':
     current = Softplus()(current)
+  elif activation == 'linear' or activation is None:
+    pass
   else:
     print('Unrecognized activation "%s"' % activation, file=sys.stderr)
     exit(1)

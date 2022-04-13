@@ -155,7 +155,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
     padding='same',
     use_bias=use_bias,
     kernel_initializer=kernel_initializer,
-    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)   
 
   if residual:
     # residual conv block
@@ -285,6 +285,86 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
   return current
 
 
+def conv_next(inputs, filters=None, kernel_size=7, activation='relu',
+    dense_expansion=2.0, dilation_rate=1, l2_scale=0, dropout=0, residual=False,
+    pool_size=1, pool_type='max',  kernel_initializer='he_normal', padding='same',
+    norm_type=None, bn_momentum=0.99):
+  """Construct a single convolution block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    filters:       Conv1D filters
+    kernel_size:   Conv1D kernel_size
+    activation:    relu/gelu/etc
+    dilation_rate: Conv1D dilation rate
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    residual:      Residual connection boolean
+    pool_size:     Max pool width
+    bn_momentum:   BatchNorm momentum
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+
+  if filters is None:
+    filters = inputs.shape[-1]
+
+  # flow through variable current
+  current = inputs
+
+  # convolution
+  current = tf.keras.layers.SeparableConv1D(
+    filters=filters,
+    kernel_size=kernel_size,
+    padding='same',
+    use_bias=True,
+    dilation_rate=dilation_rate,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # normalize
+  current = tf.keras.layers.LayerNormalization(epsilon=1e-5)(current)
+
+  # dense expansion
+  expansion_filters = int(dense_expansion)*filters
+  current = tf.keras.layers.Dense(
+    units=expansion_filters,
+    use_bias=True,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # dense contraction
+  current = tf.keras.layers.Dense(
+    units=filters,
+    use_bias=True,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # residual add
+  if residual:
+    current = tf.keras.layers.Add()([inputs,current])
+    
+  # Pool
+  if pool_size > 1:
+    if pool_type == 'softmax':
+      current = layers.SoftmaxPool1D(
+        pool_size=pool_size)(current)
+    else:
+      current = tf.keras.layers.MaxPool1D(
+        pool_size=pool_size,
+        padding=padding)(current)
+
+  return current
+
+
 def fpn_unet(inputs, unet_repr, activation='relu', stride=2,
     l2_scale=0, dropout=0, norm_type=None, bn_momentum=0.99,
     kernel_size=1, kernel_initializer='he_normal'):
@@ -320,7 +400,7 @@ def fpn_unet(inputs, unet_repr, activation='relu', stride=2,
 
   # activate
   current1 = layers.activate(current1, activation)
-  current2 = layers.activate(current2, activation)
+  # current2 = layers.activate(current2, activation)
 
   # dense
   current1 = tf.keras.layers.Dense(
@@ -548,61 +628,6 @@ def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard',
   return current
 
 
-def xception_block(inputs, filters=None, kernel_size=1,
-  dropout=0, pool_size=2, **kwargs):
-  """Construct a single convolution block.
-
-  Args:
-    inputs:        [batch_size, seq_length, features] input sequence
-    filters:       Conv1D filters
-    kernel_size:   Conv1D kernel_size
-    dropout:       Dropout rate probability
-    pool_size:     Pool/stride width
-
-  Returns:
-    [batch_size, seq_length, features] output sequence
-  """
-
-  # flow through variable current
-  current = inputs
-
-  if filters is None:
-    filters = inputs.shape[-1]
-
-  # strided convolution
-  current_stride = conv_block(current,
-    filters=filters,
-    kernel_size=pool_size,
-    strides=pool_size,
-    dropout=0,
-    kernel_initializer='ones',
-    **kwargs)
-
-  # pooled convolution
-  current_pool = current
-  for ci in range(2):
-    current_pool = conv_block(current_pool,
-      filters=filters,
-      kernel_size=kernel_size,
-      conv_type='separable',
-      dropout=dropout,
-      **kwargs)
-
-  # should the last conv_block be set to norm_gamma='zeros'?
-  # I don't think so since we really need that new information
-
-  # max pool
-  current_pool = tf.keras.layers.MaxPool1D(
-    pool_size=int(1.5*pool_size),
-    strides=pool_size,
-    padding='same')(current_pool)
-
-  # residual add
-  current = tf.keras.layers.Add()([current_stride,current_pool])
-
-  return current
-
-
 ############################################################
 # Towers
 ############################################################
@@ -638,7 +663,7 @@ def conv_tower_v1(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
 
 
 def conv_tower(inputs, filters_init, filters_end=None, filters_mult=None,
-               divisible_by=1, repeat=1, **kwargs):
+               divisible_by=1, repeat=1, reprs=[], **kwargs):
   """Construct a reducing convolution block.
 
   Args:
@@ -672,6 +697,9 @@ def conv_tower(inputs, filters_init, filters_end=None, filters_mult=None,
     current = conv_block(current,
       filters=_round(rep_filters),
       **kwargs)
+
+    # save representation
+    reprs.append(current)
 
     # update filters
     rep_filters *= filters_mult
@@ -727,7 +755,7 @@ def conv_tower_nac(inputs, filters_init, filters_end=None, filters_mult=None,
 
 def res_tower(inputs, filters_init, filters_end=None, filters_mult=None,
               kernel_size=1, dropout=0, pool_size=2, pool_type='max',
-              divisible_by=1, repeat=1, num_convs=2, **kwargs):
+              divisible_by=1, repeat=1, num_convs=2, reprs=[], **kwargs):
   """Construct a reducing convolution block.
 
   Args:
@@ -785,6 +813,9 @@ def res_tower(inputs, filters_init, filters_end=None, filters_mult=None,
       current = layers.Scale()(current)
       current = tf.keras.layers.Add()([current0,current])
 
+    # save representation
+    reprs.append(current)
+
     # pool
     if pool_size > 1:
       if pool_type == 'softmax':
@@ -801,18 +832,28 @@ def res_tower(inputs, filters_init, filters_end=None, filters_mult=None,
   return current
 
 
-def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
-  """Construct a reducing convolution block.
+def convnext_tower(inputs, filters_init, filters_end=None, filters_mult=None,
+                   kernel_size=1, dropout=0, pool_size=2, pool_type='max',
+                   divisible_by=1, repeat=1, num_convs=2, reprs=[], **kwargs):
+  """Abc.
 
   Args:
     inputs:        [batch_size, seq_length, features] input sequence
     filters_init:  Initial Conv1D filters
+    filters_end:   End Conv1D filters
     filters_mult:  Multiplier for Conv1D filters
-    repeat:        Conv block repetitions
+    kernel_size:   Conv1D kernel_size
+    dropout:       Dropout on subsequent convolution blocks.
+    pool_size:     Pool width.
+    repeat:        Residual block repetitions
+    num_convs:     Conv blocks per residual layer
 
   Returns:
     [batch_size, seq_length, features] output sequence
   """
+
+  def _round(x):
+    return int(np.round(x / divisible_by) * divisible_by)
 
   # flow through variable current
   current = inputs
@@ -820,11 +861,48 @@ def xception_tower(inputs, filters_init, filters_mult=1, repeat=1, **kwargs):
   # initialize filters
   rep_filters = filters_init
 
+  # determine multiplier
+  if filters_mult is None:
+    assert(filters_end is not None)
+    filters_mult = np.exp(np.log(filters_end/filters_init) / (repeat-1))
+
   for ri in range(repeat):
-    # convolution
-    current = xception_block(current,
-      filters=int(np.round(rep_filters)),
+    rep_filters_int = _round(rep_filters)
+
+    # initial
+    current = conv_next(current,
+      filters=rep_filters_int,
+      kernel_size=kernel_size,
+      dropout=dropout,
       **kwargs)
+    current0 = current
+
+    # subsequent
+    for ci in range(1, num_convs):
+      # bg = 'ones' if ci < num_convs-1 else 'zeros'
+      current = conv_next(current,
+                         filters=rep_filters_int,
+                         kernel_size=kernel_size,
+                         dropout=dropout,
+                         **kwargs)
+
+    # residual add
+    if num_convs > 1:
+      current = layers.Scale()(current)
+      current = tf.keras.layers.Add()([current0,current])
+
+    # pool
+    if pool_size > 1:
+      if pool_type == 'softmax':
+        current = layers.SoftmaxPool1D(
+          pool_size=pool_size)(current)
+      else:
+        current = tf.keras.layers.MaxPool1D(
+          pool_size=pool_size,
+          padding='same')(current)
+
+    # save representation
+    reprs.append(current)
 
     # update filters
     rep_filters *= filters_mult
@@ -1361,6 +1439,7 @@ def final(inputs, units, activation='linear', flatten=False,
 
   return current
 
+
 # depracated, poorly named
 def dense(inputs, units, activation='linear', kernel_initializer='he_normal',
           l2_scale=0, l1_scale=0, **kwargs):
@@ -1435,10 +1514,12 @@ name_func = {
   'concat_unet': concat_unet,
   'conv_block': conv_block,  
   'conv_dna': conv_dna,  
-  'conv_nac': conv_nac,  
+  'conv_nac': conv_nac,
+  'conv_next': conv_next,
   'conv_block_2d': conv_block_2d,
   'conv_tower': conv_tower,
   'conv_tower_nac': conv_tower_nac,
+  'convnext_tower': convnext_tower,
   'cropping_2d': cropping_2d,
   'dense': dense,
   'dense_block': dense_block,
@@ -1460,9 +1541,7 @@ name_func = {
   'upper_tri': upper_tri,
   'fpn_unet': fpn_unet,
   'upsample_unet': upsample_unet,
-  'wheeze_excite': wheeze_excite,
-  'xception_block': xception_block,
-  'xception_tower': xception_tower,
+  'wheeze_excite': wheeze_excite
 }
 
 keras_func = {

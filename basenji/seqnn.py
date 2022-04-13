@@ -76,7 +76,7 @@ class SeqNN():
     del block_args['name']
 
     # save representations
-    if block_name == 'conv_tower_nac':
+    if block_name.find('tower') != -1:
       block_args['reprs'] = self.reprs
 
     # U-net helper

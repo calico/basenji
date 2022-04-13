@@ -47,6 +47,9 @@ def main():
   train_options.add_option('-k', dest='keras_fit',
       default=False, action='store_true',
       help='Train with Keras fit method [Default: %default]')
+  train_options.add_option('-m', dest='mixed_precision',
+      default=False, action='store_true',
+      help='Train with mixed precision [Default: %default]')
   train_options.add_option('-o', dest='out_dir',
       default='train_out',
       help='Output directory for test statistics [Default: %default]')

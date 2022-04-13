@@ -25,12 +25,14 @@ import time
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from tensorflow.keras import mixed_precision
 if tf.__version__[0] == '1':
   tf.compat.v1.enable_eager_execution()
 
 from basenji import dataset
 from basenji import seqnn
 from basenji import trainer
+
 
 """
 basenji_train.py
@@ -47,6 +49,9 @@ def main():
   parser.add_option('-k', dest='keras_fit',
       default=False, action='store_true',
       help='Train with Keras fit method [Default: %default]')
+  parser.add_option('-m', dest='mixed_precision',
+      default=False, action='store_true',
+      help='Train with mixed precision [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='train_out',
       help='Output directory for test statistics [Default: %default]')
@@ -111,6 +116,9 @@ def main():
     tfr_pattern=options.tfr_eval_pattern))
 
   params_model['strand_pair'] = strand_pairs
+
+  if options.mixed_precision:
+    mixed_precision.set_global_policy('mixed_float16')
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################

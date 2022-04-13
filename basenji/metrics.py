@@ -267,7 +267,7 @@ class PearsonR(tf.keras.metrics.Metric):
     else:
         return correlation
 
-  def reset_states(self):
+  def reset_state(self):
       K.batch_set_value([(v, np.zeros(self._shape)) for v in self.variables])
 
 
@@ -327,5 +327,5 @@ class R2(tf.keras.metrics.Metric):
     else:
         return r2
 
-  def reset_states(self):
+  def reset_state(self):
     K.batch_set_value([(v, np.zeros(self._shape)) for v in self.variables])

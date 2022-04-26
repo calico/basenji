@@ -118,13 +118,7 @@ class ComputeGradients():
 
         return scores_h5
 
-    @tf.function
-    def compute_jacobian(self, seq_1hot_mut):
-        # Break the input sequence into segments
-        input_left_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, 0:self.mut_start, :], dtype=tf.float32))
-        input_right_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, self.mut_end:, :], dtype=tf.float32))
-        input_seq_wind = tf.Variable(seq_1hot_mut[:, self.mut_start:self.mut_end, :], dtype=tf.float32)
-
+    def compute_jacobian(self, input_left_flank, input_seq_wind, input_right_flank):
         with tf.GradientTape(persistent=True) as tape:
             # Must delete tape since I have set the persistent flag = True
             # If persistent flag = False, then all stored values are discarded after a single gradient computation.
@@ -137,10 +131,9 @@ class ComputeGradients():
                 raise NotImplementedError
 
         grads = tape.jacobian(preds_sum, input_seq_wind, experimental_use_pfor=True, parallel_iterations=4)
-        grads = np.squeeze(grads, axis=1)
-        grads_x_inp = grads * seq_1hot_mut[:, mut_start:mut_end, :]
+        grads = tf.squeeze(grads, axis=[0,2])
         del tape
-        return grads_x_inp
+        return grads
 
     def process_seqs(self, seqs_dna, scores_h5):
         """
@@ -155,10 +148,15 @@ class ComputeGradients():
             seq_1hot_mut = dna_io.dna_1hot(seq_dna)
             seq_1hot_mut = np.expand_dims(seq_1hot_mut, axis=0)
 
+            input_left_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, 0:self.mut_start, :], dtype=tf.float32))
+            input_right_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, self.mut_end:, :], dtype=tf.float32))
+            input_seq_wind = tf.Variable(seq_1hot_mut[:, self.mut_start:self.mut_end, :], dtype=tf.float32)
+
             print("seq_1hot_mut.shape")
             print(seq_1hot_mut.shape)
 
-            grads_x_inp = self.compute_jacobian(seq_1hot_mut=seq_1hot_mut)
+            grads = self.compute_jacobian(input_left_flank, input_seq_wind, input_right_flank)
+            grads_x_inp = grads * seq_1hot_mut[:, self.mut_start:self.mut_end, :]
 
             scores_h5['seqs'][si, :, :] = seq_1hot_mut[:, self.mut_start:self.mut_end, :]
 

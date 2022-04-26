@@ -29,8 +29,156 @@ from basenji import stream
 
 
 '''
-basenji_jacobian_bed.py: Compute the gradient * input for sequences in the input bed file.
+basenji_gradients_bed.py: Compute the gradient * input for sequences in the input bed file.
 '''
+
+class ComputeGradients():
+
+    def __init__(self, params_file, model_file, bed_file, options):
+
+        self.bed_file = bed_file
+        self.model_file = model_file
+        # load model parameters
+        with open(params_file) as params_open:
+            params = json.load(params_open)
+        self.params_model = params['model']
+        self.params_train = params['train']
+
+        self.options = options
+
+    def setup_model(self):
+        # read targets
+        if self.options.targets_file is None:
+            target_slice = None
+        else:
+            targets_df = pd.read_table(self.options.targets_file, index_col=0)
+            target_slice = targets_df.index
+
+        seqnn_model = seqnn.SeqNN(self.params_model)
+        seqnn_model.restore(self.model_file)
+        seqnn_model.build_slice(target_slice)
+        seqnn_model.build_ensemble(self.options.rc, self.options.shifts)
+
+        num_targets = seqnn_model.num_targets()
+        setattr(self, 'seqnn_model', seqnn_model)
+        setattr(self, 'num_targets', num_targets)
+
+    def read_seqs(self):
+        # read sequences from BED
+        seqs_dna, seqs_coords = bed.make_bed_seqs(
+            self.bed_file, self.options.genome_fasta, self.params_model['seq_length'], stranded=True)
+
+        num_seqs = len(seqs_dna)
+
+        # determine mutation region limits
+        seq_mid = self.params_model['seq_length'] // 2
+        mut_start = seq_mid - self.options.mut_up
+        mut_end = mut_start + self.options.mut_len
+
+        setattr(self, 'num_seqs', num_seqs)
+        setattr(self, 'mut_start', mut_start)
+        setattr(self, 'mut_end', mut_end)
+
+        return seqs_dna, seqs_coords
+
+    def setup_output(self, seqs_coords):
+        # note: do we want sequence properties to be class attributes?
+        # setup output
+        scores_h5_file = '%s/scores.h5' % self.options.out_dir
+        if os.path.isfile(scores_h5_file):
+            os.remove(scores_h5_file)
+        scores_h5 = h5py.File(scores_h5_file, 'w')
+        scores_h5.create_dataset('seqs', dtype='bool',
+                                 shape=(self.num_seqs, self.options.mut_len, 4))
+        for sad_stat in self.options.sad_stats:
+            scores_h5.create_dataset(sad_stat, dtype='float16',
+                                     shape=(self.num_seqs, self.options.mut_len, 4, self.num_targets))
+
+        # store sequence coordinates
+        scores_chr = []
+        scores_start = []
+        scores_end = []
+        scores_strand = []
+        for seq_chr, seq_start, seq_end, seq_strand in seqs_coords:
+            scores_chr.append(seq_chr)
+            scores_strand.append(seq_strand)
+            if seq_strand == '+':
+                score_start = seq_start + self.mut_start
+                score_end = score_start + self.options.mut_len
+            else:
+                score_end = seq_end - self.mut_start
+                score_start = score_end - self.options.mut_len
+            scores_start.append(score_start)
+            scores_end.append(score_end)
+
+        scores_h5.create_dataset('chr', data=np.array(scores_chr, dtype='S'))
+        scores_h5.create_dataset('start', data=np.array(scores_start))
+        scores_h5.create_dataset('end', data=np.array(scores_end))
+        scores_h5.create_dataset('strand', data=np.array(scores_strand, dtype='S'))
+
+        return scores_h5
+
+    @tf.function
+    def compute_jacobian(self, seq_1hot_mut):
+        # Break the input sequence into segments
+        input_left_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, 0:self.mut_start, :], dtype=tf.float32))
+        input_right_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, self.mut_end:, :], dtype=tf.float32))
+        input_seq_wind = tf.Variable(seq_1hot_mut[:, self.mut_start:self.mut_end, :], dtype=tf.float32)
+
+        with tf.GradientTape(persistent=True) as tape:
+            # Must delete tape since I have set the persistent flag = True
+            # If persistent flag = False, then all stored values are discarded after a single gradient computation.
+            preds = self.seqnn_model.model(tf.concat([input_left_flank, input_seq_wind, input_right_flank], axis=1),
+                                           training=False)
+            if 'sum' in self.options.sad_stats:
+                preds_sum = tf.math.reduce_sum(preds, axis=1)
+            else:
+                print("Only the sum statistic is currently implemented")
+                raise NotImplementedError
+
+        grads = tape.jacobian(preds_sum, input_seq_wind, experimental_use_pfor=True, parallel_iterations=4)
+        grads = np.squeeze(grads, axis=1)
+        grads_x_inp = grads * seq_1hot_mut[:, mut_start:mut_end, :]
+        del tape
+        return grads_x_inp
+
+    def process_seqs(self, seqs_dna, scores_h5):
+        """
+        Computing the gradient w.r.t the sequence
+        """
+
+        # compute gradients
+        for si in range(self.num_seqs):
+
+            print('Computing jacobian w.r.t. input for sequence number %d' % si, flush=True)
+            seq_dna = seqs_dna[si]
+            seq_1hot_mut = dna_io.dna_1hot(seq_dna)
+            seq_1hot_mut = np.expand_dims(seq_1hot_mut, axis=0)
+
+            print("seq_1hot_mut.shape")
+            print(seq_1hot_mut.shape)
+
+            grads_x_inp = self.compute_jacobian(seq_1hot_mut=seq_1hot_mut)
+
+            scores_h5['seqs'][si, :, :] = seq_1hot_mut[:, self.mut_start:self.mut_end, :]
+
+            for sad_stat in self.options.sad_stats:
+                # rearrange the "grads" array dimensions to be consistent with the ISM-style seq_scores
+                seq_scores = np.transpose(grads_x_inp, axes=[1, 2, 0])
+                print(seq_scores.shape)
+                # summary stat
+                if sad_stat == 'sum':
+                    # write to HDF5
+                    scores_h5[sad_stat][si, :, :, :] = seq_scores.astype('float16')
+                elif sad_stat == 'center':
+                    raise NotImplementedError
+                elif sad_stat == 'scd':
+                    raise NotImplementedError
+                else:
+                    print('Unrecognized summary statistic "%s"' % self.options.sad_stats)
+                    exit(1)
+        # save scores.h5
+        scores_h5.close()
 
 
 def main():
@@ -96,159 +244,14 @@ def main():
         mixed_precision.set_global_policy(policy)
         # This should set the policy for all tf layers and computations.
 
-    #################################################################
-    # read parameters and targets
+    # Compute gradients
+    compute_grads = ComputeGradients(params_file=params_file, model_file=model_file, bed_file=bed_file, options=options)
+    # In setup model, options.policy is passed to SeqNN to override a 32 bit computation.
+    compute_grads.setup_model()
+    seqs_dna, seqs_coords = compute_grads.read_seqs()
+    scores_h5 = compute_grads.setup_output(seqs_coords=seqs_coords)
+    compute_grads.process_seqs(seqs_dna=seqs_dna, scores_h5=scores_h5)
 
-    # read model parameters
-    with open(params_file) as params_open:
-        params = json.load(params_open)
-    params_model = params['model']
-    params_train = params['train']
-
-    # read targets
-    if options.targets_file is None:
-        target_slice = None
-    else:
-        targets_df = pd.read_table(options.targets_file, index_col=0)
-        target_slice = targets_df.index
-
-    #################################################################
-    # setup model
-
-    seqnn_model = seqnn.SeqNN(params_model)
-    seqnn_model.restore(model_file)
-    seqnn_model.build_slice(target_slice)
-    seqnn_model.build_ensemble(options.rc, options.shifts)
-
-    num_targets = seqnn_model.num_targets()
-
-    #################################################################
-    # sequence dataset
-
-    # read sequences from BED
-    seqs_dna, seqs_coords = bed.make_bed_seqs(
-        bed_file, options.genome_fasta, params_model['seq_length'], stranded=True)
-
-    num_seqs = len(seqs_dna)
-
-    # determine mutation region limits
-    seq_mid = params_model['seq_length'] // 2
-    mut_start = seq_mid - options.mut_up
-    mut_end = mut_start + options.mut_len
-
-    # make sequence generator
-    # This is used to generate sequences for ISM
-    # seqs_gen = satmut_gen(seqs_dna, mut_start, mut_end)
-
-    #################################################################
-    # setup output
-
-    scores_h5_file = '%s/scores.h5' % options.out_dir
-    if os.path.isfile(scores_h5_file):
-        os.remove(scores_h5_file)
-    scores_h5 = h5py.File(scores_h5_file, 'w')
-    scores_h5.create_dataset('seqs', dtype='bool',
-                             shape=(num_seqs, options.mut_len, 4))
-    for sad_stat in options.sad_stats:
-        scores_h5.create_dataset(sad_stat, dtype='float16',
-                                 shape=(num_seqs, options.mut_len, 4, num_targets))
-
-    # store mutagenesis sequence coordinates
-    scores_chr = []
-    scores_start = []
-    scores_end = []
-    scores_strand = []
-    for seq_chr, seq_start, seq_end, seq_strand in seqs_coords:
-        scores_chr.append(seq_chr)
-        scores_strand.append(seq_strand)
-        if seq_strand == '+':
-            score_start = seq_start + mut_start
-            score_end = score_start + options.mut_len
-        else:
-            score_end = seq_end - mut_start
-            score_start = score_end - options.mut_len
-        scores_start.append(score_start)
-        scores_end.append(score_end)
-
-    scores_h5.create_dataset('chr', data=np.array(scores_chr, dtype='S'))
-    scores_h5.create_dataset('start', data=np.array(scores_start))
-    scores_h5.create_dataset('end', data=np.array(scores_end))
-    scores_h5.create_dataset('strand', data=np.array(scores_strand, dtype='S'))
-
-    # compute gradients
-    for si in range(num_seqs):
-        print('Computing gradient w.r.t. input for sequence number %d' % si, flush=True)
-
-        seq_dna = seqs_dna[si]
-        seq_1hot_mut = dna_io.dna_1hot(seq_dna)
-        seq_1hot_mut = np.expand_dims(seq_1hot_mut, axis=0)
-
-        print("seq_1hot_mut.shape")
-        print(seq_1hot_mut.shape)
-
-        input_seq = tf.Variable(seq_1hot_mut, dtype=tf.float32)
-
-        with tf.GradientTape() as tape:
-            # record actions
-            preds = seqnn_model.model(input_seq)
-
-            if 'sum' in options.sad_stats:
-                preds_sum = tf.math.reduce_sum(preds, axis=1)
-                # compute the Jacobian
-                grads = tape.jacobian(preds_sum, input_seq)
-                grads = np.squeeze(grads, axis=(0, 2))
-                # TODO: Can this slice op. happen earlier to reduce jacobian computation time?
-                grads = grads[:, mut_start:mut_end, :]
-                # grads.shape = (num_targets, mut_len, 4)
-                # Compute gradient * input
-                grads_x_inp = grads * seq_1hot_mut[:, mut_start:mut_end, :]
-
-            if 'center' in options.sad_stats:
-                # find center
-                center_start = preds_length // 2
-                if preds_length % 2 == 0:
-                    center_end = center_start + 2
-                else:
-                    center_end = center_start + 1
-                # preds.shape = (1, 1024, num_targets)
-                preds_sum = tf.math.reduce_sum(preds[:, center_start:center_end,:], axis=1)
-                grads = tape.jacobian(preds_sum, input_seq)
-                grads = np.squeeze(grads, axis=(0, 2))
-                # TODO: This slice should happen earlier - reducing jacobian computation time.
-                grads = grads[:, mut_start:mut_end, :]
-                # grads.shape = (num_targets, mut_len, 4)
-                # Compute gradient * input
-                grads_x_inp = grads * seq_1hot_mut[:, mut_start:mut_end, :]
-
-            if 'scd' in options.sad_stats:
-                # scd is not directly applicable to gradient computations
-                raise NotImplementedError
-
-        # write to HDF5
-        scores_h5['seqs'][si, :, :] = seq_1hot_mut[:, mut_start:mut_end, :]
-
-        for sad_stat in options.sad_stats:
-            # initialize scores
-            # seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
-
-            # rearrange the "grads" array dimensions to be consistent with the ISM-style seq_scores
-            seq_scores = np.transpose(grads_x_inp, axes=[1, 2, 0])
-            print(seq_scores.shape)
-
-            # summary stat
-            if sad_stat == 'sum':
-                # write to HDF5
-                scores_h5[sad_stat][si, :, :, :] = seq_scores.astype('float16')
-            elif sad_stat == 'center':
-                raise NotImplementedError
-            elif sad_stat == 'scd':
-                raise NotImplementedError
-            else:
-                print('Unrecognized summary statistic "%s"' % sad_stat)
-                exit(1)
-
-    # save scores.h5
-    scores_h5.close()
 
 if __name__ == '__main__':
     main()

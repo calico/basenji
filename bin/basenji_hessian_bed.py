@@ -81,44 +81,7 @@ class ComputeHessian():
 
         return seqs_dna, seqs_coords
 
-    def setup_output(self, seqs_coords):
-        # note: do we want sequence properties to be class attributes?
-        # setup output
-        scores_h5_file = '%s/scores.h5' % self.options.out_dir
-        if os.path.isfile(scores_h5_file):
-            os.remove(scores_h5_file)
-        scores_h5 = h5py.File(scores_h5_file, 'w')
-        scores_h5.create_dataset('seqs', dtype='bool',
-                                 shape=(self.num_seqs, self.options.mut_len, 4))
-        for sad_stat in self.options.sad_stats:
-            scores_h5.create_dataset(sad_stat, dtype='float16',
-                                     shape=(self.num_seqs, self.options.mut_len, 4, self.num_targets))
-
-        # store sequence coordinates
-        scores_chr = []
-        scores_start = []
-        scores_end = []
-        scores_strand = []
-        for seq_chr, seq_start, seq_end, seq_strand in seqs_coords:
-            scores_chr.append(seq_chr)
-            scores_strand.append(seq_strand)
-            if seq_strand == '+':
-                score_start = seq_start + self.mut_start
-                score_end = score_start + self.options.mut_len
-            else:
-                score_end = seq_end - self.mut_start
-                score_start = score_end - self.options.mut_len
-            scores_start.append(score_start)
-            scores_end.append(score_end)
-
-        scores_h5.create_dataset('chr', data=np.array(scores_chr, dtype='S'))
-        scores_h5.create_dataset('start', data=np.array(scores_start))
-        scores_h5.create_dataset('end', data=np.array(scores_end))
-        scores_h5.create_dataset('strand', data=np.array(scores_strand, dtype='S'))
-
-        return scores_h5
-
-    def compute_gradients(self, seqs_dna, scores_h5):
+    def compute_gradients(self, seqs_dna, out_dir):
         """
         Computing the gradient w.r.t the sequence
         """
@@ -133,73 +96,41 @@ class ComputeHessian():
 
             print("seq_1hot_mut.shape")
             print(seq_1hot_mut.shape)
-
-            input_seq = tf.Variable(seq_1hot_mut, dtype=tf.float32)
             # additional variables
             input_left_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, 0:self.mut_start, :], dtype=tf.float32))
             input_right_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, self.mut_end:, :], dtype=tf.float32))
             input_seq_wind = tf.Variable(seq_1hot_mut[:, self.mut_start:self.mut_end, :], dtype=tf.float32)
 
-            with tf.GradientTape(persistent=True) as tape1:
-                # Must delete tape since I have set the persistent flag = True
-                # If persistent flag = False, then all stored values are discarded after a single gradient computation.
-                # Here, we want to do multiple gradient computations (for each target wrt input)
-                # input_seq = tf.concat([input_left_flank, input_seq_wind, input_right_flank], axis=1)
-                with tf.GradientTape(persistent=True) as tape2:
-                    preds = self.seqnn_model.model(tf.concat([input_left_flank, input_seq_wind, input_right_flank], axis=1),
-                                              training=False)
-                    if 'sum' in self.options.sad_stats:
-                        preds_sum = tf.math.reduce_sum(preds, axis=1)
-                        output_variables = [preds_sum[:, target_idx] for target_idx in range(self.num_targets)]
+            with tf.GradientTape(persistent=True) as tape2:
+                with tf.GradientTape() as tape1:
+                    preds = self.seqnn_model.model(tf.concat([input_left_flank, input_seq_wind, input_right_flank],
+                                                             axis=1),
+                                                   training=False)
+                    preds_sum = tf.math.reduce_sum(preds, axis=1)[:, 0]  # working with a single target for now.
+                dy_dx = tape1.gradient(preds_sum, input_seq_wind)
+                grads_x_inp = dy_dx * seq_1hot_mut[:, self.mut_start:self.mut_end, :]
+                # Reduce the grads_x_input into a 1-D array using tf operations.
+                grads_x_inp = tf.reshape(grads_x_inp, (options_mut_len, 4))
+                indices = tf.stack([range(options_mut_len), np.nonzero(grads_x_inp)[1]], axis=-1)
+                # note: np.nonzero returns a tuple of arrays (one for each dimension)
+                grads_1d = tf.gather_nd(grads_x_inp, indices=indices)
+                print(grads_1d.shape)
 
-                # compute the gradient
-                hessians = []
-                for y_i in output_variables:
-                    print(y_i)
-                    dyi_dx = tape2.gradient(y_i, input_seq_wind)
-                    grads_x_inp = dyi_dx * seq_1hot_mut[:, self.mut_start:self.mut_end, :]
-
-                    # Reduce the grads_x_input into a 1-D array using tf operations.
-                    grads_x_inp = tf.reshape(grads_x_inp, (options_mut_len, 4))
-                    indices = tf.stack([range(options_mut_len), np.nonzero(grads_x_inp)[1]], axis=-1)
-                    # note: np.nonzero returns a tuple of arrays (one for each dimension)
-                    grads_1d = tf.gather_nd(grads_x_inp, indices=indices)
-                    print(grads_1d.shape)
-
-                    # Compute the jacobian w.r.t the gradients (equivalent to the Hessian w.r.t to the input)
-                    d2yi_dx2 = tape1.jacobian(grads_1d, input_seq_wind)
-                    hess = []
-                    for x_j in d2yi_dx2:
-                        testvar = x_j * input_seq_wind
-                        # reshape
-                        testvar = tf.reshape(testvar, (options_mut_len, 4))
-                        indices = tf.stack([range(options_mut_len), np.nonzero(testvar)[1]], axis=-1)
-                        grads2_1d = tf.gather_nd(testvar, indices=indices)
-                        hess.append(grads2_1d)
-                    hessian_i = np.array(hess)
-                    hessians.append(hessian_i)
-            del tape1
+            # Compute the jacobian w.r.t the gradients (equivalent to the Hessian w.r.t to the input)
+            d2y_dx2 = tape2.jacobian(grads_1d, input_seq_wind)
             del tape2
 
-            scores_h5['seqs'][si, :, :] = seq_1hot_mut[:, self.mut_start:self.mut_end, :]
+            for row in d2y_dx2:
+                tmp_var = row * input_seq_wind
+                # reshape
+                tmp_var = tf.reshape(tmp_var, (self.options.mut_len, 4))
+                indices = tf.stack([range(self.options.mut_len), np.nonzero(tmp_var)[1]], axis=-1)
+                d2y_dx2_1d = tf.gather_nd(testvar, indices=indices)
+                hess.append(d2y_dx2_1d)
+            hessian = np.array(hess)
+            np.savetxt(out_dir + '/hessian.txt', hessian)
+            return hessian
 
-            for sad_stat in self.options.sad_stats:
-                # rearrange the "grads" array dimensions to be consistent with the ISM-style seq_scores
-                seq_scores = np.transpose(grads_x_inp, axes=[1, 2, 0])
-                print(seq_scores.shape)
-                # summary stat
-                if sad_stat == 'sum':
-                    # write to HDF5
-                    scores_h5[sad_stat][si, :, :, :] = seq_scores.astype('float16')
-                elif sad_stat == 'center':
-                    raise NotImplementedError
-                elif sad_stat == 'scd':
-                    raise NotImplementedError
-                else:
-                    print('Unrecognized summary statistic "%s"' % self.options.sad_stats)
-                    exit(1)
-        # save scores.h5
-        scores_h5.close()
 
 def main():
     usage = 'usage: %prog [options] <params_file> <model_file> <bed_file>'
@@ -269,8 +200,8 @@ def main():
     # In setup model, options.policy is passed to SeqNN to override a 32 bit computation.
     compute_grads.setup_model()
     seqs_dna, seqs_coords = compute_grads.read_seqs()
-    scores_h5 = compute_grads.setup_output(seqs_coords=seqs_coords)
-    compute_grads.compute_gradients(seqs_dna=seqs_dna, scores_h5=scores_h5)
+    compute_grads.compute_gradients(seqs_dna=seqs_dna, out_dir=options.out_dir)
+
 
 if __name__ == '__main__':
     main()

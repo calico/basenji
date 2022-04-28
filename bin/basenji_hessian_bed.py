@@ -110,14 +110,14 @@ class ComputeHessian():
                 dy_dx = tape1.gradient(preds_sum, input_seq_wind)
                 grads_x_inp = dy_dx * seq_1hot_mut[:, self.mut_start:self.mut_end, :]
                 # Reduce the grads_x_input into a 1-D array using tf operations.
-                grads_x_inp = tf.reshape(grads_x_inp, (options_mut_len, 4))
-                indices = tf.stack([range(options_mut_len), np.nonzero(grads_x_inp)[1]], axis=-1)
+                grads_x_inp = tf.reshape(grads_x_inp, (self.options.mut_len, 4))
+                indices = tf.stack([range(self.options.mut_len), np.nonzero(grads_x_inp)[1]], axis=-1)
                 # note: np.nonzero returns a tuple of arrays (one for each dimension)
                 grads_1d = tf.gather_nd(grads_x_inp, indices=indices)
                 print(grads_1d.shape)
 
             # Compute the jacobian w.r.t the gradients (equivalent to the Hessian w.r.t to the input)
-            d2y_dx2 = tape2.jacobian(grads_1d, input_seq_wind)
+            d2y_dx2 = tape2.jacobian(grads_1d, input_seq_wind, experimental_use_pfor=False)
             del tape2
 
             for row in d2y_dx2:
@@ -125,7 +125,7 @@ class ComputeHessian():
                 # reshape
                 tmp_var = tf.reshape(tmp_var, (self.options.mut_len, 4))
                 indices = tf.stack([range(self.options.mut_len), np.nonzero(tmp_var)[1]], axis=-1)
-                d2y_dx2_1d = tf.gather_nd(testvar, indices=indices)
+                d2y_dx2_1d = tf.gather_nd(tmp_var, indices=indices)
                 hess.append(d2y_dx2_1d)
             hessian = np.array(hess)
             np.savetxt(out_dir + '/hessian.txt', hessian)
@@ -196,7 +196,7 @@ def main():
         # This should set the policy for all tf layers and computations.
 
     # Compute gradients
-    compute_grads = ComputeGradients(params_file=params_file, model_file=model_file, bed_file=bed_file, options=options)
+    compute_grads = ComputeHessian(params_file=params_file, model_file=model_file, bed_file=bed_file, options=options)
     # In setup model, options.policy is passed to SeqNN to override a 32 bit computation.
     compute_grads.setup_model()
     seqs_dna, seqs_coords = compute_grads.read_seqs()

@@ -129,7 +129,7 @@ class ComputeHessian():
             print('Computing gradient w.r.t. input for sequence number %d' % si, flush=True)
             # compute the hessian matrix
             hessian_mat = self.compute_gradients(seq_1hot_mut)
-            np.savetxt(out_dir + '/hessian.' + si + '.txt', hessian_mat, delimiter='\t')
+            np.savetxt(out_dir + '/hessian.' + str(si) + '.txt', hessian_mat, delimiter='\t')
 
 
 def main():

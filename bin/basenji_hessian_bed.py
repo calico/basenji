@@ -81,56 +81,55 @@ class ComputeHessian():
 
         return seqs_dna, seqs_coords
 
-    def compute_gradients(self, seqs_dna, out_dir):
+    def compute_gradients(self, seq_1hot_mut):
+
+        input_left_flank = tf.Variable(seq_1hot_mut[:, 0:self.mut_start, :], dtype=tf.float32)
+        input_right_flank = tf.Variable(seq_1hot_mut[:, self.mut_end:, :], dtype=tf.float32)
+        input_seq_wind = tf.Variable(seq_1hot_mut[:, self.mut_start:self.mut_end, :], dtype=tf.float32)
+
+        with tf.GradientTape(persistent=True) as tape2:
+            with tf.GradientTape() as tape1:
+                preds = self.seqnn_model.model(tf.concat([input_left_flank, input_seq_wind, input_right_flank], axis=1),
+                                               training=False)
+                preds_sum = tf.math.reduce_sum(preds, axis=1)[:, 0]  # working with a single target for now.
+            dy_dx = tape1.gradient(preds_sum, input_seq_wind)
+            grads_x_inp = dy_dx * seq_1hot_mut[:, self.mut_start:self.mut_end, :]
+            # Reduce the grads_x_input into a 1-D array using tf operations.
+            grads_x_inp = tf.reshape(grads_x_inp, (self.options.mut_len, 4))
+            indices = tf.stack([range(self.options.mut_len), np.nonzero(grads_x_inp)[1]], axis=-1)
+            # note: np.nonzero returns a tuple of arrays (one for each dimension)
+            grads_1d = tf.gather_nd(grads_x_inp, indices=indices)
+            print(grads_1d.shape)
+
+        # Compute the jacobian w.r.t the gradients (equivalent to the Hessian w.r.t to the input)
+        d2y_dx2 = tape2.jacobian(grads_1d, input_seq_wind, experimental_use_pfor=False)
+        del tape2
+
+        hess = []
+        for row in d2y_dx2:
+            tmp_var = row * input_seq_wind
+            # reshape
+            tmp_var = tf.reshape(tmp_var, (self.options.mut_len, 4))
+            indices = tf.stack([range(self.options.mut_len), np.nonzero(tmp_var)[1]], axis=-1)
+            d2y_dx2_1d = tf.gather_nd(tmp_var, indices=indices)
+            hess.append(d2y_dx2_1d)
+        hessian = np.array(hess)
+        return hessian
+
+    def process_seqs(self, seqs_dna, out_dir):
         """
         Computing the gradient w.r.t the sequence
         """
-
-        # compute gradients
         for si in range(self.num_seqs):
-            print('Computing gradient w.r.t. input for sequence number %d' % si, flush=True)
-
             seq_dna = seqs_dna[si]
             seq_1hot_mut = dna_io.dna_1hot(seq_dna)
             seq_1hot_mut = np.expand_dims(seq_1hot_mut, axis=0)
-
             print("seq_1hot_mut.shape")
             print(seq_1hot_mut.shape)
-            # additional variables
-            input_left_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, 0:self.mut_start, :], dtype=tf.float32))
-            input_right_flank = tf.stop_gradient(tf.Variable(seq_1hot_mut[:, self.mut_end:, :], dtype=tf.float32))
-            input_seq_wind = tf.Variable(seq_1hot_mut[:, self.mut_start:self.mut_end, :], dtype=tf.float32)
-
-            with tf.GradientTape(persistent=True) as tape2:
-                with tf.GradientTape() as tape1:
-                    preds = self.seqnn_model.model(tf.concat([input_left_flank, input_seq_wind, input_right_flank],
-                                                             axis=1),
-                                                   training=False)
-                    preds_sum = tf.math.reduce_sum(preds, axis=1)[:, 0]  # working with a single target for now.
-                dy_dx = tape1.gradient(preds_sum, input_seq_wind)
-                grads_x_inp = dy_dx * seq_1hot_mut[:, self.mut_start:self.mut_end, :]
-                # Reduce the grads_x_input into a 1-D array using tf operations.
-                grads_x_inp = tf.reshape(grads_x_inp, (self.options.mut_len, 4))
-                indices = tf.stack([range(self.options.mut_len), np.nonzero(grads_x_inp)[1]], axis=-1)
-                # note: np.nonzero returns a tuple of arrays (one for each dimension)
-                grads_1d = tf.gather_nd(grads_x_inp, indices=indices)
-                print(grads_1d.shape)
-
-            # Compute the jacobian w.r.t the gradients (equivalent to the Hessian w.r.t to the input)
-            d2y_dx2 = tape2.jacobian(grads_1d, input_seq_wind, experimental_use_pfor=False)
-            del tape2
-
-            hess = []
-            for row in d2y_dx2:
-                tmp_var = row * input_seq_wind
-                # reshape
-                tmp_var = tf.reshape(tmp_var, (self.options.mut_len, 4))
-                indices = tf.stack([range(self.options.mut_len), np.nonzero(tmp_var)[1]], axis=-1)
-                d2y_dx2_1d = tf.gather_nd(tmp_var, indices=indices)
-                hess.append(d2y_dx2_1d)
-            hessian = np.array(hess)
-            np.savetxt(out_dir + '/hessian.txt', hessian, delimiter='\t')
-            return hessian
+            print('Computing gradient w.r.t. input for sequence number %d' % si, flush=True)
+            # compute the hessian matrix
+            hessian_mat = self.compute_gradients(seq_1hot_mut)
+            np.savetxt(out_dir + '/hessian.' + si + '.txt', hessian_mat, delimiter='\t')
 
 
 def main():
@@ -201,7 +200,7 @@ def main():
     # In setup model, options.policy is passed to SeqNN to override a 32 bit computation.
     compute_grads.setup_model()
     seqs_dna, seqs_coords = compute_grads.read_seqs()
-    compute_grads.compute_gradients(seqs_dna=seqs_dna, out_dir=options.out_dir)
+    compute_grads.process_seqs(seqs_dna=seqs_dna, out_dir=options.out_dir)
 
 
 if __name__ == '__main__':

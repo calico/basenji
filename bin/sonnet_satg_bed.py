@@ -72,6 +72,9 @@ def main():
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Ensemble forward and reverse complement predictions [Default: %default]')
+  parser.add_option('--shifts', dest='shifts',
+      default='0', type='str',
+      help='Ensemble prediction shifts [Default: %default]')
   parser.add_option('--species', dest='species',
       default='human')
   parser.add_option('-t', dest='targets_file',
@@ -125,6 +128,8 @@ def main():
     assert(options.mut_len > 0)
     options.mut_up = options.mut_len // 2
     options.mut_down = options.mut_len - options.mut_up
+
+  options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
   #################################################################
   # setup model
@@ -221,28 +226,47 @@ def main():
     print('Predicting %d' % si, flush=True)
     seq_1hot = dna_io.dna_1hot(seq_dna)
 
-    # forward
-    seq_1hot_tf = tf.convert_to_tensor(seq_1hot, dtype=tf.float32)[tf.newaxis]
+    # # forward
+    # seq_1hot_tf = tf.convert_to_tensor(seq_1hot, dtype=tf.float32)[tf.newaxis]
 
-    # compute gradients
-    grad_f = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
-      center_start, center_end, options.species).numpy()
+    # # compute gradients
+    # grad_f = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
+    #   center_start, center_end, options.species).numpy()
 
-    if options.rc:
-      # reverse
-      seq_1hot_r = dna_io.hot1_rc(seq_1hot)
-      seq_1hot_tf = tf.convert_to_tensor(seq_1hot_r, dtype=tf.float32)[tf.newaxis]
+    # if options.rc:
+    #   # reverse
+    #   seq_1hot_r = dna_io.hot1_rc(seq_1hot)
+    #   seq_1hot_tf = tf.convert_to_tensor(seq_1hot_r, dtype=tf.float32)[tf.newaxis]
 
-      # compute gradients
-      grad_r = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
-        center_start, center_end, options.species).numpy()
-      grad_r = dna_io.hot1_rc(grad_r)
+    #   # compute gradients
+    #   grad_r = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
+    #     center_start, center_end, options.species).numpy()
+    #   grad_r = dna_io.hot1_rc(grad_r)
 
-      # average
-      grad = (grad_f + grad_r) / 2
+    #   # average
+    #   grad = (grad_f + grad_r) / 2
 
-    else:
-      grad = grad_f
+    # else:
+    #   grad = grad_f
+
+    grad_ens = []
+    for shift in options.shifts:
+      seq_1hot_aug = dna_io.hot1_augment(seq_1hot, shift=shift)
+      seq_1hot_tf = tf.convert_to_tensor(seq_1hot_aug, dtype=tf.float32)[tf.newaxis]
+      grad_aug = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
+          center_start, center_end, options.species).numpy()
+      grad_aug = dna_io.hot1_augment(grad_aug, fwdrc=True, shift=-shift)
+      grad_ens.append(grad_aug)
+      
+      if options.rc:
+        seq_1hot_aug = dna_io.hot1_rc(seq_1hot_aug)
+        seq_1hot_tf = tf.convert_to_tensor(seq_1hot_aug, dtype=tf.float32)[tf.newaxis]
+        grad_aug = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
+          center_start, center_end, options.species).numpy()
+        grad_aug = dna_io.hot1_augment(grad_aug, fwdrc=False, shift=-shift)
+        grad_ens.append(grad_aug)
+
+    grad = np.array(grad_ens).mean(axis=0)
 
     # write to HDF5
     scores_h5['seqs'][si] = seq_1hot[mut_start:mut_end]
@@ -252,6 +276,7 @@ def main():
 
   # close output HDF5
   scores_h5.close()
+    
 
 @tf.function
 def input_gradients(seqnn_model, seq_1hot_tf, targets_mask, pos_start, pos_end, species):

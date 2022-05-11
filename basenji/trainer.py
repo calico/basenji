@@ -30,7 +30,7 @@ from tensorflow.python.framework import dtypes
 from basenji import layers
 from basenji import metrics
 
-def parse_loss(loss_label, strategy=None, keras_fit=True, spec_weight=1):
+def parse_loss(loss_label, strategy=None, keras_fit=True, spec_weight=1, total_weight=1):
   """Parse loss function from label, strategy, and fitting method."""
   if strategy is not None and not keras_fit:
     if loss_label == 'mse':
@@ -48,6 +48,8 @@ def parse_loss(loss_label, strategy=None, keras_fit=True, spec_weight=1):
       loss_fn = tf.keras.losses.BinaryCrossentropy()
     elif loss_label == 'poisson_kl':
       loss_fn = metrics.PoissonKL(spec_weight)
+    elif loss_label == 'poisson_mn':
+      loss_fn = metrics.PoissonMultinomial(total_weight)
     else:
       loss_fn = tf.keras.losses.Poisson()
 
@@ -87,8 +89,9 @@ class Trainer:
 
     # loss
     self.spec_weight = self.params.get('spec_weight', 1)
+    self.total_weight = self.params.get('total_weight', 1)
     self.loss = self.params.get('loss','poisson').lower()
-    self.loss_fn = parse_loss(self.loss, self.strategy, keras_fit, self.spec_weight)
+    self.loss_fn = parse_loss(self.loss, self.strategy, keras_fit, self.spec_weight, self.total_weight)
 
     # optimizer
     self.make_optimizer()

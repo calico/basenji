@@ -62,6 +62,48 @@ class PoissonKL(LossFunctionWrapper):
     super(PoissonKL, self).__init__(
         pois_kl, name=name, reduction=reduction)
 
+
+def poisson_multinomial(y_true, y_pred, total_weight=1, epsilon=1e-6, rescale=False):
+  seq_len = y_true.shape[1]
+
+  # add epsilon to protect against tiny values
+  y_true += epsilon
+  y_pred += epsilon
+
+  # sum across lengths
+  s_true = tf.math.reduce_sum(y_true, axis=-2, keepdims=True)
+  s_pred = tf.math.reduce_sum(y_pred, axis=-2, keepdims=True)
+
+  # normalize to sum to one
+  p_pred = y_pred / s_pred
+
+  # total count poisson loss
+  poisson_term = tf.keras.losses.poisson(s_true, s_pred) # B x T
+  poisson_term /= seq_len
+
+  # multinomial loss
+  pl_pred = tf.math.log(p_pred) # B x L x T
+  multinomial_dot = -tf.math.multiply(y_true, pl_pred) # B x L x T
+  multinomial_term = tf.math.reduce_sum(multinomial_dot, axis=-2) # B x T
+  multinomial_term /= seq_len
+
+  # normalize to scale of 1:1 term ratio
+  loss_raw = multinomial_term + total_weight * poisson_term
+  if rescale:
+    loss_rescale = loss_raw*2/(1 + total_weight)
+  else:
+    loss_rescale = loss_raw
+
+  return loss_rescale
+
+class PoissonMultinomial(LossFunctionWrapper):
+  def __init__(self, total_weight=1, reduction=losses_utils.ReductionV2.AUTO, name='poisson_multinomial'):
+    self.total_weight = total_weight
+    pois_mn = lambda yt, yp: poisson_multinomial(yt, yp, self.total_weight)
+    super(PoissonMultinomial, self).__init__(
+        pois_mn, name=name, reduction=reduction)
+
+
 ################################################################################
 # Metrics
 ################################################################################

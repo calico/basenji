@@ -138,6 +138,14 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.sed_stats = options.sed_stats.split(',')
 
+  if options.targets_file is None:
+    target_slice = None
+  else:
+    targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
+    target_ids = targets_df.identifier
+    target_labels = targets_df.description
+    target_slice = targets_df.index
+
   #################################################################
   # setup model
 
@@ -149,14 +157,6 @@ def main():
   null_preds = seqnn_model.predict_on_batch(null_1hot)
   null_preds = null_preds[options.species].numpy()
   _, targets_length, num_targets = null_preds.shape
-
-  if options.targets_file is None:
-    target_slice = None
-  else:
-    targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
-    target_ids = targets_df.identifier
-    target_labels = targets_df.description
-    target_slice = targets_df.index
 
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(num_targets)]

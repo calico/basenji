@@ -54,6 +54,12 @@ Perform an in silico saturation mutagenesis of sequences in a BED file.
 def main():
   usage = 'usage: %prog [options] <model> <bed_file>'
   parser = OptionParser(usage)
+  parser.add_option('-a', dest='return_augmentations',
+      default=False, action='store_true',
+      help='Return all augmentations, rather than average [Default: %default]')
+  parser.add_option('-b', dest='batch_size',
+      default=4, type='int',
+      help='Batch size [Default: %default]')
   parser.add_option('-d', dest='mut_down',
       default=0, type='int',
       help='Nucleotides downstream of center sequence to mutate [Default: %default]')
@@ -128,6 +134,7 @@ def main():
     os.mkdir(options.out_dir)
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
+  num_augmentations = len(options.shifts) + int(options.rc)*len(options.shifts)
   options.sad_stats = [sad_stat.lower() for sad_stat in options.sad_stats.split(',')]
 
   if options.mut_up > 0 or options.mut_down > 0:
@@ -189,8 +196,12 @@ def main():
   scores_h5.create_dataset('seqs', dtype='bool',
       shape=(num_seqs, options.mut_len, 4))
   for sad_stat in options.sad_stats:
-    scores_h5.create_dataset(sad_stat, dtype='float16',
-        shape=(num_seqs, options.mut_len, 4, num_targets))
+    if options.return_augmentations:
+      scores_h5.create_dataset(sad_stat, dtype='float16',
+          shape=(num_seqs, options.mut_len, 4, num_targets, num_augmentations))
+    else:
+      scores_h5.create_dataset(sad_stat, dtype='float16',
+          shape=(num_seqs, options.mut_len, 4, num_targets))
 
   # store mutagenesis sequence coordinates
   scores_chr = []
@@ -220,7 +231,7 @@ def main():
   score_queue = Queue()
   for i in range(1):
     sw = ScoreWorker(score_queue, scores_h5, options.sad_stats,
-                     mut_start, mut_end)
+                     mut_start, mut_end, return_augm=options.return_augmentations)
     sw.start()
     score_threads.append(sw)
 
@@ -236,7 +247,8 @@ def main():
 
   # initialize predictions stream
   preds_stream = stream.PredStreamSonnet(seqnn_model, seqs_gen,
-    rc=options.rc, shifts=options.shifts, species=options.species)
+    rc=options.rc, shifts=options.shifts, species=options.species,
+    batch_size=options.batch_size, return_augm=options.return_augmentations)
 
   # predictions index
   pi = 0

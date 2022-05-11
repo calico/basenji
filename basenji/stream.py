@@ -25,7 +25,7 @@ class PredStreamGen:
   """ Interface to acquire predictions via a buffered stream mechanism
         rather than getting them all at once and using excessive memory.
         Accepts generator and constructs stream batches from it. """
-  def __init__(self, model, seqs_gen, batch_size, stream_seqs=128, verbose=False):
+  def __init__(self, model, seqs_gen, batch_size, stream_seqs=64, verbose=False):
     self.model = model
     self.seqs_gen = seqs_gen
     self.stream_seqs = stream_seqs
@@ -118,7 +118,7 @@ class PredStreamSonnet:
       Accepts generator and constructs stream batches from it. """
   def __init__(self, model, seqs_gen, batch_size=4, stream_size=32,
                rc=False, shifts=[0], slice_center=None, 
-               species='human', verbose=False):
+               species='human', return_augm=False, verbose=False):
     self.model = model
     self.seqs_gen = seqs_gen
     self.batch_size = batch_size
@@ -129,6 +129,7 @@ class PredStreamSonnet:
     self.slice_center = slice_center
     self.species = species
     self.verbose = verbose
+    self.return_augm = return_augm
 
     self.stream_start = 0
     self.stream_end = 0
@@ -164,12 +165,18 @@ class PredStreamSonnet:
         slice_end = slice_start + self.slice_center
         stream_preds = stream_preds[:,slice_start:slice_end,:]
 
-      # average ensemble
+      # reshape to expose augmentations
       ens_seqs, seq_len, num_targets = stream_preds.shape
       num_seqs = ens_seqs // self.ensembled
       stream_preds = np.reshape(stream_preds,
-          (num_seqs, self.ensembled, seq_len, num_targets))
-      self.stream_preds = stream_preds.mean(axis=1)
+        (num_seqs, self.ensembled, seq_len, num_targets))
+
+      if self.return_augm:
+        # move augmentations to the back
+        self.stream_preds = np.transpose(stream_preds, [0,2,3,1])
+      else:
+        # average augmentations
+        self.stream_preds = stream_preds.mean(axis=1)
 
       # update end
       self.stream_end = self.stream_start + self.stream_preds.shape[0]

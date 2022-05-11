@@ -43,6 +43,12 @@ def main():
   parser = OptionParser(usage)
 
   # sonnet_sat_bed.py options
+  parser.add_option('-a', dest='return_augmentations',
+      default=False, action='store_true',
+      help='Return all augmentations, rather than average [Default: %default]')
+  parser.add_option('-b', dest='batch_size',
+      default=4, type='int',
+      help='Batch size [Default: %default]')
   parser.add_option('-d', dest='mut_down',
       default=0, type='int',
       help='Nucleotides downstream of center sequence to mutate [Default: %default]')
@@ -137,7 +143,7 @@ def main():
           outf, errf,
           queue=options.queue,
           cpu=2, gpu=1,
-          mem=30000, time='14-0:0:0')
+          mem=45000, time='14-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
@@ -163,8 +169,6 @@ def collect_h5(out_dir, num_procs, sad_stat):
     job_h5_file = '%s/job%d/%s' % (out_dir, pi, h5_file)
     job_h5_open = h5py.File(job_h5_file, 'r')
     num_seqs += job_h5_open[sad_stat].shape[0]
-    seq_len = job_h5_open[sad_stat].shape[1]
-    num_targets = job_h5_open[sad_stat].shape[-1]
     job_h5_open.close()
 
   # initialize final h5

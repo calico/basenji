@@ -347,7 +347,7 @@ class PlotWorker(Thread):
 
 class ScoreWorker(Thread):
   """Compute summary statistics and write to HDF."""
-  def __init__(self, score_queue, scores_h5, sad_stats, mut_start, mut_end):
+  def __init__(self, score_queue, scores_h5, sad_stats, mut_start, mut_end, return_augm=False):
     Thread.__init__(self)
     self.queue = score_queue
     self.daemon = True
@@ -355,6 +355,7 @@ class ScoreWorker(Thread):
     self.sad_stats = sad_stats
     self.mut_start = mut_start
     self.mut_end = mut_end
+    self.return_augm = return_augm
 
   def run(self):
     while True:
@@ -365,7 +366,10 @@ class ScoreWorker(Thread):
         print('Writing %d' % si, flush=True)
 
         # seq_preds_sum is (1 + 3*mut_len) x (num_targets)
-        num_preds, num_targets = seq_preds_sum.shape
+        if self.return_augm:
+          num_preds, num_targets, num_augm = seq_preds_sum.shape
+        else:
+          num_preds, num_targets = seq_preds_sum.shape
         mut_len = self.mut_end - self.mut_start
 
         # one hot code mutagenized DNA
@@ -377,7 +381,10 @@ class ScoreWorker(Thread):
 
         for sad_stat in self.sad_stats:
           # initialize scores
-          seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
+          if self.return_augm:
+            seq_scores = np.zeros((mut_len, 4, num_targets, num_augm), dtype='float32')
+          else:
+            seq_scores = np.zeros((mut_len, 4, num_targets), dtype='float32')
 
           # summary stat
           if sad_stat == 'sum':
@@ -399,10 +406,10 @@ class ScoreWorker(Thread):
             for ni in range(4):
               if seq_1hot_mut[mi,ni]:
                 # reference score
-                seq_scores[mi,ni,:] = seq_preds_stat[0,:]
+                seq_scores[mi,ni] = seq_preds_stat[0]
               else:
                 # mutation score
-                seq_scores[mi,ni,:] = seq_preds_stat[pi,:]
+                seq_scores[mi,ni] = seq_preds_stat[pi]
                 pi += 1
 
           # normalize positions
@@ -410,7 +417,7 @@ class ScoreWorker(Thread):
             seq_scores -= seq_scores.mean(axis=1, keepdims=True)
 
           # write to HDF5
-          self.scores_h5[sad_stat][si,:,:,:] = seq_scores.astype('float16')
+          self.scores_h5[sad_stat][si] = seq_scores.astype('float16')
 
       except:
         # communicate error

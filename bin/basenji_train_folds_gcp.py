@@ -164,13 +164,13 @@ def main():
 
           # create VM
           gcp_create = 'gcloud compute --project=seqnn-170614 instances create %s' % vm_name
-          gcp_create += ' --subnet=default --maintenance-policy=TERMINATE --service-account=1090276179925-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append --boot-disk-size=1536gb --boot-disk-type=pd-balanced --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any --metadata="install-nvidia-driver=True"'
+          gcp_create += ' --subnet=default --maintenance-policy=TERMINATE --service-account=1090276179925-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append --boot-disk-size=3072gb --boot-disk-type=pd-balanced --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any --metadata="install-nvidia-driver=True"'
           gcp_create += ' --machine-type=a2-highgpu-%dg' % num_gpu
           gcp_create += ' --accelerator=type=nvidia-tesla-a100,count=%d' % num_gpu
           gcp_create += ' --zone=%s' % options.zone
           gcp_create += ' --source-snapshot=%s' % options.disk_snap
           gcp_create += ' --boot-disk-device-name=%s' % vm_name
-          # print(gcp_create)
+          print(gcp_create)
           subprocess.call(gcp_create, shell=True)
 
         # scp/ssh needs time

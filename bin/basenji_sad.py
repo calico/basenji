@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from optparse import OptionParser
 import json
+import pdb
 import pickle
 import os
 from queue import Queue
@@ -49,7 +50,7 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
   parser.add_option('-f', dest='genome_fasta',
-      default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
+      default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
   parser.add_option('-n', dest='norm_file',
       default=None,
@@ -166,6 +167,7 @@ def main():
   # can we sum on GPU?
   length_stats = set(['SAX','SAXR','SAR','ALT','REF'])
   sum_length = length_stats.isdisjoint(set(options.sad_stats))
+  sum_length = False # minimal influence
 
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
@@ -382,20 +384,20 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
   # compare reference to alternative via mean subtraction
   if 'SAD' in sad_stats:
     sad = alt_preds_sum - ref_preds_sum
-    sad_out['SAD'][si,:] = sad.astype('float16')
+    sad_out['SAD'][si] = sad.astype('float16')
 
   # compare reference to alternative via max subtraction
   if 'SAX' in sad_stats:
     sad_vec = (alt_preds - ref_preds)
     max_i = np.argmax(np.abs(sad_vec), axis=0)
     sax = sad_vec[max_i, np.arange(num_targets)]
-    sad_out['SAX'][si,:] = sax.astype('float16')
+    sad_out['SAX'][si] = sax.astype('float16')
 
   # compare reference to alternative via mean log division
   if 'SADR' in sad_stats:
     sar = np.log2(alt_preds_sum + log_pseudo) \
                    - np.log2(ref_preds_sum + log_pseudo)
-    sad_out['SADR'][si,:] = sar.astype('float16')
+    sad_out['SADR'][si] = sar.astype('float16')
 
   # compare reference to alternative via max subtraction
   if 'SAXR' in sad_stats:
@@ -403,20 +405,20 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
                 - np.log2(ref_preds + log_pseudo)
     max_i = np.argmax(np.abs(sar_vec), axis=0)
     saxr = sar_vec[max_i, np.arange(num_targets)]
-    sad_out['SAXR'][si,:] = saxr.astype('float16')
+    sad_out['SAXR'][si] = saxr.astype('float16')
 
   # compare geometric means
   if 'SAR' in sad_stats:
     sar_vec = np.log2(alt_preds + log_pseudo) \
                 - np.log2(ref_preds + log_pseudo)
     geo_sad = sar_vec.sum(axis=0)
-    sad_out['SAR'][si,:] = geo_sad.astype('float16')
+    sad_out['SAR'][si] = geo_sad.astype('float16')
 
   # predictions
   if 'REF' in sad_stats:
-    sad_out['REF'][si,:] = ref_preds.astype('float16')
+    sad_out['REF'][si] = ref_preds.astype('float16')
   if 'ALT' in sad_stats:
-    sad_out['ALT'][si,:] = alt_preds.astype('float16')
+    sad_out['ALT'][si] = alt_preds.astype('float16')
 
 
 class SNPWorker(Thread):

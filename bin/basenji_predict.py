@@ -49,7 +49,7 @@ def main():
   parser.add_option('-b', dest='track_bed',
       help='BED file describing regions so we can output BigWig tracks')
   parser.add_option('-g', dest='genome_file',
-      default='%s/tutorials/data/human.hg19.genome' % os.environ['BASENJIDIR'],
+      default='%s/data/human.hg38.genome' % os.environ['BASENJIDIR'],
       help='Chromosome length information [Default: %default]')
   parser.add_option('--mc', dest='mc_n',
       default=0, type='int',

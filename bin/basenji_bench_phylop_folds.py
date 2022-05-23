@@ -112,7 +112,7 @@ def main():
   fold_options.add_option('--name', dest='name',
       default='sat', help='SLURM name prefix [Default: %default]')
   fold_options.add_option('-q', dest='queue',
-      default='gtx1080ti',
+      default='geforce',
       help='SLURM queue on which to run the jobs [Default: %default]')
   fold_options.add_option('-r', dest='ref_dir',
       default=None, help='Reference directory for statistical tests')

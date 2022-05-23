@@ -46,7 +46,7 @@ def main():
   # sad options
   sad_options = OptionGroup(parser, 'basenji_sad.py options')
   sad_options.add_option('-f', dest='genome_fasta',
-      default='%s/data/hg19.fa' % os.environ['BASENJIDIR'],
+      default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
   sad_options.add_option('-n', dest='norm_file',
       default=None,
@@ -113,7 +113,7 @@ def main():
   fold_options.add_option('--name', dest='name',
       default='sad', help='SLURM name prefix [Default: %default]')
   fold_options.add_option('-q', dest='queue',
-      default='gtx1080ti',
+      default='geforce',
       help='SLURM queue on which to run the jobs [Default: %default]')
   fold_options.add_option('-r', dest='ref_dir',
       default=None, help='Reference directory for statistical tests')

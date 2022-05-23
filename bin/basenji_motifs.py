@@ -282,7 +282,7 @@ def info_content(pwm, transpose=False, bg_gc=0.415):
   """ Compute PWM information content.
 
     In the original analysis, I used a bg_gc=0.5. For any
-    future analysis, I ought to switch to the true hg19
+    future analysis, I ought to switch to the true hg38
     value of 0.415.
     """
   pseudoc = 1e-9

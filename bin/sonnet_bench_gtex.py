@@ -97,7 +97,7 @@ def main():
       help='Number of processes, passed by multi script. \
             (Unused, but needs to appear as dummy.)')
   parser.add_option('-q', dest='queue',
-      default='gtx1080ti',
+      default='geforce',
       help='SLURM queue on which to run the jobs [Default: %default]')
   parser.add_option('-r', dest='restart',
       default=False, action='store_true',

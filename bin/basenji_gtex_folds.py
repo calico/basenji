@@ -46,7 +46,7 @@ def main():
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')
   parser.add_option('-q', dest='queue',
-      default='gtx1080ti',
+      default='geforce',
       help='SLURM queue on which to run the jobs [Default: %default]')
   parser.add_option('-r', dest='ref_dir',
       default=None, help='Reference directory for statistical tests')

@@ -116,7 +116,7 @@ def main():
       help='Number of processes, passed by multi script. \
             (Unused, but needs to appear as dummy.)')
   fold_options.add_option('-q', dest='queue',
-      default='gtx1080ti',
+      default='geforce',
       help='SLURM queue on which to run the jobs [Default: %default]')
   fold_options.add_option('-r', dest='restart',
       default=False, action='store_true',
@@ -179,7 +179,7 @@ def main():
         # positive job 
         job_base = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0]
         sad_out_dir = '%s/%s' % (it_out_dir, job_base)
-        if not options.restart or not os.path.isfile('%s/sad.h5'%sad_out_dir):
+        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir):
           cmd_sad = '%s %s' % (cmd_base, gtex_pos_vcf)
           cmd_sad += ' %s' % options_string(options, sad_options, sad_out_dir)
           name = '%s_%s' % (options.name, job_base)
@@ -193,7 +193,7 @@ def main():
         gtex_neg_vcf = gtex_pos_vcf.replace('_pos.','_neg.')
         job_base = os.path.splitext(os.path.split(gtex_neg_vcf)[1])[0]
         sad_out_dir = '%s/%s' % (it_out_dir, job_base)
-        if not options.restart or not os.path.isfile('%s/sad.h5'%sad_out_dir):
+        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir):
           cmd_sad = '%s %s' % (cmd_base, gtex_neg_vcf)
           cmd_sad += ' %s' % options_string(options, sad_options, sad_out_dir)
           name = '%s_%s' % (options.name, job_base)
@@ -294,6 +294,16 @@ def main():
 
   slurm.multi_run(jobs, verbose=True)
 
+def complete_h5(h5_file):
+  if os.path.isfile(h5_file):
+    try:
+      h5_open = h5py.File(h5_file, 'r')
+      h5_open.close()
+      return True
+    except:
+      return False
+  else:
+    return
 
 def ensemble_sad_h5(ensemble_h5_file, scores_files):
   # open ensemble

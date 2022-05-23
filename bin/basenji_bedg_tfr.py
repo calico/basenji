@@ -119,7 +119,7 @@ def main():
 
   #######################################################
   # predict
-  '''
+  
   # compute predictions
   test_preds = seqnn_model.predict(eval_data)
 
@@ -129,7 +129,7 @@ def main():
   # write bedgraph
   bed.write_bedgraph(test_preds, test_targets, data_dir,
     options.out_dir, options.split_label)
-  '''
+  
   #######################################################
   # collapse
 

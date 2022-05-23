@@ -188,8 +188,8 @@ def main():
       # fix stranded
       stranded = (class_df.strand_pair != class_df.index).all()
       if stranded:
-        np.save('%s/eval_preds_class.npy'%options.out_dir, eval_preds_class)
-        np.save('%s/eval_targets_class.npy'%options.out_dir, eval_targets_class)
+        # np.save('%s/eval_preds_class.npy'%options.out_dir, eval_preds_class)
+        # np.save('%s/eval_targets_class.npy'%options.out_dir, eval_targets_class)
         
         # reshape to concat +/-, assuming they're adjacent
         num_targets_class //= 2

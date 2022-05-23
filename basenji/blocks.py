@@ -1405,6 +1405,74 @@ def dense_block(inputs, units=None, activation='relu', activation_end=None,
   return current
 
 
+def dense_nac(inputs, units=None, activation='relu', flatten=False,
+    dropout=0, l2_scale=0, l1_scale=0, residual=False,
+    norm_type=None, bn_momentum=0.99, norm_gamma=None,
+    kernel_initializer='he_normal', **kwargs):
+  """Construct a single convolution block.
+
+  Args:
+    inputs:         [batch_size, seq_length, features] input sequence
+    units:          Conv1D filters
+    activation:     relu/gelu/etc
+    activation_end: Compute activation after the other operations
+    flatten:        Flatten across positional axis
+    dropout:        Dropout rate probability
+    l2_scale:       L2 regularization weight.
+    l1_scale:       L1 regularization weight.
+    residual:       Residual connection boolean
+    batch_norm:     Apply batch normalization
+    bn_momentum:    BatchNorm momentum
+    norm_gamma:       BatchNorm gamma (defaults according to residual)
+
+  Returns:
+    [batch_size, seq_length(?), features] output sequence
+  """
+  current = inputs
+
+  if units is None:
+    units = inputs.shape[-1]
+
+  # normalize
+  if norm_gamma is None:
+    norm_gamma = 'zeros' if residual else 'ones'
+  if norm_type == 'batch-sync':
+    current = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'batch':
+    current = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum, gamma_initializer=norm_gamma)(current)
+  elif norm_type == 'layer':
+    current = tf.keras.layers.LayerNormalization(
+      gamma_initializer=norm_gamma)(current)
+
+  # activation
+  current = layers.activate(current, activation)
+
+  # flatten
+  if flatten:
+    _, seq_len, seq_depth = current.shape
+    current = tf.keras.layers.Reshape((1,seq_len*seq_depth,))(current)
+
+  # dense
+  current = tf.keras.layers.Dense(
+    units=units,
+    use_bias=True,
+    kernel_initializer=kernel_initializer,
+    kernel_regularizer=tf.keras.regularizers.l1_l2(l1_scale, l2_scale)
+    )(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(rate=dropout)(current)
+
+  # residual add
+  if residual:
+    current = tf.keras.layers.Add()([inputs,current])
+
+  return current
+
+
 def final(inputs, units, activation='linear', flatten=False,
           kernel_initializer='he_normal', l2_scale=0, l1_scale=0, **kwargs):
   """Final simple transformation before comparison to targets.
@@ -1523,6 +1591,7 @@ name_func = {
   'cropping_2d': cropping_2d,
   'dense': dense,
   'dense_block': dense_block,
+  'dense_nac': dense_nac,
   'dilated_residual': dilated_residual,
   'dilated_residual_nac': dilated_residual_nac,
   'dilated_residual_2d': dilated_residual_2d,

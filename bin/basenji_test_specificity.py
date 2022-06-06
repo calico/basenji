@@ -186,7 +186,9 @@ def main():
       eval_targets_class = eval_targets[:,class_mask]
 
       # fix stranded
-      stranded = (class_df.strand_pair != class_df.index).all()
+      stranded = False
+      if 'strand_pair' in class_df.columns:
+        stranded = (class_df.strand_pair != class_df.index).all()
       if stranded:
         # np.save('%s/eval_preds_class.npy'%options.out_dir, eval_preds_class)
         # np.save('%s/eval_targets_class.npy'%options.out_dir, eval_targets_class)

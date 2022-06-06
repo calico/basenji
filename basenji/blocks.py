@@ -21,7 +21,7 @@ from basenji import layers
 # Convolution
 ############################################################
 def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activation_end=None,
-    strides=1, dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', 
+    stride=1, dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', 
     pool_size=1, pool_type='max', norm_type=None, bn_momentum=0.99, norm_gamma=None,
     residual=False, kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block.
@@ -31,7 +31,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
     filters:       Conv1D filters
     kernel_size:   Conv1D kernel_size
     activation:    relu/gelu/etc
-    strides:       Conv1D strides
+    stride:        Conv1D stride
     dilation_rate: Conv1D dilation rate
     l2_scale:      L2 regularization weight.
     dropout:       Dropout rate probability
@@ -65,7 +65,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
   current = conv_layer(
     filters=filters,
     kernel_size=kernel_size,
-    strides=strides,
+    strides=stride,
     padding='same',
     use_bias=(norm_type is None),
     dilation_rate=dilation_rate,
@@ -108,7 +108,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
   return current
 
 
-def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1, l2_scale=0,
+def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', stride=1, l2_scale=0,
      residual=False, dropout=0, dropout_residual=0, pool_size=1, pool_type='max',
      norm_type=None, bn_momentum=0.99, norm_gamma=None, use_bias=None,
      conv_type='standard', kernel_initializer='he_normal', padding='same'):
@@ -119,7 +119,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
     filters:       Conv1D filters
     kernel_size:   Conv1D kernel_size
     activation:    relu/gelu/etc
-    strides:       Conv1D strides
+    stride:        Conv1D stride
     l2_scale:      L2 regularization weight.
     dropout:       Dropout rate probability
     conv_type:     Conv1D layer type
@@ -151,7 +151,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
   current = conv_layer(
     filters=filters,
     kernel_size=kernel_size,
-    strides=strides,
+    strides=stride,
     padding='same',
     use_bias=use_bias,
     kernel_initializer=kernel_initializer,
@@ -203,7 +203,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', strides=1,
   return current
 
 
-def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
+def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
     dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
     pool_size=1, pool_type='max', norm_type=None, bn_momentum=0.99, norm_gamma=None,
     kernel_initializer='he_normal', padding='same'):
@@ -214,7 +214,7 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
     filters:       Conv1D filters
     kernel_size:   Conv1D kernel_size
     activation:    relu/gelu/etc
-    strides:       Conv1D strides
+    stride:        Conv1D stride
     dilation_rate: Conv1D dilation rate
     l2_scale:      L2 regularization weight.
     dropout:       Dropout rate probability
@@ -257,7 +257,7 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', strides=1,
   current = conv_layer(
     filters=filters,
     kernel_size=kernel_size,
-    strides=strides,
+    strides=stride,
     padding='same',
     use_bias=True,
     dilation_rate=dilation_rate,
@@ -374,7 +374,7 @@ def fpn_unet(inputs, unet_repr, activation='relu', stride=2,
     inputs:        [batch_size, seq_length, features] input sequence
     kernel_size:   Conv1D kernel_size
     activation:    relu/gelu/etc
-    strides:       Conv1D strides
+    stride:        UpSample stride
     l2_scale:      L2 regularization weight.
     dropout:       Dropout rate probability
     norm_type:     Apply batch or layer normalization
@@ -440,7 +440,7 @@ def upsample_unet(inputs, unet_repr, activation='relu', stride=2,
     filters:       Conv1D filters
     kernel_size:   Conv1D kernel_size
     activation:    relu/gelu/etc
-    strides:       Conv1D strides
+    stride:        UpSample stride
     l2_scale:      L2 regularization weight.
     dropout:       Dropout rate probability
     conv_type:     Conv1D layer type
@@ -521,7 +521,7 @@ def tconv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
     filters:       Conv1D filters
     kernel_size:   Conv1D kernel_size
     activation:    relu/gelu/etc
-    strides:       Conv1D strides
+    stride:        UpSample stride
     l2_scale:      L2 regularization weight.
     dropout:       Dropout rate probability
     conv_type:     Conv1D layer type
@@ -572,7 +572,7 @@ def concat_unet(inputs, unet_repr, **kwargs):
   return current
 
 def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard', 
-    kernel_size=1, strides=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1,
+    kernel_size=1, stride=1, dilation_rate=1, l2_scale=0, dropout=0, pool_size=1,
     norm_type=None, bn_momentum=0.99, norm_gamma='ones',
     kernel_initializer='he_normal', symmetric=False):
   """Construct a single 2D convolution block.   """
@@ -593,7 +593,7 @@ def conv_block_2d(inputs, filters=128, activation='relu', conv_type='standard',
   current = conv_layer(
     filters=filters,
     kernel_size=kernel_size,
-    strides=strides,
+    strides=stride,
     padding='same',
     use_bias=(norm_type is None),
     dilation_rate=dilation_rate,
@@ -1094,9 +1094,9 @@ def transformer_tower(inputs, repeat=2, block_type='transformer', **kwargs):
 
 
 def squeeze_excite(inputs, activation='relu', bottleneck_ratio=8,
-     additive=False, batch_norm=False, bn_momentum=0.9, **kwargs):
+     additive=False, norm_type=None, bn_momentum=0.9, **kwargs):
   return layers.SqueezeExcite(activation, additive, bottleneck_ratio,
-    batch_norm, bn_momentum)(inputs)
+    norm_type, bn_momentum)(inputs)
 
 def wheeze_excite(inputs, pool_size, **kwargs):
   return layers.WheezeExcite(pool_size)(inputs)

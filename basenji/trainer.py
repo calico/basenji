@@ -781,7 +781,7 @@ def safe_next(data_iter, retry=5, sleep=10):
   while d is None and attempts < retry:
     try:
       d = next(data_iter)
-    except tf.python.framework.errors_impl.AbortedError:
+    except tf.errors.AbortedError:
       print('AbortedError, which has previously indicated NFS daemon restart.', file=sys.stderr)
       time.sleep(sleep)
     attempts += 1

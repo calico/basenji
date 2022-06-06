@@ -644,12 +644,12 @@ class WheezeExcite(tf.keras.layers.Layer):
 
 
 class SqueezeExcite(tf.keras.layers.Layer):
-  def __init__(self, activation='relu', additive=False, bottleneck_ratio=8,
-    batch_norm=False, bn_momentum=0.9):
+  def __init__(self, activation='relu', additive=False, bottleneck_ratio=8, 
+    norm_type=None, bn_momentum=0.9):
     super(SqueezeExcite, self).__init__()
     self.activation = activation
     self.additive = additive
-    self.batch_norm = batch_norm
+    self.norm_type = norm_type
     self.bn_momentum = bn_momentum
     self.bottleneck_ratio = bottleneck_ratio
 
@@ -672,10 +672,19 @@ class SqueezeExcite(tf.keras.layers.Layer):
     self.dense2 = tf.keras.layers.Dense(
       units=self.num_channels,
       activation=None)
-    if self.batch_norm:
-      self.bn = tf.keras.layers.BatchNormalization(
-        momentum=self.bn_momentum,
+
+    # normalize
+    if self.norm_type == 'batch-sync':
+      self.norm = tf.keras.layers.experimental.SyncBatchNormalization(
+        momentum=self.bn_momentum, gamma_initializer='zeros')
+    elif self.norm_type == 'batch':
+      self.norm = tf.keras.layers.BatchNormalization(
+        momentum=self.bn_momentum, gamma_initializer='zeros')
+    elif self.norm_type == 'layer':
+      self.norm = tf.keras.layers.LayerNormalization(
         gamma_initializer='zeros')
+    else:
+      self.norm = None
 
   def call(self, x):
     # activate
@@ -687,8 +696,8 @@ class SqueezeExcite(tf.keras.layers.Layer):
     # excite
     excite = self.dense1(squeeze)
     excite = self.dense2(excite)
-    if self.batch_norm:
-      excite = self.bn(excite)
+    if self.norm is not None:
+      excite = self.norm(excite)
 
     # scale
     if self.one_or_two == 'one':
@@ -709,7 +718,7 @@ class SqueezeExcite(tf.keras.layers.Layer):
     config.update({
       'activation': self.activation,
       'additive': self.additive,
-      'batch_norm': self.batch_norm,
+      'norm_type': self.norm_type,
       'bn_momentum': self.bn_momentum,
       'bottleneck_ratio': self.bottleneck_ratio
     })

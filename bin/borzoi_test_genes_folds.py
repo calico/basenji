@@ -65,7 +65,7 @@ def main():
   parser.add_option('--label_ref', dest='label_ref',
       default='Reference', help='Reference label [Default: %default]')
   parser.add_option('-m', dest='metric',
-  	  default='PearsonR', help='Train/test metric [Default: Pearsonr or AUPRC]')
+  	  default='pearsonr', help='Train/test metric [Default: Pearsonr or AUPRC]')
   parser.add_option('--name', dest='name',
       default='test', help='SLURM name prefix [Default: %default]')
   parser.add_option('-o', dest='exp_dir',
@@ -158,20 +158,20 @@ def main():
                       queue=options.queue,
                       cpu=2, gpu=1,
                       mem=45000,
-                      time='6:00:00')
+                      time='12:00:00')
         jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)
 
   if options.dataset_i is None:
-    test_prefix = 'test'
+    test_prefix = 'testg'
   else:
-    test_prefix = 'test%d' % options.dataset_i
+    test_prefix = 'testg%d' % options.dataset_i
 
   if options.dataset_ref_i is None:
-    test_ref_prefix = 'test'
+    test_ref_prefix = 'testg'
   else:
-    test_ref_prefix = 'test%d' % options.dataset_ref_i
+    test_ref_prefix = 'testg%d' % options.dataset_ref_i
 
 
   ################################################################
@@ -227,19 +227,8 @@ def read_metrics(acc_glob_str, metric='pearsonr'):
   rep_cors = []
   acc_files = natsorted(glob.glob(acc_glob_str))
   for acc_file in acc_files:
-    try:
-      # tf2 version
-      acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
-      rep_cors.append(acc_df.loc[:,metric].mean())
-
-    except:
-      # tf1 version
-      cors = []
-      for line in open(acc_file):
-        a = line.split()
-        cors.append(float(a[3]))
-      rep_cors.append(np.mean(cors))
-  
+    acc_df = pd.read_csv(acc_file, sep='\t', index_col=0)
+    rep_cors.append(acc_df.loc[:,metric].mean())
   cors_mean = np.mean(rep_cors)
   cors_stdm = np.std(rep_cors) / np.sqrt(len(rep_cors))
 

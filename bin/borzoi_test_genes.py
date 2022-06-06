@@ -180,6 +180,7 @@ def main():
   for x, y in tqdm(eval_data.dataset):
     # predict only if gene overlaps
     yh = None
+    y = y.numpy()
 
     # assemble sequence bedtool
     seq_bed_lines = []
@@ -197,7 +198,7 @@ def main():
 
       if yh is None:
         # predict
-        yh = seqnn_model.ensemble.predict(x)
+        yh = seqnn_model.predict(x)
         
       # clip boundaries
       gene_seq_start = max(0, gene_start - seq_start)
@@ -208,12 +209,15 @@ def main():
       bin_end = int(np.round(gene_seq_end / pool_width))
 
       # slice gene region
-      yhb = yh[bsi,bin_start:bin_end]
-      yb = y[bsi,bin_start:bin_end]
+      yhb = yh[bsi,bin_start:bin_end].astype('float16')
+      yb = y[bsi,bin_start:bin_end].astype('float16')
 
       if len(yb) > 0:  
         gene_preds_dict.setdefault(gene_id,[]).append(yhb)
         gene_targets_dict.setdefault(gene_id,[]).append(yb)
+
+    # values_len_mean = np.mean([len(v) for v in gene_preds_dict.values()])
+    # print(len(gene_preds_dict), values_len_mean, flush=True)
 
     # advance sequence table index
     si += x.shape[0]
@@ -238,8 +242,8 @@ def main():
     if gene_targets_gi.shape[0] == 0:
       print(gene_id, gene_targets_gi.shape, gene_preds_gi.shape)
 
-    gene_preds_gi = gene_preds_gi.mean(axis=0) # * gene_lengths[gene_id]
-    gene_targets_gi = gene_targets_gi.mean(axis=0) # * gene_lengths[gene_id]
+    gene_preds_gi = gene_preds_gi.mean(axis=0, dtype='float32')
+    gene_targets_gi = gene_targets_gi.mean(axis=0, dtype='float32')
 
     gene_preds.append(gene_preds_gi)
     gene_targets.append(gene_targets_gi)

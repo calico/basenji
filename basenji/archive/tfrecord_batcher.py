@@ -106,8 +106,7 @@ def tfrecord_dataset(tfr_data_files_pattern,
     raise ValueError('batch_size is None')
 
   if use_static_batch_size:
-    dataset = dataset.apply(
-        tf.contrib.data.batch_and_drop_remainder(batch_size))
+    dataset = dataset.batch(batch_size, drop_remainder=True)
   else:
     dataset = dataset.batch(batch_size)
 

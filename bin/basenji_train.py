@@ -158,7 +158,7 @@ def main():
       # add a linear activation to cast last layer to float32
       model = seqnn_model.model
       new_outputs = tf.keras.layers.Activation('linear', dtype='float32')(model.layers[-1].output)
-      seqnn_model.models[0] = tf.keras.Model(inputs=model.layers[0].input, outputs=new_outputs)
+      seqnn_model.models[0] = CustomModel(inputs=model.layers[0].input, outputs=new_outputs)
 
       seqnn_trainer = trainer.Trainer(params_train, train_data, 
                                       eval_data, options.out_dir, loss_scale=True)

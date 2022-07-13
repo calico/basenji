@@ -126,18 +126,18 @@ class Trainer:
       save_best = tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir,
                                                      save_best_only=True, mode='max',
                                                      monitor='val_pearsonr', verbose=1)
-      # tensorboard profiler
-      from datetime import datetime
-      logs = "logs/" + datetime.now().strftime("%Y%m%d-%H%M%S")
-      tboard_callback = tf.keras.callbacks.TensorBoard(log_dir = logs,
-                                                       histogram_freq = 1,
-                                                       profile_batch = '100,200')
+    # tensorboard profiler
+    #from datetime import datetime
+    #logs = "logs/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    #tboard_callback = tf.keras.callbacks.TensorBoard(log_dir = logs,
+    #                                                 histogram_freq = 1,
+    #                                                 profile_batch = '100,200')
 
     callbacks = [
       early_stop,
       #tf.keras.callbacks.TensorBoard(self.out_dir),
+      #tboard_callback, # add additional tensorboard callback
       tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
-      tboard_callback, # add additional tensorboard callback
       save_best]
 
     seqnn_model.model.fit(

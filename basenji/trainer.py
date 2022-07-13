@@ -26,6 +26,7 @@ except ImportError:
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
+from tensorflow.keras import mixed_precision
 
 from basenji import layers
 from basenji import metrics
@@ -57,7 +58,7 @@ def parse_loss(loss_label, strategy=None, keras_fit=True, spec_weight=1, total_w
 
 class Trainer:
   def __init__(self, params, train_data, eval_data, out_dir,
-               strategy=None, num_gpu=1, keras_fit=True):
+               strategy=None, num_gpu=1, keras_fit=True, loss_scale=False):
     self.params = params
     self.train_data = train_data
     if type(self.train_data) is not list:
@@ -94,7 +95,7 @@ class Trainer:
     self.loss_fn = parse_loss(self.loss, self.strategy, keras_fit, self.spec_weight, self.total_weight)
 
     # optimizer
-    self.make_optimizer()
+    self.make_optimizer(loss_scale=loss_scale)
 
   def compile(self, seqnn_model):
     for model in seqnn_model.models:
@@ -103,10 +104,10 @@ class Trainer:
       else:
         num_targets = model.output_shape[-1]
         model_metrics = [metrics.PearsonR(num_targets), metrics.R2(num_targets)]
-      
       model.compile(loss=self.loss_fn,
                     optimizer=self.optimizer,
                     metrics=model_metrics)
+    
     self.compiled = True
 
   def fit_keras(self, seqnn_model):
@@ -125,11 +126,18 @@ class Trainer:
       save_best = tf.keras.callbacks.ModelCheckpoint('%s/model_best.h5'%self.out_dir,
                                                      save_best_only=True, mode='max',
                                                      monitor='val_pearsonr', verbose=1)
+      # tensorboard profiler
+      from datetime import datetime
+      logs = "logs/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+      tboard_callback = tf.keras.callbacks.TensorBoard(log_dir = logs,
+                                                       histogram_freq = 1,
+                                                       profile_batch = '100,200')
 
     callbacks = [
       early_stop,
-      tf.keras.callbacks.TensorBoard(self.out_dir),
+      #tf.keras.callbacks.TensorBoard(self.out_dir),
       tf.keras.callbacks.ModelCheckpoint('%s/model_check.h5'%self.out_dir),
+      tboard_callback, # add additional tensorboard callback
       save_best]
 
     seqnn_model.model.fit(
@@ -523,8 +531,7 @@ class Trainer:
         valid_r.reset_states()
         valid_r2.reset_states()
 
-
-  def make_optimizer(self):
+  def make_optimizer(self, loss_scale=False):
     cyclical1 = True
     for lrs_param in ['initial_learning_rate', 'maximal_learning_rate', 'final_learning_rate', 'train_epochs_cycle1']:
       cyclical1 = cyclical1 & (lrs_param in self.params)
@@ -597,10 +604,13 @@ class Trainer:
           momentum=self.params.get('momentum', 0.99),
           clipnorm=clip_norm,
           global_clipnorm=global_clipnorm)
-
+    
     else:
       print('Cannot recognize optimization algorithm %s' % optimizer_type)
       exit(1)
+    
+    if loss_scale:
+      self.optimizer = mixed_precision.LossScaleOptimizer(self.optimizer)
 
 
 ################################################################

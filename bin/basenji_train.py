@@ -40,6 +40,26 @@ basenji_train.py
 Train Basenji model using given parameters and data.
 """
 
+class CustomModel(tf.keras.Model):
+    def train_step(self, data):
+        x, y = data
+
+        with tf.GradientTape() as tape:
+            y_pred = tf.cast(self(x, training=True), tf.float32)
+            y = tf.cast(y, tf.float32)
+            loss = self.compiled_loss(y, y_pred, regularization_losses=self.losses)
+            scaled_loss = self.optimizer.get_scaled_loss(loss)
+        
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        scaled_gradients = tape.gradient(scaled_loss, trainable_vars)
+        gradients = self.optimizer.get_unscaled_gradients(scaled_gradients)
+        
+        # Update weights, metrics
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        self.compiled_metrics.update_state(y, y_pred)
+        return {m.name: m.result() for m in self.metrics}
+    
 ################################################################################
 # main
 ################################################################################
@@ -118,7 +138,8 @@ def main():
   params_model['strand_pair'] = strand_pairs
 
   if options.mixed_precision:
-    mixed_precision.set_global_policy('mixed_float16')
+    policy = mixed_precision.Policy('mixed_float16')
+    mixed_precision.set_global_policy(policy)
 
   if params_train.get('num_gpu', 1) == 1:
     ########################################
@@ -131,12 +152,24 @@ def main():
     if options.restore:
       seqnn_model.restore(options.restore, trunk=options.trunk)
 
-    # initialize trainer
-    seqnn_trainer = trainer.Trainer(params_train, train_data, 
-                                    eval_data, options.out_dir)
-
     # compile model
-    seqnn_trainer.compile(seqnn_model)
+    if options.mixed_precision:
+      
+      # add a linear activation to cast last layer to float32
+      model = seqnn_model.model
+      new_outputs = tf.keras.layers.Activation('linear', dtype='float32')(model.layers[-1].output)
+      seqnn_model.models[0] = tf.keras.Model(inputs=model.layers[0].input, outputs=new_outputs)
+
+      seqnn_trainer = trainer.Trainer(params_train, train_data, 
+                                      eval_data, options.out_dir, loss_scale=True)
+      seqnn_trainer.compile(seqnn_model)
+      seqnn_model.model = seqnn_model.models[0]
+    
+    else:
+      seqnn_trainer = trainer.Trainer(params_train, train_data, 
+                                      eval_data, options.out_dir)
+
+      seqnn_trainer.compile(seqnn_model)
 
   else:
     ########################################

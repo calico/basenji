@@ -393,6 +393,12 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
     sax = sad_vec[max_i, np.arange(num_targets)]
     sad_out['SAX'][si] = sax.astype('float16')
 
+  # compare reference to alternative via mean subtraction
+  if 'ASAD' in sad_stats:
+    sad_vec = np.abs(alt_preds - ref_preds)
+    asad = sad_vec.sum(axis=0)
+    sad_out['SAD'][si] = asad.astype('float16')
+
   # compare reference to alternative via mean log division
   if 'SADR' in sad_stats:
     sar = np.log2(alt_preds_sum + log_pseudo) \

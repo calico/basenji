@@ -23,6 +23,7 @@ try:
   import tensorflow_addons as tfa
 except ImportError:
   pass
+from tensorflow.keras import mixed_precision
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
@@ -37,6 +38,9 @@ def parse_loss(loss_label, strategy=None, keras_fit=True, spec_weight=1, total_w
       loss_fn = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE)
     elif loss_label == 'bce':
       loss_fn = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
+    elif loss_label == 'poisson_mn':
+      loss_fn = metrics.PoissonMultinomial(total_weight,
+        reduction=tf.keras.losses.Reduction.NONE)
     else:
       loss_fn = tf.keras.losses.Poisson(reduction=tf.keras.losses.Reduction.NONE)
   else:
@@ -478,6 +482,8 @@ class Trainer:
             train_step_distr(x, y)
           else:
             train_step(x, y)
+          if ei == epoch_start and si == 0:
+            print('Successful first step!', flush=True)
 
         # evaluate
         for x, y in self.eval_data[0].dataset:

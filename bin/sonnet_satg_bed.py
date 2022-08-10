@@ -226,29 +226,6 @@ def main():
     print('Predicting %d' % si, flush=True)
     seq_1hot = dna_io.dna_1hot(seq_dna)
 
-    # # forward
-    # seq_1hot_tf = tf.convert_to_tensor(seq_1hot, dtype=tf.float32)[tf.newaxis]
-
-    # # compute gradients
-    # grad_f = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
-    #   center_start, center_end, options.species).numpy()
-
-    # if options.rc:
-    #   # reverse
-    #   seq_1hot_r = dna_io.hot1_rc(seq_1hot)
-    #   seq_1hot_tf = tf.convert_to_tensor(seq_1hot_r, dtype=tf.float32)[tf.newaxis]
-
-    #   # compute gradients
-    #   grad_r = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
-    #     center_start, center_end, options.species).numpy()
-    #   grad_r = dna_io.hot1_rc(grad_r)
-
-    #   # average
-    #   grad = (grad_f + grad_r) / 2
-
-    # else:
-    #   grad = grad_f
-
     grad_ens = []
     for shift in options.shifts:
       seq_1hot_aug = dna_io.hot1_augment(seq_1hot, shift=shift)

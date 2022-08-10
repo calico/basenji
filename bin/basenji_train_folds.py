@@ -88,7 +88,7 @@ def main():
       default=False, action='store_true',
       help='Restart training from checkpoint [Default: %default]')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf2.6',
+      default='tf28',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('-f', dest='fold_subset',
       default=None, type='int',

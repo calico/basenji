@@ -41,6 +41,7 @@ class SeqNN():
     self.augment_rc = False
     self.augment_shift = [0]
     self.strand_pair = []
+    self.verbose = True
 
   def build_block(self, current, block_params):
     """Construct a SeqNN block.
@@ -173,7 +174,7 @@ class SeqNN():
     for ho in self.head_output:
       self.models.append(tf.keras.Model(inputs=sequence, outputs=ho))
     self.model = self.models[0]
-    print(self.model.summary())
+    if self.verbose: print(self.model.summary())
 
     ###################################################
     # track pooling/striding and cropping
@@ -201,10 +202,11 @@ class SeqNN():
       if type(self.target_lengths[-1]) == tf.compat.v1.Dimension:
         self.target_lengths[-1] = self.target_lengths[-1].value
       self.target_crops.append((target_full_length - self.target_lengths[-1])//2)
-
-    print('model_strides', self.model_strides)
-    print('target_lengths', self.target_lengths)
-    print('target_crops', self.target_crops)
+    
+    if self.verbose:
+      print('model_strides', self.model_strides)
+      print('target_lengths', self.target_lengths)
+      print('target_crops', self.target_crops)
 
 
   def build_embed(self, conv_layer_i, batch_norm=True):

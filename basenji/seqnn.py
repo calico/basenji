@@ -277,8 +277,8 @@ class SeqNN():
     self.model = tf.keras.Model(inputs=sequence, outputs=sad)
 
 
-  def build_slice(self, target_slice=None):
-    if target_slice is not None:
+  def build_slice(self, target_slice=None, target_sum=False):
+    if target_slice is not None or target_sum:
       # if len(target_slice) < self.num_targets():
 
       # sequence input
@@ -288,10 +288,19 @@ class SeqNN():
       predictions = self.model(sequence)
 
       # slice
-      predictions_slice = tf.gather(predictions, target_slice, axis=-1)
+      if target_slice is None:
+        predictions_slice = predictions
+      else:
+        predictions_slice = tf.gather(predictions, target_slice, axis=-1)
+
+      # sum
+      if target_sum:
+        predictions_sum = tf.reduce_sum(predictions_slice, keepdims=True, axis=-1)
+      else:
+        predictions_sum = predictions_slice
 
       # replace model
-      self.model = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
+      self.model = tf.keras.Model(inputs=sequence, outputs=predictions_sum)
 
 
   def downcast(self, dtype=tf.float16, head_i=None):
@@ -376,6 +385,49 @@ class SeqNN():
     weights = conv_layer.weights[0].numpy()
     weights = np.transpose(weights, [2,1,0])
     return weights
+
+
+  def gradients(self, seq_1hot, head_i=None, pos_slice=None, dtype='float16'):
+    """ Compute input gradients sequence. """
+    # choose model
+    if self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
+      model = self.models[head_i]
+    else:
+      model = self.model
+
+    # verify tensor shape
+    seq_1hot = seq_1hot.astype('float32')
+    seq_1hot = tf.convert_to_tensor(seq_1hot, dtype=tf.float32)
+    if len(seq_1hot.shape) < 3:
+      seq_1hot = tf.expand_dims(seq_1hot, axis=0)
+
+    with tf.GradientTape() as tape:
+      tape.watch(seq_1hot)
+
+      # predict
+      preds = model(seq_1hot, training=False)
+
+      if pos_slice is not None:
+        # slice specified positions
+        preds = tf.gather(preds, pos_slice, axis=-2)
+      
+      # sum across positions
+      preds = tf.reduce_sum(preds, axis=-2)
+
+    # compute jacboian
+    grads = tape.jacobian(preds, seq_1hot)
+    grads = tf.squeeze(grads)
+    grads = tf.transpose(grads, [1,2,0])
+
+    # zero mean each position
+    grads = grads - tf.reduce_mean(grads, axis=-2, keepdims=True)
+
+    # convert numpy dtype
+    grads = grads.numpy().astype(dtype)
+
+    return grads
 
 
   def num_targets(self, head_i=None):

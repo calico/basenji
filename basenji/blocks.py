@@ -110,7 +110,7 @@ def conv_block(inputs, filters=None, kernel_size=1, activation='relu', activatio
 
 def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', stride=1, l2_scale=0,
      residual=False, dropout=0, dropout_residual=0, pool_size=1, pool_type='max',
-     norm_type=None, bn_momentum=0.99, norm_gamma=None, use_bias=None,
+     norm_type=None, bn_momentum=0.99, norm_gamma=None, use_bias=None, se=False,
      conv_type='standard', kernel_initializer='he_normal', padding='same'):
   """Construct a single convolution block, assumed to be operating on DNA.
 
@@ -155,7 +155,11 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', stride=1, 
     padding='same',
     use_bias=use_bias,
     kernel_initializer=kernel_initializer,
-    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)   
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
+
+  # squeeze-excite
+  if se:
+    current = squeeze_excite(current)
 
   if residual:
     # residual conv block
@@ -165,6 +169,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', stride=1, 
       dropout=dropout_residual,
       conv_type=conv_type,
       norm_type=norm_type,
+      se=se,
       bn_momentum=bn_momentum,
       kernel_initializer=kernel_initializer)
 
@@ -206,7 +211,7 @@ def conv_dna(inputs, filters=None, kernel_size=15, activation='relu', stride=1, 
 def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
     dilation_rate=1, l2_scale=0, dropout=0, conv_type='standard', residual=False,
     pool_size=1, pool_type='max', norm_type=None, bn_momentum=0.99, norm_gamma=None,
-    kernel_initializer='he_normal', padding='same'):
+    kernel_initializer='he_normal', padding='same', se=False):
   """Construct a single convolution block.
 
   Args:
@@ -258,12 +263,16 @@ def conv_nac(inputs, filters=None, kernel_size=1, activation='relu', stride=1,
     filters=filters,
     kernel_size=kernel_size,
     strides=stride,
-    padding='same',
+    padding=padding,
     use_bias=True,
     dilation_rate=dilation_rate,
     kernel_initializer=kernel_initializer,
     kernel_regularizer=tf.keras.regularizers.l2(l2_scale))(current)
 
+  # squeeze-excite
+  if se:
+    current = squeeze_excite(current)
+  
   # dropout
   if dropout > 0:
     current = tf.keras.layers.Dropout(rate=dropout)(current)

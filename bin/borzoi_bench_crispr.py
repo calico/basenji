@@ -77,7 +77,7 @@ def main():
       default=None, type='int',
       help='Maximum concurrent processes [Default: %default]')
   bench_options.add_option('-p', dest='processes',
-      default=None, type='int',
+      default=1, type='int',
       help='Number of processes to parallelize satg. One will run locally [Default: %default]')
   bench_options.add_option('-q', dest='queue',
       default='standard',

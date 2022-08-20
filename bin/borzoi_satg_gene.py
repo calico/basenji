@@ -134,6 +134,8 @@ def main():
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
 
   # prep strand
+  orig_new_index = dict(zip(targets_df.index, np.arange(targets_df.shape[0])))
+  targets_strand_pair = np.array([orig_new_index[ti] for ti in targets_df.strand_pair])
   targets_strand_df = targets_prep_strand(targets_df)
   num_targets = targets_strand_df.shape[0]
   if options.sum_targets:
@@ -223,14 +225,30 @@ def main():
 
     # determine output positions
     gene_slice = gene.output_slice(seq_out_start, seq_out_len, model_stride, options.span)
+    if options.rc:
+      gene_slice_rc = target_length - gene_slice - 1
 
     if len(gene_slice) == 0:
       print('WARNING: %s no gene positions found.' % gene_id)
       grads = np.zeros((seq_len, 4, num_targets), dtype='float16')
 
     else:
-      # compute gradients
-      grads = seqnn_model.gradients(seq_1hot, pos_slice=gene_slice)
+      grads_ens = []
+      for shift in options.shifts:
+        seq_1hot_aug = dna_io.hot1_augment(seq_1hot, shift=shift)
+        grads_aug = seqnn_model.gradients(seq_1hot_aug, pos_slice=gene_slice)
+        grads_aug = unaugment_grads(grads_aug, fwdrc=True, shift=shift)
+        grads_ens.append(grads_aug)
+
+        if options.rc:
+          seq_1hot_aug = dna_io.hot1_rc(seq_1hot_aug)
+          grads_aug = seqnn_model.gradients(seq_1hot_aug, pos_slice=gene_slice_rc)
+          grads_aug = unaugment_grads(grads_aug, fwdrc=False, shift=shift)
+          grads_aug = grads_aug[...,targets_strand_pair]
+          grads_ens.append(grads_aug)
+
+      # ensemble mean
+      grads = np.array(grads_ens).mean(axis=0)
 
       # slice relevant strand targets
       if genes_strand[gi] == '+':
@@ -248,6 +266,37 @@ def main():
   # close files
   genome_open.close()
   scores_h5.close()    
+
+
+def unaugment_grads(grads, fwdrc=False, shift=0):
+  """ Undo sequence augmentation."""
+  # reverse complement
+  if not fwdrc:
+    # reverse
+    grads = grads[::-1, :, :]
+
+    # swap A and T
+    grads[:, [0, 3], :] = grads[:, [3, 0], :]
+
+    # swap C and G
+    grads[:, [1, 2], :] = grads[:, [2, 1], :]
+
+  # undo shift
+  if shift < 0:
+    # shift sequence right
+    grads[-shift:, :, :] = grads[:shift, :, :]
+
+    # fill in left unknowns
+    grads[:-shift, :, :] = 0
+
+  elif shift > 0:
+    # shift sequence left
+    grads[:-shift, :, :] = grads[shift:, :, :]
+
+    # fill in right unknowns
+    grads[-shift:, :, :] = 0
+
+  return grads
 
 
 def make_seq_1hot(genome_open, chrm, start, end, seq_len):

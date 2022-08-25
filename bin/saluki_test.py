@@ -71,9 +71,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
-  # parser.add_option('-t', dest='targets_file',
-  #     default=None, type='str',
-  #     help='File specifying target indexes and labels in table format')
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
+      help='File specifying target indexes and labels in table format')
   parser.add_option('--split', dest='split_label',
       default='test',
       help='Dataset split label for eg TFR pattern [Default: %default]')
@@ -99,9 +99,9 @@ def main():
   # inputs
 
   # read targets
-  # if options.targets_file is None:
-  #   options.targets_file = '%s/targets.txt' % data_dir
-  # targets_df = pd.read_csv(options.targets_file, index_col=0, sep='\t')
+  if options.targets_file is None:
+    options.targets_file = '%s/targets.txt' % data_dir
+  targets_df = pd.read_csv(options.targets_file, index_col=0, sep='\t')
 
   # read model parameters
   with open(params_file) as params_open:
@@ -132,28 +132,19 @@ def main():
   print('Test R2:           %7.5f' % test_metric2.mean())
 
   # write target-level statistics
-  # targets_acc_df = pd.DataFrame({
-  #   'index': targets_df.index,
-  #   'pearsonr': test_metric1,
-  #   'r2': test_metric2,
-  #   'identifier': targets_df.identifier,
-  #   'description': targets_df.description
-  #   })
-
-  # write target-level statistics
   targets_acc_df = pd.DataFrame({
-    'index': [0],
+    'index': targets_df.index,
     'pearsonr': test_metric1,
     'r2': test_metric2,
-    'identifier': ['123'],
-    'description': ['abc']
+    'identifier': targets_df.identifier,
+    'description': targets_df.description
     })
 
   targets_acc_df.to_csv('%s/acc.txt'%options.out_dir, sep='\t',
                         index=False, float_format='%.5f')
 
   #######################################################
-  # predict?
+  # predict
 
   if options.save:
     # compute predictions

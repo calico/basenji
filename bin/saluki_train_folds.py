@@ -65,7 +65,7 @@ def main():
       default=1, type='int',
       help='Number of cross-fold rounds [Default:%default]')
   rep_options.add_option('-e', dest='conda_env',
-      default='tf2.6-rna',
+      default='tf28',
       help='Anaconda environment [Default: %default]')
   rep_options.add_option('-f', dest='fold_subset',
       default=None, type='int',
@@ -124,7 +124,7 @@ def main():
   # arrange data
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+      rep_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
       os.makedirs(rep_dir, exist_ok=True)
 
       # make data directories
@@ -140,7 +140,7 @@ def main():
 
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      rep_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+      rep_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
       if options.restart and os.path.isdir('%s/train'%rep_dir):
         print('%s found and skipped.' % rep_dir)
       else:
@@ -183,7 +183,7 @@ def main():
   if not options.test_train_off:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
 
         for di in range(num_data):
           if num_data == 1:
@@ -229,7 +229,7 @@ def main():
   if not options.test_off:
     for ci in range(options.crosses):
       for fi in range(num_folds):
-        it_dir = '%s/f%d_c%d' % (options.out_dir, fi, ci)
+        it_dir = '%s/f%dc%d' % (options.out_dir, fi, ci)
 
         for di in range(num_data):
           if num_data == 1:
@@ -249,7 +249,8 @@ def main():
             basenji_cmd += ' conda activate %s;' % options.conda_env
             basenji_cmd += ' saluki_test.py'
             basenji_cmd += ' --head %d' % di
-            # basenji_cmd += ' --save'
+            # TEMP
+            basenji_cmd += ' --save'
             basenji_cmd += ' -o %s' % out_dir
             if options.shifts:
               basenji_cmd += ' --shifts %s' % options.shifts
@@ -314,7 +315,7 @@ def make_rep_data(data_dir, rep_data_dir, fi, ci):
   genes_df.to_csv('%s/genes.tsv'%rep_data_dir, sep='\t')
 
   # copy targets
-  # shutil.copy('%s/targets.txt'%data_dir, '%s/targets.txt'%rep_data_dir)
+  shutil.copy('%s/targets.txt'%data_dir, '%s/targets.txt'%rep_data_dir)
 
   # sym link tfrecords
   rep_tfr_dir = '%s/tfrecords' % rep_data_dir

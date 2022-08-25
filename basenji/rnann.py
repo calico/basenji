@@ -26,7 +26,7 @@ class RnaNN:
   def __init__(self, params):
     self.set_defaults()
     for key, value in params.items():
-      self.__setattr__(key, value)
+      self.__setattr__(key, value)    
     self.build_model()
     self.ensemble = None
 
@@ -35,7 +35,7 @@ class RnaNN:
     # others are best defaulted closer to the source
     self.seq_depth = 6
     self.augment_shift = [0]
-    self.num_targets = 1
+    self.num_targets = [1]
     self.initializer = 'he_normal'
     self.l2_scale = 0
     self.activation = 'relu'
@@ -137,9 +137,13 @@ class RnaNN:
     ###################################################
     # compile model(s)
     ###################################################
+    if not isinstance(self.num_targets, list):
+      self.num_targets = [self.num_targets]
+    self.heads = len(self.num_targets)
+
     self.models = []
     for hi in range(self.heads):
-      prediction = tf.keras.layers.Dense(self.num_targets,
+      prediction = tf.keras.layers.Dense(self.num_targets[hi],
                                          kernel_initializer=self.initializer)(current)
       self.models.append(tf.keras.Model(inputs=sequence, outputs=prediction))
     

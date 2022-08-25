@@ -113,6 +113,7 @@ def main():
   # setup model
   seqnn_model = rnann.RnaNN(params_model)
   seqnn_model.restore(model_file)
+  num_targets = seqnn_model.num_targets[0]
   # seqnn_model.build_ensemble(False, options.shifts)
 
   #################################################################
@@ -201,7 +202,7 @@ def main():
 
   # initialize output table
   ssd_out = open('%s/ssd.tsv' % options.out_dir, 'w')
-  headers = ['variant', 'transcript'] + ['SSD%d'%si for si in range(params_model['num_targets'])]
+  headers = ['variant', 'transcript'] + ['SSD%d'%si for si in range(num_targets)]
   print('\t'.join(headers), file=ssd_out)
 
   # initialize predictions stream

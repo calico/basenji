@@ -158,7 +158,9 @@ def main():
   # predict scores, write output
 
   # initialize predictions stream
-  preds_stream = stream.PredStreamGen(seqnn_model, seqs_gen, params_train['batch_size'])
+  batch_size = 2*params_train['batch_size']
+  preds_stream = stream.PredStreamGen(seqnn_model, seqs_gen,
+    batch_size, stream_seqs=8*batch_size)
 
   # sequence index
   si = 0
@@ -167,13 +169,13 @@ def main():
   pi = 0
 
   for seq_1hotc, _ in eval_data.dataset:
-    print('Predicting %d' % si, flush=True)
-
     # convert to single numpy 1hot
     seq_1hotc = seq_1hotc.numpy().astype('bool')[0]
 
     # hack compute actual length
-    seq_len = np.max(np.where(seq_1hotc.sum(axis=-1))[0])
+    seq_len = 1 + np.max(np.where(seq_1hotc.sum(axis=-1))[0])
+
+    print('Predicting %d, %d nt' % (si,seq_len), flush=True)
 
     # write reference sequence  
     seq_mut_len = min(seq_len, options.mut_len)
@@ -249,7 +251,7 @@ def satmut_gen(eval_data, mut_len, coding_stop=False):
     yield seq_1hotc
 
     # hack compute actual length
-    seq_len = np.max(np.where(seq_1hotc.sum(axis=-1))[0])
+    seq_len = 1 + np.max(np.where(seq_1hotc.sum(axis=-1))[0])
 
     # set mutation boundaries
     mut_end = seq_len

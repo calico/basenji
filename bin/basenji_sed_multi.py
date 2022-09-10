@@ -76,7 +76,7 @@ def main():
       default=False, action='store_true',
       help='Run without a GPU [Default: %default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf2.6',
+      default='tf28',
       help='Anaconda environment [Default: %default]')
   parser.add_option('--name', dest='name',
       default='sed', help='SLURM name prefix [Default: %default]')

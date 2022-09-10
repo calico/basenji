@@ -416,10 +416,16 @@ def make_1hot_alt(ref_1hot, seq_start, snp):
   """Return alternative allele one hot coding."""
 
   # helper variables
+  seq_len = ref_1hot.shape[0]
   snp_seq_pos = snp.pos - 1 - seq_start
   alt_allele = snp.alt_alleles[0]
   ref_n = len(snp.ref_allele)
   alt_n = len(alt_allele)
+
+  # truncate right overhang deletions
+  if ref_n > seq_len - snp_seq_pos:
+    ref_n = seq_len - snp_seq_pos
+    snp.ref_allele = snp.ref_allele[:ref_n]
 
   # verify reference alleles
   ref_snp1 = ref_1hot[snp_seq_pos:snp_seq_pos+ref_n]

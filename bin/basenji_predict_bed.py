@@ -50,6 +50,9 @@ Predict sequences from a BED file.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <bed_file>'
   parser = OptionParser(usage)
+  parser.add_option('--head', dest='head_i',
+      default=0, type='int',
+      help='Parameters head [Default: %default]')
   parser.add_option('-b', dest='bigwig_indexes',
       default=None, help='Comma-separated list of target indexes to write BigWigs')
   parser.add_option('-e', dest='embed_layer',
@@ -143,7 +146,7 @@ def main():
 
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)
-  seqnn_model.restore(model_file)
+  seqnn_model.restore(model_file, options.head_i)
   seqnn_model.build_slice(target_slice)
   seqnn_model.build_ensemble(options.rc, options.shifts)
 

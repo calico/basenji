@@ -151,11 +151,11 @@ def main():
   if options.queue == 'standard':
     num_cpu = 8
     num_gpu = 0
-    time_base = 24
+    time_base = 36
   else:
     num_cpu = 2
     num_gpu = 1
-    time_base = 8
+    time_base = 12
 
   # arrange data
   for ci in range(options.crosses):
@@ -358,7 +358,7 @@ def main():
                             queue=options.queue,
                             cpu=num_cpu, gpu=num_gpu,
                             mem=120000,
-                            time='%d:00:00' % (3*time_base))
+                            time='%d:00:00' % (5*time_base))
             jobs.append(basenji_job)
         
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

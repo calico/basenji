@@ -124,7 +124,7 @@ def main():
   if options.queue == 'standard':
     num_cpu = 8
     num_gpu = 0
-    time_base = 24
+    time_base = 36
   else:
     num_cpu = 2
     num_gpu = 1

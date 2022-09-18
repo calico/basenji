@@ -53,7 +53,7 @@ def main():
       default=None, type='int',
       help='Reference Dataset index [Default:%default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf2.6',
+      default='tf28',
       help='Anaconda environment [Default: %default]')
   parser.add_option('-f', dest='fold_subset',
       default=None, type='int',
@@ -113,6 +113,13 @@ def main():
   if options.fold_subset is not None:
     num_folds = min(options.fold_subset, num_folds)
 
+  if options.queue == 'standard':
+    num_cpu = 4
+    num_gpu = 0
+  else:
+    num_cpu = 2
+    num_gpu = 1
+
   ################################################################
   # test best
   ################################################################
@@ -156,9 +163,9 @@ def main():
                       out_file='%s.out'%out_dir,
                       err_file='%s.err'%out_dir,
                       queue=options.queue,
-                      cpu=2, gpu=1,
+                      cpu=num_cpu, gpu=num_gpu,
                       mem=45000,
-                      time='12:00:00')
+                      time='5-00:00:00')
         jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)

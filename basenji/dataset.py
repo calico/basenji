@@ -51,6 +51,7 @@ class SeqDataset:
     self.seq_length = data_stats['seq_length']
     
     self.seq_depth = data_stats.get('seq_depth',4)
+    self.seq_1hot = data_stats.get('seq_1hot', False)
     self.target_length = data_stats['target_length']
     self.num_targets = data_stats['num_targets']
     
@@ -85,11 +86,16 @@ class SeqDataset:
       # decode sequence
       sequence = tf.io.decode_raw(parsed_features[TFR_INPUT], tf.uint8)
       if not raw:
-        sequence = tf.reshape(sequence, [self.seq_length, self.seq_depth])
+        if self.seq_1hot:
+          sequence = tf.one_hot(sequence, 1+self.seq_depth, dtype=tf.uint8)
+          sequence = sequence[:,:-1] # drop N
+        else:
+          sequence = tf.reshape(sequence, [self.seq_length, self.seq_depth])
         if self.seq_length_crop is not None:
           crop_len = (self.seq_length - self.seq_length_crop) // 2
           sequence = sequence[crop_len:-crop_len,:]
         sequence = tf.cast(sequence, tf.float32)
+        
 
       # decode targets
       targets = tf.io.decode_raw(parsed_features[TFR_OUTPUT], tf.float16)
@@ -169,10 +175,6 @@ class SeqDataset:
     for seq_raw, targets_raw in dataset:
       # infer seq_depth
       seq_1hot = seq_raw.numpy().reshape((self.seq_length,-1))
-      if self.seq_depth is None:
-        self.seq_depth = seq_1hot.shape[-1]
-      else:
-        assert(self.seq_depth == seq_1hot.shape[-1])
 
       # infer num_targets
       targets1 = targets_raw.numpy().reshape(self.target_length,-1)

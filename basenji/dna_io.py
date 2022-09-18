@@ -79,7 +79,7 @@ def dna_1hot(seq, seq_len=None, n_uniform=False, n_sample=False):
   return seq_code
 
 
-def dna_1hot_index(seq):
+def dna_1hot_index(seq, n_sample=False):
   """ dna_1hot_index
 
     Args:
@@ -105,7 +105,10 @@ def dna_1hot_index(seq):
     elif nt == 'T':
       seq_code[i] = 3
     else:
-      seq_code[i] = random.randint(0,3)         
+      if n_sample:
+        seq_code[i] = random.randint(0,3)
+      else:
+        seq_code[i] = 4
 
   return seq_code
 

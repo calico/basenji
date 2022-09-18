@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from basenji.dna_io import dna_1hot
-from basenji_bench_classify import fold_roc, plot_roc, randfor_full, randfor_roc
+from basenji_bench_classify import fold_roc, plot_roc, randfor_full, randfor_roc, ridge_roc
 
 '''
 saluki_bench_classify.py
@@ -73,10 +73,11 @@ def main():
     if X.shape[1] == 1:
         aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean = fold_roc(X, y, folds=8)
     else:
-        # aurocs, fpr_folds, tpr_folds, fpr_full, tpr_full = ridge_roc(X, y, folds=8, alpha=10000)
+        # aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds = ridge_roc(X, y, folds=8,
+        #           alpha=1, random_state=options.random_seed)
         aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds = randfor_roc(X, y, folds=8,
                 iterations=options.iterations, random_state=options.random_seed,
-                n_jobs=options.parallel_threads, msl=options.min_samples_leaf)
+                n_jobs=options.parallel_threads, min_samples_leaf=options.min_samples_leaf)
 
         # save preds
         if options.save_preds:

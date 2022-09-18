@@ -159,6 +159,7 @@ def main():
     seq_starts = satg_h5['start'][:]
     
     gene_ids = [gene_id.decode('UTF-8') for gene_id in satg_h5['gene']]
+    gene_ids = [trim_dot(gid) for gid in gene_ids]
     geneid_i = dict(zip(gene_ids, np.arange(len(gene_ids))))
     
     num_seqs, seq_len, _, num_targets = satg_h5['grads'].shape
@@ -289,6 +290,14 @@ def score_sites(crispr_df, gene_i, grads_ref, seq_starts, elen_ext=2000, normali
         enh_ref[ei] /= np.abs(grads_ref[gi]).mean(dtype='float32')
               
   return enh_ref
+
+
+def trim_dot(gene_id):
+  dot_i = gene_id.rfind('.')
+  if dot_t == -1:
+    return gene_id
+  else:
+    return gene_id[:dot_i]
 
 ################################################################################
 # __main__

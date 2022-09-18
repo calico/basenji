@@ -195,6 +195,7 @@ def main():
         seq_starts = satg_h5['start'][:]
         
         gene_ids = [gene_id.decode('UTF-8') for gene_id in satg_h5['gene']]
+        gene_ids = [trim_dot(gid) for gid in gene_ids]
         geneid_i = dict(zip(gene_ids, np.arange(len(gene_ids))))
         
         num_seqs, seq_len, _, num_targets = satg_h5['grads'].shape
@@ -216,7 +217,8 @@ def main():
 
       # score sites
       crispr_df = pd.read_csv(crispr_table_tsv, sep='\t')
-      crispr_df['score'] = score_sites(crispr_df, gene_i, grads_ref, seq_starts)
+      # crispr_df['score'] = score_sites(crispr_df, gene_i, grads_ref, seq_starts)
+      crispr_df['score'] = score_sites(crispr_df, geneid_i, grads_ref, seq_starts)
       np.save('%s/site_scores.npy' % it_crispr_dir, crispr_df['score'])
 
       # compute stats
@@ -324,6 +326,14 @@ def options_string(options, group_options, rep_dir):
 
   return options_str
 
+
+def trim_dot(gene_id):
+  dot_i = gene_id.rfind('.')
+  if dot_i == -1:
+    return gene_id
+  else:
+    return gene_id[:dot_i]
+    
 
 ################################################################################
 # __main__

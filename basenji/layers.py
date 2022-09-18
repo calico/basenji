@@ -644,7 +644,7 @@ class WheezeExcite(tf.keras.layers.Layer):
 
 
 class SqueezeExcite(tf.keras.layers.Layer):
-  def __init__(self, activation='relu', additive=True, bottleneck_ratio=8, 
+  def __init__(self, activation='relu', additive=False, bottleneck_ratio=8, 
     norm_type=None, bn_momentum=0.9):
     super(SqueezeExcite, self).__init__()
     self.activation = activation

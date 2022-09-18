@@ -177,6 +177,9 @@ def main():
     # scale
     seq_cov = options.scale * seq_cov
 
+     # clip float16 min/max
+    seq_cov = np.clip(seq_cov, np.finfo(np.float16).min, np.finfo(np.float16).max)
+
     # save
     targets.append(seq_cov.astype('float16'))
 
@@ -189,7 +192,8 @@ def main():
   targets = np.clip(targets, -extreme_clip, extreme_clip)
 
   # write all
-  seqs_cov_open.create_dataset('targets', data=targets, dtype='float16')
+  seqs_cov_open.create_dataset('targets', data=targets, 
+    dtype='float16', compression='gzip')
 
   # close genome coverage file
   genome_cov_open.close()

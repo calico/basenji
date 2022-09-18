@@ -60,9 +60,9 @@ def main():
   parser.add_option('-c','--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
-  parser.add_option('-d', dest='sample_pct',
-      default=1.0, type='float',
-      help='Down-sample the segments')
+  parser.add_option('-d', dest='decimals',
+      default=None, type='int',
+      help='Round values to given decimals [Default: %default]')
   parser.add_option('-f', dest='folds',
       default=None, type='int',
       help='Generate cross fold split [Default: %default]')
@@ -94,6 +94,9 @@ def main():
   parser.add_option('--restart', dest='restart',
       default=False, action='store_true',
       help='Continue progress from midpoint. [Default: %default]')
+  parser.add_option('-s', dest='sample_pct',
+      default=1.0, type='float',
+      help='Down-sample the segments')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')
@@ -433,6 +436,8 @@ def main():
       cmd += ' -e %d' % tfr_end
       cmd += ' --umap_clip %f' % options.umap_clip
       cmd += ' -x %d' % options.crop_bp
+      if options.decimals is not None:
+        cmd += ' -d %d' % options.decimals
       if options.umap_tfr:
         cmd += ' --umap_tfr'
       if options.umap_bed is not None:
@@ -473,6 +478,7 @@ def main():
   stats_dict = {}
   stats_dict['num_targets'] = targets_df.shape[0]
   stats_dict['seq_length'] = options.seq_length
+  stats_dict['seq_1hot'] = True
   stats_dict['pool_width'] = options.pool_width
   stats_dict['crop_bp'] = options.crop_bp
 

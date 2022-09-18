@@ -43,6 +43,9 @@ Notes:
 def main():
   usage = 'usage: %prog [options] <fasta_file> <seqs_bed_file> <seqs_cov_dir> <tfr_file>'
   parser = OptionParser(usage)
+  parser.add_option('-d', dest='decimals',
+      default=None, type='int',
+      help='Round values to given decimals [Default: %default]')
   parser.add_option('-s', dest='start_i',
       default=0, type='int',
       help='Sequence start index [Default: %default]')
@@ -154,13 +157,20 @@ def main():
       seq_dna = fetch_dna(fasta_open, mseq.chr, mseq_start, mseq_end)
 
       # one hot code (N's as zero)
-      seq_1hot = dna_1hot(seq_dna, n_uniform=False, n_sample=False)
-      # seq_1hot = dna_1hot_index(seq_dna) # more efficient, but fighting inertia
+      # seq_1hot = dna_1hot(seq_dna, n_uniform=False, n_sample=False)
+      seq_1hot = dna_1hot_index(seq_dna) # more efficient, but fighting inertia
+
+      # truncate decimals (which aids compression)
+      if options.decimals is not None:
+        targets_si = np.around(targets[si], decimals=options.decimals)
+        # targets_si = rround(targets[si], decimals=options.decimals)
+      else:
+        targets_si = targets[si]
 
       # hash to bytes
       features_dict = {
         'sequence': feature_bytes(seq_1hot),
-        'target': feature_bytes(targets[si,:,:])
+        'target': feature_bytes(targets_si)
         }
 
       # add unmappability
@@ -173,6 +183,20 @@ def main():
 
     fasta_open.close()
 
+
+def tround(a, decimals):
+  """ Truncate to the specified number of decimals. """
+  return np.true_divide(np.floor(a * 10**decimals), 10**decimals)
+
+def rround(a, decimals):
+  """ Round to the specified number of decimals, randomly sampling
+      the last digit according to a bernoulli RV. """
+  a_dtype = a.dtype
+  a = a.astype('float32')
+  dec_probs = (a - tround(a, decimals)) * 10**decimals
+  dec_bin = np.random.binomial(n=1, p=dec_probs)
+  a_dec = tround(a, decimals) + dec_bin / 10**decimals
+  return np.around(a_dec.astype(a_dtype), decimals)
 
 def fetch_dna(fasta_open, chrm, start, end):
   """Fetch DNA when start/end may reach beyond chromosomes."""
@@ -198,13 +222,13 @@ def fetch_dna(fasta_open, chrm, start, end):
 
 def feature_bytes(values):
   """Convert numpy arrays to bytes features."""
-  values = values.flatten().tostring()
+  values = values.flatten().tobytes()
   return tf.train.Feature(bytes_list=tf.train.BytesList(value=[values]))
 
 
 def feature_floats(values):
   """Convert numpy arrays to floats features.
-     Requires more space than bytes."""
+     Requires more space than bytes for float16"""
   values = values.flatten().tolist()
   return tf.train.Feature(float_list=tf.train.FloatList(value=values))
 

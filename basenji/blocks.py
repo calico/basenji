@@ -401,6 +401,84 @@ def fpn_unet(inputs, unet_repr, activation='relu', stride=2,
   if norm_type == 'batch-sync':
     current1 = tf.keras.layers.experimental.SyncBatchNormalization(
       momentum=bn_momentum)(current1)
+    current2 = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum)(current2)
+  elif norm_type == 'batch':
+    current1 = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum)(current1)
+    current2 = tf.keras.layers.BatchNormalization(
+      momentum=bn_momentum)(current2)
+  elif norm_type == 'layer':
+    current1 = tf.keras.layers.LayerNormalization()(current1)
+    current2 = tf.keras.layers.LayerNormalization()(current2)
+
+  # activate
+  current1 = layers.activate(current1, activation)
+  current2 = layers.activate(current2, activation)
+
+  filters = inputs.shape[-1]
+
+  # dense
+  current1 = tf.keras.layers.Dense(
+    units=filters,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current1)
+  current2 = tf.keras.layers.Dense(
+    units=filters,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current2)
+
+  # upsample
+  current1 = tf.keras.layers.UpSampling1D(size=stride)(current1)
+
+  # add
+  # current2 = layers.Scale(initializer='ones')(current2)
+  current = tf.keras.layers.Add()([current1,current2])
+
+  # normalize?
+  # activate?
+
+  # convolution
+  current = tf.keras.layers.SeparableConv1D(
+    filters=filters,
+    kernel_size=kernel_size,
+    padding='same',
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+    
+  return current
+
+def fpn1_unet(inputs, unet_repr, activation='relu', stride=2,
+    l2_scale=0, dropout=0, norm_type=None, bn_momentum=0.99,
+    kernel_size=1, kernel_initializer='he_normal'):
+  """Construct a feature pyramid network block.
+
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    kernel_size:   Conv1D kernel_size
+    activation:    relu/gelu/etc
+    stride:        UpSample stride
+    l2_scale:      L2 regularization weight.
+    dropout:       Dropout rate probability
+    norm_type:     Apply batch or layer normalization
+    bn_momentum:   BatchNorm momentum
+
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+
+  # variables
+  current1 = inputs
+  current2 = unet_repr
+
+  # normalize
+  if norm_type == 'batch-sync':
+    current1 = tf.keras.layers.experimental.SyncBatchNormalization(
+      momentum=bn_momentum)(current1)
   elif norm_type == 'batch':
     current1 = tf.keras.layers.BatchNormalization(
       momentum=bn_momentum)(current1)
@@ -1076,7 +1154,7 @@ def transformer2(inputs, key_size=None, heads=1, out_size=None,
     final = tf.keras.layers.Add()([current_mha,current])
 
   return final
-
+  
 
 def transformer_tower(inputs, repeat=2, block_type='transformer', **kwargs):
   """Construct a tower of repeated transformer blocks.
@@ -1618,6 +1696,7 @@ name_func = {
   'transformer_tower': transformer_tower,
   'upper_tri': upper_tri,
   'fpn_unet': fpn_unet,
+  'fpn1_unet': fpn1_unet,
   'upsample_unet': upsample_unet,
   'wheeze_excite': wheeze_excite
 }

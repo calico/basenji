@@ -40,7 +40,7 @@ of trained models on separate gene folds.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <models_dir>'
+  usage = 'usage: %prog [options] <params> <models_dir>'
   parser = OptionParser(usage)
 
   # ism-tfr
@@ -68,7 +68,7 @@ def main():
       default=None,
       help='Data directory for processing TFRecords in proper order [Default: %default]')
   fold_options.add_option('-e', dest='conda_env',
-      default='tf2.6-rna',
+      default='tf28',
       help='Anaconda environment [Default: %default]')
   fold_options.add_option('--name', dest='name',
       default='ism', help='SLURM name prefix [Default: %default]')
@@ -89,10 +89,11 @@ def main():
 
   (options, args) = parser.parse_args()
 
-  if len(args) != 1:
+  if len(args) != 2:
     parser.error('Must provide cross-validation model directory')
   else:
-    models_dir = args[0]
+    params_file = args[0]
+    models_dir = args[1]
 
   #######################################################
   # prep work
@@ -101,14 +102,12 @@ def main():
   if options.data_head is not None:
     model_str = 'model%d_best.h5' % options.data_head
 
-  num_folds = len(glob.glob('%s/f*_c0/train/%s' % (models_dir,model_str)))
-  num_crosses = len(glob.glob('%s/f0_c*/train/%s' % (models_dir,model_str)))
+  num_folds = len(glob.glob('%s/f*c0/train/%s' % (models_dir,model_str)))
+  num_crosses = len(glob.glob('%s/f0c*/train/%s' % (models_dir,model_str)))
   print('Folds %d, Crosses %d' % (num_folds, num_crosses))
 
   #######################################################
   # predict
-
-  params_file = '%s/params.json' % models_dir
 
   cmd_base = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
   cmd_base += ' conda activate %s;' % options.conda_env
@@ -117,7 +116,7 @@ def main():
   jobs = []
   for fi in range(num_folds):
     for ci in range(num_crosses):
-      fc = 'f%d_c%d' % (fi, ci)
+      fc = 'f%dc%d' % (fi, ci)
       model_file = '%s/%s/train/%s' % (models_dir, fc, model_str)
       data_dir = '%s/%s/data0' % (models_dir, fc)
       out_dir = '%s/%s/%s' % (models_dir, fc, options.out_dir)
@@ -125,13 +124,13 @@ def main():
       if options.split_label == '*':
         data_dir = options.data_dir
 
-      if not options.restart or not os.path.isfile('%s/scores.h5'%out_dir):
+      if not options.restart or not valid_h5('%s/scores.h5'%out_dir):
         cmd = '%s %s %s' % (cmd_base, model_file, data_dir)
         cmd += ' %s' % options_string(options, ism_options, out_dir)
         j = slurm.Job(cmd, '%s_%s' % (options.name, fc),
             '%s.out'%out_dir, '%s.err'%out_dir,
             queue=options.queue, gpu=1,
-            mem=30000, time='2-0:0:0')
+            mem=60000, time='2-0:0:0')
         jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
@@ -148,7 +147,7 @@ def main():
     score_files = []
     for fi in range(num_folds):
       for ci in range(num_crosses):
-        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,options.out_dir)
+        score_file = '%s/f%dc%d/%s/scores.h5' % (models_dir,fi,ci,options.out_dir)
         score_files.append(score_file)
 
     # output file
@@ -164,7 +163,7 @@ def main():
       # collect scores files
       score_files = []
       for ci in range(num_crosses):
-        score_file = '%s/f%d_c%d/%s/scores.h5' % (models_dir,fi,ci,options.out_dir)
+        score_file = '%s/f%dc%d/%s/scores.h5' % (models_dir,fi,ci,options.out_dir)
         score_files.append(score_file)
 
       # output file
@@ -255,6 +254,16 @@ def options_string(options, ism_options, out_dir):
 
   return options_str
 
+def valid_h5(h5_file):
+  if not os.path.isfile(h5_file):
+    return False
+  else:
+    try:
+      h5_open = h5py.File(h5_file, 'r')
+    except:
+      return False
+    return True
+    
 ################################################################################
 # __main__
 ################################################################################

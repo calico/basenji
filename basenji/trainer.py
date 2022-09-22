@@ -299,6 +299,7 @@ class Trainer:
     ################################################################
     # training loop
 
+    first_step = True
     for ei in range(epoch_start, self.train_epochs_max):
       if ei >= self.train_epochs_min and np.min(unimproved) > self.patience:
         break
@@ -323,7 +324,10 @@ class Trainer:
               train_step0_distr(x, y)
             else:
               train_step1_distr(x, y)
-
+          if first_step:
+            print('Successful first step!', flush=True)
+            first_step = False
+            
         print('Epoch %d - %ds' % (ei, (time.time()-t0)))
         for di in range(self.num_datasets):
           print('  Data %d' % di, end='')

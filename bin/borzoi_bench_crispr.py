@@ -176,8 +176,9 @@ def main():
   for line in open(crispr_gtf_file):
     a = line.split('\t')
     kv = gtf_kv(a[8])
-    if kv['gene_id'] in geneid_i:
-        gene_i[kv['gene_name']] = geneid_i[kv['gene_id']]
+    gene_id = trim_dot(kv['gene_id'])
+    if gene_id in geneid_i:
+        gene_i[kv['gene_name']] = geneid_i[gene_id]
 
   # score sites
   crispr_df = pd.read_csv(crispr_table_tsv, sep='\t')
@@ -294,7 +295,7 @@ def score_sites(crispr_df, gene_i, grads_ref, seq_starts, elen_ext=2000, normali
 
 def trim_dot(gene_id):
   dot_i = gene_id.rfind('.')
-  if dot_t == -1:
+  if dot_i == -1:
     return gene_id
   else:
     return gene_id[:dot_i]

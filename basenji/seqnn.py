@@ -281,8 +281,6 @@ class SeqNN():
 
   def build_slice(self, target_slice=None, target_sum=False):
     if target_slice is not None or target_sum:
-      # if len(target_slice) < self.num_targets():
-
       # sequence input
       sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
 
@@ -389,7 +387,7 @@ class SeqNN():
     return weights
 
 
-  def gradients(self, seq_1hot, head_i=None, pos_slice=None, dtype='float16'):
+  def gradients(self, seq_1hot, head_i=None, pos_slice=None, batch_size=4, dtype='float16'):
     """ Compute input gradients sequence. """
     # choose model
     if self.ensemble is not None:
@@ -405,29 +403,57 @@ class SeqNN():
     if len(seq_1hot.shape) < 3:
       seq_1hot = tf.expand_dims(seq_1hot, axis=0)
 
-    with tf.GradientTape() as tape:
-      tape.watch(seq_1hot)
+    # batching parameters
+    num_targets = model.output_shape[-1]
+    num_batches = int(np.ceil(num_targets / batch_size))
+
+    ti_start = 0
+    grads = []
+    for bi in range(num_batches):
+      # sequence input
+      sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')
 
       # predict
-      preds = model(seq_1hot, training=False)
+      predictions = model(sequence)
 
-      if pos_slice is not None:
-        # slice specified positions
-        preds = tf.gather(preds, pos_slice, axis=-2)
-      
-      # sum across positions
-      preds = tf.reduce_sum(preds, axis=-2)
+      # slice
+      ti_end = min(num_targets, ti_start + batch_size)
+      target_slice = np.arange(ti_start, ti_end)
+      predictions_slice = tf.gather(predictions, target_slice, axis=-1)
 
-    # compute jacboian
-    grads = tape.jacobian(preds, seq_1hot)
-    grads = tf.squeeze(grads)
-    grads = tf.transpose(grads, [1,2,0])
+      # replace model
+      model_batch = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
 
-    # zero mean each position
-    grads = grads - tf.reduce_mean(grads, axis=-2, keepdims=True)
+      with tf.GradientTape() as tape:
+        tape.watch(seq_1hot)
 
-    # convert numpy dtype
-    grads = grads.numpy().astype(dtype)
+        # predict
+        preds = model_batch(seq_1hot, training=False)
+
+        if pos_slice is not None:
+          # slice specified positions
+          preds = tf.gather(preds, pos_slice, axis=-2)
+        
+        # sum across positions
+        preds = tf.reduce_sum(preds, axis=-2)
+
+      # compute jacboian
+      grads_batch = tape.jacobian(preds, seq_1hot)
+      grads_batch = tf.squeeze(grads_batch)
+      grads_batch = tf.transpose(grads_batch, [1,2,0])
+
+      # zero mean each position
+      grads_batch = grads_batch - tf.reduce_mean(grads_batch, axis=-2, keepdims=True)
+
+      # convert numpy dtype
+      grads_batch = grads_batch.numpy().astype(dtype)
+      grads.append(grads_batch)
+
+      # next batch
+      ti_start += batch_size
+
+    # concat target batches
+    grads = np.concatenate(grads, axis=-1)
 
     return grads
 

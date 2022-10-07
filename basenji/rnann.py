@@ -191,6 +191,45 @@ class RnaNN:
     # evaluate
     return model.evaluate(seq_data.dataset)
 
+
+  def gradients(self, seq_1hot, head_i=None, dtype='float16'):
+    """ Compute input gradients sequence. """
+    # choose model
+    if self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
+      model = self.models[head_i]
+    else:
+      model = self.model
+
+    # verify tensor shape
+    seq_1hot = seq_1hot.astype('float32')
+    seq_1hot = tf.convert_to_tensor(seq_1hot, dtype=tf.float32)
+    if len(seq_1hot.shape) < 3:
+      seq_1hot = tf.expand_dims(seq_1hot, axis=0)
+
+    with tf.GradientTape() as tape:
+      tape.watch(seq_1hot)
+
+      # predict
+      preds = model(seq_1hot, training=False)
+
+    # compute jacboian
+    grads = tape.jacobian(preds, seq_1hot)
+    grads = tf.squeeze(grads)
+    # grads = tf.transpose(grads, [1,2,0])
+
+    # I'm confused about which access would be which for multi-task
+
+    # convert numpy dtype
+    grads = grads.numpy()
+
+    # zero mean each position
+    grads[:,:4] = grads[:,:4] - grads[:,:4].mean(axis=-1, keepdims=True)
+
+    return grads.astype(dtype)
+
+
   def predict(self, seq_data, head_i=None, generator=False, **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model

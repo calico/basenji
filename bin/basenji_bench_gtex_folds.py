@@ -98,7 +98,7 @@ def main():
       default=None, type='int',
       help='Index for dataset/head [Default: %default]')
   fold_options.add_option('-e', dest='conda_env',
-      default='tf2.6',
+      default='tf28',
       help='Anaconda environment [Default: %default]')
   fold_options.add_option('-g', dest='gtex_vcf_dir',
       default='/home/drk/seqnn/data/gtex_fine/susie_pip90')
@@ -173,7 +173,7 @@ def main():
       if options.data_head is not None:
         model_file = '%s/train/model%d_best.h5' % (it_dir, options.data_head)
 
-      cmd_base += ' basenji_sad.py %s %s' % (params_file, model_file)
+      cmd_base += ' time basenji_sad.py %s %s' % (params_file, model_file)
 
       for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
         # positive job 

@@ -22,10 +22,8 @@ import json
 import os
 import pdb
 import pickle
-from queue import Queue
 import random
 import sys
-from threading import Thread
 
 import h5py
 import numpy as np
@@ -39,6 +37,7 @@ if tf.__version__[0] == '1':
 from basenji import bed
 from basenji import dna_io
 from basenji import seqnn
+from borzoi_satg_gene import unaugment_grads
 
 '''
 sonnet_satg_bed.py
@@ -232,7 +231,7 @@ def main():
       seq_1hot_tf = tf.convert_to_tensor(seq_1hot_aug, dtype=tf.float32)[tf.newaxis]
       grad_aug = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
           center_start, center_end, options.species).numpy()
-      grad_aug = dna_io.hot1_augment(grad_aug, fwdrc=True, shift=-shift)
+      grad_aug = unaugment_grads(grad_aug, fwdrc=True, shift=shift)
       grad_ens.append(grad_aug)
       
       if options.rc:
@@ -240,7 +239,7 @@ def main():
         seq_1hot_tf = tf.convert_to_tensor(seq_1hot_aug, dtype=tf.float32)[tf.newaxis]
         grad_aug = input_gradients(seqnn_model, seq_1hot_tf, targets_mask,
           center_start, center_end, options.species).numpy()
-        grad_aug = dna_io.hot1_augment(grad_aug, fwdrc=False, shift=-shift)
+        grad_aug = unaugment_grads(grad_aug, fwdrc=False, shift=shift)
         grad_ens.append(grad_aug)
 
     grad = np.array(grad_ens).mean(axis=0)
@@ -277,6 +276,37 @@ def input_gradients(seqnn_model, seq_1hot_tf, targets_mask, pos_start, pos_end, 
   grad = grad - tf.reduce_mean(grad, axis=-1, keepdims=True)
 
   return grad
+
+
+def unaugment_grads(grads, fwdrc=False, shift=0):
+  """ Undo sequence augmentation."""
+  # reverse complement
+  if not fwdrc:
+    # reverse
+    grads = grads[::-1, :]
+
+    # swap A and T
+    grads[:, [0, 3]] = grads[:, [3, 0]]
+
+    # swap C and G
+    grads[:, [1, 2]] = grads[:, [2, 1]]
+
+  # undo shift
+  if shift < 0:
+    # shift sequence right
+    grads[-shift:, :] = grads[:shift, :]
+
+    # fill in left unknowns
+    grads[:-shift, :] = 0
+
+  elif shift > 0:
+    # shift sequence left
+    grads[:-shift, :] = grads[shift:, :]
+
+    # fill in right unknowns
+    grads[-shift:, :] = 0
+
+  return grads
 
 ################################################################################
 # __main__

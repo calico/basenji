@@ -25,7 +25,7 @@ class PredStreamGen:
   """ Interface to acquire predictions via a buffered stream mechanism
         rather than getting them all at once and using excessive memory.
         Accepts generator and constructs stream batches from it. """
-  def __init__(self, model, seqs_gen, batch_size, stream_seqs=64, verbose=False):
+  def __init__(self, model, seqs_gen, batch_size, stream_seqs=32, verbose=False):
     self.model = model
     self.seqs_gen = seqs_gen
     self.stream_seqs = stream_seqs

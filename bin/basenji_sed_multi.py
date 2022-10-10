@@ -245,8 +245,18 @@ def collect_h5(file_name, out_dir, num_procs):
 def job_completed(options, pi):
   """Check whether a specific job has generated its
      output file."""
-  out_file = '%s/job%d/sed.h5' % (options.out_dir, pi)
-  return os.path.isfile(out_file) or os.path.isdir(out_file)
+  job_h5_file = '%s/job%d/sed.h5' % (options.out_dir, pi)
+  if not os.path.isfile(job_h5_file):
+    jc = False
+  else:
+    try:
+      job_h5_open = h5py.File(job_h5_file, 'r')
+      job_h5_open.keys()
+      job_h5_open.close()
+      jc = True
+    except:
+      jc = False
+  return jc
 
 
 ################################################################################

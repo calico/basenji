@@ -167,7 +167,7 @@ def main():
   # can we sum on GPU?
   length_stats = set(['SAX','SAXR','SAR','ALT','REF'])
   sum_length = length_stats.isdisjoint(set(options.sad_stats))
-  sum_length = False # minimal influence
+  # sum_length = False # minimal influence
 
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
@@ -249,7 +249,6 @@ def main():
     else:
       # process SNP
       if sum_length:
-        print('Length summed')
         write_snp(ref_preds, alt_preds, sad_out, si,
                   options.sad_stats, options.log_pseudo)
       else:

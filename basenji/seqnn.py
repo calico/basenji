@@ -465,7 +465,7 @@ class SeqNN():
       return self.models[head_i].output_shape[-1]
 
 
-  def predict(self, seq_data, head_i=None, generator=False, stream=False, dtype='float16', **kwargs):
+  def predict(self, seq_data, head_i=None, generator=False, stream=False, dtype='float32', **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
     if self.ensemble is not None:

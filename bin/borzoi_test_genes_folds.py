@@ -145,7 +145,7 @@ def main():
         # basenji test
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
         cmd += ' conda activate %s;' % options.conda_env
-        cmd += ' borzoi_test_genes.py'
+        cmd += ' time borzoi_test_genes.py'
         cmd += ' --head %d' % head_i
         cmd += ' -o %s' % out_dir
         if options.rc:
@@ -165,7 +165,7 @@ def main():
                       queue=options.queue,
                       cpu=num_cpu, gpu=num_gpu,
                       mem=45000,
-                      time='5-00:00:00')
+                      time='4-00:00:00')
         jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)

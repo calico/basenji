@@ -250,12 +250,7 @@ class SeqNN():
         preds = [layers.SwitchReverseTriu(self.diagonal_offset)
                   ([self.model(seq), rp]) for (seq,rp) in sequences_rev]
       else:
-        if len(self.model.output_shape) == 2:
-          # length collapsed, skip reversal
-          preds = [self.model(seq) for (seq,rp) in sequences_rev]
-          assert(strand_pair is None)  # not implemented yet
-        else:
-          preds = [layers.SwitchReverse(strand_pair)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
+        preds = [layers.SwitchReverse(strand_pair)([self.model(seq), rp]) for (seq,rp) in sequences_rev]
 
       # create layer
       preds_avg = tf.keras.layers.Average()(preds)
@@ -464,6 +459,19 @@ class SeqNN():
     else:
       return self.models[head_i].output_shape[-1]
 
+
+  def __call__(self, x, head_i=None, dtype='float32'):
+    """ Predict targets for SeqDataset. """
+    # choose model
+    if self.ensemble is not None:
+      model = self.ensemble
+    elif head_i is not None:
+      model = self.models[head_i]
+    else:
+      model = self.model
+
+    return model(x).numpy().astype(dtype)
+      
 
   def predict(self, seq_data, head_i=None, generator=False, stream=False, dtype='float32', **kwargs):
     """ Predict targets for SeqDataset. """

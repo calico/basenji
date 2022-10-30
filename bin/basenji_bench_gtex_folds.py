@@ -298,6 +298,11 @@ def complete_h5(h5_file):
   if os.path.isfile(h5_file):
     try:
       h5_open = h5py.File(h5_file, 'r')
+      sad = h5_open['SAD'][:]
+      if (sad != 0).sum() > 0:
+        return True
+      else:
+        return False
       h5_open.close()
       return True
     except:

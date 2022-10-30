@@ -130,13 +130,6 @@ class PolyReLU(tf.keras.layers.Layer):
     y = tf.keras.activations.relu(x3)
     return y
 
-# class GELU(tf.keras.layers.Layer):
-#   def __init__(self, **kwargs):
-#     super(GELU, self).__init__(**kwargs)
-#   def call(self, x):
-#     # return tf.keras.activations.sigmoid(1.702 * x) * x
-#     return tf.keras.activations.sigmoid(tf.constant(1.702) * x) * x
-
 class Softplus(tf.keras.layers.Layer):
   def __init__(self, exp_max=10000):
     super(Softplus, self).__init__()
@@ -148,6 +141,7 @@ class Softplus(tf.keras.layers.Layer):
     config = super().get_config().copy()
     config['exp_max'] = self.exp_max
     return config
+
 
 ############################################################
 # Center ops
@@ -210,6 +204,7 @@ class LengthAverage(tf.keras.layers.Layer):
 ############################################################
 # Attention
 ############################################################
+
 def _prepend_dims(x, num_dims):
   return tf.reshape(x, shape=[1] * num_dims + x.shape)
 
@@ -537,37 +532,43 @@ class MultiheadAttention(tf.keras.layers.Layer):
     if self._scaling:
       q *= self._key_size**-0.5
 
-    # Project positions to form relative keys.
-    distances = tf.range(-seq_len + 1, seq_len, dtype=tf.float32)[tf.newaxis]
-    positional_encodings = positional_features(
-        positions=distances,
-        feature_size=self._num_position_features,
-        seq_length=seq_len,
-        symmetric=self._relative_position_symmetric)
-    # [1, 2T-1, Cr]
-    
-    if training:
-      positional_encodings = tf.nn.dropout(
-          positional_encodings, rate=self._positional_dropout_rate)
-
-    # [1, H, 2T-1, K]
-    r_k = self._multihead_output(self._r_k_layer, positional_encodings)
-
-    # Add shifted relative logits to content logits.
     # [B, H, T', T]
     content_logits = tf.matmul(q + self._r_w_bias, k, transpose_b=True)
-    if self._content_position_bias:
-      # [B, H, T', 2T-1]
-      relative_logits = tf.matmul(q + self._r_r_bias, r_k, transpose_b=True)
-    else:
-      # [1, H, 1, 2T-1]
-      relative_logits = tf.matmul(self._r_r_bias, r_k, transpose_b=True)
-      # [1, H, T', 2T-1]
-      relative_logits = tf.broadcast_to(relative_logits, shape=(1, self._num_heads, seq_len, 2*seq_len-1))
 
-    #  [B, H, T', T]
-    relative_logits = relative_shift(relative_logits)
-    logits = content_logits + relative_logits
+    if self._num_position_features == 0:
+      logits = content_logits
+    else:
+      # Project positions to form relative keys.
+      distances = tf.range(-seq_len + 1, seq_len, dtype=tf.float32)[tf.newaxis]
+      positional_encodings = positional_features(
+          positions=distances,
+          feature_size=self._num_position_features,
+          seq_length=seq_len,
+          symmetric=self._relative_position_symmetric)
+      # [1, 2T-1, Cr]
+      
+      if training:
+        positional_encodings = tf.nn.dropout(
+            positional_encodings, rate=self._positional_dropout_rate)
+
+      # [1, H, 2T-1, K]
+      r_k = self._multihead_output(self._r_k_layer, positional_encodings)
+
+      # Add shifted relative logits to content logits.
+      if self._content_position_bias:
+        # [B, H, T', 2T-1]
+        relative_logits = tf.matmul(q + self._r_r_bias, r_k, transpose_b=True)
+      else:
+        # [1, H, 1, 2T-1]
+        relative_logits = tf.matmul(self._r_r_bias, r_k, transpose_b=True)
+        # [1, H, T', 2T-1]
+        relative_logits = tf.broadcast_to(relative_logits, shape=(1, self._num_heads, seq_len, 2*seq_len-1))
+
+      #  [B, H, T', T]
+      relative_logits = relative_shift(relative_logits)
+      logits = content_logits + relative_logits
+
+    # softmax across length
     weights = tf.nn.softmax(logits)
 
     # Dropout on the attention weights.
@@ -1094,16 +1095,24 @@ class SwitchReverse(tf.keras.layers.Layer):
     reverse = x_reverse[1]
 
     xd = len(x.shape)
-    if xd == 3:
+    if xd == 2:
+      # because we collapsed length already
+      rev_axes = []
+    elif xd == 3:
+      # length axis
       rev_axes = [1]
     elif xd == 4:
+      # 2d spatial axes
       rev_axes = [1,2]
     else:
       raise ValueError('Cannot recognize SwitchReverse input dimensions %d.' % xd)
 
-    xr = tf.keras.backend.switch(reverse,
-                                 tf.reverse(x, axis=rev_axes),
-                                 x)
+    if len(rev_axes) > 0:
+      xr = tf.keras.backend.switch(reverse,
+                                   tf.reverse(x, axis=rev_axes),
+                                   x)
+    else:
+      xr = x
     
     if self.strand_pair is None:
       xrs = xr

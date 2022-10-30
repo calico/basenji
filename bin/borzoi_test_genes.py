@@ -15,6 +15,7 @@
 # =========================================================================
 
 from optparse import OptionParser
+import gc
 import json
 import pdb
 import os
@@ -35,7 +36,7 @@ from basenji import dataset
 from basenji import seqnn
 from basenji import trainer
 import pygene
-from quantile_normalization import quantile_normalize
+from qnorm import quantile_normalize
 
 '''
 borzoi_test_genes.py
@@ -114,11 +115,17 @@ def main():
   num_targets = targets_df.shape[0]
   num_targets_strand = targets_strand_df.shape[0]
 
+  # save sqrt'd tracks
+  sqrt_mask = np.array([ss.find('sqrt') != -1 for ss in targets_strand_df.sum_stat])
+
   # read model parameters
   with open(params_file) as params_open:
     params = json.load(params_open)
   params_model = params['model']
   params_train = params['train']
+
+  # set strand pairs
+  params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
   
   # construct eval data
   eval_data = dataset.SeqDataset(data_dir,
@@ -141,7 +148,6 @@ def main():
     data_stats = json.load(data_open)
     crop_bp = data_stats['crop_bp']
     pool_width = data_stats['pool_width']
-    target_length = data_stats['target_length']
 
   # read sequence positions
   seqs_df = pd.read_csv('%s/sequences.bed'%data_dir, sep='\t',
@@ -177,7 +183,7 @@ def main():
   gene_targets_dict = {}
 
   si = 0
-  for x, y in tqdm(eval_data.dataset):
+  for x, y in eval_data.dataset:
     # predict only if gene overlaps
     yh = None
     y = y.numpy()
@@ -189,6 +195,8 @@ def main():
       seq_bed_lines.append('%s %d %d %d' % (seq.chr, seq.start, seq.end, bsi))
     seq_bedt = pybedtools.BedTool('\n'.join(seq_bed_lines), from_string=True)
 
+    t0 = time.time()
+    print('Bedtools intersect plus predict...', flush=True)
     for overlap in genes_bt.intersect(seq_bedt, wo=True):
       gene_id = overlap[3]
       gene_start = int(overlap[1])
@@ -218,9 +226,12 @@ def main():
 
     # values_len_mean = np.mean([len(v) for v in gene_preds_dict.values()])
     # print(len(gene_preds_dict), values_len_mean, flush=True)
-
+    
     # advance sequence table index
     si += x.shape[0]
+    print('DONE in %ds' % (time.time()-t0))
+    if si % 128 == 0:
+      gc.collect()
 
   # aggregate gene bin values into arrays
   gene_targets = []
@@ -228,22 +239,35 @@ def main():
   gene_ids = sorted(gene_targets_dict.keys())
 
   for gene_id in gene_ids:
-    gene_preds_gi = np.concatenate(gene_preds_dict[gene_id], axis=0)
-    gene_targets_gi = np.concatenate(gene_targets_dict[gene_id], axis=0)
+    gene_preds_gi = np.concatenate(gene_preds_dict[gene_id], axis=0).astype('float32')
+    gene_targets_gi = np.concatenate(gene_targets_dict[gene_id], axis=0).astype('float32')
 
     # slice strand
     if gene_strand[gene_id] == '+':
-      gene_strand_mask = (targets_df.strand != '-')
+      gene_strand_mask = (targets_df.strand != '-').to_numpy()
     else:
-      gene_strand_mask = (targets_df.strand != '+')
+      gene_strand_mask = (targets_df.strand != '+').to_numpy()
     gene_preds_gi = gene_preds_gi[:,gene_strand_mask]
     gene_targets_gi = gene_targets_gi[:,gene_strand_mask]
 
     if gene_targets_gi.shape[0] == 0:
       print(gene_id, gene_targets_gi.shape, gene_preds_gi.shape)
 
-    gene_preds_gi = gene_preds_gi.mean(axis=0, dtype='float32')
-    gene_targets_gi = gene_targets_gi.mean(axis=0, dtype='float32')
+    # undo scale
+    gene_preds_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
+    gene_targets_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
+
+    # undo sqrt
+    gene_preds_gi[:,sqrt_mask] = gene_preds_gi[:,sqrt_mask]**(4/3)
+    gene_targets_gi[:,sqrt_mask] = gene_targets_gi[:,sqrt_mask]**(4/3)
+
+    # mean coverage
+    gene_preds_gi = gene_preds_gi.mean(axis=0)
+    gene_targets_gi = gene_targets_gi.mean(axis=0)
+
+    # scale by gene length
+    gene_preds_gi *= gene_lengths[gene_id]
+    gene_targets_gi *= gene_lengths[gene_id]
 
     gene_preds.append(gene_preds_gi)
     gene_targets.append(gene_targets_gi)
@@ -252,9 +276,9 @@ def main():
   gene_preds = np.array(gene_preds)
 
   # quantile and mean normalize
-  gene_targets_norm = quantile_normalize(gene_targets)
+  gene_targets_norm = quantile_normalize(gene_targets, ncpus=2)
   gene_targets_norm = gene_targets_norm - gene_targets_norm.mean(axis=-1, keepdims=True)
-  gene_preds_norm = quantile_normalize(gene_preds)
+  gene_preds_norm = quantile_normalize(gene_preds, ncpus=2)
   gene_preds_norm = gene_preds_norm - gene_preds_norm.mean(axis=-1, keepdims=True)
 
   # save values

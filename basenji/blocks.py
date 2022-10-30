@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
+import pdb
 import numpy as np
 import tensorflow as tf
 
@@ -1043,37 +1044,127 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
   if dense_expansion == 0:
     final = current
   else:
-    current_mha = current
+    final = transformer_dense(current, out_size, dense_expansion, l2_scale, dropout, kernel_initializer)
 
-    # layer norm
-    current = tf.keras.layers.LayerNormalization()(current)
+  return final
 
-    # dense
-    expansion_filters = int(dense_expansion*out_size)
-    current = tf.keras.layers.Dense(
-      units=expansion_filters,
-      kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
-      kernel_initializer=kernel_initializer)(current)
 
-    # dropout
-    if dropout > 0:
-      current = tf.keras.layers.Dropout(dropout)(current)
+  
+def transformer_split(inputs, splits=2, key_size=None, heads=1, out_size=None, 
+    activation='relu', dense_expansion=2.0, content_position_bias=True,
+    dropout=0.25, attention_dropout=0.05, position_dropout=0.01, 
+    l2_scale=0, mha_l2_scale=0, num_position_features=None,
+    mha_initializer='he_normal', kernel_initializer='he_normal', **kwargs):
+  """Construct a transformer block.
 
-    # activation 
-    current = layers.activate(current, 'relu')
+  Args:
+    inputs:        [batch_size, seq_length, features] input sequence
+    key_size:        Conv block repetitions
 
-    # dense
-    current = tf.keras.layers.Dense(
-      units=out_size,
-      kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
-      kernel_initializer=kernel_initializer)(current)
+  Returns:
+    [batch_size, seq_length, features] output sequence
+  """
+  if out_size is None:
+    out_size = inputs.shape[-1]
+    assert(out_size % heads == 0)
+    value_size = out_size // heads
+    
+  # layer norm
+  current = tf.keras.layers.LayerNormalization()(inputs)
 
-    # dropout
-    if dropout > 0:
-      current = tf.keras.layers.Dropout(dropout)(current)
+  # multi-head attention
+  mha = layers.MultiheadAttention(value_size=value_size,
+    key_size=key_size,
+    heads=heads,
+    num_position_features=num_position_features,
+    attention_dropout_rate=attention_dropout,
+    positional_dropout_rate=position_dropout,
+    content_position_bias=content_position_bias,
+    initializer=mha_initializer,
+    l2_scale=mha_l2_scale)
 
-    # residual
-    final = tf.keras.layers.Add()([current_mha,current])
+  _, seq_len, seq_depth = inputs.shape
+  seq_len2 = seq_len//2
+  seq_len4 = seq_len//4
+
+  if splits == 2:
+    # split in two length-wise
+    current = tf.keras.layers.Reshape((2, seq_len2, seq_depth))(current)
+
+    # MHA left/right
+    current_left = mha(current[:,0,:,:])
+    current_right = mha(current[:,1,:,:])
+
+    current_list = [current_left, current_right]
+
+  elif splits == 3:
+    # split in four length-wise
+    current = tf.keras.layers.Reshape((4, seq_len4, seq_depth))(current)
+
+    # transformer left/right
+    current_left = mha(current[:,0,:,:])
+    current_right = mha(current[:,3,:,:])
+
+    # transformer center
+    current_center = tf.keras.layers.Reshape((seq_len2, seq_depth))(current[:,1:3,:,:])
+    current_center = mha(current_center)
+
+    current_list = [current_left, current_center, current_right]
+
+  else:
+    print('transformer_split not implemented for splits > 3', sys.stderr)
+    exit(1)
+
+  # concat along position axis
+  current = tf.keras.layers.Concatenate(axis=1)(current_list)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # residual
+  current = tf.keras.layers.Add()([inputs,current])
+
+  if dense_expansion == 0:
+    final = current
+  else:
+    final = transformer_dense(current, out_size, dense_expansion, l2_scale, dropout, kernel_initializer)
+
+  return final
+
+
+def transformer_dense(inputs, out_size, dense_expansion,
+    l2_scale, dropout, kernel_initializer):
+  """Transformer block dense portion."""
+  # layer norm
+  current = tf.keras.layers.LayerNormalization()(inputs)
+
+  # dense
+  expansion_filters = int(dense_expansion*out_size)
+  current = tf.keras.layers.Dense(
+    units=expansion_filters,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # activation 
+  current = layers.activate(current, 'relu')
+
+  # dense
+  current = tf.keras.layers.Dense(
+    units=out_size,
+    kernel_regularizer=tf.keras.regularizers.l2(l2_scale),
+    kernel_initializer=kernel_initializer)(current)
+
+  # dropout
+  if dropout > 0:
+    current = tf.keras.layers.Dropout(dropout)(current)
+
+  # residual
+  final = tf.keras.layers.Add()([inputs,current])
 
   return final
 
@@ -1081,7 +1172,8 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
 def transformer2(inputs, key_size=None, heads=1, out_size=None, 
     activation='relu', num_position_features=None, dense_expansion=2.0,
     attention_dropout=0.05, position_dropout=0.01, dropout=0.25, **kwargs):
-  """Construct a transformer block.
+  """Construct a transformer block, with length-wise pooling before
+     returning to full length.
 
   Args:
     inputs:        [batch_size, seq_length, features] input sequence
@@ -1154,7 +1246,14 @@ def transformer2(inputs, key_size=None, heads=1, out_size=None,
     final = tf.keras.layers.Add()([current_mha,current])
 
   return final
-  
+
+
+def swin_transformer(inputs, **kwargs):
+  current = inputs
+  current = transformer_split(current, splits=2, **kwargs)
+  current = transformer_split(current, splits=3, **kwargs)
+  return current
+
 
 def transformer_tower(inputs, repeat=2, block_type='transformer', **kwargs):
   """Construct a tower of repeated transformer blocks.
@@ -1169,6 +1268,8 @@ def transformer_tower(inputs, repeat=2, block_type='transformer', **kwargs):
 
   if block_type == 'lambda':
     transformer_block = transformer_lambda
+  elif block_type == 'swin':
+    transformer_block = swin_transformer
   elif block_type == 'transformer2':
     transformer_block = transformer2
   else:
@@ -1690,6 +1791,7 @@ name_func = {
   'one_to_two': one_to_two,
   'symmetrize_2d':symmetrize_2d,
   'squeeze_excite': squeeze_excite,
+  'swin_transformer': swin_transformer,
   'res_tower': res_tower,
   'tconv_nac': tconv_nac, 
   'transformer': transformer,

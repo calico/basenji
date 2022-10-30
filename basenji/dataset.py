@@ -54,6 +54,7 @@ class SeqDataset:
     self.seq_1hot = data_stats.get('seq_1hot', False)
     self.target_length = data_stats['target_length']
     self.num_targets = data_stats['num_targets']
+    self.pool_width = data_stats['pool_width']
     
     if self.tfr_pattern is None:
       self.tfr_path = '%s/tfrecords/%s-*.tfr' % (self.data_dir, self.split_label)

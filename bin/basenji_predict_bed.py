@@ -70,9 +70,6 @@ def main():
   parser.add_option('-o', dest='out_dir',
       default='pred_out',
       help='Output directory [Default: %default]')
-  # parser.add_option('--plots', dest='plots',
-  #     default=False, action='store_true',
-  #     help='Make heatmap plots [Default: %default]')
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
@@ -113,8 +110,7 @@ def main():
   else:
     parser.error('Must provide parameter and model files and BED file')
 
-  if not os.path.isdir(options.out_dir):
-    os.mkdir(options.out_dir)
+  os.makedirs(options.out_dir, exist_ok=True)
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
 
@@ -152,9 +148,7 @@ def main():
 
   if options.embed_layer is not None:
     seqnn_model.build_embed(options.embed_layer)
-    _, preds_length, preds_depth  = seqnn_model.embed.output.shape
-  else:
-    _, preds_length, preds_depth = seqnn_model.model.output.shape
+  _, preds_length, preds_depth = seqnn_model.model.output.shape
     
   if type(preds_length) == tf.compat.v1.Dimension:
     preds_length = preds_length.value
@@ -162,7 +156,6 @@ def main():
 
   preds_window = seqnn_model.model_strides[0]
   seq_crop = seqnn_model.target_crops[0]*preds_window
-
 
   #################################################################
   # sequence dataset
@@ -192,13 +185,15 @@ def main():
   #################################################################
   # setup output
 
-  assert(preds_length % 2 == 0)
+  if preds_length % 2 != 0:
+    print('WARNING: preds_lengh is odd and therefore asymmetric.')
   preds_mid = preds_length // 2
 
   assert(options.site_length % preds_window == 0)
   site_preds_length = options.site_length // preds_window
 
-  assert(site_preds_length % 2 == 0)
+  if site_preds_length % 2 != 0:
+    print('WARNING: site_preds_length is odd and therefore asymmetric.')
   site_preds_start = preds_mid - site_preds_length//2
   site_preds_end = site_preds_start + site_preds_length
 

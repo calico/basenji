@@ -155,7 +155,7 @@ def main():
   else:
     num_cpu = 2
     num_gpu = 1
-    time_base = 12
+    time_base = 16
 
   # arrange data
   for ci in range(options.crosses):

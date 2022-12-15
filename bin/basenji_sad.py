@@ -20,22 +20,21 @@ import json
 import pdb
 import pickle
 import os
-from queue import Queue
 import sys
-from threading import Thread
 import time
 
 import h5py
 import numpy as np
 import pandas as pd
 import pysam
+from scipy.sparse import dok_matrix
 import tensorflow as tf
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
+from tqdm import tqdm
 
 from basenji import seqnn
 from basenji import stream
 from basenji import vcf as bvcf
+from borzoi_sed import targets_prep_strand
 
 '''
 basenji_sad.py
@@ -52,9 +51,6 @@ def main():
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('-n', dest='norm_file',
-      default=None,
-      help='Normalize SAD scores')
   parser.add_option('-o',dest='out_dir',
       default='sad',
       help='Output directory for tables and plots [Default: %default]')
@@ -76,15 +72,9 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
-  parser.add_option('--ti', dest='track_indexes',
-      default=None, type='str',
-      help='Comma-separated list of target indexes to output BigWig tracks')
-  parser.add_option('--threads', dest='threads',
-      default=False, action='store_true',
-      help='Run CPU math and output in a separate thread [Default: %default]')
-  # parser.add_option('-u', dest='penultimate',
-  #     default=False, action='store_true',
-  #     help='Compute SED in the penultimate layer [Default: %default]')
+  # parser.add_option('--ti', dest='track_indexes',
+  #     default=None, type='str',
+  #     help='Comma-separated list of target indexes to output BigWig tracks')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -133,16 +123,15 @@ def main():
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
-  if options.track_indexes is None:
-    options.track_indexes = []
-  else:
-    options.track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
-    if not os.path.isdir('%s/tracks' % options.out_dir):
-      os.mkdir('%s/tracks' % options.out_dir)
+  # if options.track_indexes is None:
+  #   options.track_indexes = []
+  # else:
+  #   options.track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
+  #   if not os.path.isdir('%s/tracks' % options.out_dir):
+  #     os.mkdir('%s/tracks' % options.out_dir)
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.sad_stats = options.sad_stats.split(',')
-
 
   #################################################################
   # read parameters and targets
@@ -155,11 +144,35 @@ def main():
 
   if options.targets_file is None:
     target_slice = None
+    sum_strand = False
   else:
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
-    target_ids = targets_df.identifier
-    target_labels = targets_df.description
     target_slice = targets_df.index
+
+    if 'strand_pair' in targets_df.columns:
+      sum_strand = True
+
+      # prep strand
+      targets_strand_df = targets_prep_strand(targets_df)
+
+      # set strand pairs
+      params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
+
+      # construct strand sum transform
+      strand_transform = dok_matrix((targets_df.shape[0], targets_strand_df.shape[0]))
+      sti = 0
+      for ti, target in targets_df.iterrows():
+          strand_transform[ti,sti] = True
+          if target.strand_pair == target.name:
+              sti += 1
+          else:
+              if target.identifier[-1] == '-':
+                  sti += 1
+      strand_transform = strand_transform.tocsr()
+
+    else:
+      targets_strand_df = targets_df
+      sum_strand = False
 
   #################################################################
   # setup model
@@ -167,7 +180,7 @@ def main():
   # can we sum on GPU?
   length_stats = set(['SAX','SAXR','SAR','ALT','REF'])
   sum_length = length_stats.isdisjoint(set(options.sad_stats))
-  # sum_length = False # minimal influence
+  # sum_length = False
 
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
@@ -181,6 +194,9 @@ def main():
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(num_targets)]
     target_labels = ['']*len(target_ids)
+    targets_strand_df = pd.DataFrame({
+      'identifier':target_ids,
+      'description':target_labels})
 
   #################################################################
   # load SNPs
@@ -199,66 +215,39 @@ def main():
     # read SNPs form VCF
     snps = bvcf.vcf_snps(vcf_file)
 
-  num_snps = len(snps)
-
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
-
-  def snp_gen():
-    for snp in snps:
-      # get SNP sequences
-      snp_1hot_list = bvcf.snp_seq1(snp, params_model['seq_length'], genome_open)
-      for snp_1hot in snp_1hot_list:
-        yield snp_1hot
-
-
-  #################################################################
-  # setup output
-
-  sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
-                                 snps, target_ids, target_labels, targets_length)
-
-  if options.threads:
-    snp_threads = []
-    snp_queue = Queue()
-    for i in range(1):
-      sw = SNPWorker(snp_queue, sad_out, options.sad_stats, options.log_pseudo)
-      sw.start()
-      snp_threads.append(sw)
-
 
   #################################################################
   # predict SNP scores, write output
 
-  # initialize predictions stream
-  preds_stream = stream.PredStreamGen(seqnn_model, snp_gen(), params_train['batch_size'])
+  # setup output
+  sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
+                                 snps, targets_length, targets_strand_df)
 
-  # predictions index
-  pi = 0
+  for si, snp in tqdm(enumerate(snps), total=len(snps)):
+    # get SNP sequences
+    snp_1hot_list = bvcf.snp_seq1(snp, params_model['seq_length'], genome_open)
+    snps_1hot = np.array(snp_1hot_list)
 
-  for si in range(num_snps):
     # get predictions
-    ref_preds = preds_stream[pi]
-    pi += 1
-    alt_preds = preds_stream[pi]
-    pi += 1
+    snp_preds = seqnn_model(np.array(snps_1hot))
+    ref_preds, alt_preds = snp_preds[0], snp_preds[1]
 
-    if options.threads:
-      # queue SNP
-      snp_queue.put((ref_preds, alt_preds, si))
+    # sum strand pairs
+    if sum_strand:
+      ref_preds = ref_preds * strand_transform
+      alt_preds = alt_preds * strand_transform
+      # ref_preds = sum_stranded(ref_preds, strand_transform)
+      # alt_preds = sum_stranded(alt_preds, strand_transform)
+
+    # process SNP
+    if sum_length:
+      write_snp(ref_preds, alt_preds, sad_out, si,
+                options.sad_stats, options.log_pseudo)
     else:
-      # process SNP
-      if sum_length:
-        write_snp(ref_preds, alt_preds, sad_out, si,
-                  options.sad_stats, options.log_pseudo)
-      else:
-        write_snp_len(ref_preds, alt_preds, sad_out, si,
-                      options.sad_stats, options.log_pseudo)
-
-  if options.threads:
-    # finish queue
-    print('Waiting for threads to finish.', flush=True)
-    snp_queue.join()
+      write_snp_len(ref_preds, alt_preds, sad_out, si,
+                    options.sad_stats, options.log_pseudo)
 
   # close genome
   genome_open.close()
@@ -270,10 +259,10 @@ def main():
   sad_out.close()
 
 
-def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels, targets_length):
+def initialize_output_h5(out_dir, sad_stats, snps, targets_length, targets_df):
   """Initialize an output HDF5 file for SAD stats."""
 
-  num_targets = len(target_ids)
+  num_targets = targets_df.shape[0]
   num_snps = len(snps)
 
   sad_out = h5py.File('%s/sad.h5' % out_dir, 'w')
@@ -309,8 +298,8 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels, ta
   sad_out.create_dataset('alt_allele', data=snp_alts)
 
   # write targets
-  sad_out.create_dataset('target_ids', data=np.array(target_ids, 'S'))
-  sad_out.create_dataset('target_labels', data=np.array(target_labels, 'S'))
+  sad_out.create_dataset('target_ids', data=np.array(targets_df.identifier, 'S'))
+  sad_out.create_dataset('target_labels', data=np.array(targets_df.description, 'S'))
 
   # initialize SAD stats
   for sad_stat in sad_stats:
@@ -325,6 +314,27 @@ def initialize_output_h5(out_dir, sad_stats, snps, target_ids, target_labels, ta
 
   return sad_out
 
+
+# def sum_stranded(preds, targets_df):
+#     un_mask = (targets_df['strand'] == '.')
+#     pos_mask = (targets_df['strand'] == '+')
+#     neg_mask = (targets_df['strand'] == '-')
+
+#     unpos_weights = np.zeros(targets_df.shape[0])
+#     unpos_weights[un_mask] = 0.5
+#     unpos_weights[pos_mask] = 1.0
+
+#     unneg_weights = np.zeros(targets_df.shape[0])
+#     unneg_weights[un_mask] = 0.5
+#     unneg_weights[neg_mask] = 1.0
+
+#     preds_sum = np.dot(preds, unpos_weights) + np.dot(preds, unneg_weights)
+#     return preds_sum
+
+def sum_stranded(preds, strand_transform):
+  preds_sum = preds * strand_transform
+  pdb.set_trace()
+  return preds_sum
 
 def write_pct(sad_out, sad_stats):
   """Compute percentile values for each target and write to HDF5."""
@@ -424,31 +434,6 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
     sad_out['REF'][si] = ref_preds.astype('float16')
   if 'ALT' in sad_stats:
     sad_out['ALT'][si] = alt_preds.astype('float16')
-
-
-class SNPWorker(Thread):
-  """Compute summary statistics and write to HDF."""
-  def __init__(self, snp_queue, sad_out, stats, log_pseudo=1):
-    Thread.__init__(self)
-    self.queue = snp_queue
-    self.daemon = True
-    self.sad_out = sad_out
-    self.stats = stats
-    self.log_pseudo = log_pseudo
-
-  def run(self):
-    while True:
-      # unload predictions
-      ref_preds, alt_preds, szi = self.queue.get()
-
-      # write SNP
-      write_snp(ref_preds, alt_preds, self.sad_out, szi, self.stats, self.log_pseudo)
-
-      if szi % 32 == 0:
-        gc.collect()
-
-      # communicate finished task
-      self.queue.task_done()
 
 
 ################################################################################

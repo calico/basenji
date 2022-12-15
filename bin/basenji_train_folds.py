@@ -211,7 +211,7 @@ def main():
                       queue=options.queue,
                       cpu=4,
                       gpu=params_train.get('num_gpu',1),
-                      mem=60000, time='60-0:0:0')
+                      mem=75000, time='60-0:0:0')
         jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,

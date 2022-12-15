@@ -22,20 +22,17 @@ import os
 import pdb
 import sys
 import time
+from tqdm import tqdm
 
 import h5py
 import numpy as np
 import pandas as pd
+from qnorm import quantile_normalize
 from scipy.stats import pearsonr
 import tensorflow as tf
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
-
-from quantile_normalization import quantile_normalize
 
 from basenji import dataset
 from basenji import seqnn
-
 
 """
 basenji_test_specificity.py
@@ -134,7 +131,7 @@ def main():
 
   # set strand pairs
   if 'strand_pair' in targets_df.columns:
-      params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
+    params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
 
   # construct eval data
   eval_data = dataset.SeqDataset(data_dir,
@@ -149,23 +146,33 @@ def main():
   if options.step > 1:
     seqnn_model.step(options.step)
   seqnn_model.build_ensemble(options.rc, options.shifts)
-  seqnn_model.downcast()
 
   #######################################################
   # targets/predictions
 
-  # option to read from disk?
-
   # predict
-  eval_preds = seqnn_model.predict(eval_data, verbose=1)
-  print('')
+  t0 = time.time()
+  print('Model predictions...', flush=True, end='')
+  eval_preds = []
+  eval_targets = []
 
-  # targets
-  eval_targets = eval_data.numpy(return_inputs=False, step=options.step)
+  si = 0
+  for x, y in tqdm(eval_data.dataset):
+    # predict
+    yh = seqnn_model(x)
+    eval_preds.append(yh)
+
+    y = y.numpy().astype('float16')
+    if options.step > 1:
+      step_i = np.arange(0, eval_data.target_length, options.step)
+      y = y[:,step_i,:]
+    eval_targets.append(y)
 
   # flatten
-  eval_preds = np.reshape(eval_preds, (-1,num_targets))
-  eval_targets = np.reshape(eval_targets, (-1,num_targets))
+  eval_preds = np.concatenate(eval_preds, axis=0)
+  eval_targets = np.concatenate(eval_targets, axis=0)
+  print('DONE in %ds' % (time.time()-t0))
+  print('targets', eval_targets.shape)
 
   #######################################################
   # process classes
@@ -176,23 +183,25 @@ def main():
     class_mask = np.array(targets_df['class'] == tc)
     class_df = targets_df[class_mask]
     num_targets_class = class_mask.sum()
+    print('%-15s  %4d' % (tc, num_targets_class), flush=True)
 
     if num_targets_class < options.class_min:
       targets_spec[class_mask] = np.nan
 
     else:
       # slice class
-      eval_preds_class = eval_preds[:,class_mask]
-      eval_targets_class = eval_targets[:,class_mask]
+      eval_preds_class = eval_preds[:,:,class_mask]
+      eval_preds_class = eval_preds_class.reshape((-1,num_targets_class))
+      eval_preds_class = eval_preds_class.astype('float32')
+      eval_targets_class = eval_targets[:,:,class_mask]
+      eval_targets_class = eval_targets_class.reshape((-1,num_targets_class))
+      eval_targets_class = eval_targets_class.astype('float32')
 
       # fix stranded
       stranded = False
       if 'strand_pair' in class_df.columns:
         stranded = (class_df.strand_pair != class_df.index).all()
-      if stranded:
-        # np.save('%s/eval_preds_class.npy'%options.out_dir, eval_preds_class)
-        # np.save('%s/eval_targets_class.npy'%options.out_dir, eval_targets_class)
-        
+      if stranded:      
         # reshape to concat +/-, assuming they're adjacent
         num_targets_class //= 2
         eval_preds_class = np.reshape(eval_preds_class, (-1, num_targets_class))
@@ -200,27 +209,34 @@ def main():
 
       # highly variable filter
       if options.high_var_pct < 1:
-        eval_targets_var = eval_targets_class.var(axis=1, dtype='float32')
+        t0 = time.time()
+        print(' Highly variable position filter...', flush=True, end='')
+        eval_targets_var = eval_targets_class.var(axis=1)
         high_var_t = np.percentile(eval_targets_var, 100*(1-options.high_var_pct))
         high_var_mask = (eval_targets_var >= high_var_t)
+        print('DONE in %ds' % (time.time()-t0))
 
         eval_preds_class = eval_preds_class[high_var_mask]
         eval_targets_class = eval_targets_class[high_var_mask]
 
       # quantile normalize
-      eval_preds_norm = quantile_normalize(eval_preds_class)
-      eval_targets_norm = quantile_normalize(eval_targets_class)
+      print(' Quantile normalize...', flush=True, end='')
+      eval_preds_norm = quantile_normalize(eval_preds_class, ncpus=2)
+      eval_targets_norm = quantile_normalize(eval_targets_class, ncpus=2)
+      print('DONE in %ds' % (time.time()-t0))
 
       # mean normalize
       eval_preds_norm -= eval_preds_norm.mean(axis=-1, keepdims=True)
       eval_targets_norm -= eval_targets_norm.mean(axis=-1, keepdims=True)
 
       # compute correlations
+      print(' Compute correlations...', flush=True, end='')
       pearsonr_class = np.zeros(num_targets_class)
       for ti in range(num_targets_class):
-        eval_preds_norm_ti = eval_preds_norm[:,ti].astype('float32')
-        eval_targets_norm_ti = eval_targets_norm[:,ti].astype('float32')
+        eval_preds_norm_ti = eval_preds_norm[:,ti]
+        eval_targets_norm_ti = eval_targets_norm[:,ti]
         pearsonr_class[ti] = pearsonr(eval_preds_norm_ti, eval_targets_norm_ti)[0]
+      print('DONE in %ds' % (time.time()-t0))
 
       if stranded:
         pearsonr_class = np.repeat(pearsonr_class, 2)
@@ -229,7 +245,7 @@ def main():
       targets_spec[class_mask] = pearsonr_class
 
       # print
-      print('%-15s  %4d  %.4f' % (tc, num_targets_class, pearsonr_class[ti]), flush=True)
+      print(' PearsonR %.4f' % pearsonr_class[ti], flush=True)
 
       # clean
       gc.collect()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2022 Calico LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -141,13 +141,14 @@ def main():
   if options.sum_targets:
     num_targets = 1
 
+  # params strand_pair unnecessary because I'm not building ensemble in graph
+
   #################################################################
   # setup model
 
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
   seqnn_model.build_slice(targets_df.index, options.sum_targets)
-  # seqnn_model.build_ensemble(options.rc, options.shifts)
 
   model_stride = seqnn_model.model_strides[0]
   model_crop = seqnn_model.target_crops[0]

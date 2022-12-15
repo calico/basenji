@@ -382,7 +382,7 @@ class SeqNN():
     return weights
 
 
-  def gradients(self, seq_1hot, head_i=None, pos_slice=None, batch_size=4, dtype='float16'):
+  def gradients(self, seq_1hot, head_i=None, pos_slice=None, batch_size=8, dtype='float16'):
     """ Compute input gradients sequence. """
     # choose model
     if self.ensemble is not None:
@@ -419,26 +419,32 @@ class SeqNN():
       # replace model
       model_batch = tf.keras.Model(inputs=sequence, outputs=predictions_slice)
 
-      with tf.GradientTape() as tape:
-        tape.watch(seq_1hot)
+      t0 = time.time()
 
-        # predict
-        preds = model_batch(seq_1hot, training=False)
+      # with tf.GradientTape() as tape:
+      #   tape.watch(seq_1hot)
 
-        if pos_slice is not None:
-          # slice specified positions
-          preds = tf.gather(preds, pos_slice, axis=-2)
+      #   # predict
+      #   preds = model_batch(seq_1hot, training=False)
+
+      #   if pos_slice is not None:
+      #     # slice specified positions
+      #     preds = tf.gather(preds, pos_slice, axis=-2)
         
-        # sum across positions
-        preds = tf.reduce_sum(preds, axis=-2)
+      #   # sum across positions
+      #   preds = tf.reduce_sum(preds, axis=-2)
 
-      # compute jacboian
-      grads_batch = tape.jacobian(preds, seq_1hot)
-      grads_batch = tf.squeeze(grads_batch)
-      grads_batch = tf.transpose(grads_batch, [1,2,0])
+      # # compute jacboian
+      # grads_batch = tape.jacobian(preds, seq_1hot)
+      # grads_batch = tf.squeeze(grads_batch)
+      # grads_batch = tf.transpose(grads_batch, [1,2,0])
 
-      # zero mean each position
-      grads_batch = grads_batch - tf.reduce_mean(grads_batch, axis=-2, keepdims=True)
+      # # zero mean each position
+      # grads_batch = grads_batch - tf.reduce_mean(grads_batch, axis=-2, keepdims=True)
+
+      
+      grads_batch = self.gradients_func(model_batch, seq_1hot, pos_slice)
+      print('Batch gradient computation in %ds' % (time.time()-t0))
 
       # convert numpy dtype
       grads_batch = grads_batch.numpy().astype(dtype)
@@ -449,6 +455,31 @@ class SeqNN():
 
     # concat target batches
     grads = np.concatenate(grads, axis=-1)
+
+    return grads
+
+  @tf.function
+  def gradients_func(self, model, seq_1hot, pos_slice):
+    with tf.GradientTape() as tape:
+      tape.watch(seq_1hot)
+
+      # predict
+      preds = model(seq_1hot, training=False)
+
+      if pos_slice is not None:
+        # slice specified positions
+        preds = tf.gather(preds, pos_slice, axis=-2)
+      
+      # sum across positions
+      preds = tf.reduce_sum(preds, axis=-2)
+
+    # compute jacboian
+    grads = tape.jacobian(preds, seq_1hot)
+    grads = tf.squeeze(grads)
+    grads = tf.transpose(grads, [1,2,0])
+
+    # zero mean each position
+    grads = grads - tf.reduce_mean(grads, axis=-2, keepdims=True)
 
     return grads
 

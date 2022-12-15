@@ -204,6 +204,32 @@ class LengthAverage(tf.keras.layers.Layer):
 ############################################################
 # Attention
 ############################################################
+def rope(x, axis):
+  """RoPE position embedding.
+     From Hua et al. Transformer Quality in Linear Time."""
+  shape = x.shape.as_list()
+  if isinstance(axis, int):
+    axis = [axis]
+
+  spatial_shape = [shape[i] for i in axis]
+  total_len = 1
+  for i in spatial_shape:
+    total_len *= i
+  position = tf.reshape(
+    tf.cast(tf.range(total_len, delta=1.0), tf.float32), spatial_shape)
+
+  for i in range(axis[-1]+1, len(shape)-1, 1):
+    position = tf.expand_dims(position, axis=-1)
+
+  half_size = shape[-1] // 2
+  freq_seq = tf.cast(tf.range(half_size), tf.float32) / float(half_size)
+  inv_freq = 10000 ** -freq_seq
+  sinusoid = tf.einsum('...,d->...d', position, inv_freq)
+  sin = tf.sin(sinusoid)
+  cos = tf.cos(sinusoid)
+  x1, x2 = tf.split(x, 2, axis=-1)
+
+  return tf.concat([x1*cos - x2*sin, x2*cos + x1*sin], axis=-1)
 
 def _prepend_dims(x, num_dims):
   return tf.reshape(x, shape=[1] * num_dims + x.shape)

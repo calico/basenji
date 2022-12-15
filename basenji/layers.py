@@ -401,7 +401,8 @@ class MultiheadAttention(tf.keras.layers.Layer):
                transpose_stride=0,
                gated=False,
                initializer='he_normal',
-               l2_scale=0):
+               l2_scale=0,
+               qkv_width=3):
     """Creates a MultiheadAttention module.
        Original version written by Ziga Avsec.
 
@@ -449,24 +450,59 @@ class MultiheadAttention(tf.keras.layers.Layer):
     key_proj_size = self._key_size * self._num_heads
     embedding_size = self._value_size * self._num_heads
 
-    self._q_layer = tf.keras.layers.Dense(
+    if qkv_width == 1:
+      # standard dense layers
+      self._q_layer = tf.keras.layers.Dense(
         key_proj_size,
         name='q_layer',
         use_bias=False,
         kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
-    self._k_layer = tf.keras.layers.Dense(
+      self._k_layer = tf.keras.layers.Dense(
         key_proj_size,
         name='k_layer',
         use_bias=False,
         kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
-    self._v_layer = tf.keras.layers.Dense(
+      self._v_layer = tf.keras.layers.Dense(
         embedding_size,
         name='v_layer',
         use_bias=False,
         kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
+    else:
+      # CvT separable convolutions
+      self._q_layer = tf.keras.layers.SeparableConv1D(
+        key_proj_size,
+        kernel_size=qkv_width,
+        padding='same',
+        name='q_layer',
+        use_bias=False,
+        depthwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
+        pointwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
+        depthwise_initializer=self._initializer,
+        pointwise_initializer=self._initializer)
+    self._k_layer = tf.keras.layers.SeparableConv1D(
+        key_proj_size,
+        kernel_size=qkv_width,
+        padding='same',
+        name='k_layer',
+        use_bias=False,
+        depthwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
+        pointwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
+        depthwise_initializer=self._initializer,
+        pointwise_initializer=self._initializer)
+    self._v_layer = tf.keras.layers.SeparableConv1D(
+        embedding_size,
+        kernel_size=qkv_width,
+        padding='same',
+        name='v_layer',
+        use_bias=False,
+        depthwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
+        pointwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
+        depthwise_initializer=self._initializer,
+        pointwise_initializer=self._initializer)
+
     if self._gated:
       self._gate_layer = tf.keras.layers.Dense(
           embedding_size,

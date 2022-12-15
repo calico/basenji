@@ -83,9 +83,6 @@ def main():
       help='EM iterations to distribute multi-mapping reads [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='bam_cov', help='Output directory [Default: %default]')
-  parser.add_option('-q', dest='mapq_t',
-      default=2, type='int',
-      help='Filter alignments for MAPQ >= threshold [Default: %default]')
   parser.add_option('-s', '--smooth_multi', dest='smooth_multi_sd',
       default=16, type='float',
       help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
@@ -95,6 +92,9 @@ def main():
   parser.add_option('--strand', dest='stranded',
       default=False, action='store_true',
       help='Stranded sequencing, output forward and reverse coverage tracks [Default: %default]')
+  parser.add_option('-t', dest='maps_t',
+      default=20, type='int',
+      help='Multi-mapper threshold [Default: %default]')
   parser.add_option('-u', dest='unsorted',
       default=False, action='store_true',
       help='Alignments are unsorted [Default: %default]')
@@ -138,7 +138,7 @@ def main():
       shift_reverse=options.shift_reverse_end,
       all_overlap=options.all_overlap,
       fasta_file=options.fasta_file,
-      mapq_t=options.mapq_t)
+      maps_t=options.maps_t)
 
   # estimate fragment shift
   if options.shift_center:
@@ -427,7 +427,7 @@ class GenomeCoverage:
                shift_forward=0,
                shift_reverse=0,
                all_overlap=False,
-               mapq_t=1,
+               maps_t=1,
                fasta_file=None):
 
     self.stranded = stranded
@@ -462,7 +462,7 @@ class GenomeCoverage:
     self.adaptive_cdf = 0.01
     self.adaptive_t = {}
 
-    self.mapq_t = mapq_t
+    self.maps_t = maps_t
 
     self.fasta = None
     if fasta_file is not None:
@@ -1179,7 +1179,14 @@ class GenomeCoverage:
       multi_read_index = {}
 
     for align in pysam.AlignmentFile(bam_file):
-      if not align.is_unmapped and align.mapq >= self.mapq_t and not align.is_duplicate:
+      if align.has_tag('NH'):
+        num_maps = align.get_tag('NH')
+      elif align.has_tag('XA'):
+        num_maps = len(align.get_tag('XA').split(';')[:-1]) + 1
+      else:
+        num_maps = 1
+
+      if not align.is_unmapped and num_maps <= self.maps_t and not align.is_duplicate:
         read_id = (align.query_name, align.is_read1)
 
         if self.all_overlap:          
@@ -1218,7 +1225,7 @@ class GenomeCoverage:
         assert(np.all(np.less(gis, len(self.unique_counts))))
 
         # count unique
-        if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
+        if num_maps == 1:
           # self.unique_counts[gis] = np.clip(self.unique_counts[gis], 0, self.uc_max) + 1
           self.unique_counts[gis] += 1/len(gis)
 

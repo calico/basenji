@@ -26,6 +26,7 @@ from intervaltree import IntervalTree
 import numpy as np
 import pandas as pd
 import pybedtools
+import pyranges as pr
 from scipy.stats import pearsonr
 from sklearn.metrics import explained_variance_score
 import tensorflow as tf
@@ -37,6 +38,8 @@ from basenji import seqnn
 from basenji import trainer
 import pygene
 from qnorm import quantile_normalize
+
+from borzoi_sed import targets_prep_strand
 
 '''
 borzoi_test_genes.py
@@ -98,20 +101,8 @@ def main():
     options.targets_file = '%s/targets.txt' % data_dir
   targets_df = pd.read_csv(options.targets_file, index_col=0, sep='\t')
 
-  # attach strand
-  targets_strand = []
-  for ti, identifier in enumerate(targets_df.identifier):
-    if targets_df.strand_pair.iloc[ti] == ti:
-      targets_strand.append('.')
-    else:
-      targets_strand.append(identifier[-1])
-  targets_df['strand'] = targets_strand
-
-  # collapse stranded
-  strand_mask = (targets_df.strand != '-')
-  targets_strand_df = targets_df[strand_mask]
-
-  # count targets
+  # prep strand
+  targets_strand_df = targets_prep_strand(targets_df)
   num_targets = targets_df.shape[0]
   num_targets_strand = targets_strand_df.shape[0]
 
@@ -124,8 +115,10 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # set strand pairs
-  params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
+  # set strand pairs (using new indexing)
+  orig_new_index = dict(zip(targets_df.index, np.arange(targets_df.shape[0])))
+  targets_strand_pair = np.array([orig_new_index[ti] for ti in targets_df.strand_pair])
+  params_model['strand_pair'] = [targets_strand_pair]
   
   # construct eval data
   eval_data = dataset.SeqDataset(data_dir,
@@ -151,8 +144,9 @@ def main():
 
   # read sequence positions
   seqs_df = pd.read_csv('%s/sequences.bed'%data_dir, sep='\t',
-    names=['chr','start','end','split'])
-  seqs_df = seqs_df[seqs_df.split == options.split_label]
+    names=['Chromosome','Start','End','Name'])
+  seqs_df = seqs_df[seqs_df.Name == options.split_label]
+  seqs_pr = pr.PyRanges(seqs_df)
 
   #######################################################
   # make gene BED
@@ -162,6 +156,8 @@ def main():
     make_genes_span(genes_bed_file, genes_gtf_file, options.out_dir)
   else:
     make_genes_exon(genes_bed_file, genes_gtf_file, options.out_dir)
+
+  genes_pr = pr.read_bed(genes_bed_file)
 
   # count gene normalization lengths
   gene_lengths = {}
@@ -176,7 +172,8 @@ def main():
   #######################################################
   # intersect genes w/ preds, targets
 
-  genes_bt = pybedtools.BedTool(genes_bed_file)
+  # intersect seqs, genes
+  seqs_genes_pr = seqs_pr.join(genes_pr)
 
   # hash preds/targets by gene_id
   gene_preds_dict = {}
@@ -186,46 +183,45 @@ def main():
   for x, y in eval_data.dataset:
     # predict only if gene overlaps
     yh = None
-    y = y.numpy()
-
-    # assemble sequence bedtool
-    seq_bed_lines = []
-    for bsi in range(x.shape[0]):
-      seq = seqs_df.iloc[si+bsi]
-      seq_bed_lines.append('%s %d %d %d' % (seq.chr, seq.start, seq.end, bsi))
-    seq_bedt = pybedtools.BedTool('\n'.join(seq_bed_lines), from_string=True)
+    y = y.numpy()[...,targets_df.index]
 
     t0 = time.time()
-    print('Bedtools intersect plus predict...', flush=True)
-    for overlap in genes_bt.intersect(seq_bedt, wo=True):
-      gene_id = overlap[3]
-      gene_start = int(overlap[1])
-      gene_end = int(overlap[2])
-      seq_start = int(overlap[7])
-      bsi = int(overlap[9])
+    print('Sequence %d...' % si, end='')
+    for bsi in range(x.shape[0]):
+      seq = seqs_df.iloc[si+bsi]
 
-      if yh is None:
+      cseqs_genes_df = seqs_genes_pr[seq.Chromosome].df
+      if cseqs_genes_df.shape[0] == 0:
+        # empty. no genes on this chromosome
+        seq_genes_df = cseqs_genes_df
+      else:
+        seq_genes_df = cseqs_genes_df[cseqs_genes_df.Start == seq.Start]
+
+      for _, seq_gene in seq_genes_df.iterrows():
+        gene_id = seq_gene.Name_b
+        gene_start = seq_gene.Start_b
+        gene_end = seq_gene.End_b
+        seq_start = seq_gene.Start
+
+        # clip boundaries
+        gene_seq_start = max(0, gene_start - seq_start)
+        gene_seq_end = max(0, gene_end - seq_start)
+
+        # requires >50% overlap
+        bin_start = int(np.round(gene_seq_start / pool_width))
+        bin_end = int(np.round(gene_seq_end / pool_width))
+
         # predict
-        yh = seqnn_model.predict(x)
-        
-      # clip boundaries
-      gene_seq_start = max(0, gene_start - seq_start)
-      gene_seq_end = max(0, gene_end - seq_start)
+        if yh is None:
+          yh = seqnn_model(x)
 
-      # requires >50% overlap
-      bin_start = int(np.round(gene_seq_start / pool_width))
-      bin_end = int(np.round(gene_seq_end / pool_width))
+        # slice gene region
+        yhb = yh[bsi,bin_start:bin_end].astype('float16')
+        yb = y[bsi,bin_start:bin_end].astype('float16')
 
-      # slice gene region
-      yhb = yh[bsi,bin_start:bin_end].astype('float16')
-      yb = y[bsi,bin_start:bin_end].astype('float16')
-
-      if len(yb) > 0:  
-        gene_preds_dict.setdefault(gene_id,[]).append(yhb)
-        gene_targets_dict.setdefault(gene_id,[]).append(yb)
-
-    # values_len_mean = np.mean([len(v) for v in gene_preds_dict.values()])
-    # print(len(gene_preds_dict), values_len_mean, flush=True)
+        if len(yb) > 0:  
+          gene_preds_dict.setdefault(gene_id,[]).append(yhb)
+          gene_targets_dict.setdefault(gene_id,[]).append(yb)
     
     # advance sequence table index
     si += x.shape[0]

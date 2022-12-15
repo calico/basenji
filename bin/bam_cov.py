@@ -95,7 +95,10 @@ def main():
   parser.add_option('-t', dest='maps_t',
       default=20, type='int',
       help='Multi-mapper threshold [Default: %default]')
-  parser.add_option('-u', dest='unsorted',
+  parser.add_option('-u', dest='all_unique',
+      default=False, action='store_true',
+      help='Treat all alignments as unique [Default: %default]')
+  parser.add_option('--unsorted', dest='unsorted',
       default=False, action='store_true',
       help='Alignments are unsorted [Default: %default]')
   parser.add_option('-v', dest='shift_forward_end',
@@ -137,6 +140,7 @@ def main():
       shift_forward=options.shift_forward_end,
       shift_reverse=options.shift_reverse_end,
       all_overlap=options.all_overlap,
+      all_unique=options.all_unique,
       fasta_file=options.fasta_file,
       maps_t=options.maps_t)
 
@@ -427,6 +431,7 @@ class GenomeCoverage:
                shift_forward=0,
                shift_reverse=0,
                all_overlap=False,
+               all_unique=False,
                maps_t=1,
                fasta_file=None):
 
@@ -462,6 +467,7 @@ class GenomeCoverage:
     self.adaptive_cdf = 0.01
     self.adaptive_t = {}
 
+    self.all_unique = all_unique
     self.maps_t = maps_t
 
     self.fasta = None
@@ -1179,7 +1185,9 @@ class GenomeCoverage:
       multi_read_index = {}
 
     for align in pysam.AlignmentFile(bam_file):
-      if align.has_tag('NH'):
+      if self.all_unique:
+        num_maps = 1
+      elif align.has_tag('NH'):
         num_maps = align.get_tag('NH')
       elif align.has_tag('XA'):
         num_maps = len(align.get_tag('XA').split(';')[:-1]) + 1

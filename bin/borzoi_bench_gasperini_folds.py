@@ -78,7 +78,7 @@ def main():
       default=None, type='int',
       help='Index for dataset/head [Default: %default]')
   fold_options.add_option('-e', dest='conda_env',
-      default='tf28',
+      default='tf210',
       help='Anaconda environment [Default: %default]')
   fold_options.add_option('-p', dest='processes',
       default=None, type='int',
@@ -172,7 +172,7 @@ def main():
               outf, errf,
               queue=options.queue,
               cpu=num_cpu, gpu=num_gpu,
-              mem=90000, time='9-0:0:0')
+              mem=120000, time='7-0:0:0')
           jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True, launch_sleep=10, update_sleep=60)

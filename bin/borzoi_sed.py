@@ -406,11 +406,11 @@ def make_snpseq_bedt(snps, seq_len):
 def targets_prep_strand(targets_df):
   # attach strand
   targets_strand = []
-  for ti, identifier in enumerate(targets_df.identifier):
-    if targets_df.strand_pair.iloc[ti] == ti:
+  for _, target in targets_df.iterrows():
+    if target.strand_pair == target.name:
       targets_strand.append('.')
     else:
-      targets_strand.append(identifier[-1])
+      targets_strand.append(target.identifier[-1])
   targets_df['strand'] = targets_strand
 
   # collapse stranded

@@ -1004,7 +1004,7 @@ def convnext_tower(inputs, filters_init, filters_end=None, filters_mult=None,
 def transformer(inputs, key_size=None, heads=1, out_size=None, 
     activation='relu', dense_expansion=2.0, content_position_bias=True,
     dropout=0.25, attention_dropout=0.05, position_dropout=0.01, 
-    l2_scale=0, mha_l2_scale=0, num_position_features=None,
+    l2_scale=0, mha_l2_scale=0, num_position_features=None, qkv_width=1,
     mha_initializer='he_normal', kernel_initializer='he_normal', **kwargs):
   """Construct a transformer block.
 
@@ -1032,7 +1032,8 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
     positional_dropout_rate=position_dropout,
     content_position_bias=content_position_bias,
     initializer=mha_initializer,
-    l2_scale=mha_l2_scale)(current)
+    l2_scale=mha_l2_scale,
+    qkv_width=qkv_width)(current)
 
   # dropout
   if dropout > 0:
@@ -1053,7 +1054,7 @@ def transformer(inputs, key_size=None, heads=1, out_size=None,
 def transformer_split(inputs, splits=2, key_size=None, heads=1, out_size=None, 
     activation='relu', dense_expansion=2.0, content_position_bias=True,
     dropout=0.25, attention_dropout=0.05, position_dropout=0.01, 
-    l2_scale=0, mha_l2_scale=0, num_position_features=None,
+    l2_scale=0, mha_l2_scale=0, num_position_features=None, qkv_width=1,
     mha_initializer='he_normal', kernel_initializer='he_normal', **kwargs):
   """Construct a transformer block.
 
@@ -1081,7 +1082,8 @@ def transformer_split(inputs, splits=2, key_size=None, heads=1, out_size=None,
     positional_dropout_rate=position_dropout,
     content_position_bias=content_position_bias,
     initializer=mha_initializer,
-    l2_scale=mha_l2_scale)
+    l2_scale=mha_l2_scale,
+    qkv_width=qkv_width)
 
   _, seq_len, seq_depth = inputs.shape
   seq_len2 = seq_len//2
@@ -1170,8 +1172,9 @@ def transformer_dense(inputs, out_size, dense_expansion,
 
 
 def transformer2(inputs, key_size=None, heads=1, out_size=None, 
-    activation='relu', num_position_features=None, dense_expansion=2.0,
-    attention_dropout=0.05, position_dropout=0.01, dropout=0.25, **kwargs):
+    activation='relu', num_position_features=None,
+    attention_dropout=0.05, position_dropout=0.01, dropout=0.25,
+    dense_expansion=2.0, qkv_width=1, **kwargs):
   """Construct a transformer block, with length-wise pooling before
      returning to full length.
 
@@ -1203,7 +1206,8 @@ def transformer2(inputs, key_size=None, heads=1, out_size=None,
     num_position_features=num_position_features,
     attention_dropout_rate=attention_dropout,
     positional_dropout_rate=position_dropout,
-    transpose_stride=2)(current)
+    transpose_stride=2,
+    qkv_width=qkv_width)(current)
 
   # dropout
   if dropout > 0:

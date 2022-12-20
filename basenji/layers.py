@@ -428,7 +428,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
                gated=False,
                initializer='he_normal',
                l2_scale=0,
-               qkv_width=3):
+               qkv_width=1):
     """Creates a MultiheadAttention module.
        Original version written by Ziga Avsec.
 
@@ -508,7 +508,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
         pointwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         depthwise_initializer=self._initializer,
         pointwise_initializer=self._initializer)
-    self._k_layer = tf.keras.layers.SeparableConv1D(
+      self._k_layer = tf.keras.layers.SeparableConv1D(
         key_proj_size,
         kernel_size=qkv_width,
         padding='same',
@@ -518,7 +518,7 @@ class MultiheadAttention(tf.keras.layers.Layer):
         pointwise_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         depthwise_initializer=self._initializer,
         pointwise_initializer=self._initializer)
-    self._v_layer = tf.keras.layers.SeparableConv1D(
+      self._v_layer = tf.keras.layers.SeparableConv1D(
         embedding_size,
         kernel_size=qkv_width,
         padding='same',

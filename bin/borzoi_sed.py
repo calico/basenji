@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Calico LLC
+# Copyright 2022 Calico LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 import pybedtools
 import pysam
+from scipy.special import rel_entr
 import tensorflow as tf
 
 from basenji import dna_io
@@ -48,14 +49,14 @@ relative to gene exons in a GTF file.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file> <genes_gtf>'
+  usage = 'usage: %prog [options] <params_file> <model_file> <vcf_file>'
   parser = OptionParser(usage)
   parser.add_option('-f', dest='genome_fasta',
       default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
-  parser.add_option('-n', dest='norm_file',
-      default=None,
-      help='Normalize SED scores')
+  parser.add_option('-g', dest='genes_gtf',
+      default='%s/genes/gencode41/gencode41_basic_nort.gtf' % os.environ['HG38'],
+      help='GTF for gene definition [Default %default]')
   parser.add_option('-o',dest='out_dir',
       default='sed',
       help='Output directory for tables and plots [Default: %default]')
@@ -82,20 +83,18 @@ def main():
       help='File specifying target indexes and labels in table format')
   (options, args) = parser.parse_args()
 
-  if len(args) == 4:
+  if len(args) == 3:
     # single worker
     params_file = args[0]
     model_file = args[1]
     vcf_file = args[2]
-    genes_gtf_file = args[3]
 
-  elif len(args) == 5:
+  elif len(args) == 4:
     # multi separate
     options_pkl_file = args[0]
     params_file = args[1]
     model_file = args[2]
     vcf_file = args[3]
-    genes_gtf_file = args[4]
 
     # save out dir
     out_dir = options.out_dir
@@ -108,14 +107,13 @@ def main():
     # update output directory
     options.out_dir = out_dir
 
-  elif len(args) == 6:
+  elif len(args) == 5:
     # multi worker
     options_pkl_file = args[0]
     params_file = args[1]
     model_file = args[2]
     vcf_file = args[3]
-    genes_gtf_file = args[4]
-    worker_index = int(args[5])
+    worker_index = int(args[4])
 
     # load options
     options_pkl = open(options_pkl_file, 'rb')
@@ -181,7 +179,7 @@ def main():
     snps = bvcf.vcf_snps(vcf_file)
 
   # read genes
-  transcriptome = bgene.Transcriptome(genes_gtf_file)
+  transcriptome = bgene.Transcriptome(options.genes_gtf)
   gene_strand = {}
   for gene_id, gene in transcriptome.genes.items():
     gene_strand[gene_id] = gene.strand
@@ -310,8 +308,9 @@ def map_snpseq_genes(snps, seq_len, transcriptome, model_stride, span):
     bin_start = min(bin_start, bin_max)
     bin_end = min(bin_end, bin_max)
 
-    # save gene bin positions
-    snpseq_gene_slice[si].setdefault(gene_id,[]).extend(range(bin_start, bin_end))
+    if bin_end - bin_start > 0:
+      # save gene bin positions
+      snpseq_gene_slice[si].setdefault(gene_id,[]).extend(range(bin_start, bin_end))
 
   return snpseq_gene_slice
 
@@ -450,9 +449,10 @@ def write_snp(ref_preds, alt_preds, sed_out, xi, sed_stats, log_pseudo):
   """Write SNP predictions to HDF, assuming the length dimension has
       been maintained."""
 
+  # ref/alt_preds is L x T
   ref_preds = ref_preds.astype('float64')
   alt_preds = alt_preds.astype('float64')
-  num_targets = ref_preds.shape[-1]
+  seq_len, num_targets = ref_preds.shape
 
   # sum across bins
   ref_preds_sum = ref_preds.sum(axis=0)
@@ -476,13 +476,25 @@ def write_snp(ref_preds, alt_preds, sed_out, xi, sed_stats, log_pseudo):
     geo_sad = sar_vec.sum(axis=0)
     sed_out['SER'][xi] = geo_sad.astype('float16')
 
-  # compare normalized difference
+  # compare normalized squared difference
   if 'D2' in sed_stats:
     ref_preds_norm = ref_preds / ref_preds_sum
     alt_preds_norm = alt_preds / alt_preds_sum
     diff_norm2 = np.power(ref_preds_norm - alt_preds_norm, 2)
     diff_norm2 = diff_norm2.sum(axis=0)
     sed_out['D2'][xi] = diff_norm2.astype('float16')
+
+  # compare normalized JS
+  if 'JS' in sed_stats:
+    norm_pseudo = 1/(10*seq_len)
+    ref_preds_norm = ref_preds + norm_pseudo
+    ref_preds_norm /= ref_preds_norm.sum(axis=0)
+    alt_preds_norm = alt_preds + norm_pseudo
+    alt_preds_norm /= alt_preds_norm.sum(axis=0)
+    ref_alt_entr = rel_entr(ref_preds_norm, alt_preds_norm).sum(axis=0)
+    alt_ref_entr = rel_entr(alt_preds_norm, ref_preds_norm).sum(axis=0)
+    js_dist = (ref_alt_entr + alt_ref_entr) / 2
+    sed_out['D2'][xi] = js_dist.astype('float16')
 
   # predictions
   if 'REF' in sed_stats:

@@ -31,9 +31,9 @@ import util
 from basenji_test_folds import stat_tests
 
 """
-basenji_bench_phylop_folds.py
+basenji_bench_gtex_folds.py
 
-Benchmark Basenji model replicates on BED PhyloP task.
+Benchmark Basenji model replicates on GTEx eQTL classification task.
 """
 
 ################################################################################
@@ -150,6 +150,8 @@ def main():
   if num_folds == 0:
     exit(1)
 
+  sad_stats = options.sad_stats.split(',')
+
   ################################################################
   # SAD
 
@@ -179,7 +181,7 @@ def main():
         # positive job 
         job_base = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0]
         sad_out_dir = '%s/%s' % (it_out_dir, job_base)
-        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir):
+        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir, sad_stats):
           cmd_sad = '%s %s' % (cmd_base, gtex_pos_vcf)
           cmd_sad += ' %s' % options_string(options, sad_options, sad_out_dir)
           name = '%s_%s' % (options.name, job_base)
@@ -193,7 +195,7 @@ def main():
         gtex_neg_vcf = gtex_pos_vcf.replace('_pos.','_neg.')
         job_base = os.path.splitext(os.path.split(gtex_neg_vcf)[1])[0]
         sad_out_dir = '%s/%s' % (it_out_dir, job_base)
-        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir):
+        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir, sad_stats):
           cmd_sad = '%s %s' % (cmd_base, gtex_neg_vcf)
           cmd_sad += ' %s' % options_string(options, sad_options, sad_out_dir)
           name = '%s_%s' % (options.name, job_base)
@@ -294,21 +296,21 @@ def main():
 
   slurm.multi_run(jobs, verbose=True)
 
-def complete_h5(h5_file):
+
+def complete_h5(h5_file, sad_stats):
   if os.path.isfile(h5_file):
     try:
-      h5_open = h5py.File(h5_file, 'r')
-      sad = h5_open['SAD'][:]
-      if (sad != 0).sum() > 0:
+      with h5py.File(h5_file, 'r') as h5_open:
+        for ss in sad_stats:
+          sad = h5_open[ss][:]
+          if (sad != 0).sum() == 0:
+            return False  
         return True
-      else:
-        return False
-      h5_open.close()
-      return True
     except:
       return False
   else:
-    return
+    return False
+
 
 def ensemble_sad_h5(ensemble_h5_file, scores_files):
   # open ensemble

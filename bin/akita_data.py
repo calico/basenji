@@ -489,6 +489,7 @@ def main():
   stats_dict = {}
   stats_dict['num_targets'] = targets_df.shape[0]
   stats_dict['seq_length'] = options.seq_length
+  stats_dict['seq_1hot'] = True
   stats_dict['pool_width'] = options.pool_width
   stats_dict['crop_bp'] = options.crop_bp
   stats_dict['diagonal_offset'] = options.diagonal_offset

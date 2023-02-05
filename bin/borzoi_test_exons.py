@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2021 Calico LLC
+# Copyright 2022 Calico LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -286,17 +286,15 @@ def main():
   exon_preds = np.array(exon_preds)
 
   # TEMP
-  np.save('%s/exon_targets.npy' % options.out_dir, exon_targets)
-  np.save('%s/exon_preds.npy' % options.out_dir, exon_preds)
-
+  # np.save('%s/exon_targets.npy' % options.out_dir, exon_targets)
+  # np.save('%s/exon_preds.npy' % options.out_dir, exon_preds)
   # exon_targets = np.load('%s/exon_targets.npy' % options.out_dir)
   # exon_preds = np.load('%s/exon_preds.npy' % options.out_dir)
 
-  # rna_mask = np.array([desc.startswith('RNA:') for desc in targets_strand_df.description])
-  # exon_targets = exon_targets[:,rna_mask]
-  # exon_preds = exon_preds[:,rna_mask]
-  # targets_strand_df = targets_strand_df[rna_mask]
-  # num_targets_strand = targets_strand_df.shape[0]
+  exon_targets_df = pd.DataFrame(exon_targets, index=exon_ids)
+  exon_targets_df.to_csv('%s/exon_targets_prenorm.tsv.gz' % options.out_dir, sep='\t')
+  exon_preds_df = pd.DataFrame(exon_preds, index=exon_ids)
+  exon_preds_df.to_csv('%s/exon_preds_prenorm.tsv.gz' % options.out_dir, sep='\t')
 
   #######################################################
   # normalize by adjacent exons
@@ -386,11 +384,9 @@ def main():
 
   # save values
   exon_targets_df = pd.DataFrame(exon_targets, index=exon_ids)
-  exon_targets_df.to_csv('%s/exon_targets.tsv.gz' % options.out_dir,
-    index=False, sep='\t')
+  exon_targets_df.to_csv('%s/exon_targets.tsv.gz' % options.out_dir, sep='\t')
   exon_preds_df = pd.DataFrame(exon_preds, index=exon_ids)
-  exon_preds_df.to_csv('%s/exon_preds.tsv.gz' % options.out_dir,
-    index=False, sep='\t')
+  exon_preds_df.to_csv('%s/exon_preds.tsv.gz' % options.out_dir, sep='\t')
 
   # compute exon variances
   exon_var = exon_targets.var(axis=-1)

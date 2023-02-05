@@ -54,9 +54,6 @@ def main():
   sad_options.add_option('-o',dest='out_dir',
       default='gtex',
       help='Output directory for tables and plots [Default: %default]')
-  sad_options.add_option('--pseudo', dest='log_pseudo',
-      default=1, type='float',
-      help='Log2 pseudocount [Default: %default]')
   sad_options.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -89,8 +86,6 @@ def main():
 
   # cross-fold
   fold_options = OptionGroup(parser, 'cross-fold options')
-  # fold_options.add_option('-a', '--alt', dest='alternative',
-  #     default='two-sided', help='Statistical test alternative [Default: %default]')
   fold_options.add_option('-c', dest='crosses',
       default=1, type='int',
       help='Number of cross-fold rounds [Default:%default]')
@@ -98,14 +93,10 @@ def main():
       default=None, type='int',
       help='Index for dataset/head [Default: %default]')
   fold_options.add_option('-e', dest='conda_env',
-      default='tf28',
+      default='tf210',
       help='Anaconda environment [Default: %default]')
   fold_options.add_option('-g', dest='gtex_vcf_dir',
       default='/home/drk/seqnn/data/gtex_fine/susie_pip90')
-  # fold_options.add_option('--label_exp', dest='label_exp',
-  #     default='Experiment', help='Experiment label [Default: %default]')
-  # fold_options.add_option('--label_ref', dest='label_ref',
-  #     default='Reference', help='Reference label [Default: %default]')
   fold_options.add_option('--name', dest='name',
       default='gtex', help='SLURM name prefix [Default: %default]')
   fold_options.add_option('--max_proc', dest='max_proc',
@@ -152,8 +143,17 @@ def main():
 
   sad_stats = options.sad_stats.split(',')
 
+  # merge study/tissue variants
+  mpos_vcf_file = '%s/pos_merge.vcf' % options.gtex_vcf_dir
+  mneg_vcf_file = '%s/neg_merge.vcf' % options.gtex_vcf_dir
+
   ################################################################
   # SAD
+
+  # SAD command base
+  cmd_base = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+  cmd_base += ' conda activate %s;' % options.conda_env
+  cmd_base += ' echo $HOSTNAME;'
 
   jobs = []
 
@@ -166,51 +166,57 @@ def main():
       it_out_dir = '%s/%s' % (it_dir, options.out_dir)
       os.makedirs(it_out_dir, exist_ok=True)
 
-      # SAD command base
-      cmd_base = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd_base += ' conda activate %s;' % options.conda_env
-      cmd_base += ' echo $HOSTNAME;'
-
+      # choose model
       model_file = '%s/train/model_best.h5' % it_dir
       if options.data_head is not None:
         model_file = '%s/train/model%d_best.h5' % (it_dir, options.data_head)
 
-      cmd_base += ' time basenji_sad.py %s %s' % (params_file, model_file)
+      # create base fold command
+      cmd_fold = '%s time borzoi_sad.py %s %s' % (cmd_base, params_file, model_file)
 
-      for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
-        # positive job 
-        job_base = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0]
-        sad_out_dir = '%s/%s' % (it_out_dir, job_base)
-        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir, sad_stats):
-          cmd_sad = '%s %s' % (cmd_base, gtex_pos_vcf)
-          cmd_sad += ' %s' % options_string(options, sad_options, sad_out_dir)
-          name = '%s_%s' % (options.name, job_base)
-          j = slurm.Job(cmd_sad, name,
-              '%s.out'%sad_out_dir, '%s.err'%sad_out_dir,
-              queue=options.queue, gpu=1,
-              mem=22000, time='2-0:0:0')
-          jobs.append(j)
+      # negative job
+      job_out_dir = '%s/merge_neg' % it_out_dir
+      if not options.restart or not complete_h5('%s/sad.h5'%job_out_dir, sad_stats):
+        cmd_job = '%s %s' % (cmd_fold, mneg_vcf_file)
+        cmd_job += ' %s' % options_string(options, sad_options, job_out_dir)
+        j = slurm.Job(cmd_job, '%s_neg' % name,
+            '%s.out'%job_out_dir, '%s.err'%job_out_dir, '%s.sb'%job_out_dir,
+            queue=options.queue, gpu=1, cpu=4,
+            mem=30000, time='7-0:0:0')
+        jobs.append(j)
 
-        # negative job 
-        gtex_neg_vcf = gtex_pos_vcf.replace('_pos.','_neg.')
-        job_base = os.path.splitext(os.path.split(gtex_neg_vcf)[1])[0]
-        sad_out_dir = '%s/%s' % (it_out_dir, job_base)
-        if not options.restart or not complete_h5('%s/sad.h5'%sad_out_dir, sad_stats):
-          cmd_sad = '%s %s' % (cmd_base, gtex_neg_vcf)
-          cmd_sad += ' %s' % options_string(options, sad_options, sad_out_dir)
-          name = '%s_%s' % (options.name, job_base)
-          j = slurm.Job(cmd_sad, name,
-              '%s.out'%sad_out_dir, '%s.err'%sad_out_dir,
-              queue=options.queue, gpu=1,
-              mem=22000, time='2-0:0:0')
-          jobs.append(j)
-        
+      # positive job
+      job_out_dir = '%s/merge_pos' % it_out_dir
+      if not options.restart or not complete_h5('%s/sad.h5'%job_out_dir, sad_stats):
+        cmd_job = '%s %s' % (cmd_fold, mpos_vcf_file)
+        cmd_job += ' %s' % options_string(options, sad_options, job_out_dir)
+        j = slurm.Job(cmd_job, '%s_pos' % name,
+            '%s.out'%job_out_dir, '%s.err'%job_out_dir, '%s.sb'%job_out_dir,
+            queue=options.queue, gpu=1, cpu=4, 
+            mem=30000, time='7-0:0:0')
+        jobs.append(j)
+
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
 
   ################################################################
-  # ensemble
+  # split study/tissue variants
+
+  for ci in range(options.crosses):
+    for fi in range(num_folds):
+      it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
+      it_out_dir = '%s/%s' % (it_dir, options.out_dir)
+      print(it_out_dir)
+
+      # split positives
+      split_sad(it_out_dir, 'pos', options.gtex_vcf_dir, sad_stats)
+
+      # split negatives
+      split_sad(it_out_dir, 'neg', options.gtex_vcf_dir, sad_stats)
+
   ################################################################
+  # ensemble
+  
   ensemble_dir = '%s/ensemble' % exp_dir
   if not os.path.isdir(ensemble_dir):
     os.mkdir(ensemble_dir)
@@ -380,6 +386,89 @@ def options_string(options, group_options, rep_dir):
 
   return options_str
 
+
+def split_sad(it_out_dir, posneg, vcf_dir, sad_stats):
+  """Split merged VCF predictions in HDF5 into tissue-specific
+     predictions in HDF5."""
+
+  merge_h5_file = '%s/merge_%s/sad.h5' % (it_out_dir, posneg)
+  merge_h5 = h5py.File(merge_h5_file, 'r')
+
+  # read merged data
+  snps = [snp.decode('UTF-8') for snp in merge_h5['snp']]
+  merge_scores = {}
+  for ss in sad_stats:
+    merge_scores[ss] = merge_h5[ss][:]
+
+  # hash snp indexes
+  snp_si = dict(zip(snps, np.arange(len(snps))))
+
+  # for each tissue VCF
+  vcf_glob = '%s/*_%s.vcf' % (vcf_dir, posneg)
+  for tissue_vcf_file in glob.glob(vcf_glob):
+    tissue_label = tissue_vcf_file.split('/')[-1]
+    tissue_label = tissue_label.replace('_pos.vcf','')
+    tissue_label = tissue_label.replace('_neg.vcf','')
+
+    # initialize HDF5 arrays
+    sad_snp = []
+    sad_chr = []
+    sad_pos = []
+    sad_ref = []
+    sad_alt = []
+    sad_scores = {}
+    for ss in sad_stats:
+      sad_scores[ss] = []
+
+    # fill HDF5 arrays with ordered SNPs
+    for line in open(tissue_vcf_file):
+      if not line.startswith('#'):
+        a = line.split()
+        chrm, pos, snp, ref, alt = a[:5]
+        sad_snp.append(snp)
+        sad_chr.append(chrm)
+        sad_pos.append(int(pos))
+        sad_ref.append(ref)
+        sad_alt.append(alt)
+
+        for ss in sad_stats:
+          si = snp_si[snp]
+          sad_scores[ss].append(merge_scores[ss][si])
+
+    # write tissue HDF5
+    tissue_dir = '%s/%s_%s' % (it_out_dir, tissue_label, posneg)
+    os.makedirs(tissue_dir, exist_ok=True)
+    with h5py.File('%s/sed.h5' % tissue_dir, 'w') as tissue_h5:
+      # write SNPs
+      tissue_h5.create_dataset('snp',
+        data=np.array(sad_snp, 'S'))
+
+      # write SNP chr
+      tissue_h5.create_dataset('chr',
+        data=np.array(sad_chr, 'S'))
+
+      # write SNP pos
+      tissue_h5.create_dataset('pos',
+        data=np.array(sad_pos, dtype='uint32'))
+
+      # write ref allele
+      tissue_h5.create_dataset('ref_allele',
+        data=np.array(sad_ref, dtype='S'))
+
+      # write alt allele
+      tissue_h5.create_dataset('alt_allele',
+        data=np.array(sad_alt, dtype='S'))
+
+      # write targets
+      tissue_h5.create_dataset('target_ids', data=merge_h5['target_ids'])
+      tissue_h5.create_dataset('target_labels', data=merge_h5['target_labels'])
+
+      # write sed stats
+      for ss in sad_stats:
+        tissue_h5.create_dataset(ss,
+          data=np.array(sad_scores[ss], dtype='float16'))
+
+  merge_h5.close()
 
 ################################################################################
 # __main__

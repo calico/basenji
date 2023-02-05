@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 import pysam
 from scipy.sparse import dok_matrix
+from scipy.special import rel_entr
 import tensorflow as tf
 from tqdm import tqdm
 
@@ -57,9 +58,6 @@ def main():
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
-  parser.add_option('--pseudo', dest='log_pseudo',
-      default=1, type='float',
-      help='Log2 pseudocount [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -72,9 +70,6 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
-  # parser.add_option('--ti', dest='track_indexes',
-  #     default=None, type='str',
-  #     help='Comma-separated list of target indexes to output BigWig tracks')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -122,13 +117,6 @@ def main():
 
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
-
-  # if options.track_indexes is None:
-  #   options.track_indexes = []
-  # else:
-  #   options.track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
-  #   if not os.path.isdir('%s/tracks' % options.out_dir):
-  #     os.mkdir('%s/tracks' % options.out_dir)
 
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.sad_stats = options.sad_stats.split(',')
@@ -244,10 +232,10 @@ def main():
     # process SNP
     if sum_length:
       write_snp(ref_preds, alt_preds, sad_out, si,
-                options.sad_stats, options.log_pseudo)
+                options.sad_stats)
     else:
       write_snp_len(ref_preds, alt_preds, sad_out, si,
-                    options.sad_stats, options.log_pseudo)
+                    options.sad_stats)
 
   # close genome
   genome_open.close()
@@ -362,7 +350,7 @@ def write_pct(sad_out, sad_stats):
       sad_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')
 
     
-def write_snp(ref_preds_sum, alt_preds_sum, sad_out, si, sad_stats, log_pseudo):
+def write_snp(ref_preds_sum, alt_preds_sum, sad_out, si, sad_stats):
   """Write SNP predictions to HDF, assuming the length dimension has
       been collapsed."""
 
@@ -372,23 +360,29 @@ def write_snp(ref_preds_sum, alt_preds_sum, sad_out, si, sad_stats, log_pseudo):
     sad_out['SAD'][si,:] = sad.astype('float16')
 
   # compare reference to alternative via mean log division
-  if 'SADR' in sad_stats:
-    sar = np.log2(alt_preds_sum + log_pseudo) \
-                   - np.log2(ref_preds_sum + log_pseudo)
-    sad_out['SADR'][si,:] = sar.astype('float16')
+  # if 'SADR' in sad_stats:
+  #   sar = np.log2(alt_preds_sum + log_pseudo) \
+  #                  - np.log2(ref_preds_sum + log_pseudo)
+  #   sad_out['SADR'][si,:] = sar.astype('float16')
 
 
-def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
+def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
   """Write SNP predictions to HDF, assuming the length dimension has
       been maintained."""
 
   ref_preds = ref_preds.astype('float64')
   alt_preds = alt_preds.astype('float64')
-  num_targets = ref_preds.shape[-1]
+  seq_length, num_targets = ref_preds.shape
+
+  # compute pseudocounts
+  pseudocounts = np.percentile(ref_preds, 25, axis=0)
 
   # sum across length
   ref_preds_sum = ref_preds.sum(axis=0)
   alt_preds_sum = alt_preds.sum(axis=0)
+
+  # difference
+  altref_diff = alt_preds - ref_preds
 
   # compare reference to alternative via mean subtraction
   if 'SAD' in sad_stats:
@@ -397,37 +391,61 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats, log_pseudo):
 
   # compare reference to alternative via max subtraction
   if 'SAX' in sad_stats:
-    sad_vec = (alt_preds - ref_preds)
-    max_i = np.argmax(np.abs(sad_vec), axis=0)
-    sax = sad_vec[max_i, np.arange(num_targets)]
-    sad_out['SAX'][si] = sax.astype('float16')
+    # sad_vec = (alt_preds - ref_preds)
+    # max_i = np.argmax(np.abs(sad_vec), axis=0)
+    # sax = sad_vec[max_i, np.arange(num_targets)]
 
-  # compare reference to alternative via mean subtraction
-  if 'ASAD' in sad_stats:
-    sad_vec = np.abs(alt_preds - ref_preds)
-    asad = sad_vec.sum(axis=0)
-    sad_out['SAD'][si] = asad.astype('float16')
+    sad_max = np.max(altref_diff, axis=0)
+    sad_min = np.min(altref_diff, axis=0)
+    sax = np.where(sad_max>-sad_min, sad_max, sad_min)
+    pdb.set_trace()
+    sad_out['SAX'][si] = sax.astype('float16')
 
   # compare reference to alternative via mean log division
   if 'SADR' in sad_stats:
-    sar = np.log2(alt_preds_sum + log_pseudo) \
-                   - np.log2(ref_preds_sum + log_pseudo)
+    sar = np.log2(alt_preds_sum + pseudocounts) \
+                   - np.log2(ref_preds_sum + pseudocounts)
     sad_out['SADR'][si] = sar.astype('float16')
 
   # compare reference to alternative via max subtraction
   if 'SAXR' in sad_stats:
-    sar_vec = np.log2(alt_preds + log_pseudo) \
-                - np.log2(ref_preds + log_pseudo)
+    sar_vec = np.log2(alt_preds + pseudocounts) \
+                - np.log2(ref_preds + pseudocounts)
     max_i = np.argmax(np.abs(sar_vec), axis=0)
     saxr = sar_vec[max_i, np.arange(num_targets)]
     sad_out['SAXR'][si] = saxr.astype('float16')
 
   # compare geometric means
   if 'SAR' in sad_stats:
-    sar_vec = np.log2(alt_preds + log_pseudo) \
-                - np.log2(ref_preds + log_pseudo)
+    sar_vec = np.log2(alt_preds + pseudocounts) \
+                - np.log2(ref_preds + pseudocounts)
     geo_sad = sar_vec.sum(axis=0)
     sad_out['SAR'][si] = geo_sad.astype('float16')
+
+  # L1 norm of difference vector
+  if 'D1' in sad_stats:
+    sad_vec = np.abs(altref_diff)
+    sad_d1 = sad_vec.sum(axis=0)
+    sad_out['D1'][si] = sad_d1.astype('float16')
+
+  # L2 norm of difference vector
+  if 'D2' in sad_stats:
+    sad_vec = np.power(altref_diff, 2)
+    sad_d2 = sad_vec.sum(axis=0)
+    sad_out['D2'][si] = sad_d2.astype('float16')
+
+  if 'JS' in sad_stats:
+    # normalized scores
+    ref_preds_norm = ref_preds + pseudocounts
+    ref_preds_norm /= ref_preds_norm.sum(axis=0)
+    alt_preds_norm = alt_preds + pseudocounts
+    alt_preds_norm /= alt_preds_norm.sum(axis=0)
+
+    # compare normalized JS
+    ref_alt_entr = rel_entr(ref_preds_norm, alt_preds_norm).sum(axis=0)
+    alt_ref_entr = rel_entr(alt_preds_norm, ref_preds_norm).sum(axis=0)
+    js_dist = (ref_alt_entr + alt_ref_entr) / 2
+    sad_out['JS'][si] = js_dist.astype('float16')
 
   # predictions
   if 'REF' in sad_stats:

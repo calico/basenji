@@ -155,7 +155,7 @@ def main():
       seq_hic_nan = np.isnan(seq_hic_raw)
       num_filtered_bins = np.sum(np.sum(seq_hic_nan,axis=0) == len(seq_hic_nan))
       if num_filtered_bins > (.5*len(seq_hic_nan)):
-        print("WARNING: %s >50% bins filtered, check:  %s. " % (genome_hic_file, mseq_str))
+        print("WARNING: %s >50%% bins filtered, check:  %s. " % (genome_hic_file, mseq_str))
 
       # set blacklist to NaNs
       if mseq.chr in black_chr_trees:

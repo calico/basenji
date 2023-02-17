@@ -108,6 +108,10 @@ def main():
     # train classifier
     if X.shape[1] == 1:
         aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean = fold_roc(X, y, folds=8)
+
+        # save preds
+        if options.save_preds:
+            np.save('%s/preds.npy' % options.out_dir, X)
     else:
         # aurocs, fpr_folds, tpr_folds, fpr_full, tpr_full = ridge_roc(X, y, folds=8, alpha=10000)
         aurocs, fpr_folds, tpr_folds, fpr_mean, tpr_mean, preds = randfor_roc(X, y, folds=8,
@@ -334,8 +338,8 @@ def read_indel(sad_file, indel_abs=True, indel_bool=False):
 
 def read_sad(sad_file, sad_stat):
     with h5py.File(sad_file, 'r') as sad_open:
-        sad = np.array(sad_open[sad_stat], dtype='float64')
-    return sad
+        sad = np.nan_to_num(sad_open[sad_stat][:])
+    return sad.astype('float32')
 
 
 ################################################################################

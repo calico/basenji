@@ -54,7 +54,7 @@ def main():
       default=None, type='float',
       help='Soft clip values, applying sqrt to the execess above the threshold [Default: %default]')
   parser.add_option('--clip_pct', dest='clip_pct',
-      default=0.9999, type='float',
+      default=0.9999999, type='float',
       help='Clip extreme values to this distribution value [Default: %default')
   parser.add_option('--crop', dest='crop_bp',
       default=0, type='int',
@@ -190,6 +190,7 @@ def main():
   targets = np.array(targets, dtype='float16')
   extreme_clip = np.percentile(targets, 100*options.clip_pct)
   targets = np.clip(targets, -extreme_clip, extreme_clip)
+  print('Targets sum: %.3f' % targets.sum(dtype='float64'))
 
   # write all
   seqs_cov_open.create_dataset('targets', data=targets, 

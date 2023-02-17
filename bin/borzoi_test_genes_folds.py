@@ -40,6 +40,20 @@ Train Basenji model replicates using given parameters and data.
 def main():
   usage = 'usage: %prog [options] <params_file> <data1_dir> ...'
   parser = OptionParser(usage)
+
+  # test genes
+  parser.add_option('--rc', dest='rc',
+      default=False, action='store_true',
+      help='Average forward and reverse complement predictions [Default: %default]')
+  parser.add_option('--shifts', dest='shifts',
+      default='0', type='str',
+      help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('-t', dest='targets_file',
+      default=None, type='str',
+      help='File specifying target indexes and labels in table format')
+
+
+  # folds
   parser.add_option('-a', '--alt', dest='alternative',
       default='two-sided', help='Statistical test alternative [Default: %default]')
   parser.add_option('-c', dest='crosses',
@@ -73,20 +87,15 @@ def main():
       default=None, help='Output plot stem [Default: %default]')
   parser.add_option('-q', dest='queue',
       default='geforce')
+  parser.add_option('-s', dest='sub_dir',
+      default='testg',
+      help='Output subdirectory within the fold directories [Default: %default]')
   parser.add_option('-r', dest='ref_dir',
       default=None, help='Reference directory for statistical tests')
-  parser.add_option('--rc', dest='rc',
-      default=False, action='store_true',
-      help='Average forward and reverse complement predictions [Default: %default]')
-  parser.add_option('--shifts', dest='shifts',
-      default='0', type='str',
-      help='Ensemble prediction shifts [Default: %default]')
   parser.add_option('--status', dest='status',
       default=False, action='store_true',
       help='Update metric status; do not run jobs [Default: %default]')
-  parser.add_option('-t', dest='targets_file',
-      default=None, type='str',
-      help='File specifying target indexes and labels in table format')
+  
   (options, args) = parser.parse_args()
 
   if len(args) < 2:
@@ -132,10 +141,10 @@ def main():
       it_dir = '%s/f%dc%d' % (options.exp_dir, fi, ci)
 
       if options.dataset_i is None:
-        out_dir = '%s/testg' % it_dir
+        out_dir = '%s/%s' % (it_dir, options.sub_dir)
         model_file = '%s/train/model_best.h5' % it_dir
       else:
-        out_dir = '%s/testg%d' % (it_dir, options.dataset_i)
+        out_dir = '%s/%s-%d' % (it_dir, options.sub_dir, options.dataset_i)
         model_file = '%s/train/model%d_best.h5' % (it_dir, options.dataset_i)
 
       # check if done
@@ -175,14 +184,14 @@ def main():
   slurm.multi_run(jobs, verbose=True)
 
   if options.dataset_i is None:
-    test_prefix = 'testg'
+    test_prefix = options.sub_dir
   else:
-    test_prefix = 'testg%d' % options.dataset_i
+    test_prefix = '%s-%d' % (options.sub_dir, options.dataset_i)
 
   if options.dataset_ref_i is None:
-    test_ref_prefix = 'testg'
+    test_ref_prefix = options.sub_dir
   else:
-    test_ref_prefix = 'testg%d' % options.dataset_ref_i
+    test_ref_prefix = '%s-%d' % (options.sub_dir, options.dataset_ref_i)
 
 
   ################################################################

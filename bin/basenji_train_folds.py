@@ -151,7 +151,7 @@ def main():
   if options.queue == 'standard':
     num_cpu = 8
     num_gpu = 0
-    time_base = 36
+    time_base = 64
   else:
     num_cpu = 2
     num_gpu = 1
@@ -357,7 +357,7 @@ def main():
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
                             cpu=num_cpu, gpu=num_gpu,
-                            mem=120000,
+                            mem=150000,
                             time='%d:00:00' % (5*time_base))
             jobs.append(basenji_job)
         

@@ -362,7 +362,7 @@ class ScoreWorker(Thread):
       try:
         # unload predictions
         seq_dna, seq_pred_stats, si = self.queue.get()
-        seq_preds_sum, seq_preds_center, seq_preds_scd = seq_pred_stats
+        seq_preds_sum, seq_preds_center, seq_preds_scd, seq_preds_js = seq_pred_stats
         print('Writing %d' % si, flush=True)
 
         # seq_preds_sum is (1 + 3*mut_len) x (num_targets)
@@ -393,6 +393,8 @@ class ScoreWorker(Thread):
             seq_preds_stat = seq_preds_center
           elif sad_stat == 'scd':
             seq_preds_stat = seq_preds_scd
+          elif sad_stat == 'js':
+            seq_preds_stat = seq_preds_js
           else:
             print('Unrecognized summary statistic "%s"' % options.sad_stat)
             exit(1)
@@ -413,7 +415,7 @@ class ScoreWorker(Thread):
                 pi += 1
 
           # normalize positions
-          if sad_stat != 'sqdiff':
+          if sad_stat in ['sum','center']:
             seq_scores -= seq_scores.mean(axis=1, keepdims=True)
 
           # write to HDF5

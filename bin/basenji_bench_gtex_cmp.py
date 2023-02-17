@@ -51,7 +51,7 @@ def main():
         os.mkdir(options.out_dir)
 
     num_benches = len(bench_dirs)
-    sad_stats = [stat.lower() for stat in options.stats.split(',')]
+    sad_stats = [stat.upper() for stat in options.stats.split(',')]
     if len(sad_stats) == 1:
         sad_stats = sad_stats*num_benches
 
@@ -75,9 +75,9 @@ def main():
 
     # determine tissues
     tissue_bench_dirs0 = glob.glob('%s/*_class-%s' % (bench_dirs[0], sad_stats[0]))
-    if len(tissue_bench_dirs0) == 0:
-        # TEMP during transition
-        tissue_bench_dirs0 = glob.glob('%s/*_class' % bench_dirs[0])
+    # if len(tissue_bench_dirs0) == 0:
+    #     # TEMP during transition
+    #     tissue_bench_dirs0 = glob.glob('%s/*_class' % bench_dirs[0])
     # tissues = [tbd.split('/')[-1].replace('_class','') for tbd in tissue_bench_dirs0]
     tissue_class_dirs = [tbd.split('/')[-1] for tbd in tissue_bench_dirs0]
     tissues = [tcd[:tcd.find('_class')] for tcd in tissue_class_dirs]

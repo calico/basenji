@@ -15,13 +15,14 @@
 # =========================================================================
 from optparse import OptionParser, OptionGroup
 import glob
-import h5py
 import json
+import pickle
 import pdb
 import os
 import shutil
 import sys
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -29,6 +30,7 @@ import slurm
 import util
 
 from basenji_test_folds import stat_tests
+from basenji_sad_multi import collect_h5
 
 """
 basenji_bench_gtex_folds.py
@@ -109,9 +111,9 @@ def main():
   fold_options.add_option('-q', dest='queue',
       default='geforce',
       help='SLURM queue on which to run the jobs [Default: %default]')
-  fold_options.add_option('-r', dest='restart',
-      default=False, action='store_true',
-      help='Restart a partially completed job [Default: %default]')
+  # fold_options.add_option('-r', dest='restart',
+  #     default=False, action='store_true',
+  #     help='Restart a partially completed job [Default: %default]')
   parser.add_option_group(fold_options)
 
   (options, args) = parser.parse_args()
@@ -141,6 +143,10 @@ def main():
   if num_folds == 0:
     exit(1)
 
+  # extract output subdirectory name
+  gtex_out_dir = options.out_dir
+
+  # split SNP stats
   sad_stats = options.sad_stats.split(',')
 
   # merge study/tissue variants
@@ -163,7 +169,7 @@ def main():
       name = '%s-f%dc%d' % (options.name, fi, ci)
 
       # update output directory
-      it_out_dir = '%s/%s' % (it_dir, options.out_dir)
+      it_out_dir = '%s/%s' % (it_dir, gtex_out_dir)
       os.makedirs(it_out_dir, exist_ok=True)
 
       # choose model
@@ -171,41 +177,84 @@ def main():
       if options.data_head is not None:
         model_file = '%s/train/model%d_best.h5' % (it_dir, options.data_head)
 
+      ########################################
+      # negative jobs
+      
+      # pickle options
+      options.out_dir = '%s/merge_neg' % it_out_dir
+      os.makedirs(options.out_dir, exist_ok=True)
+      options_pkl_file = '%s/options.pkl' % options.out_dir
+      options_pkl = open(options_pkl_file, 'wb')
+      pickle.dump(options, options_pkl)
+      options_pkl.close()
+
       # create base fold command
-      cmd_fold = '%s time borzoi_sad.py %s %s' % (cmd_base, params_file, model_file)
+      cmd_fold = '%s time basenji_sad.py %s %s %s' % (
+        cmd_base, options_pkl_file, params_file, model_file)
 
-      # negative job
-      job_out_dir = '%s/merge_neg' % it_out_dir
-      if not options.restart or not complete_h5('%s/sad.h5'%job_out_dir, sad_stats):
-        cmd_job = '%s %s' % (cmd_fold, mneg_vcf_file)
-        cmd_job += ' %s' % options_string(options, sad_options, job_out_dir)
-        j = slurm.Job(cmd_job, '%s_neg' % name,
-            '%s.out'%job_out_dir, '%s.err'%job_out_dir, '%s.sb'%job_out_dir,
-            queue=options.queue, gpu=1, cpu=4,
-            mem=30000, time='7-0:0:0')
-        jobs.append(j)
+      for pi in range(options.processes):
+        sad_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
+        if not complete_h5(sad_file, sad_stats):
+          cmd_job = '%s %s %d' % (cmd_fold, mneg_vcf_file, pi)
+          j = slurm.Job(cmd_job, '%s_neg%d' % (name,pi),
+              '%s/job%d.out' % (options.out_dir,pi),
+              '%s/job%d.err' % (options.out_dir,pi),
+              '%s/job%d.sb' % (options.out_dir,pi),
+              queue=options.queue, gpu=1, cpu=2,
+              mem=30000, time='7-0:0:0')
+          jobs.append(j)
 
-      # positive job
-      job_out_dir = '%s/merge_pos' % it_out_dir
-      if not options.restart or not complete_h5('%s/sad.h5'%job_out_dir, sad_stats):
-        cmd_job = '%s %s' % (cmd_fold, mpos_vcf_file)
-        cmd_job += ' %s' % options_string(options, sad_options, job_out_dir)
-        j = slurm.Job(cmd_job, '%s_pos' % name,
-            '%s.out'%job_out_dir, '%s.err'%job_out_dir, '%s.sb'%job_out_dir,
-            queue=options.queue, gpu=1, cpu=4, 
-            mem=30000, time='7-0:0:0')
-        jobs.append(j)
+      ########################################
+      # positive jobs
+      
+      # pickle options
+      options.out_dir = '%s/merge_pos' % it_out_dir
+      os.makedirs(options.out_dir, exist_ok=True)
+      options_pkl_file = '%s/options.pkl' % options.out_dir
+      options_pkl = open(options_pkl_file, 'wb')
+      pickle.dump(options, options_pkl)
+      options_pkl.close()
+
+      # create base fold command
+      cmd_fold = '%s time basenji_sad.py %s %s %s' % (
+        cmd_base, options_pkl_file, params_file, model_file)
+
+      for pi in range(options.processes):
+        sad_file = '%s/job%d/sad.h5' % (options.out_dir, pi)
+        if not complete_h5(sad_file, sad_stats):
+          cmd_job = '%s %s %d' % (cmd_fold, mpos_vcf_file, pi)
+          j = slurm.Job(cmd_job, '%s_pos%d' % (name,pi),
+              '%s/job%d.out' % (options.out_dir,pi),
+              '%s/job%d.err' % (options.out_dir,pi),
+              '%s/job%d.sb' % (options.out_dir,pi),
+              queue=options.queue, gpu=1, cpu=2,
+              mem=30000, time='7-0:0:0')
+          jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.max_proc, verbose=True,
                   launch_sleep=10, update_sleep=60)
+
+  #######################################################
+  # collect output
+
+  for ci in range(options.crosses):
+    for fi in range(num_folds):
+      it_out_dir = '%s/f%dc%d/%s' % (exp_dir, fi, ci, gtex_out_dir)
+
+      # collect negatives
+      neg_out_dir = '%s/merge_neg' % it_out_dir
+      collect_h5('sad.h5', neg_out_dir, options.processes)
+
+      # collect positives
+      pos_out_dir = '%s/merge_pos' % it_out_dir
+      collect_h5('sad.h5', pos_out_dir, options.processes)
 
   ################################################################
   # split study/tissue variants
 
   for ci in range(options.crosses):
     for fi in range(num_folds):
-      it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
-      it_out_dir = '%s/%s' % (it_dir, options.out_dir)
+      it_out_dir = '%s/f%dc%d/%s' % (exp_dir, fi, ci, gtex_out_dir)
       print(it_out_dir)
 
       # split positives
@@ -221,7 +270,7 @@ def main():
   if not os.path.isdir(ensemble_dir):
     os.mkdir(ensemble_dir)
 
-  gtex_dir = '%s/%s' % (ensemble_dir, options.out_dir)
+  gtex_dir = '%s/%s' % (ensemble_dir, gtex_out_dir)
   if not os.path.isdir(gtex_dir):
     os.mkdir(gtex_dir)
 
@@ -236,7 +285,7 @@ def main():
     for ci in range(options.crosses):
       for fi in range(num_folds):
         it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
-        it_out_dir = '%s/%s' % (it_dir, options.out_dir)
+        it_out_dir = '%s/%s' % (it_dir, gtex_out_dir)
         
         sad_pos_file = '%s/%s/sad.h5' % (it_out_dir, pos_base)
         sad_pos_files.append(sad_pos_file)
@@ -269,36 +318,38 @@ def main():
   for ci in range(options.crosses):
     for fi in range(num_folds):
       it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
-      it_out_dir = '%s/%s' % (it_dir, options.out_dir)
+      it_out_dir = '%s/%s' % (it_dir, gtex_out_dir)
 
       for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
         tissue = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0][:-4]
         sad_pos = '%s/%s_pos/sad.h5' % (it_out_dir, tissue)
         sad_neg = '%s/%s_neg/sad.h5' % (it_out_dir, tissue)
-        class_out_dir = '%s/%s_class' % (it_out_dir, tissue)
-
-        if not options.restart or not os.path.isfile('%s/stats.txt' % class_out_dir):
-          cmd_class = '%s -o %s %s %s' % (cmd_base, class_out_dir, sad_pos, sad_neg)
-          j = slurm.Job(cmd_class, tissue,
-              '%s.out'%class_out_dir, '%s.err'%class_out_dir,
-              queue='standard', cpu=2,
-              mem=22000, time='1-0:0:0')
-          jobs.append(j)
+        for sad_stat in sad_stats:
+          class_out_dir = '%s/%s_class-%s' % (it_out_dir, tissue, sad_stat)
+          if not os.path.isfile('%s/stats.txt' % class_out_dir):
+            cmd_class = '%s -o %s --stat %s' % (cmd_base, class_out_dir, sad_stat)
+            cmd_class += ' %s %s' % (sad_pos, sad_neg)
+            j = slurm.Job(cmd_class, tissue,
+                '%s.out'%class_out_dir, '%s.err'%class_out_dir,
+                queue='standard', cpu=2,
+                mem=22000, time='1-0:0:0')
+            jobs.append(j)
 
   # ensemble
   for gtex_pos_vcf in glob.glob('%s/*_pos.vcf' % options.gtex_vcf_dir):
     tissue = os.path.splitext(os.path.split(gtex_pos_vcf)[1])[0][:-4]
     sad_pos = '%s/%s_pos/sad.h5' % (gtex_dir, tissue)
     sad_neg = '%s/%s_neg/sad.h5' % (gtex_dir, tissue)
-    class_out_dir = '%s/%s_class' % (gtex_dir, tissue)
-
-    if not options.restart or not os.path.isfile('%s/stats.txt' % class_out_dir):
-      cmd_class = '%s -o %s %s %s' % (cmd_base, class_out_dir, sad_pos, sad_neg)
-      j = slurm.Job(cmd_class, tissue,
-          '%s.out'%class_out_dir, '%s.err'%class_out_dir,
-          queue='standard', cpu=2,
-          mem=22000, time='1-0:0:0')
-      jobs.append(j)
+    for sad_stat in sad_stats:
+      class_out_dir = '%s/%s_class-%s' % (gtex_dir, tissue, sad_stat)
+      if not os.path.isfile('%s/stats.txt' % class_out_dir):
+        cmd_class = '%s -o %s --stat %s' % (cmd_base, class_out_dir, sad_stat)
+        cmd_class += ' %s %s' % (sad_pos, sad_neg)
+        j = slurm.Job(cmd_class, tissue,
+            '%s.out'%class_out_dir, '%s.err'%class_out_dir,
+            queue='standard', cpu=2,
+            mem=22000, time='1-0:0:0')
+        jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True)
 
@@ -438,7 +489,7 @@ def split_sad(it_out_dir, posneg, vcf_dir, sad_stats):
     # write tissue HDF5
     tissue_dir = '%s/%s_%s' % (it_out_dir, tissue_label, posneg)
     os.makedirs(tissue_dir, exist_ok=True)
-    with h5py.File('%s/sed.h5' % tissue_dir, 'w') as tissue_h5:
+    with h5py.File('%s/sad.h5' % tissue_dir, 'w') as tissue_h5:
       # write SNPs
       tissue_h5.create_dataset('snp',
         data=np.array(sad_snp, 'S'))

@@ -59,7 +59,7 @@ def main():
   target_length = data_stats['target_length']
 
   # read target values
-  tfr_pattern = '%s/tfrecords/%s-*.tfr' % (tfr_data_dir, options.split)
+  tfr_pattern = '%s/tfrecords/%s*.tfr' % (tfr_data_dir, options.split)
   targets = read_tfr(tfr_pattern, target_length)
 
   # compute stats
@@ -112,7 +112,7 @@ def read_tfr(tfr_pattern, target_len):
   # collect inputs and outputs
   for seq_raw, targets_raw in dataset:
     targets1 = targets_raw.numpy().reshape((target_len,-1))
-    targets.append(targets1)
+    targets.append(targets1.astype('float16'))
 
   return np.array(targets)
 

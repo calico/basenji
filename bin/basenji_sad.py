@@ -166,9 +166,7 @@ def main():
   # setup model
 
   # can we sum on GPU?
-  length_stats = set(['SAX','SAXR','SAR','ALT','REF'])
-  sum_length = length_stats.isdisjoint(set(options.sad_stats))
-  # sum_length = False
+  sum_length = (options.sad_stats == 'SAD')
 
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
@@ -219,15 +217,17 @@ def main():
     snps_1hot = np.array(snp_1hot_list)
 
     # get predictions
-    snp_preds = seqnn_model(np.array(snps_1hot))
-    ref_preds, alt_preds = snp_preds[0], snp_preds[1]
-
+    if params_train['batch_size'] == 1:
+      ref_preds = seqnn_model(snps_1hot[:1])[0]
+      alt_preds = seqnn_model(snps_1hot[1:])[0]
+    else:
+      snp_preds = seqnn_model(snps_1hot)
+      ref_preds, alt_preds = snp_preds[0], snp_preds[1]
+    
     # sum strand pairs
     if sum_strand:
       ref_preds = ref_preds * strand_transform
       alt_preds = alt_preds * strand_transform
-      # ref_preds = sum_stranded(ref_preds, strand_transform)
-      # alt_preds = sum_stranded(alt_preds, strand_transform)
 
     # process SNP
     if sum_length:
@@ -302,28 +302,6 @@ def initialize_output_h5(out_dir, sad_stats, snps, targets_length, targets_df):
 
   return sad_out
 
-
-# def sum_stranded(preds, targets_df):
-#     un_mask = (targets_df['strand'] == '.')
-#     pos_mask = (targets_df['strand'] == '+')
-#     neg_mask = (targets_df['strand'] == '-')
-
-#     unpos_weights = np.zeros(targets_df.shape[0])
-#     unpos_weights[un_mask] = 0.5
-#     unpos_weights[pos_mask] = 1.0
-
-#     unneg_weights = np.zeros(targets_df.shape[0])
-#     unneg_weights[un_mask] = 0.5
-#     unneg_weights[neg_mask] = 1.0
-
-#     preds_sum = np.dot(preds, unpos_weights) + np.dot(preds, unneg_weights)
-#     return preds_sum
-
-def sum_stranded(preds, strand_transform):
-  preds_sum = preds * strand_transform
-  pdb.set_trace()
-  return preds_sum
-
 def write_pct(sad_out, sad_stats):
   """Compute percentile values for each target and write to HDF5."""
 
@@ -369,9 +347,6 @@ def write_snp(ref_preds_sum, alt_preds_sum, sad_out, si, sad_stats):
 def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
   """Write SNP predictions to HDF, assuming the length dimension has
       been maintained."""
-
-  ref_preds = ref_preds.astype('float64')
-  alt_preds = alt_preds.astype('float64')
   seq_length, num_targets = ref_preds.shape
 
   # compute pseudocounts
@@ -383,6 +358,7 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
 
   # difference
   altref_diff = alt_preds - ref_preds
+  altref_adiff = np.abs(altref_diff)
 
   # compare reference to alternative via mean subtraction
   if 'SAD' in sad_stats:
@@ -391,14 +367,8 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
 
   # compare reference to alternative via max subtraction
   if 'SAX' in sad_stats:
-    # sad_vec = (alt_preds - ref_preds)
-    # max_i = np.argmax(np.abs(sad_vec), axis=0)
-    # sax = sad_vec[max_i, np.arange(num_targets)]
-
-    sad_max = np.max(altref_diff, axis=0)
-    sad_min = np.min(altref_diff, axis=0)
-    sax = np.where(sad_max>-sad_min, sad_max, sad_min)
-    pdb.set_trace()
+    max_i = np.argmax(altref_adiff, axis=0)
+    sax = altref_diff[max_i, np.arange(num_targets)]
     sad_out['SAX'][si] = sax.astype('float16')
 
   # compare reference to alternative via mean log division
@@ -424,15 +394,24 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
 
   # L1 norm of difference vector
   if 'D1' in sad_stats:
-    sad_vec = np.abs(altref_diff)
-    sad_d1 = sad_vec.sum(axis=0)
+    sad_d1 = altref_adiff.sum(axis=0)
     sad_out['D1'][si] = sad_d1.astype('float16')
 
   # L2 norm of difference vector
-  if 'D2' in sad_stats:
-    sad_vec = np.power(altref_diff, 2)
-    sad_d2 = sad_vec.sum(axis=0)
-    sad_out['D2'][si] = sad_d2.astype('float16')
+  if 'D2' in sad_stats or 'SD2' in sad_stats:
+    altref_diff2 = np.power(altref_diff, 2)
+    sad_d2 = altref_diff2.sum(axis=0)
+    sad_d2 = np.sqrt(sad_d2)
+
+    if 'D2' in sad_stats:
+      sad_out['D2'][si] = sad_d2.astype('float16')
+
+    if 'SD2' in sad_stats:
+      altref_sign = np.sign(altref_diff)
+      sad_sd2_sign = altref_sign*altref_diff2
+      sad_sd2_sign = np.sign(sad_sd2_sign.sum(axis=0))
+      sad_sd2 = sad_sd2_sign * sad_d2
+      sad_out['SD2'][si] = sad_sd2.astype('float16')
 
   if 'JS' in sad_stats:
     # normalized scores
@@ -452,7 +431,6 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
     sad_out['REF'][si] = ref_preds.astype('float16')
   if 'ALT' in sad_stats:
     sad_out['ALT'][si] = alt_preds.astype('float16')
-
 
 ################################################################################
 # __main__

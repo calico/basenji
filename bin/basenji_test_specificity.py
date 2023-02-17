@@ -47,7 +47,7 @@ def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <data_dir>'
   parser = OptionParser(usage)
   parser.add_option('-c', dest='class_min',
-      default=2, type='int',
+      default=100, type='int',
       help='Minimum target class size to consider [Default: %default]')
   parser.add_option('--head', dest='head_i',
       default=0, type='int',
@@ -220,6 +220,7 @@ def main():
         eval_targets_class = eval_targets_class[high_var_mask]
 
       # quantile normalize
+      t0 = time.time()
       print(' Quantile normalize...', flush=True, end='')
       eval_preds_norm = quantile_normalize(eval_preds_class, ncpus=2)
       eval_targets_norm = quantile_normalize(eval_targets_class, ncpus=2)
@@ -230,6 +231,7 @@ def main():
       eval_targets_norm -= eval_targets_norm.mean(axis=-1, keepdims=True)
 
       # compute correlations
+      t0 = time.time()
       print(' Compute correlations...', flush=True, end='')
       pearsonr_class = np.zeros(num_targets_class)
       for ti in range(num_targets_class):

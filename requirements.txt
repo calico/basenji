@@ -13,6 +13,7 @@ pillow
 pybigwig
 pysam
 pybedtools
+qnorm
 seaborn
 scikit-learn
 scipy

@@ -19,16 +19,12 @@ import h5py
 import json
 import pdb
 import os
-import shutil
 import sys
 
 import numpy as np
 import pandas as pd
 
 import slurm
-import util
-
-from basenji_test_folds import stat_tests
 
 """
 basenji_bench_sqtl_folds.py
@@ -49,7 +45,7 @@ def main():
       default='%s/data/hg38.fa' % os.environ['BASENJIDIR'],
       help='Genome FASTA for sequences [Default: %default]')
   sed_options.add_option('-g', dest='genes_gtf',
-      default='%s/genes/gencode41/gencode41_basic_nort.gtf' % os.environ['HG38'],
+      default='%s/genes/gencode41/gencode41_basic_nort_protein.gtf' % os.environ['HG38'],
       help='GTF for gene definition [Default %default]')
   sed_options.add_option('-o',dest='out_dir',
       default='sqtl',
@@ -57,9 +53,6 @@ def main():
   sed_options.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
-  sed_options.add_option('--pseudo', dest='log_pseudo',
-      default=1, type='float',
-      help='Log2 pseudocount [Default: %default]')
   sed_options.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -168,23 +161,23 @@ def main():
 
       cmd_fold = '%s time borzoi_sed.py %s %s' % (cmd_base, params_file, model_file)
 
-      # positive job
-      job_out_dir = '%s/merge_pos' % it_out_dir
-      if not options.restart or not os.path.isfile('%s/sed.h5'%job_out_dir):
-        cmd_job = '%s %s' % (cmd_fold, mpos_vcf_file)
-        cmd_job += ' %s' % options_string(options, sed_options, job_out_dir)
-        j = slurm.Job(cmd_job, '%s_pos' % name,
-            '%s.out'%job_out_dir, '%s.err'%job_out_dir,
-            queue=options.queue, gpu=1,
-            mem=30000, time='7-0:0:0')
-        jobs.append(j)
-
       # negative job
       job_out_dir = '%s/merge_neg' % it_out_dir
       if not options.restart or not os.path.isfile('%s/sed.h5'%job_out_dir):
         cmd_job = '%s %s' % (cmd_fold, mneg_vcf_file)
         cmd_job += ' %s' % options_string(options, sed_options, job_out_dir)
         j = slurm.Job(cmd_job, '%s_neg' % name,
+            '%s.out'%job_out_dir, '%s.err'%job_out_dir,
+            queue=options.queue, gpu=1,
+            mem=30000, time='7-0:0:0')
+        jobs.append(j)
+
+      # positive job
+      job_out_dir = '%s/merge_pos' % it_out_dir
+      if not options.restart or not os.path.isfile('%s/sed.h5'%job_out_dir):
+        cmd_job = '%s %s' % (cmd_fold, mpos_vcf_file)
+        cmd_job += ' %s' % options_string(options, sed_options, job_out_dir)
+        j = slurm.Job(cmd_job, '%s_pos' % name,
             '%s.out'%job_out_dir, '%s.err'%job_out_dir,
             queue=options.queue, gpu=1,
             mem=30000, time='7-0:0:0')
@@ -200,6 +193,7 @@ def main():
     for fi in range(num_folds):
       it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
       it_out_dir = '%s/%s' % (it_dir, options.out_dir)
+      print(it_out_dir)
 
       # split positives
       split_sed(it_out_dir, 'pos', options.vcf_dir, sed_stats)
@@ -254,7 +248,7 @@ def main():
   ################################################################
   # fit classifiers
 
-  cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44 -s --stat JS'
+  cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44 -s --stat D0'
   cmd_base += ' --msl %d' % options.msl
 
   jobs = []
@@ -382,11 +376,17 @@ def split_sed(it_out_dir, posneg, vcf_dir, sed_stats):
   merge_h5_file = '%s/merge_%s/sed.h5' % (it_out_dir, posneg)
   merge_h5 = h5py.File(merge_h5_file, 'r')
 
+  # read merged data
+  snps = [snp.decode('UTF-8') for snp in merge_h5['snp']]
+  merge_scores = {}
+  for ss in sed_stats:
+    merge_scores[ss] = merge_h5[ss][:]
+
   # hash snp indexes
-  snp_i = {}
-  for i in range(merge_h5['snp'].shape[0]):
-    snp = merge_h5['snp'][i].decode('UTF-8')
-    snp_i.setdefault(snp,[]).append(i)
+  snp_si = {}
+  for i in range(merge_h5['si'].shape[0]):
+    si = merge_h5['si'][i]
+    snp_si.setdefault(snps[si],[]).append(i)
 
   # for each tissue VCF
   vcf_glob = '%s/*_%s.vcf' % (vcf_dir, posneg)
@@ -409,20 +409,30 @@ def split_sed(it_out_dir, posneg, vcf_dir, sed_stats):
     # fill HDF5 arrays with ordered SNPs
     for line in open(tissue_vcf_file):
       if not line.startswith('#'):
-        snp = line.split()[2]
-        i0 = snp_i[snp][0]
-        sed_si.append(merge_h5['si'][i0])
-        sed_snp.append(merge_h5['snp'][i0])
-        sed_chr.append(merge_h5['chr'][i0])
-        sed_pos.append(merge_h5['pos'][i0])
-        sed_ref.append(merge_h5['ref_allele'][i0])
-        sed_alt.append(merge_h5['alt_allele'][i0])
+        a = line.split()
+        chrm, pos, snp, ref, alt = a[:5]
+        sed_snp.append(snp)
+        sed_chr.append(chrm)
+        sed_pos.append(int(pos))
+        sed_ref.append(ref)
+        sed_alt.append(alt)
 
-        for ss in sed_stats:
-          # take max over each gene
-          #  (may not be appropriate for all stats!)
-          sed_scores_si = np.array([merge_h5[ss][i] for i in snp_i[snp]])
-          sed_scores[ss].append(sed_scores_si.max(axis=0))
+        if snp in snp_si:
+          i0 = snp_si[snp][0]
+          sed_si.append(merge_h5['si'][i0])
+          for ss in sed_stats:
+            # take max over each gene
+            #  (may not be appropriate for all stats!)
+            sed_scores_si = np.array([merge_scores[ss][i] for i in snp_si[snp]])
+            # sed_scores_si = np.array([merge_h5[ss][i] for i in snp_si[snp]])
+            sed_scores[ss].append(sed_scores_si.max(axis=0))
+
+        else:
+          # no genes nearby
+          sed_si.append(-1)
+          for ss in sed_stats:
+            sed_scores_si = np.zeros(merge_scores[ss].shape[-1])
+            sed_scores[ss].append(sed_scores_si)
 
     # write tissue HDF5
     tissue_dir = '%s/%s_%s' % (it_out_dir, tissue_label, posneg)
@@ -431,7 +441,7 @@ def split_sed(it_out_dir, posneg, vcf_dir, sed_stats):
 
       # write SNP indexes
       tissue_h5.create_dataset('si',
-        data=np.array(sed_si, dtype='uint32'))
+        data=np.array(sed_si, dtype='int32'))
 
       # write genes
       # tissue_h5.create_dataset('gene',

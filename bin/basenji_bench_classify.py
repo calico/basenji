@@ -6,6 +6,7 @@ import pdb
 
 import h5py
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import RidgeClassifier
 from sklearn.metrics import roc_auc_score, roc_curve
@@ -58,6 +59,8 @@ def main():
     parser.add_option('--stat', dest='sad_stat',
             default='SAD',
             help='HDF5 key stat to consider. [Default: %default]')
+    parser.add_option('-t', dest='targets_file',
+            default=None)
     (options,args) = parser.parse_args()
 
     if len(args) != 2:
@@ -75,9 +78,16 @@ def main():
     if options.model_pkl:
         model = joblib.load(options.model_pkl)
 
+
+    if options.targets_file is None:
+        target_slice = None
+    else:
+        targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
+        target_slice = targets_df.index
+
     # read positive/negative variants
-    Xp = read_sad(sadp_file, options.sad_stat)
-    Xn = read_sad(sadn_file, options.sad_stat)
+    Xp = read_sad(sadp_file, options.sad_stat, target_slice)
+    Xn = read_sad(sadn_file, options.sad_stat, target_slice)
     if options.log:
         Xp = np.arcsinh(Xp)
         Xn = np.arcsinh(Xn)
@@ -336,10 +346,13 @@ def read_indel(sad_file, indel_abs=True, indel_bool=False):
         indels = (indels != 0)
     return indels
 
-def read_sad(sad_file, sad_stat):
+def read_sad(sad_file, sad_stat, target_slice):
     with h5py.File(sad_file, 'r') as sad_open:
-        sad = np.nan_to_num(sad_open[sad_stat][:])
-    return sad.astype('float32')
+        sad = sad_open[sad_stat][:]
+    if target_slice is not None:
+        sad = sad[...,target_slice]
+    sad = np.nan_to_num(sad).astype('float32')
+    return sad
 
 
 ################################################################################

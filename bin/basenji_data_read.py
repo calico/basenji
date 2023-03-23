@@ -143,18 +143,21 @@ def main():
     if options.crop_bp > 0:
       seq_cov_nt = seq_cov_nt[options.crop_bp:-options.crop_bp]
 
+    # scale
+    seq_cov_nt = options.scale * seq_cov_nt
+
     # sum pool
     seq_cov = seq_cov_nt.reshape(target_length, options.pool_width)
     if options.sum_stat == 'sum':
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
     elif options.sum_stat == 'sum_sqrt':
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
-      seq_cov = seq_cov**0.75
+      seq_cov = -1 + (1+seq_cov)**0.75
     elif options.sum_stat in ['mean', 'avg']:
       seq_cov = seq_cov.mean(axis=1, dtype='float32')
     elif options.sum_stat in ['mean_sqrt', 'avg_sqrt']:
       seq_cov = seq_cov.mean(axis=1, dtype='float32')
-      seq_cov = seq_cov**0.75
+      seq_cov = -1 + (1+seq_cov)**0.75
     elif options.sum_stat == 'median':
       seq_cov = seq_cov.median(axis=1)
     elif options.sum_stat == 'max':
@@ -170,12 +173,9 @@ def main():
     # clip
     if options.clip_soft is not None:
       clip_mask = (seq_cov > options.clip_soft)
-      seq_cov[clip_mask] = options.clip_soft + np.sqrt(seq_cov[clip_mask] - options.clip_soft)
+      seq_cov[clip_mask] = options.clip_soft-1 + np.sqrt(seq_cov[clip_mask] - options.clip_soft+1)
     if options.clip is not None:
       seq_cov = np.clip(seq_cov, -options.clip, options.clip)
-
-    # scale
-    seq_cov = options.scale * seq_cov
 
      # clip float16 min/max
     seq_cov = np.clip(seq_cov, np.finfo(np.float16).min, np.finfo(np.float16).max)

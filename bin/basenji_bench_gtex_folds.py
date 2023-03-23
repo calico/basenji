@@ -81,6 +81,12 @@ def main():
 
   # classify
   class_options = OptionGroup(parser, 'basenji_bench_classify.py options')
+  class_options.add_option('--cn', dest='class_name',
+      default=None,
+      help='Classifier name extension [Default: %default]')  
+  class_options.add_option('--ct', dest='class_targets_file',
+      default=None,
+      help='Targets slice for the classifier stage [Default: %default]')
   class_options.add_option('--msl', dest='msl',
       default=1, type='int',
       help='Random forest min_samples_leaf [Default: %default]')
@@ -243,11 +249,13 @@ def main():
 
       # collect negatives
       neg_out_dir = '%s/merge_neg' % it_out_dir
-      collect_h5('sad.h5', neg_out_dir, options.processes)
+      if not os.path.isfile('%s/sad.h5' % neg_out_dir):
+        collect_h5('sad.h5', neg_out_dir, options.processes)
 
       # collect positives
       pos_out_dir = '%s/merge_pos' % it_out_dir
-      collect_h5('sad.h5', pos_out_dir, options.processes)
+      if not os.path.isfile('%s/sad.h5' % pos_out_dir):
+        collect_h5('sad.h5', pos_out_dir, options.processes)
 
   ################################################################
   # split study/tissue variants
@@ -314,6 +322,9 @@ def main():
   cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44 -s'
   cmd_base += ' --msl %d' % options.msl
 
+  if options.class_targets_file is not None:
+    cmd_base += ' -t %s' % options.class_targets_file
+
   jobs = []
   for ci in range(options.crosses):
     for fi in range(num_folds):
@@ -326,6 +337,8 @@ def main():
         sad_neg = '%s/%s_neg/sad.h5' % (it_out_dir, tissue)
         for sad_stat in sad_stats:
           class_out_dir = '%s/%s_class-%s' % (it_out_dir, tissue, sad_stat)
+          if options.class_name is not None:
+            class_out_dir += '-%s' % options.class_name
           if not os.path.isfile('%s/stats.txt' % class_out_dir):
             cmd_class = '%s -o %s --stat %s' % (cmd_base, class_out_dir, sad_stat)
             cmd_class += ' %s %s' % (sad_pos, sad_neg)
@@ -342,6 +355,8 @@ def main():
     sad_neg = '%s/%s_neg/sad.h5' % (gtex_dir, tissue)
     for sad_stat in sad_stats:
       class_out_dir = '%s/%s_class-%s' % (gtex_dir, tissue, sad_stat)
+      if options.class_name is not None:
+        class_out_dir += '-%s' % options.class_name
       if not os.path.isfile('%s/stats.txt' % class_out_dir):
         cmd_class = '%s -o %s --stat %s' % (cmd_base, class_out_dir, sad_stat)
         cmd_class += ' %s %s' % (sad_pos, sad_neg)

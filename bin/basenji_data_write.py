@@ -31,10 +31,6 @@ import tensorflow as tf
 basenji_data_write.py
 
 Write TF Records for batches of model sequences.
-
-Notes:
--I think target_start and target_end are remnants of my previous data2 pipeline.
- If I see this again beyond 8/2020, remove it.
 """
 
 ################################################################################
@@ -162,10 +158,14 @@ def main():
 
       # truncate decimals (which aids compression)
       if options.decimals is not None:
-        targets_si = np.around(targets[si], decimals=options.decimals)
+        targets_si = targets[si].astype('float32')
+        targets_si = np.around(targets_si, decimals=options.decimals)
+        targets_si = targets_si.astype('float16')
         # targets_si = rround(targets[si], decimals=options.decimals)
       else:
         targets_si = targets[si]
+
+      assert(np.isinf(targets_si).sum() == 0)
 
       # hash to bytes
       features_dict = {

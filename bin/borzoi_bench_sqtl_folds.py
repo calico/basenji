@@ -167,7 +167,7 @@ def main():
         cmd_job = '%s %s' % (cmd_fold, mneg_vcf_file)
         cmd_job += ' %s' % options_string(options, sed_options, job_out_dir)
         j = slurm.Job(cmd_job, '%s_neg' % name,
-            '%s.out'%job_out_dir, '%s.err'%job_out_dir,
+            '%s.out'%job_out_dir, '%s.err'%job_out_dir, '%s.sb'%job_out_dir,
             queue=options.queue, gpu=1,
             mem=30000, time='7-0:0:0')
         jobs.append(j)
@@ -178,7 +178,7 @@ def main():
         cmd_job = '%s %s' % (cmd_fold, mpos_vcf_file)
         cmd_job += ' %s' % options_string(options, sed_options, job_out_dir)
         j = slurm.Job(cmd_job, '%s_pos' % name,
-            '%s.out'%job_out_dir, '%s.err'%job_out_dir,
+            '%s.out'%job_out_dir, '%s.err'%job_out_dir, '%s.sb'%job_out_dir,
             queue=options.queue, gpu=1,
             mem=30000, time='7-0:0:0')
         jobs.append(j)

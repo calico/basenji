@@ -74,9 +74,9 @@ def main():
   test_options.add_option('--shifts', dest='shifts',
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
-  parser.add_option('--spec_step', dest='spec_step',
+  parser.add_option('--step', dest='step',
       default=1, type='int',
-      help='Positional step for specificity predict [Default: %default]')
+      help='Spatial step for specificity/spearmanr [Default: %default]')
   parser.add_option_group(test_options)
 
   # multi
@@ -299,6 +299,8 @@ def main():
               basenji_cmd += ' --rc'
             if options.shifts:
               basenji_cmd += ' --shifts %s' % options.shifts
+            basenji_cmd += ' --rank'
+            basenji_cmd += ' --step %d' % options.step
             basenji_cmd += ' %s' % params_file
             basenji_cmd += ' %s' % model_file
             basenji_cmd += ' %s/data%d' % (it_dir, di)
@@ -341,7 +343,7 @@ def main():
             basenji_cmd += ' basenji_test_specificity.py'
             basenji_cmd += ' --head %d' % di
             basenji_cmd += ' -o %s' % out_dir
-            basenji_cmd += ' -s %d' % options.spec_step
+            basenji_cmd += ' --step %d' % options.step
             if options.rc:
               basenji_cmd += ' --rc'
             if options.shifts:

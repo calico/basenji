@@ -431,34 +431,38 @@ def main():
     while tfr_start <= fold_set_end:
       tfr_stem = '%s/%s-%d' % (tfr_dir, fold_set, tfr_i)
 
-      cmd = 'basenji_data_write.py'
-      cmd += ' -s %d' % tfr_start
-      cmd += ' -e %d' % tfr_end
-      cmd += ' --umap_clip %f' % options.umap_clip
-      cmd += ' -x %d' % options.crop_bp
-      if options.decimals is not None:
-        cmd += ' -d %d' % options.decimals
-      if options.umap_tfr:
-        cmd += ' --umap_tfr'
-      if options.umap_bed is not None:
-        cmd += ' -u %s' % unmap_npy
-
-      cmd += ' %s' % fasta_file
-      cmd += ' %s' % seqs_bed_file
-      cmd += ' %s' % seqs_cov_dir
-      cmd += ' %s.tfr' % tfr_stem
-
-      if options.run_local:
-        # breaks on some OS
-        # cmd += ' &> %s.err' % tfr_stem
-        write_jobs.append(cmd)
+      tfr_file = '%s.tfr' % tfr_stem
+      if options.restart and os.path.isfile(tfr_file):
+        print('Skipping existing %s' % tfr_file, file=sys.stderr)
       else:
-        j = slurm.Job(cmd,
-              name='write_%s-%d' % (fold_set, tfr_i),
-              out_file='%s.out' % tfr_stem,
-              err_file='%s.err' % tfr_stem,
-              queue='standard', mem=15000, time='12:0:0')
-        write_jobs.append(j)
+        cmd = 'basenji_data_write.py'
+        cmd += ' -s %d' % tfr_start
+        cmd += ' -e %d' % tfr_end
+        cmd += ' --umap_clip %f' % options.umap_clip
+        cmd += ' -x %d' % options.crop_bp
+        if options.decimals is not None:
+          cmd += ' -d %d' % options.decimals
+        if options.umap_tfr:
+          cmd += ' --umap_tfr'
+        if options.umap_bed is not None:
+          cmd += ' -u %s' % unmap_npy
+
+        cmd += ' %s' % fasta_file
+        cmd += ' %s' % seqs_bed_file
+        cmd += ' %s' % seqs_cov_dir
+        cmd += ' %s' % tfr_file
+
+        if options.run_local:
+          # breaks on some OS
+          # cmd += ' &> %s.err' % tfr_stem
+          write_jobs.append(cmd)
+        else:
+          j = slurm.Job(cmd,
+                name='write_%s-%d' % (fold_set, tfr_i),
+                out_file='%s.out' % tfr_stem,
+                err_file='%s.err' % tfr_stem,
+                queue='standard', mem=15000, time='12:0:0')
+          write_jobs.append(j)
 
       # update
       tfr_i += 1

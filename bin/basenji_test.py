@@ -27,10 +27,11 @@ from intervaltree import IntervalTree
 import joblib
 import numpy as np
 import pandas as pd
-from scipy.stats import poisson
+from scipy.stats import poisson, spearmanr
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.metrics import precision_recall_curve, average_precision_score
 import tensorflow as tf
+from tqdm import tqdm
 
 import matplotlib
 matplotlib.use('PDF')
@@ -74,6 +75,9 @@ def main():
   parser.add_option('-o', dest='out_dir',
       default='test_out',
       help='Output directory for test statistics [Default: %default]')
+  parser.add_option('--rank', dest='rank_corr',
+      default=False, action='store_true',
+      help='Compute Spearman rank correlation [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average the fwd and rc predictions [Default: %default]')
@@ -83,6 +87,9 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('--step', dest='step',
+      default=1, type='int',
+      help='Step across positions [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
@@ -182,12 +189,39 @@ def main():
   #######################################################
   # predict?
 
-  if options.save or options.peaks or options.accuracy_indexes is not None:
+  if options.save or options.rank or options.peaks or options.accuracy_indexes is not None:
     # compute predictions
-    test_preds = seqnn_model.predict(eval_data)
+    test_preds = seqnn_model.predict(eval_data, stream=True, dtype='float16')
+
+    # take spatial steps
+    if options.step > 1:
+      step_i = np.arange(0, test_preds.shape[1], options.step)
+      test_preds = test_preds[:,step_i,:]
 
     # read targets
-    test_targets = eval_data.numpy(return_inputs=False)
+    test_targets = eval_data.numpy(return_inputs=False, step=options.step)
+
+    if options.rank:
+      # compute target spearmanr
+      test_spearmanr = []
+      for ti in tqdm(range(test_preds.shape[-1])):
+        test_preds_flat = test_preds[...,ti].flatten()
+        test_targets_flat = test_targets[...,ti].flatten()
+        spear_ti = spearmanr(test_targets_flat, test_preds_flat)[0]
+        test_spearmanr.append(spear_ti)
+
+      # write target-level statistics
+      targets_acc_df = pd.DataFrame({
+        'index': targets_df.index,
+        'pearsonr': test_metric1,
+        'spearmanr': test_spearmanr,
+        'r2': test_metric2,
+        'identifier': targets_df.identifier,
+        'description': targets_df.description
+        })
+
+      targets_acc_df.to_csv('%s/acc.txt'%options.out_dir, sep='\t',
+                          index=False, float_format='%.5f')
 
   if options.save:
     preds_h5 = h5py.File('%s/preds.h5' % options.out_dir, 'w')

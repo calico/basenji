@@ -268,7 +268,9 @@ def main():
     seq_preds_sum = []
     seq_preds_center = []
     seq_preds_scd = []
+    seq_preds_js = []
     preds_mut0 = preds_stream[pi]
+    preds_mut0_norm = preds_mut0 / preds_mut0.sum(axis=0)
     for spi in range(preds_per_seq):
       preds_mut = preds_stream[pi]
       preds_sum = preds_mut.sum(axis=0)
@@ -279,6 +281,12 @@ def main():
       if 'scd' in options.sad_stats:
         preds_scd = np.sqrt(((preds_mut-preds_mut0)**2).sum(axis=0))
         seq_preds_scd.append(preds_scd)
+      if 'js' in options.sad_stats:
+        preds_mut_norm = preds_mut / preds_mut.sum(axis=0)
+        ref_alt_entr = rel_entr(preds_mut0_norm, preds_mut_norm).sum(axis=0)
+        alt_ref_entr = rel_entr(preds_mut_norm, preds_mut0_norm).sum(axis=0)
+        js_dist = (ref_alt_entr + alt_ref_entr) / 2
+        seq_preds_js.append(js_dist)
       pi += 1
     seq_preds_sum = np.array(seq_preds_sum)
     seq_preds_center = np.array(seq_preds_center)
@@ -288,7 +296,7 @@ def main():
     score_queue.join()
 
     # queue sequence for scoring
-    seq_pred_stats = (seq_preds_sum, seq_preds_center, seq_preds_scd)
+    seq_pred_stats = (seq_preds_sum, seq_preds_center, seq_preds_scd, seq_preds_js)
     score_queue.put((seqs_dna[si], seq_pred_stats, si))
     
     # queue sequence for plotting

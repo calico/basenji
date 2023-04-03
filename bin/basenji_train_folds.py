@@ -155,7 +155,7 @@ def main():
   else:
     num_cpu = 2
     num_gpu = 1
-    time_base = 16
+    time_base = 24
 
   # arrange data
   for ci in range(options.crosses):
@@ -312,7 +312,7 @@ def main():
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
                             cpu=num_cpu, gpu=num_gpu,
-                            mem=23000,
+                            mem=45000,
                             time='%d:00:00' % time_base)
             jobs.append(basenji_job)
 

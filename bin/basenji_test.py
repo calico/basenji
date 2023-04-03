@@ -189,7 +189,7 @@ def main():
   #######################################################
   # predict?
 
-  if options.save or options.rank or options.peaks or options.accuracy_indexes is not None:
+  if options.save or options.rank_corr or options.peaks or options.accuracy_indexes is not None:
     # compute predictions
     test_preds = seqnn_model.predict(eval_data, stream=True, dtype='float16')
 
@@ -201,7 +201,7 @@ def main():
     # read targets
     test_targets = eval_data.numpy(return_inputs=False, step=options.step)
 
-    if options.rank:
+    if options.rank_corr:
       # compute target spearmanr
       test_spearmanr = []
       for ti in tqdm(range(test_preds.shape[-1])):

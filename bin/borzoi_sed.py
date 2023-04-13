@@ -271,10 +271,120 @@ def main():
   sed_out.close()
 
 
-def map_snpseq_genes(snps, seq_len, transcriptome, model_stride, span, majority_overlap=True, intron1=False):
+def initialize_output_h5(out_dir: str, sed_stats, snps, snpseq_gene_slice, targets_df):
+  """Initialize an output HDF5 file for SAD stats.
+  
+  Args:
+      out_dir (str): Output directory.
+      sed_stats (list): List of SAD stats to compute.
+      snps ([bvcf.SNP]): SNP list.
+      snpseq_gene_slice ([dict]): List of dicts mapping gene_ids
+        to their exon-overlapping positions for each sequence.
+      targets_df (pandas.DataFrame): Targets table.
+  """
+  sed_out = h5py.File('%s/sed.h5' % out_dir, 'w')
+
+  # collect identifier tuples
+  snp_indexes = []
+  gene_ids = []
+  snp_ids = []
+  for si, gene_slice in enumerate(snpseq_gene_slice):
+    snp_genes = list(gene_slice.keys())
+    gene_ids += snp_genes
+    snp_indexes += [si]*len(snp_genes)
+  num_scores = len(snp_indexes)
+
+  # write SNP indexes
+  snp_indexes = np.array(snp_indexes)
+  sed_out.create_dataset('si', data=snp_indexes)
+
+  # write genes
+  gene_ids = np.array(gene_ids, 'S')
+  sed_out.create_dataset('gene', data=gene_ids)
+
+  # write SNPs
+  snp_ids = np.array([snp.rsid for snp in snps], 'S')
+  sed_out.create_dataset('snp', data=snp_ids)
+
+  # write SNP chr
+  snp_chr = np.array([snp.chr for snp in snps], 'S')
+  sed_out.create_dataset('chr', data=snp_chr)
+
+  # write SNP pos
+  snp_pos = np.array([snp.pos for snp in snps], dtype='uint32')
+  sed_out.create_dataset('pos', data=snp_pos)
+
+  # write SNP reference allele
+  snp_refs = []
+  snp_alts = []
+  for snp in snps:
+    if snp.flipped:
+      print('SNP %s is flipped. How did that happen?' % snp.rsid)
+      snp_refs.append(snp.alt_alleles[0])
+      snp_alts.append(snp.ref_allele)
+    else:
+      snp_refs.append(snp.ref_allele)
+      snp_alts.append(snp.alt_alleles[0])
+  snp_refs = np.array(snp_refs, 'S')
+  snp_alts = np.array(snp_alts, 'S')
+  sed_out.create_dataset('ref_allele', data=snp_refs)
+  sed_out.create_dataset('alt_allele', data=snp_alts)
+
+  # write targets
+  sed_out.create_dataset('target_ids', data=np.array(targets_df.identifier, 'S'))
+  sed_out.create_dataset('target_labels', data=np.array(targets_df.description, 'S'))
+
+  # initialize SED stats
+  num_targets = targets_df.shape[0]
+  for sed_stat in sed_stats:
+    sed_out.create_dataset(sed_stat,
+      shape=(num_scores, num_targets),
+      dtype='float16')
+
+  return sed_out
+
+
+def make_snpseq_bedt(snps, seq_len: int):
+  """Make a BedTool object for all SNP sequences, where seq_len considers cropping."""
+  num_snps = len(snps)
+  left_len = seq_len // 2
+  right_len = seq_len // 2
+ 
+  snpseq_bed_lines = []
+  for si in range(num_snps):
+    # bound sequence start at 0 (true sequence will be N padded)
+    snpseq_start = max(0, snps[si].pos - left_len)
+    snpseq_end = snps[si].pos + right_len
+    # correct end for alternative indels
+    snpseq_end += max(0, len(snps[si].ref_allele) - snps[si].longest_alt())
+    snpseq_bed_lines.append('%s %d %d %d' % (snps[si].chr, snpseq_start, snpseq_end, si))
+
+  snpseq_bedt = pybedtools.BedTool('\n'.join(snpseq_bed_lines), from_string=True)
+  return snpseq_bedt
+
+
+def map_snpseq_genes(
+    snps,
+    seq_len: int,
+    transcriptome,
+    model_stride: int,
+    span: bool,
+    majority_overlap: bool=True,
+    intron1: bool=False):
   """Intersect SNP sequences with gene exons, constructing a list
      mapping sequence indexes to dictionaries of gene_ids to their
-     exon-overlapping positions in the sequence."""
+     exon-overlapping positions in the sequence.
+     
+     Args:
+        snps ([bvcf.SNP]): SNP list.
+        seq_len (int): Sequence length, after model cropping.
+        transcriptome (bgene.Transcriptome): Transcriptome.
+        model_stride (int): Model stride.
+        span (bool): If True, use gene span instead of exons.
+        majority_overlap (bool): If True, only consider bins for which
+          the majority of the space overlaps an exon.
+        intron1 (bool): If True, include intron bins adjacent to junctions.
+     """
 
   # make gene BEDtool
   if span:
@@ -298,7 +408,7 @@ def map_snpseq_genes(snps, seq_len, transcriptome, model_stride, span, majority_
     seq_end = int(overlap[8])
     si = int(overlap[9])
 
-    # adjust for left overhang
+    # adjust for left overhang padded
     seq_len_chop = seq_end - seq_start
     seq_start -= (seq_len - seq_len_chop)
 
@@ -338,94 +448,8 @@ def map_snpseq_genes(snps, seq_len, transcriptome, model_stride, span, majority_
   return snpseq_gene_slice
 
 
-def initialize_output_h5(out_dir, sed_stats, snps, snpseq_gene_slice, targets_df):
-  """Initialize an output HDF5 file for SAD stats."""
-
-  sed_out = h5py.File('%s/sed.h5' % out_dir, 'w')
-
-  # collect identifier tuples
-  snp_indexes = []
-  gene_ids = []
-  snp_ids = []
-  snp_a1 = []
-  snp_a2 = []
-  snp_flips = []
-  for si, gene_slice in enumerate(snpseq_gene_slice):
-    snp_genes = list(gene_slice.keys())
-    gene_ids += snp_genes
-    snp_indexes += [si]*len(snp_genes)
-  num_scores = len(snp_indexes)
-
-  # write SNP indexes
-  snp_indexes = np.array(snp_indexes)
-  sed_out.create_dataset('si', data=snp_indexes)
-
-  # write genes
-  gene_ids = np.array(gene_ids, 'S')
-  sed_out.create_dataset('gene', data=gene_ids)
-
-  # write SNPs
-  snp_ids = np.array([snp.rsid for snp in snps], 'S')
-  sed_out.create_dataset('snp', data=snp_ids)
-
-  # write SNP chr
-  snp_chr = np.array([snp.chr for snp in snps], 'S')
-  sed_out.create_dataset('chr', data=snp_chr)
-
-  # write SNP pos
-  snp_pos = np.array([snp.pos for snp in snps], dtype='uint32')
-  sed_out.create_dataset('pos', data=snp_pos)
-
-  # check flips
-  snp_flips = [snp.flipped for snp in snps]
-
-  # write SNP reference allele
-  snp_refs = []
-  snp_alts = []
-  for snp in snps:
-    if snp.flipped:
-      snp_refs.append(snp.alt_alleles[0])
-      snp_alts.append(snp.ref_allele)
-    else:
-      snp_refs.append(snp.ref_allele)
-      snp_alts.append(snp.alt_alleles[0])
-  snp_refs = np.array(snp_refs, 'S')
-  snp_alts = np.array(snp_alts, 'S')
-  sed_out.create_dataset('ref_allele', data=snp_refs)
-  sed_out.create_dataset('alt_allele', data=snp_alts)
-
-  # write targets
-  sed_out.create_dataset('target_ids', data=np.array(targets_df.identifier, 'S'))
-  sed_out.create_dataset('target_labels', data=np.array(targets_df.description, 'S'))
-
-  # initialize SED stats
-  num_targets = targets_df.shape[0]
-  for sed_stat in sed_stats:
-    sed_out.create_dataset(sed_stat,
-      shape=(num_scores, num_targets),
-      dtype='float16')
-
-  return sed_out
-
-
-def make_snpseq_bedt(snps, seq_len):
-  """Make a BedTool object for all SNP sequences."""
-  num_snps = len(snps)
-  left_len = seq_len // 2
-  right_len = seq_len // 2
- 
-  snpseq_bed_lines = []
-  for si in range(num_snps):
-    snpseq_start = max(0, snps[si].pos - left_len)
-    snpseq_end = snps[si].pos + right_len
-    snpseq_end += max(0, len(snps[si].ref_allele) - snps[si].longest_alt())
-    snpseq_bed_lines.append('%s %d %d %d' % (snps[si].chr, snpseq_start, snpseq_end, si))
-
-  snpseq_bedt = pybedtools.BedTool('\n'.join(snpseq_bed_lines), from_string=True)
-  return snpseq_bedt
-
-
 def targets_prep_strand(targets_df):
+  """Adjust targets table for merged stranded datasets."""
   # attach strand
   targets_strand = []
   for _, target in targets_df.iterrows():
@@ -444,7 +468,6 @@ def targets_prep_strand(targets_df):
 
 def write_pct(sed_out, sed_stats):
   """Compute percentile values for each target and write to HDF5."""
-
   # define percentiles
   d_fine = 0.001
   d_coarse = 0.01
@@ -468,8 +491,16 @@ def write_pct(sed_out, sed_stats):
       sed_out.create_dataset(sad_stat_pct, data=sad_pct, dtype='float16')
 
 
-def write_bedgraph_snp(snp, ref_preds, alt_preds, out_dir, model_stride):
-  """Write full predictions around SNP as BedGraph."""
+def write_bedgraph_snp(snp, ref_preds, alt_preds, out_dir: str, model_stride: int):
+  """Write full predictions around SNP as BedGraph.
+  
+  Args:
+    snp (bvcf.SNP): SNP.
+    ref_preds (np.ndarray): Reference predictions.
+    alt_preds (np.ndarray): Alternate predictions.
+    out_dir (str): Output directory.
+    model_stride (int): Model stride.
+  """
   target_length, num_targets = ref_preds.shape
 
   # mean across targets
@@ -507,9 +538,18 @@ def write_bedgraph_snp(snp, ref_preds, alt_preds, out_dir, model_stride):
   diff_out.close()
 
 
-def write_snp(ref_preds, alt_preds, sed_out, xi, sed_stats, pseudocounts):
+def write_snp(ref_preds, alt_preds, sed_out, xi: int, sed_stats, pseudocounts):
   """Write SNP predictions to HDF, assuming the length dimension has
-      been maintained."""
+      been maintained.
+      
+    Args:
+      ref_preds (np.ndarray): Reference predictions.
+      alt_preds (np.ndarray): Alternate predictions.
+      sed_out (h5py.File): HDF5 output file.
+      xi (int): SNP index.
+      sed_stats (list): SED statistics to compute.
+      pseudocounts (np.ndarray): Target pseudocounts for safe logs.
+    """
 
   # ref/alt_preds is L x T
   ref_preds = ref_preds.astype('float64')

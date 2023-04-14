@@ -51,9 +51,6 @@ def main():
   parser.add_option('-c','--crop', dest='crop_bp',
       default=0, type='int',
       help='Crop bp off each end [Default: %default]')
-  parser.add_option('-d', dest='sample_pct',
-      default=1.0, type='float',
-      help='Down-sample the segments')
   parser.add_option('-f', dest='folds',
       default=None, type='int',
       help='Generate cross fold split [Default: %default]')
@@ -71,6 +68,9 @@ def main():
   parser.add_option('-o', dest='out_dir',
       default='align_out',
       help='Output directory [Default: %default]')
+  parser.add_option('-s', dest='sample_pct',
+      default=1.0, type='float',
+      help='Down-sample the segments')
   parser.add_option('--seed', dest='seed',
       default=44, type='int',
       help='Random seed [Default: %default]')

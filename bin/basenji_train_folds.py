@@ -68,6 +68,9 @@ def main():
 
   # test
   test_options = OptionGroup(parser, 'basenji_test.py options')
+  test_options.add_option('--rank', dest='rank_corr',
+      default=False, action='store_true',
+      help='Compute Spearman rank correlation [Default: %default]')
   test_options.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -103,6 +106,9 @@ def main():
       help='SLURM queue on which to run the jobs [Default: %default]')
   rep_options.add_option('-r', '--restart', dest='restart',
       default=False, action='store_true')
+  rep_options.add_option('--setup', dest='setup',
+      default=False, action='store_true',
+      help='Setup folds data directory only [Default: %default]')
   rep_options.add_option('--spec_off', dest='spec_off',
       default=False, action='store_true')
   rep_options.add_option('--test_off', dest='test_off',
@@ -169,6 +175,8 @@ def main():
         if not os.path.isdir(rep_data_dir):
           make_rep_data(data_dirs[di], rep_data_dir, fi, ci)
 
+  if options.setup:
+    exit(0)
 
   #######################################################
   # train
@@ -244,6 +252,7 @@ def main():
             # basenji test
             basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
             basenji_cmd += ' conda activate %s;' % options.conda_env
+            basenji_cmd += ' echo $HOSTNAME;'
             basenji_cmd += ' basenji_test.py'
             basenji_cmd += ' --head %d' % di
             basenji_cmd += ' -o %s' % out_dir
@@ -292,6 +301,7 @@ def main():
             # basenji test
             basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
             basenji_cmd += ' conda activate %s;' % options.conda_env
+            basenji_cmd += ' echo $HOSTNAME;'
             basenji_cmd += ' basenji_test.py'
             basenji_cmd += ' --head %d' % di
             basenji_cmd += ' -o %s' % out_dir
@@ -299,8 +309,9 @@ def main():
               basenji_cmd += ' --rc'
             if options.shifts:
               basenji_cmd += ' --shifts %s' % options.shifts
-            basenji_cmd += ' --rank'
-            basenji_cmd += ' --step %d' % options.step
+            if options.rank_corr:
+              basenji_cmd += ' --rank'
+              basenji_cmd += ' --step %d' % options.step
             basenji_cmd += ' %s' % params_file
             basenji_cmd += ' %s' % model_file
             basenji_cmd += ' %s/data%d' % (it_dir, di)
@@ -340,6 +351,7 @@ def main():
             # basenji test
             basenji_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
             basenji_cmd += ' conda activate %s;' % options.conda_env
+            basenji_cmd += ' echo $HOSTNAME;'
             basenji_cmd += ' basenji_test_specificity.py'
             basenji_cmd += ' --head %d' % di
             basenji_cmd += ' -o %s' % out_dir

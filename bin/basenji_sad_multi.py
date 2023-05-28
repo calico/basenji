@@ -231,7 +231,12 @@ def collect_h5(file_name, out_dir, num_procs):
           final_strings[key] += list(job_h5_open[key])
         else:
           job_variants = job_h5_open[key].shape[0]
-          final_h5_open[key][vi:vi+job_variants] = job_h5_open[key]
+          try:
+            final_h5_open[key][vi:vi+job_variants] = job_h5_open[key]
+          except TypeError as e:
+            print(e)
+            print(f'{job_h5_file} ${key} has the wrong shape. Remove this file and rerun')
+            exit()
 
     vi += job_variants
     job_h5_open.close()

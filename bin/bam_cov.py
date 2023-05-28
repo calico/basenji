@@ -291,7 +291,7 @@ def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_
   lengths_list = list(chrom_lengths.values())
 
   # initialize genome coverage
-  genome_coverage = np.zeros(len(genome_unique_coverage), dtype='float16')
+  genome_coverage = np.zeros(len(genome_unique_coverage), dtype='float32')
 
   for it in range(max_iterations):
     print(' Iteration %d' % (it + 1), end='', flush=True)
@@ -450,7 +450,7 @@ class GenomeCoverage:
     self.genome_length = sum(self.chrom_lengths.values())
     # self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
     # self.uc_max = np.iinfo(self.unique_counts.dtype).max
-    self.unique_counts = np.zeros(self.genome_length, dtype='float16')
+    self.unique_counts = np.zeros(self.genome_length, dtype='float32')
     self.uc_max = np.finfo(self.unique_counts.dtype).max
     self.active_blocks = None
 
@@ -520,7 +520,7 @@ class GenomeCoverage:
                                     iteration_estimates + 1)[:-1]
 
     # initialize genome coverage
-    genome_coverage = np.zeros(len(self.unique_counts), dtype='float16')
+    genome_coverage = np.zeros(len(self.unique_counts), dtype='float32')
 
     for it in range(max_iterations):
       print(' Iteration %d' % (it + 1), end='', flush=True)
@@ -1265,7 +1265,7 @@ class GenomeCoverage:
     self.multi_weight_matrix = csr_matrix(
         (multi_weight, (multi_reads, multi_positions)),
         shape=(num_multi_reads, self.genome_length),
-        dtype='float16')
+        dtype='float32')
     print(' Done in %ds.' % (time.time() - t0), flush=True)
 
     # validate that initial weights sum to 1
@@ -1441,7 +1441,7 @@ class GenomeCoverage:
 
     # finish updating multi alignment matrix for all multi alignments
     multi_reads.extend([ri]*multi_maps)
-    multi_weight.extend([np.float16(1./multi_maps)]*multi_maps)
+    multi_weight.extend([np.float32(1./multi_maps)]*multi_maps)
 
     # update read index
     return ri + 1
@@ -1468,7 +1468,7 @@ class GenomeCoverage:
       ari = ri
 
     # store alignment matrix
-    read_weight = np.float16(1./(nh_tag*len(gis)))
+    read_weight = np.float32(1./(nh_tag*len(gis)))
     multi_reads.extend([ari]*len(gis))
     multi_positions.extend(gis)
     multi_weight.extend([read_weight]*len(gis))

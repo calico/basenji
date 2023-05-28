@@ -151,7 +151,7 @@ def main():
           '%s.err'%it_crispr_dir,
           queue=options.queue,
           cpu=num_cpu, gpu=num_gpu,
-          mem=90000, time='7-0:0:0')
+          mem=1200000, time='7-0:0:0')
       jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True, launch_sleep=10, update_sleep=60)

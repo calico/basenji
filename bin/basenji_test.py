@@ -191,12 +191,8 @@ def main():
 
   if options.save or options.rank_corr or options.peaks or options.accuracy_indexes is not None:
     # compute predictions
-    test_preds = seqnn_model.predict(eval_data, stream=True, dtype='float16')
-
-    # take spatial steps
-    if options.step > 1:
-      step_i = np.arange(0, test_preds.shape[1], options.step)
-      test_preds = test_preds[:,step_i,:]
+    test_preds = seqnn_model.predict(eval_data, stream=True,
+                                     step=options.step, dtype='float16')
 
     # read targets
     test_targets = eval_data.numpy(return_inputs=False, step=options.step)

@@ -504,7 +504,7 @@ class SeqNN():
     return model(x).numpy().astype(dtype)
       
 
-  def predict(self, seq_data, head_i=None, generator=False, stream=False, dtype='float32', **kwargs):
+  def predict(self, seq_data, head_i=None, generator=False, stream=False, step=1, dtype='float32', **kwargs):
     """ Predict targets for SeqDataset. """
     # choose model
     if self.ensemble is not None:
@@ -518,16 +518,28 @@ class SeqNN():
     if dataset is None:
       dataset = seq_data
 
+    # step slice
+    preds_len = model.outputs[0].shape[1]
+    step_i = np.arange(0, preds_len, step)
+
+    # predict
     if generator:
-      return model.predict_generator(dataset, **kwargs).astype(dtype)
+      preds = model.predict_generator(dataset, **kwargs).astype(dtype)
     elif stream:
       preds = []
       for x, y in seq_data.dataset:
         yh = model.predict(x, **kwargs)
+        if step > 1:
+          yh = yh[:,step_i,:]
         preds.append(yh.astype(dtype))
-      return np.concatenate(preds, axis=0, dtype=dtype)
+      preds = np.concatenate(preds, axis=0, dtype=dtype)
     else:
-      return model.predict(dataset, **kwargs).astype(dtype)
+      preds = model.predict(dataset, **kwargs).astype(dtype)
+    
+    if not stream and step > 1:
+      preds = preds[:,step_i,:]
+
+    return preds
 
 
   def restore(self, model_file, head_i=0, trunk=False):

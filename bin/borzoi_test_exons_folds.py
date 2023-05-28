@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2019 Calico LLC
+# Copyright 2022 Calico LLC
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,9 +30,10 @@ import seaborn as sns
 import slurm
 
 """
-basenji_test_folds.py
+basenji_test_exons_folds.py
 
-Train Basenji model replicates using given parameters and data.
+Test Basenji model replicates on alternative splicing via cassette exons,
+given parameters and data.
 """
 
 ################################################################################

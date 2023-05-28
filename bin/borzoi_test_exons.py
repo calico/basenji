@@ -17,6 +17,7 @@
 from optparse import OptionParser
 import gc
 import json
+import pickle
 import pdb
 import os
 import time
@@ -50,6 +51,9 @@ Measure accuracy at gene-level.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <data_dir> <exons_gff>'
   parser = OptionParser(usage)
+  parser.add_option('-b', dest='exon_buffer',
+      default=2, type='int',
+      help='Ignore exons this many exons at the 5p or 3p end [Default: %default]')
   parser.add_option('--head', dest='head_i',
       default=0, type='int',
       help='Parameters head [Default: %default]')
@@ -168,15 +172,20 @@ def main():
   # count gene normalization lengths
   exon_lengths = {}
   gene_strand = {}
+  coords_exonid = {}
   for line in open(exons_gff_file):
     a = line.rstrip().split('\t')
     if a[2] == 'exonic_part':
+      chrm = a[0]
+      start = int(a[3])
+      end = int(a[4])
       kv = pygene.gtf_kv(a[-1])
       gene_id = kv['gene_id']
-      exon_id = '%s/%s' % (gene_id, kv['exonic_part_number'])
-      exon_seg_len = int(a[4]) - int(a[3]) + 1
-      exon_lengths[exon_id] = exon_lengths.get(exon_id,0) + exon_seg_len
       gene_strand[gene_id] = a[6]
+      exon_id = '%s/%s' % (gene_id, kv['exonic_part_number'])
+      exon_seg_len = end - start + 1
+      exon_lengths[exon_id] = exon_lengths.get(exon_id,0) + exon_seg_len
+      coords_exonid[(chrm,start,end)] = exon_id
 
   #######################################################
   # intersect genes w/ preds, targets
@@ -187,6 +196,8 @@ def main():
   # hash preds/targets by gene_id/exon
   exon_preds_dict = {}
   exon_targets_dict = {}
+  gene_preds_dict = {}
+  gene_targets_dict = {}
 
   si = 0
   for x, y in eval_data.dataset:
@@ -232,6 +243,8 @@ def main():
         if len(yb) > 0:  
           exon_preds_dict.setdefault(exon_id,[]).append(yhb)
           exon_targets_dict.setdefault(exon_id,[]).append(yb)
+          gene_preds_dict.setdefault(gene_id,[]).append(yhb)
+          gene_targets_dict.setdefault(gene_id,[]).append(yb)
     
     # advance sequence table index
     si += x.shape[0]
@@ -241,64 +254,158 @@ def main():
 
 
   #######################################################
-  # aggregate exon bin values into arrays
+  # aggregate gene values
 
-  exon_targets = []
-  exon_preds = []
-  exon_ids = np.array(sorted(exon_targets_dict.keys()))
+  # candidate for modularization, shared with borzoi_test_genes.py
 
-  for exon_id in exon_ids:
-    gene_id = exon_id.split('/')[0]
-    exon_preds_gi = np.concatenate(exon_preds_dict[exon_id], axis=0).astype('float32')
-    exon_targets_gi = np.concatenate(exon_targets_dict[exon_id], axis=0).astype('float32')
+  gene_ids = sorted(gene_targets_dict.keys())
+  for gene_id in gene_ids:
+    gene_preds_gi = np.concatenate(gene_preds_dict[gene_id], axis=0).astype('float32')
+    gene_targets_gi = np.concatenate(gene_targets_dict[gene_id], axis=0).astype('float32')
 
     # slice strand
     if gene_strand[gene_id] == '+':
       gene_strand_mask = (targets_df.strand != '-').to_numpy()
     else:
       gene_strand_mask = (targets_df.strand != '+').to_numpy()
-    exon_preds_gi = exon_preds_gi[:,gene_strand_mask]
-    exon_targets_gi = exon_targets_gi[:,gene_strand_mask]
-
-    if exon_targets_gi.shape[0] == 0:
-      print(exon_id, exon_targets_gi.shape, exon_preds_gi.shape)
+    gene_preds_gi = gene_preds_gi[:,gene_strand_mask]
+    gene_targets_gi = gene_targets_gi[:,gene_strand_mask]
 
     # undo scale
-    exon_preds_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
-    exon_targets_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
+    gene_preds_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
+    gene_targets_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
 
     # undo sqrt
-    exon_preds_gi[:,sqrt_mask] = exon_preds_gi[:,sqrt_mask]**(4/3)
-    exon_targets_gi[:,sqrt_mask] = exon_targets_gi[:,sqrt_mask]**(4/3)
+    gene_preds_gi[:,sqrt_mask] = gene_preds_gi[:,sqrt_mask]**(4/3)
+    gene_targets_gi[:,sqrt_mask] = gene_targets_gi[:,sqrt_mask]**(4/3)
+
+    # median coverage
+    # gene_preds_gi = np.percentile(gene_preds_gi, 95, axis=0)
+    # gene_targets_gi = np.percentile(gene_targets_gi, 95, axis=0)
 
     # mean coverage
-    exon_preds_gi = exon_preds_gi.mean(axis=0)
-    exon_targets_gi = exon_targets_gi.mean(axis=0)
+    gene_preds_gi = np.mean(gene_preds_gi, axis=0)
+    gene_targets_gi = np.mean(gene_targets_gi, axis=0)
 
-    # scale by gene length
-    # exon_preds_gi *= exon_lengths[exon_id]
-    # exon_targets_gi *= exon_lengths[exon_id]
+    # save back into dict
+    gene_preds_dict[gene_id] = gene_preds_gi
+    gene_targets_dict[gene_id] = gene_targets_gi
 
-    exon_preds.append(exon_preds_gi)
-    exon_targets.append(exon_targets_gi)
+  gc.collect()
+
+  # TEMP
+  with open('%s/gene_preds.pkl' % options.out_dir, 'wb') as pkl_out:
+    pickle.dump(gene_preds_dict, pkl_out)
+  with open('%s/gene_targets.pkl' % options.out_dir, 'wb') as pkl_out:
+    pickle.dump(gene_targets_dict, pkl_out)
+
+  # determine pseudocount
+  #  (per track pseudocounts contain zeros up to 50th percentile)
+  gene_targets_matrix = np.array(list(gene_targets_dict.values()))
+  gene_targets_quart = np.percentile(gene_targets_matrix, 25, axis=0)
+  pseudocount = np.median(gene_targets_quart)
+  print('Gene pseudocount %f' % pseudocount)
+
+  #######################################################
+  # filter for internal exons
+  """
+  # hash genes to their exon numbers
+  gene_exon_nums = {}
+  exon_ids = sorted(exon_targets_dict.keys())
+  for ei, exon_id in enumerate(exon_ids):
+    gene_id, exon_num = exon_id.split('/')
+    exon_num = int(exon_num)
+    gene_exon_nums.setdefault(gene_id,[]).append(exon_num)
+
+  internal_exons = set()
+  for gene_id, exon_nums in gene_exon_nums.items():
+    exon_nums = sorted(exon_nums)
+
+    exon_buffer_end = len(exon_nums)-options.exon_buffer+1
+    for egi in range(options.exon_buffer, exon_buffer_end):
+      egn = exon_nums[egi]
+      exon_num = str(egn).zfill(3)
+      exon_id = '%s/%s' % (gene_id, exon_num)
+      internal_exons.add(exon_id)
+  """
+  internal_exons = set()
+  # /home/yuanh/analysis/Borzoi/ASCOT/cassettes.bed
+  for line in open('ascot_exons_std50.bed'):
+    a = line.split('\t')
+    chrm = a[0]
+    start = int(a[1]) # + 1, only for Han's
+    end = int(a[2])
+    exon_id = coords_exonid.get((chrm,start,end), None)
+    if exon_id in exon_targets_dict:
+      internal_exons.add(exon_id)
+
+  #######################################################
+  # aggregate exon bin values into arrays
+
+  exon_targets = []
+  exon_preds = []
+  exon_ids = []
+
+  for exon_id in sorted(internal_exons):
+    gene_id = exon_id.split('/')[0]
+    exon_preds_ei = np.concatenate(exon_preds_dict[exon_id], axis=0).astype('float32')
+    exon_targets_ei = np.concatenate(exon_targets_dict[exon_id], axis=0).astype('float32')
+
+    # slice strand
+    if gene_strand[gene_id] == '+':
+      gene_strand_mask = (targets_df.strand != '-').to_numpy()
+    else:
+      gene_strand_mask = (targets_df.strand != '+').to_numpy()
+    exon_preds_ei = exon_preds_ei[:,gene_strand_mask]
+    exon_targets_ei = exon_targets_ei[:,gene_strand_mask]
+
+    if exon_targets_ei.shape[0] == 0:
+      print(exon_id, exon_targets_ei.shape, exon_preds_ei.shape)
+
+    # undo scale
+    exon_preds_ei /= np.expand_dims(targets_strand_df.scale, axis=0)
+    exon_targets_ei /= np.expand_dims(targets_strand_df.scale, axis=0)
+
+    # undo sqrt
+    exon_preds_ei[:,sqrt_mask] = exon_preds_ei[:,sqrt_mask]**(4/3)
+    exon_targets_ei[:,sqrt_mask] = exon_targets_ei[:,sqrt_mask]**(4/3)
+
+    # mean coverage
+    exon_preds_ei = exon_preds_ei.mean(axis=0)
+    exon_targets_ei = exon_targets_ei.mean(axis=0)
+
+    # skip exons expressed less than pseudocount in all samples
+    exon_max = exon_targets_ei.max()
+    gene_min = gene_targets_dict[gene_id].min()
+    if exon_max > 2*pseudocount and gene_min > 2*pseudocount:
+      # require exon expressed near gene level
+      exon_gene_ratio = exon_targets_ei / (gene_targets_dict[gene_id] + 0.2*pseudocount)
+      if exon_gene_ratio.mean() > 0.5:
+        # add pseudocount
+        exon_preds_ei += pseudocount
+        exon_targets_ei += pseudocount
+
+        # normalize by gene
+        exon_preds_ei /= (gene_preds_dict[gene_id]+pseudocount)
+        exon_targets_ei /= (gene_targets_dict[gene_id]+pseudocount)
+
+        # append to array lists
+        exon_preds.append(exon_preds_ei)
+        exon_targets.append(exon_targets_ei)
+        exon_ids.append(exon_id)
 
   exon_targets = np.array(exon_targets)
   exon_preds = np.array(exon_preds)
 
   # TEMP
-  # np.save('%s/exon_targets.npy' % options.out_dir, exon_targets)
-  # np.save('%s/exon_preds.npy' % options.out_dir, exon_preds)
-  # exon_targets = np.load('%s/exon_targets.npy' % options.out_dir)
-  # exon_preds = np.load('%s/exon_preds.npy' % options.out_dir)
-
-  exon_targets_df = pd.DataFrame(exon_targets, index=exon_ids)
-  exon_targets_df.to_csv('%s/exon_targets_prenorm.tsv.gz' % options.out_dir, sep='\t')
-  exon_preds_df = pd.DataFrame(exon_preds, index=exon_ids)
-  exon_preds_df.to_csv('%s/exon_preds_prenorm.tsv.gz' % options.out_dir, sep='\t')
+  # exon_targets_df = pd.DataFrame(exon_targets, index=exon_ids)
+  # exon_targets_df.to_csv('%s/exon_targets_prenorm.tsv.gz' % options.out_dir, sep='\t')
+  # exon_preds_df = pd.DataFrame(exon_preds, index=exon_ids)
+  # exon_preds_df.to_csv('%s/exon_preds_prenorm.tsv.gz' % options.out_dir, sep='\t')
 
   #######################################################
   # normalize by adjacent exons
-  
+  """
   # hash exons to their indexes
   exon_index = dict([(exon_ids[i],i) for i in range(len(exon_ids))])
 
@@ -341,42 +448,6 @@ def main():
       exon_preds_norm = pseudocount + np.maximum(exon_preds[lei], exon_preds[rei])
       exon_preds[ei] /= exon_preds_norm
       valid_exons[ei] = True
-
-  # filter for properly normalized exons
-  print('Properly normalized exons: %.4f' % valid_exons.mean())
-  exon_targets = exon_targets[valid_exons]
-  exon_preds = exon_preds[valid_exons]
-  exon_ids = exon_ids[valid_exons]
-
-  #######################################################
-  # normalize by gene
-  """
-  # per million
-  exon_preds /= 1e6
-  exon_targets /= 1e6
-
-  # aggregate exons to gene-level
-  gene_targets = {}
-  gene_preds = {}
-  for ei, exon_id in enumerate(exon_ids):
-    gene_id = exon_id.split('/')[0]
-    if gene_id not in gene_targets:
-      gene_preds[gene_id] = np.zeros(num_targets_strand)
-      gene_targets[gene_id] = np.zeros(num_targets_strand)
-    gene_preds[gene_id] += exon_preds[ei]
-    gene_targets[gene_id] += exon_targets[ei]
-
-  # determine pseudocount
-  gene_targets_matrix = np.array(list(gene_targets.values()))
-  gene_targets_quart = np.percentile(gene_targets_matrix, 25, axis=0)
-  pseudocount = np.median(gene_targets_quart)
-  print('Gene pseudocount %f' % pseudocount)
-
-  # divide by gene
-  for ei, exon_id in enumerate(exon_ids):
-    gene_id = exon_id.split('/')[0]
-    exon_preds[ei] /= (gene_preds[gene_id]+pseudocount)
-    exon_targets[ei] /= (gene_targets[gene_id]+pseudocount)
   """
 
   #######################################################

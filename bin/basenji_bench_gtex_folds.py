@@ -27,9 +27,7 @@ import numpy as np
 import pandas as pd
 
 import slurm
-import util
 
-from basenji_test_folds import stat_tests
 from basenji_sad_multi import collect_h5
 
 """

@@ -48,10 +48,12 @@ def main():
   parser.add_option('--shifts', dest='shifts',
       default='0', type='str',
       help='Ensemble prediction shifts [Default: %default]')
+  parser.add_option('--span', dest='span',
+      default=False, action='store_true',
+      help='Aggregate entire gene span [Default: %default]')
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
-
 
   # folds
   parser.add_option('-a', '--alt', dest='alternative',
@@ -66,13 +68,13 @@ def main():
       default=None, type='int',
       help='Reference Dataset index [Default:%default]')
   parser.add_option('-e', dest='conda_env',
-      default='tf28',
+      default='tf210',
       help='Anaconda environment [Default: %default]')
   parser.add_option('-f', dest='fold_subset',
       default=None, type='int',
       help='Run a subset of folds [Default:%default]')
   parser.add_option('-g', dest='genes_gtf',
-      default='%s/genes/gencode38/gencode38_basic_protein.gtf' % os.environ['HG38'])
+      default='%s/genes/gencode41/gencode41_basic_protein.gtf' % os.environ['HG38'])
   parser.add_option('--label_exp', dest='label_exp',
       default='Experiment', help='Experiment label [Default: %default]')
   parser.add_option('--label_ref', dest='label_ref',
@@ -125,14 +127,14 @@ def main():
     num_folds = min(options.fold_subset, num_folds)
 
   if options.queue == 'standard':
-    num_cpu = 4
+    num_cpu = 8
     num_gpu = 0
   else:
-    num_cpu = 2
+    num_cpu = 4
     num_gpu = 1
 
   ################################################################
-  # test best
+  # test genes
   ################################################################
   jobs = []
 
@@ -157,12 +159,17 @@ def main():
         cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
         cmd += ' conda activate %s;' % options.conda_env
         cmd += ' time borzoi_test_genes.py'
-        cmd += ' --head %d' % head_i
+        # cmd += ' --head %d' % head_i
         cmd += ' -o %s' % out_dir
         if options.rc:
           cmd += ' --rc'
         if options.shifts:
           cmd += ' --shifts %s' % options.shifts
+        if options.span:
+          cmd += ' --span'
+          job_mem = 240000
+        else:
+          job_mem = 45000
         if options.targets_file is not None:
           cmd += ' -t %s' % options.targets_file
         cmd += ' %s' % params_file
@@ -175,9 +182,10 @@ def main():
                       name=name,
                       out_file='%s.out'%out_dir,
                       err_file='%s.err'%out_dir,
+                      sb_file = '%s.sb'%out_dir,
                       queue=options.queue,
-                      cpu=num_cpu, gpu=num_gpu,
-                      mem=45000,
+                      cpu=20, gpu=num_gpu,
+                      mem=job_mem,
                       time='4-00:00:00')
         jobs.append(j)
 

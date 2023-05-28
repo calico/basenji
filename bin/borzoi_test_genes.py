@@ -151,6 +151,8 @@ def main():
   #######################################################
   # make gene BED
 
+  t0 = time.time()
+  print('Making gene BED...', end='')
   genes_bed_file = '%s/genes.bed' % options.out_dir
   if options.span:
     make_genes_span(genes_bed_file, genes_gtf_file, options.out_dir)
@@ -158,6 +160,7 @@ def main():
     make_genes_exon(genes_bed_file, genes_gtf_file, options.out_dir)
 
   genes_pr = pr.read_bed(genes_bed_file)
+  print('DONE in %ds' % (time.time()-t0))
 
   # count gene normalization lengths
   gene_lengths = {}
@@ -173,7 +176,10 @@ def main():
   # intersect genes w/ preds, targets
 
   # intersect seqs, genes
+  t0 = time.time()
+  print('Intersecting sequences w/ genes...', end='')
   seqs_genes_pr = seqs_pr.join(genes_pr)
+  print('DONE in %ds' % (time.time()-t0), flush=True)
 
   # hash preds/targets by gene_id
   gene_preds_dict = {}
@@ -225,7 +231,7 @@ def main():
     
     # advance sequence table index
     si += x.shape[0]
-    print('DONE in %ds' % (time.time()-t0))
+    print('DONE in %ds' % (time.time()-t0), flush=True)
     if si % 128 == 0:
       gc.collect()
 
@@ -233,6 +239,7 @@ def main():
   gene_targets = []
   gene_preds = []
   gene_ids = sorted(gene_targets_dict.keys())
+  gene_within = []
 
   for gene_id in gene_ids:
     gene_preds_gi = np.concatenate(gene_preds_dict[gene_id], axis=0).astype('float32')
@@ -249,13 +256,24 @@ def main():
     if gene_targets_gi.shape[0] == 0:
       print(gene_id, gene_targets_gi.shape, gene_preds_gi.shape)
 
+    # undo sqrt
+    gene_preds_gi[:,sqrt_mask] = gene_preds_gi[:,sqrt_mask]**(4/3)
+    gene_targets_gi[:,sqrt_mask] = gene_targets_gi[:,sqrt_mask]**(4/3)
+
     # undo scale
     gene_preds_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
     gene_targets_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
 
-    # undo sqrt
-    gene_preds_gi[:,sqrt_mask] = gene_preds_gi[:,sqrt_mask]**(4/3)
-    gene_targets_gi[:,sqrt_mask] = gene_targets_gi[:,sqrt_mask]**(4/3)
+    # compute within gene correlation before dropping length axis
+    gene_npreds_gi = gene_preds_gi / gene_preds_gi.sum(axis=-1, keepdims=True)
+    gene_ntargets_gi = gene_targets_gi / gene_targets_gi.sum(axis=-1, keepdims=True)
+    gene_corr_gi = []
+    for ti in range(num_targets_strand):
+      if gene_npreds_gi[:,ti].var() > 1e-3 and gene_ntargets_gi[:,ti].var() > 1e-3:
+        gene_corr_gi.append(pearsonr(gene_npreds_gi[:,ti], gene_ntargets_gi[:,ti])[0])
+      else:
+        gene_corr_gi.append(np.nan)
+    gene_within.append(gene_corr_gi)
 
     # mean coverage
     gene_preds_gi = gene_preds_gi.mean(axis=0)
@@ -270,6 +288,7 @@ def main():
 
   gene_targets = np.array(gene_targets)
   gene_preds = np.array(gene_preds)
+  gene_within = np.array(gene_within)
 
   # quantile and mean normalize
   gene_targets_norm = quantile_normalize(gene_targets, ncpus=2)
@@ -278,10 +297,15 @@ def main():
   gene_preds_norm = gene_preds_norm - gene_preds_norm.mean(axis=-1, keepdims=True)
 
   # save values
-  genes_targets_df = pd.DataFrame(gene_targets, index=gene_ids)
+  genes_targets_df = pd.DataFrame(gene_targets, index=gene_ids,
+                                  columns=targets_strand_df.identifier)
   genes_targets_df.to_csv('%s/gene_targets.tsv' % options.out_dir, sep='\t')
-  genes_preds_df = pd.DataFrame(gene_preds, index=gene_ids)
-  genes_preds_df.to_csv('%s/gene_preds.tsv' % options.out_dir, sep='\t') 
+  genes_preds_df = pd.DataFrame(gene_preds, index=gene_ids,
+                                columns=targets_strand_df.identifier)
+  genes_preds_df.to_csv('%s/gene_preds.tsv' % options.out_dir, sep='\t')
+  genes_within_df = pd.DataFrame(gene_within, index=gene_ids,
+                                 columns=targets_strand_df.identifier)
+  genes_within_df.to_csv('%s/gene_within.tsv' % options.out_dir, sep='\t')
 
   #######################################################
   # accuracy stats
@@ -306,18 +330,29 @@ def main():
     'r2': acc_r2,
     'pearsonr_norm': acc_npearsonr,
     'r2_norm': acc_nr2,
+    'pearsonr_gene': np.nanmean(gene_within, axis=0),
     'description': targets_strand_df.description
     })
   acc_df.to_csv('%s/acc.txt' % options.out_dir, sep='\t')
 
   print('%d genes' % gene_targets.shape[0])
-  print('PearsonR: %.4f' % np.mean(acc_df.pearsonr))
-  print('R2:       %.4f' % np.mean(acc_df.r2))
-  print('Normalized PearsonR: %.4f' % np.mean(acc_df.pearsonr_norm))
-  print('Normalized R2:       %.4f' % np.mean(acc_df.r2_norm))
+  print('Overall PearsonR:     %.4f' % np.mean(acc_df.pearsonr))
+  print('Overall R2:           %.4f' % np.mean(acc_df.r2))
+  print('Normalized PearsonR:  %.4f' % np.mean(acc_df.pearsonr_norm))
+  print('Normalized R2:        %.4f' % np.mean(acc_df.r2_norm))
+  print('Within-gene PearsonR: %.4f' % np.mean(acc_df.pearsonr_gene))
 
 
 def genes_aggregate(genes_bed_file, values_bedgraph):
+  """Aggregate values across genes.
+
+  Args:
+    genes_bed_file (str): BED file of genes.
+    values_bedgraph (str): BedGraph file of values.
+
+  Returns:
+    gene_values (dict): Dictionary of gene values.
+  """
   values_bt = pybedtools.BedTool(values_bedgraph)
   genes_bt = pybedtools.BedTool(genes_bed_file)
 
@@ -331,40 +366,15 @@ def genes_aggregate(genes_bed_file, values_bedgraph):
   return gene_values
 
 
-def make_genes_span(genes_bed_file, genes_gtf_file, out_dir, stranded=True):
-  # read genes
-  genes_gtf = pygene.GTF(genes_gtf_file)
-
-  # write all gene spans
-  agenes_bed_file = '%s/genes_all.bed' % out_dir
-  agenes_bed_out = open(agenes_bed_file, 'w')
-  for gene_id, gene in genes_gtf.genes.items():
-    start, end = gene.span()
-    cols = [gene.chrom, str(start-1), str(end), gene_id, '.', gene.strand]
-    print('\t'.join(cols), file=agenes_bed_out)
-  agenes_bed_out.close()
-
-  # find overlapping genes
-  genes1_bt = pybedtools.BedTool(agenes_bed_file)
-  genes2_bt = pybedtools.BedTool(agenes_bed_file)
-  overlapping_genes = set()
-  for overlap in genes1_bt.intersect(genes2_bt, s=stranded, wo=True):
-    gene1_id = overlap[3]
-    gene2_id = overlap[7]
-    if gene1_id != gene2_id:
-      overlapping_genes.add(gene1_id)
-      overlapping_genes.add(gene2_id)
-
-  # filter for nonoverlapping genes
-  genes_bed_out = open(genes_bed_file, 'w')
-  for line in open(agenes_bed_file):
-    gene_id = line.split()[-1]
-    if gene_id not in overlapping_genes:
-      print(line, end='', file=genes_bed_out)
-  genes_bed_out.close()
-
-
-def make_genes_exon(genes_bed_file, genes_gtf_file, out_dir):
+def make_genes_exon(genes_bed_file: str, genes_gtf_file: str, out_dir: str):
+  """Make a BED file with each genes' exons, excluding exons overlapping
+    across genes.
+  
+  Args:
+    genes_bed_file (str): Output BED file of genes.
+    genes_gtf_file (str): Input GTF file of genes.
+    out_dir (str): Output directory for temporary files.
+  """
   # read genes
   genes_gtf = pygene.GTF(genes_gtf_file)
 
@@ -414,6 +424,47 @@ def make_genes_exon(genes_bed_file, genes_gtf_file, out_dir):
   genes_bed_out.close()
 
 
+def make_genes_span(genes_bed_file: str, genes_gtf_file: str, out_dir: str, stranded: bool=True):
+  """Make a BED file with the span of each gene.
+  
+  Args:
+    genes_bed_file (str): Output BED file of genes.
+    genes_gtf_file (str): Input GTF file of genes.
+    out_dir (str): Output directory for temporary files.
+    stranded (bool): Perform stranded intersection.
+  """
+  # read genes
+  genes_gtf = pygene.GTF(genes_gtf_file)
+
+  # write all gene spans
+  agenes_bed_file = '%s/genes_all.bed' % out_dir
+  agenes_bed_out = open(agenes_bed_file, 'w')
+  for gene_id, gene in genes_gtf.genes.items():
+    start, end = gene.span()
+    cols = [gene.chrom, str(start-1), str(end), gene_id, '.', gene.strand]
+    print('\t'.join(cols), file=agenes_bed_out)
+  agenes_bed_out.close()
+
+  # find overlapping genes
+  genes1_bt = pybedtools.BedTool(agenes_bed_file)
+  genes2_bt = pybedtools.BedTool(agenes_bed_file)
+  overlapping_genes = set()
+  for overlap in genes1_bt.intersect(genes2_bt, s=stranded, wo=True):
+    gene1_id = overlap[3]
+    gene2_id = overlap[7]
+    if gene1_id != gene2_id:
+      overlapping_genes.add(gene1_id)
+      overlapping_genes.add(gene2_id)
+
+  # filter for nonoverlapping genes
+  genes_bed_out = open(genes_bed_file, 'w')
+  for line in open(agenes_bed_file):
+    gene_id = line.split()[-1]
+    if gene_id not in overlapping_genes:
+      print(line, end='', file=genes_bed_out)
+  genes_bed_out.close()
+
+  
 ################################################################################
 # __main__
 ################################################################################

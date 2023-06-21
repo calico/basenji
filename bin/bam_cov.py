@@ -1633,6 +1633,11 @@ class GenomeCoverage:
       # set small values to zero
       chrom_coverage_array[chrom_coverage_array < zero_eps] = 0
 
+      # clip very large values
+      chrom_coverage_array = np.clip(chrom_coverage_array,
+                                     np.finfo(np.float16).min,
+                                     np.finfo(np.float16).max)
+
       # for stranded output
       if self.stranded:
         # adjust chromosome name

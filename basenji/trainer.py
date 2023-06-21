@@ -152,11 +152,15 @@ class Trainer:
     assert(len(seqnn_model.models) >= self.num_datasets)
 
     # inform optimizer about all trainable variables (v2.11-)
-    tv = []
+    vars_set = set()
+    trainable_vars = []
     for di in range(self.num_datasets):
-      tv += seqnn_model.models[di].trainable_variables
+      for v in seqnn_model.models[di].trainable_variables:
+        if v.name not in vars_set:
+          vars_set.add(v.name)
+          trainable_vars.append(v)
     try:
-      self.optimizer.build(tv)
+      self.optimizer.build(trainable_vars)
     except AttributeError:
       pass
 

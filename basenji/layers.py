@@ -560,11 +560,11 @@ class MultiheadAttention(tf.keras.layers.Layer):
         use_bias=False,
         kernel_regularizer=tf.keras.regularizers.l2(self._l2_scale),
         kernel_initializer=self._initializer)
-    self._r_w_bias = self.add_weight('r_w_bias',
+    self._r_w_bias = self.add_weight('%s/r_w_bias'%self.name,
           shape=[1, self._num_heads, 1, self._key_size],
           initializer=self._initializer,
           dtype=tf.float32)
-    self._r_r_bias = self.add_weight('r_r_bias',
+    self._r_r_bias = self.add_weight('%s/r_r_bias'%self.name,
           shape=[1, self._num_heads, 1, self._key_size],
           initializer=self._initializer,
           dtype=tf.float32)

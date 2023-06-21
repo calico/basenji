@@ -152,12 +152,14 @@ def main():
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
     elif options.sum_stat == 'sum_sqrt':
       seq_cov = seq_cov.sum(axis=1, dtype='float32')
-      seq_cov = -1 + (1+seq_cov)**0.75
+      # seq_cov = -1 + (1+seq_cov)**0.75
+      seq_cov = -1 + np.sqrt(1+seq_cov)
     elif options.sum_stat in ['mean', 'avg']:
       seq_cov = seq_cov.mean(axis=1, dtype='float32')
     elif options.sum_stat in ['mean_sqrt', 'avg_sqrt']:
       seq_cov = seq_cov.mean(axis=1, dtype='float32')
-      seq_cov = -1 + (1+seq_cov)**0.75
+      # seq_cov = -1 + (1+seq_cov)**0.75
+      seq_cov = -1 + np.sqrt(1+seq_cov)
     elif options.sum_stat == 'median':
       seq_cov = seq_cov.median(axis=1)
     elif options.sum_stat == 'max':

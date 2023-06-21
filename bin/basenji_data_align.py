@@ -662,7 +662,7 @@ def divide_components_pct(contig_components, test_pct, valid_pct, pct_abstain=0.
   # report genome-specific train/valid/test stats
   report_divide_stats([train_contigs, valid_contigs, test_contigs])
 
-  return train_contigs, valid_contigs, test_contigs
+  return [train_contigs, valid_contigs, test_contigs]
 
 
 ################################################################################

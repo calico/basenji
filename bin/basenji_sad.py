@@ -70,6 +70,8 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
+  parser.add_option('-u', dest='untransform_old',
+      default=False, action='store_true')
   (options, args) = parser.parse_args()
 
   if len(args) == 3:
@@ -150,12 +152,12 @@ def main():
       strand_transform = dok_matrix((targets_df.shape[0], targets_strand_df.shape[0]))
       sti = 0
       for ti, target in targets_df.iterrows():
-          strand_transform[ti,sti] = True
-          if target.strand_pair == target.name:
+        strand_transform[ti,sti] = True
+        if target.strand_pair == target.name:
+          sti += 1
+        else:
+            if target.identifier[-1] == '-':
               sti += 1
-          else:
-              if target.identifier[-1] == '-':
-                  sti += 1
       strand_transform = strand_transform.tocsr()
 
     else:
@@ -223,6 +225,15 @@ def main():
     else:
       snp_preds = seqnn_model(snps_1hot)
       ref_preds, alt_preds = snp_preds[0], snp_preds[1]
+
+    # untransform predictions
+    if options.targets_file is not None:
+      if options.untransform_old:
+        ref_preds = untransform_preds1(ref_preds, targets_df)
+        alt_preds = untransform_preds1(alt_preds, targets_df)
+      else:
+        ref_preds = untransform_preds(ref_preds, targets_df)
+        alt_preds = untransform_preds(alt_preds, targets_df)
     
     # sum strand pairs
     if sum_strand:
@@ -302,6 +313,64 @@ def initialize_output_h5(out_dir, sad_stats, snps, targets_length, targets_df):
 
   return sad_out
 
+
+def untransform_preds(preds, targets_df, unscale=False):
+  """Undo the squashing transformations performed for the tasks.
+  
+  Args:
+    preds (np.array): Predictions LxT.
+    targets_df (pd.DataFrame): Targets information table.
+    
+  Returns:
+    preds (np.array): Untransformed predictions LxT.
+  """
+  # clip soft
+  cs = np.expand_dims(np.array(targets_df.clip_soft), axis=0)
+  preds_unclip = cs-1 + (preds-cs+1)**2
+  preds = np.where(preds > cs, preds_unclip, preds)
+
+  # ** 0.75
+  sqrt_mask = np.array([ss.find('_sqrt') != -1 for ss in targets_df.sum_stat])
+  preds[:,sqrt_mask] = -1 + (preds[:,sqrt_mask]+1) ** (4/3)
+
+  # scale
+  if unscale:
+    scale = np.expand_dims(np.array(targets_df.scale), axis=0)
+    preds = preds / scale
+
+  return preds
+
+
+def untransform_preds1(preds, targets_df, unscale=False):
+  """Undo the squashing transformations performed for the tasks.
+  
+  Args:
+    preds (np.array): Predictions LxT.
+    targets_df (pd.DataFrame): Targets information table.
+    
+  Returns:
+    preds (np.array): Untransformed predictions LxT.
+  """
+  # scale
+  scale = np.expand_dims(np.array(targets_df.scale), axis=0)
+  preds = preds / scale
+  
+  # clip soft
+  cs = np.expand_dims(np.array(targets_df.clip_soft), axis=0)
+  preds_unclip = cs + (preds-cs)**2
+  preds = np.where(preds > cs, preds_unclip, preds)
+
+  # ** 0.75
+  sqrt_mask = np.array([ss.find('_sqrt') != -1 for ss in targets_df.sum_stat])
+  preds[:,sqrt_mask] = (preds[:,sqrt_mask]) ** (4/3)
+
+  # unscale
+  if not unscale:
+    preds = preds * scale
+
+  return preds
+
+
 def write_pct(sad_out, sad_stats):
   """Compute percentile values for each target and write to HDF5."""
 
@@ -349,21 +418,41 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
       been maintained."""
   seq_length, num_targets = ref_preds.shape
 
-  # compute pseudocounts
-  pseudocounts = np.percentile(ref_preds, 25, axis=0)
+  # log/sqrt
+  ref_preds_log = np.log2(ref_preds+1)
+  alt_preds_log = np.log2(alt_preds+1)
+  ref_preds_sqrt = np.sqrt(ref_preds)
+  alt_preds_sqrt = np.sqrt(alt_preds)
 
   # sum across length
   ref_preds_sum = ref_preds.sum(axis=0)
   alt_preds_sum = alt_preds.sum(axis=0)
+  ref_preds_log_sum = ref_preds_log.sum(axis=0)
+  alt_preds_log_sum = alt_preds_log.sum(axis=0)
+  ref_preds_sqrt_sum = ref_preds_sqrt.sum(axis=0)
+  alt_preds_sqrt_sum = alt_preds_sqrt.sum(axis=0)
 
   # difference
   altref_diff = alt_preds - ref_preds
   altref_adiff = np.abs(altref_diff)
+  altref_log_diff = alt_preds_log - ref_preds_log
+  altref_log_adiff = np.abs(altref_log_diff)
+  altref_sqrt_diff = alt_preds_sqrt - ref_preds_sqrt
+  altref_sqrt_adiff = np.abs(altref_sqrt_diff)
 
-  # compare reference to alternative via mean subtraction
+  # compare reference to alternative via sum subtraction
   if 'SAD' in sad_stats:
     sad = alt_preds_sum - ref_preds_sum
+    sad = np.clip(sad, np.finfo(np.float16).min, np.finfo(np.float16).max)
     sad_out['SAD'][si] = sad.astype('float16')
+  if 'logSAD' in sad_stats:
+    log_sad = alt_preds_log_sum - ref_preds_log_sum
+    log_sad = np.clip(log_sad, np.finfo(np.float16).min, np.finfo(np.float16).max)
+    sad_out['logSAD'][si] = log_sad.astype('float16')
+  if 'sqrtSAD' in sad_stats:
+    sqrt_sad = alt_preds_sqrt_sum - ref_preds_sqrt_sum
+    sqrt_sad = np.clip(sqrt_sad, np.finfo(np.float16).min, np.finfo(np.float16).max)
+    sad_out['sqrtSAD'][si] = sqrt_sad.astype('float16')
 
   # compare reference to alternative via max subtraction
   if 'SAX' in sad_stats:
@@ -371,50 +460,40 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
     sax = altref_diff[max_i, np.arange(num_targets)]
     sad_out['SAX'][si] = sax.astype('float16')
 
-  # compare reference to alternative via mean log division
-  if 'SADR' in sad_stats:
-    sar = np.log2(alt_preds_sum + pseudocounts) \
-                   - np.log2(ref_preds_sum + pseudocounts)
-    sad_out['SADR'][si] = sar.astype('float16')
-
-  # compare reference to alternative via max subtraction
-  if 'SAXR' in sad_stats:
-    sar_vec = np.log2(alt_preds + pseudocounts) \
-                - np.log2(ref_preds + pseudocounts)
-    max_i = np.argmax(np.abs(sar_vec), axis=0)
-    saxr = sar_vec[max_i, np.arange(num_targets)]
-    sad_out['SAXR'][si] = saxr.astype('float16')
-
-  # compare geometric means
-  if 'SAR' in sad_stats:
-    sar_vec = np.log2(alt_preds + pseudocounts) \
-                - np.log2(ref_preds + pseudocounts)
-    geo_sad = sar_vec.sum(axis=0)
-    sad_out['SAR'][si] = geo_sad.astype('float16')
-
   # L1 norm of difference vector
   if 'D1' in sad_stats:
     sad_d1 = altref_adiff.sum(axis=0)
+    sad_d1 = np.clip(sad_d1, np.finfo(np.float16).min, np.finfo(np.float16).max)
     sad_out['D1'][si] = sad_d1.astype('float16')
+  if 'logD1' in sad_stats:
+    log_d1 = altref_log_adiff.sum(axis=0)
+    log_d1 = np.clip(log_d1, np.finfo(np.float16).min, np.finfo(np.float16).max)
+    sad_out['logD1'][si] = log_d1.astype('float16')
+  if 'sqrtD1' in sad_stats:
+    sqrt_d1 = altref_sqrt_adiff.sum(axis=0)
+    sqrt_d1 = np.clip(sqrt_d1, np.finfo(np.float16).min, np.finfo(np.float16).max)
+    sad_out['sqrtD1'][si] = sqrt_d1.astype('float16')
 
   # L2 norm of difference vector
-  if 'D2' in sad_stats or 'SD2' in sad_stats:
+  if 'D2' in sad_stats:
     altref_diff2 = np.power(altref_diff, 2)
-    sad_d2 = altref_diff2.sum(axis=0)
-    sad_d2 = np.sqrt(sad_d2)
-
-    if 'D2' in sad_stats:
-      sad_out['D2'][si] = sad_d2.astype('float16')
-
-    if 'SD2' in sad_stats:
-      altref_sign = np.sign(altref_diff)
-      sad_sd2_sign = altref_sign*altref_diff2
-      sad_sd2_sign = np.sign(sad_sd2_sign.sum(axis=0))
-      sad_sd2 = sad_sd2_sign * sad_d2
-      sad_out['SD2'][si] = sad_sd2.astype('float16')
+    sad_d2 = np.sqrt(altref_diff2.sum(axis=0))
+    sad_d2 = np.clip(sad_d2, np.finfo(np.float16).min, np.finfo(np.float16).max)
+    sad_out['D2'][si] = sad_d2.astype('float16')
+  if 'logD2' in sad_stats:
+    altref_log_diff2 = np.power(altref_log_diff, 2)
+    log_d2 = np.sqrt(altref_log_diff2.sum(axis=0))
+    log_d2 = np.clip(log_d2, np.finfo(np.float16).min, np.finfo(np.float16).max)
+    sad_out['logD2'][si] = log_d2.astype('float16')
+  if 'sqrtD2' in sad_stats:
+    altref_sqrt_diff2 = np.power(altref_sqrt_diff, 2)
+    sqrt_d2 = np.sqrt(altref_sqrt_diff2.sum(axis=0))
+    sqrt_d2 = np.clip(sqrt_d2, np.finfo(np.float16).min, np.finfo(np.float16).max)
+    sad_out['sqrtD2'][si] = sqrt_d2.astype('float16')
 
   if 'JS' in sad_stats:
     # normalized scores
+    pseudocounts = np.percentile(ref_preds, 25, axis=0)
     ref_preds_norm = ref_preds + pseudocounts
     ref_preds_norm /= ref_preds_norm.sum(axis=0)
     alt_preds_norm = alt_preds + pseudocounts
@@ -425,11 +504,26 @@ def write_snp_len(ref_preds, alt_preds, sad_out, si, sad_stats):
     alt_ref_entr = rel_entr(alt_preds_norm, ref_preds_norm).sum(axis=0)
     js_dist = (ref_alt_entr + alt_ref_entr) / 2
     sad_out['JS'][si] = js_dist.astype('float16')
+  if 'logJS' in sad_stats:
+    # normalized scores
+    pseudocounts = np.percentile(ref_preds_log, 25, axis=0)
+    ref_preds_log_norm = ref_preds_log + pseudocounts
+    ref_preds_log_norm /= ref_preds_log_norm.sum(axis=0)
+    alt_preds_log_norm = alt_preds_log + pseudocounts
+    alt_preds_log_norm /= alt_preds_log_norm.sum(axis=0)
+
+    # compare normalized JS
+    ref_alt_entr = rel_entr(ref_preds_log_norm, alt_preds_log_norm).sum(axis=0)
+    alt_ref_entr = rel_entr(alt_preds_log_norm, ref_preds_log_norm).sum(axis=0)
+    log_js_dist = (ref_alt_entr + alt_ref_entr) / 2
+    sad_out['logJS'][si] = log_js_dist.astype('float16')
 
   # predictions
   if 'REF' in sad_stats:
+    ref_preds = np.clip(ref_preds, np.finfo(np.float16).min, np.finfo(np.float16).max)
     sad_out['REF'][si] = ref_preds.astype('float16')
   if 'ALT' in sad_stats:
+    alt_preds = np.clip(alt_preds, np.finfo(np.float16).min, np.finfo(np.float16).max)
     sad_out['ALT'][si] = alt_preds.astype('float16')
 
 ################################################################################

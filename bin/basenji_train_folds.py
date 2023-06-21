@@ -219,7 +219,7 @@ def main():
                       queue=options.queue,
                       cpu=4,
                       gpu=params_train.get('num_gpu',1),
-                      mem=75000, time='60-0:0:0')
+                      mem=30000, time='60-0:0:0')
         jobs.append(j)
 
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
@@ -272,7 +272,7 @@ def main():
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
                             cpu=num_cpu, gpu=num_gpu,
-                            mem=23000,
+                            mem=30000,
                             time='%d:00:00' % (3*time_base))
             jobs.append(basenji_job)
 
@@ -323,7 +323,7 @@ def main():
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
                             cpu=num_cpu, gpu=num_gpu,
-                            mem=45000,
+                            mem=30000,
                             time='%d:00:00' % time_base)
             jobs.append(basenji_job)
 

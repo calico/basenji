@@ -40,7 +40,7 @@ Train Basenji model replicates using given parameters and data.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <exp_dir> <params_file> <data1_dir> ...'
+  usage = 'usage: %prog [options] <params_file> <data1_dir> ...'
   parser = OptionParser(usage)
   parser.add_option('-a', '--alt', dest='alternative',
       default='two-sided', help='Statistical test alternative [Default: %default]')
@@ -238,7 +238,7 @@ def main():
         else:
           out_dir = '%s/test%d_spec' % (it_dir, options.dataset_i)
           model_file = '%s/train/model%d_best.h5' % (it_dir, options.dataset_i)
-
+              
         # check if done
         acc_file = '%s/acc.txt' % out_dir
         if os.path.isfile(acc_file):

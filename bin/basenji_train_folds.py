@@ -272,7 +272,7 @@ def main():
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
                             cpu=num_cpu, gpu=num_gpu,
-                            mem=30000,
+                            mem=45000,
                             time='%d:00:00' % (3*time_base))
             jobs.append(basenji_job)
 
@@ -323,7 +323,7 @@ def main():
                             err_file='%s.err'%out_dir,
                             queue=options.queue,
                             cpu=num_cpu, gpu=num_gpu,
-                            mem=30000,
+                            mem=45000,
                             time='%d:00:00' % time_base)
             jobs.append(basenji_job)
 

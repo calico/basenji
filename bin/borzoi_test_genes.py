@@ -21,7 +21,6 @@ import pdb
 import os
 import time
 
-import h5py
 from intervaltree import IntervalTree
 import numpy as np
 import pandas as pd
@@ -29,16 +28,14 @@ import pybedtools
 import pyranges as pr
 from scipy.stats import pearsonr
 from sklearn.metrics import explained_variance_score
-import tensorflow as tf
-from tqdm import tqdm
 
-from basenji import bed
 from basenji import dataset
 from basenji import seqnn
-from basenji import trainer
+
 import pygene
 from qnorm import quantile_normalize
 
+from basenji_sad import untransform_preds1
 from borzoi_sed import targets_prep_strand
 
 '''
@@ -105,9 +102,6 @@ def main():
   targets_strand_df = targets_prep_strand(targets_df)
   num_targets = targets_df.shape[0]
   num_targets_strand = targets_strand_df.shape[0]
-
-  # save sqrt'd tracks
-  sqrt_mask = np.array([ss.find('sqrt') != -1 for ss in targets_strand_df.sum_stat])
 
   # read model parameters
   with open(params_file) as params_open:
@@ -240,6 +234,7 @@ def main():
   gene_preds = []
   gene_ids = sorted(gene_targets_dict.keys())
   gene_within = []
+  gene_wvar = []
 
   for gene_id in gene_ids:
     gene_preds_gi = np.concatenate(gene_preds_dict[gene_id], axis=0).astype('float32')
@@ -256,24 +251,26 @@ def main():
     if gene_targets_gi.shape[0] == 0:
       print(gene_id, gene_targets_gi.shape, gene_preds_gi.shape)
 
-    # undo sqrt
-    gene_preds_gi[:,sqrt_mask] = gene_preds_gi[:,sqrt_mask]**(4/3)
-    gene_targets_gi[:,sqrt_mask] = gene_targets_gi[:,sqrt_mask]**(4/3)
-
-    # undo scale
-    gene_preds_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
-    gene_targets_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
+    gene_preds_gi = untransform_preds1(gene_preds_gi, targets_strand_df)
+    gene_targets_gi = untransform_preds1(gene_targets_gi, targets_strand_df)
 
     # compute within gene correlation before dropping length axis
-    gene_npreds_gi = gene_preds_gi / gene_preds_gi.sum(axis=-1, keepdims=True)
-    gene_ntargets_gi = gene_targets_gi / gene_targets_gi.sum(axis=-1, keepdims=True)
-    gene_corr_gi = []
+    gene_corr_gi = np.zeros(num_targets_strand)
     for ti in range(num_targets_strand):
-      if gene_npreds_gi[:,ti].var() > 1e-3 and gene_ntargets_gi[:,ti].var() > 1e-3:
-        gene_corr_gi.append(pearsonr(gene_npreds_gi[:,ti], gene_ntargets_gi[:,ti])[0])
+      if gene_preds_gi[:,ti].var() > 1e-6 and gene_targets_gi[:,ti].var() > 1e-6:
+        preds_log = np.log2(gene_preds_gi[:,ti]+1)
+        targets_log = np.log2(gene_targets_gi[:,ti]+1)
+        gene_corr_gi[ti] = pearsonr(preds_log, targets_log)[0]
+        # gene_corr_gi[ti] = pearsonr(gene_preds_gi[:,ti], gene_targets_gi[:,ti])[0]
       else:
-        gene_corr_gi.append(np.nan)
+        gene_corr_gi[ti] = np.nan
     gene_within.append(gene_corr_gi)
+    gene_wvar.append(gene_targets_gi.var(axis=0))
+
+    # TEMP: save gene preds/targets
+    # os.makedirs('%s/gene_within' % options.out_dir, exist_ok=True)
+    # np.save('%s/gene_within/%s_preds.npy' % (options.out_dir, gene_id), gene_preds_gi.astype('float16'))
+    # np.save('%s/gene_within/%s_targets.npy' % (options.out_dir, gene_id), gene_targets_gi.astype('float16'))
 
     # mean coverage
     gene_preds_gi = gene_preds_gi.mean(axis=0)
@@ -289,6 +286,11 @@ def main():
   gene_targets = np.array(gene_targets)
   gene_preds = np.array(gene_preds)
   gene_within = np.array(gene_within)
+  gene_wvar = np.array(gene_wvar)
+
+  # log2 transform
+  gene_targets = np.log2(gene_targets+1)
+  gene_preds = np.log2(gene_preds+1)
 
   # quantile and mean normalize
   gene_targets_norm = quantile_normalize(gene_targets, ncpus=2)
@@ -306,14 +308,20 @@ def main():
   genes_within_df = pd.DataFrame(gene_within, index=gene_ids,
                                  columns=targets_strand_df.identifier)
   genes_within_df.to_csv('%s/gene_within.tsv' % options.out_dir, sep='\t')
+  genes_var_df = pd.DataFrame(gene_wvar, index=gene_ids,
+                              columns=targets_strand_df.identifier)
+  genes_var_df.to_csv('%s/gene_var.tsv' % options.out_dir, sep='\t')
 
   #######################################################
   # accuracy stats
+
+  wvar_t = np.percentile(gene_wvar, 80, axis=0)
 
   acc_pearsonr = []
   acc_r2 = []
   acc_npearsonr = []
   acc_nr2 = []
+  acc_wpearsonr = []
   for ti in range(num_targets_strand):
     r_ti = pearsonr(gene_targets[:,ti], gene_preds[:,ti])[0]
     acc_pearsonr.append(r_ti)
@@ -323,6 +331,9 @@ def main():
     acc_npearsonr.append(nr_ti)
     nr2_ti = explained_variance_score(gene_targets_norm[:,ti], gene_preds_norm[:,ti])
     acc_nr2.append(nr2_ti)
+    var_mask = (gene_wvar[:,ti] > wvar_t[ti])
+    wr_ti = gene_within[var_mask].mean()
+    acc_wpearsonr.append(wr_ti)
 
   acc_df = pd.DataFrame({
     'identifier': targets_strand_df.identifier,
@@ -330,7 +341,7 @@ def main():
     'r2': acc_r2,
     'pearsonr_norm': acc_npearsonr,
     'r2_norm': acc_nr2,
-    'pearsonr_gene': np.nanmean(gene_within, axis=0),
+    'pearsonr_gene': acc_wpearsonr,
     'description': targets_strand_df.description
     })
   acc_df.to_csv('%s/acc.txt' % options.out_dir, sep='\t')

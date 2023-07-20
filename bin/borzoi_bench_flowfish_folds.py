@@ -37,7 +37,7 @@ Benchmark Borzoi model replicates on CRISPR enhancer scoring task.
 # main
 ################################################################################
 def main():
-  usage = 'usage: %prog [options] <params_file> <data_dir>'
+  usage = 'usage: %prog [options] <params_file> <exp_dir>'
   parser = OptionParser(usage)
 
   # crispr
@@ -77,15 +77,15 @@ def main():
   fold_options.add_option('-e', dest='conda_env',
       default='tf28',
       help='Anaconda environment [Default: %default]')
+  fold_options.add_option('-l', dest='local',
+      default=False, action='store_true',
+      help='Run jobs locally [Default: %default]')
   fold_options.add_option('-n', dest='name',
       default='flowfish',
       help='SLURM job name prefix [Default: %default]')
   fold_options.add_option('-q', dest='queue',
       default='standard',
       help='SLURM queue on which to run the jobs [Default: %default]')
-  # fold_options.add_option('-r', dest='restart',
-  #     default=False, action='store_true',
-  #     help='Restart a partially completed job [Default: %default]')
   parser.add_option_group(fold_options)
 
   (options, args) = parser.parse_args()
@@ -140,19 +140,27 @@ def main():
       if options.data_head is not None:
         model_file = '%s/train/model%d_best.h5' % (it_dir, options.data_head)
 
-      cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-      cmd += ' conda activate %s;' % options.conda_env
-      cmd += ' borzoi_bench_crispr.py %s %s' % (params_file, model_file)
-      cmd += ' %s' % options_string(options, crispr_options, it_crispr_dir)
-      
-      name = '%s-f%dc%d' % (options.name, fi, ci)
-      j = slurm.Job(cmd, name,
-          '%s.out'%it_crispr_dir,
-          '%s.err'%it_crispr_dir,
-          queue=options.queue,
-          cpu=num_cpu, gpu=num_gpu,
-          mem=1200000, time='7-0:0:0')
-      jobs.append(j)
+      acc_file = '%s/acc.txt' % it_crispr_dir
+      if not os.path.isfile(acc_file):
+        if options.local:
+          cmd = ''
+        else:
+          cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+          cmd += ' conda activate %s;' % options.conda_env
+        cmd += ' borzoi_bench_crispr.py %s %s' % (params_file, model_file)
+        cmd += ' %s' % options_string(options, crispr_options, it_crispr_dir)
+        
+        if options.local:
+          subprocess.call(cmd, shell=True)
+        else:
+          name = '%s-f%dc%d' % (options.name, fi, ci)
+          j = slurm.Job(cmd, name,
+              '%s.out'%it_crispr_dir,
+              '%s.err'%it_crispr_dir,
+              queue=options.queue,
+              cpu=num_cpu, gpu=num_gpu,
+              mem=1200000, time='7-0:0:0')
+          jobs.append(j)
 
   slurm.multi_run(jobs, verbose=True, launch_sleep=10, update_sleep=60)
 

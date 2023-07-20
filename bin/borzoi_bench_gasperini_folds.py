@@ -14,13 +14,11 @@
 # limitations under the License.
 # =========================================================================
 from optparse import OptionParser, OptionGroup
-import glob
 import h5py
 import pickle
 import pdb
 import os
 import subprocess
-import sys
 
 import numpy as np
 import pandas as pd
@@ -86,9 +84,6 @@ def main():
   fold_options.add_option('-q', dest='queue',
       default='standard',
       help='SLURM queue on which to run the jobs [Default: %default]')
-  # fold_options.add_option('-r', dest='restart',
-  #     default=False, action='store_true',
-  #     help='Restart a partially completed job [Default: %default]')
   parser.add_option_group(fold_options)
 
   (options, args) = parser.parse_args()
@@ -133,9 +128,9 @@ def main():
 
   ################################################################
   # satg
-
+  
   jobs = []
-
+          
   for ci in range(options.crosses):
     for fi in range(num_folds):
       it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
@@ -149,34 +144,37 @@ def main():
       it_crispr_dir = '%s/%s' % (it_dir, leaf_out_dir)
       os.makedirs(it_crispr_dir, exist_ok=True)
 
-      # pickle options
-      options_pkl_file = '%s/options.pkl' % it_crispr_dir
-      options_pkl = open(options_pkl_file, 'wb')
-      options.out_dir = it_crispr_dir
-      pickle.dump(options, options_pkl)
-      options_pkl.close()
+      if os.path.isfile(f'{it_crispr_dir}/scores.h5'):
+        print(f'{it_crispr_dir} scores computed')
+      else:
+        # pickle options
+        options_pkl_file = '%s/options.pkl' % it_crispr_dir
+        options_pkl = open(options_pkl_file, 'wb')
+        options.out_dir = it_crispr_dir
+        pickle.dump(options, options_pkl)
+        options_pkl.close()
 
-      # parallelize genes
-      for pi in range(options.processes):
-        satg_pi_h5f = '%s/job%d/scores.h5' % (it_crispr_dir, pi)
-        if not complete_h5(satg_pi_h5f):
-          satg_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
-          satg_cmd += ' conda activate %s;' % options.conda_env
+        # parallelize genes
+        for pi in range(options.processes):
+          satg_pi_h5f = '%s/job%d/scores.h5' % (it_crispr_dir, pi)
+          if not complete_h5(satg_pi_h5f):
+            satg_cmd = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+            satg_cmd += ' conda activate %s;' % options.conda_env
 
-          satg_cmd += ' borzoi_satg_gene.py %s %s %s %s %d' % (
-              options_pkl_file, params_file, model_file, crispr_gtf_file, pi)
-          name = 'gasp-f%dc%dp%d' % (fi,ci,pi)
-          outf = '%s/job%d.out' % (it_crispr_dir, pi)
-          errf = '%s/job%d.err' % (it_crispr_dir, pi)
-          j = slurm.Job(satg_cmd, name,
-              outf, errf,
-              queue=options.queue,
-              cpu=num_cpu, gpu=num_gpu,
-              mem=120000, time='7-0:0:0')
-          jobs.append(j)
+            satg_cmd += ' borzoi_satg_gene.py %s %s %s %s %d' % (
+                options_pkl_file, params_file, model_file, crispr_gtf_file, pi)
+            name = 'gasp-f%dc%dp%d' % (fi,ci,pi)
+            outf = '%s/job%d.out' % (it_crispr_dir, pi)
+            errf = '%s/job%d.err' % (it_crispr_dir, pi)
+            j = slurm.Job(satg_cmd, name,
+                outf, errf,
+                queue=options.queue,
+                cpu=num_cpu, gpu=num_gpu,
+                mem=120000, time='7-0:0:0')
+            jobs.append(j)
 
-  slurm.multi_run(jobs, verbose=True, launch_sleep=10, update_sleep=60)
-
+    slurm.multi_run(jobs, verbose=True, launch_sleep=10, update_sleep=60)
+  
 
   ################################################################
   # aggregate processes / metrics
@@ -186,8 +184,11 @@ def main():
       it_dir = '%s/f%dc%d' % (exp_dir, fi, ci)
       it_crispr_dir = '%s/%s' % (it_dir, leaf_out_dir)
 
-      # aggregate processes
-      collect_h5(it_crispr_dir, options.processes, 'grads')
+      if os.path.isfile(f'{it_crispr_dir}/scores.h5'):
+        print(f'{it_crispr_dir} scores aggregated')
+      else:
+        # aggregate processes
+        collect_h5(it_crispr_dir, options.processes, 'grads')
 
       # read sequences and reference scores
       satg_h5f = '%s/scores.h5' % it_crispr_dir
@@ -212,13 +213,14 @@ def main():
       for line in open(crispr_gtf_file):
         a = line.split('\t')
         kv = gtf_kv(a[8])
-        if kv['gene_id'] in geneid_i:
-            gene_i[kv['gene_name']] = geneid_i[kv['gene_id']]
+        gene_id = trim_dot(kv['gene_id'])
+        if gene_id in geneid_i:
+            gene_i[kv['gene_name']] = geneid_i[gene_id]
 
       # score sites
       crispr_df = pd.read_csv(crispr_table_tsv, sep='\t')
-      # crispr_df['score'] = score_sites(crispr_df, gene_i, grads_ref, seq_starts)
-      crispr_df['score'] = score_sites(crispr_df, geneid_i, grads_ref, seq_starts)
+      crispr_df['score'] = score_sites(crispr_df, gene_i, grads_ref, seq_starts)
+      # crispr_df['score'] = score_sites(crispr_df, geneid_i, grads_ref, seq_starts)
       np.save('%s/site_scores.npy' % it_crispr_dir, crispr_df['score'])
 
       # compute stats

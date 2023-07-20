@@ -14,16 +14,15 @@
 # limitations under the License.
 # =========================================================================
 from optparse import OptionParser, OptionGroup
-import glob
 import pickle
 import pdb
 import os
 import subprocess
-import sys
 
 import h5py
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 import slurm
@@ -112,6 +111,8 @@ def main():
       subprocess.call(satg_cmd, shell=True)
 
     else:
+      jobs = []
+      
       # pickle options
       options_pkl_file = '%s/options.pkl' % options.out_dir
       options_pkl = open(options_pkl_file, 'wb')
@@ -257,7 +258,45 @@ def options_string(options, group_options):
   return options_str
 
 
-def score_sites(crispr_df, gene_i, grads_ref, seq_starts, elen_ext=2000, normalize=True):
+def score_sites(crispr_df, gene_i, grads_ref, seq_starts, sigma=300, normalize=True):
+  enh_ref = np.zeros(crispr_df.shape[0])
+  seq_len = grads_ref.shape[1]
+
+  # define smoothing helpers
+  window = np.arange(-4*sigma, 4*sigma+1)
+  weights = norm.pdf(window, scale=sigma)
+
+  for ei, enh in crispr_df.iterrows():
+    gi = gene_i[enh.gene]
+    gene_start = seq_starts[gi]
+
+    emid = (enh.start + enh.end) // 2
+    eg_mid = emid - gene_start
+    
+    if eg_mid >= 0 and eg_mid < seq_len:
+      # determine smoothing window
+      eg_window = window + eg_mid
+      wstart, wend = 0, seq_len
+      if eg_window[0] < 0:
+        wstart = -eg_window[0]
+      if eg_window[-1] > seq_len:
+        wend = seq_len - eg_window[-1] - 1
+      eg_window = eg_window[wstart:wend]
+
+      # pull scores
+      grads_ref_gi = np.abs(grads_ref[gi].astype('float32'))
+      weights_trunc = weights[wstart:wend]
+      escore = np.sum(weights_trunc*grads_ref_gi[eg_window]) / np.sum(weights_trunc)
+      if normalize:
+        escore /= grads_ref_gi.mean()
+
+      # collect
+      enh_ref[ei] += escore
+              
+  return enh_ref
+
+
+def score_sites_orig(crispr_df, gene_i, grads_ref, seq_starts, elen_ext=2000, normalize=True):
   enh_ref = np.zeros(crispr_df.shape[0])
   seq_len = grads_ref.shape[1]
 

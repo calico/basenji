@@ -16,15 +16,13 @@
 from optparse import OptionParser, OptionGroup
 import glob
 import h5py
-import json
-import pdb
 import os
-import sys
 
 import numpy as np
 import pandas as pd
 
 import slurm
+import util
 
 """
 basenji_bench_sqtl_folds.py
@@ -63,7 +61,7 @@ def main():
       default=False, action='store_true',
       help='Aggregate entire gene span [Default: %default]')
   sed_options.add_option('--stats', dest='sed_stats',
-      default='D2',
+      default='nDi',
       help='Comma-separated list of stats to save. [Default: %default]')
   sed_options.add_option('-t', dest='targets_file',
       default=None, type='str',
@@ -138,7 +136,7 @@ def main():
 
   ################################################################
   # SNP scores
-
+  
   # command base
   cmd_base = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
   cmd_base += ' conda activate %s;' % options.conda_env
@@ -243,12 +241,20 @@ def main():
     ens_neg_file = '%s/sed.h5' % (ens_neg_dir)
     if not os.path.isfile(ens_neg_file):
       ensemble_sed_h5(ens_neg_file, sed_neg_files, sed_stats)
-
+  
 
   ################################################################
   # fit classifiers
 
-  cmd_base = 'basenji_bench_classify.py -i 100 -p 2 -r 44 -s --stat D0'
+  run_local = True
+
+  if run_local:
+    cmd_base = ''
+  else:
+    cmd_base = '. /home/drk/anaconda3/etc/profile.d/conda.sh;'
+    cmd_base += ' conda activate %s;' % options.conda_env
+    cmd_base += ' echo $HOSTNAME;'
+  cmd_base += ' basenji_bench_classify.py -i 100 -p 2 -r 44 -s --stat nDi'
   cmd_base += ' --msl %d' % options.msl
 
   jobs = []
@@ -266,10 +272,13 @@ def main():
         if not options.restart or not os.path.isfile('%s/stats.txt' % class_out_dir):
           cmd_class = '%s -o %s %s %s' % (cmd_base, class_out_dir, sed_pos, sed_neg)
           j = slurm.Job(cmd_class, tissue,
-              '%s.out'%class_out_dir, '%s.err'%class_out_dir,
+              '%s.out'%class_out_dir, '%s.err'%class_out_dir, '%s.sb'%class_out_dir,
               queue='standard', cpu=2,
               mem=22000, time='1-0:0:0')
-          jobs.append(j)
+          if run_local:
+            jobs.append(cmd_class)
+          else:
+            jobs.append(j)
 
   # ensemble
   for sqtl_pos_vcf in glob.glob('%s/*_pos.vcf' % options.vcf_dir):
@@ -281,12 +290,19 @@ def main():
     if not options.restart or not os.path.isfile('%s/stats.txt' % class_out_dir):
       cmd_class = '%s -o %s %s %s' % (cmd_base, class_out_dir, sed_pos, sed_neg)
       j = slurm.Job(cmd_class, tissue,
-          '%s.out'%class_out_dir, '%s.err'%class_out_dir,
+          '%s.out'%class_out_dir, '%s.err'%class_out_dir, '%s.sb'%class_out_dir,
           queue='standard', cpu=2,
           mem=22000, time='1-0:0:0')
-      jobs.append(j)
+      if run_local:
+        jobs.append(cmd_class)
+      else:
+        jobs.append(j)
 
-  slurm.multi_run(jobs, verbose=True)
+  if run_local:
+    util.exec_par(jobs, 6, verbose=True)
+  else:
+    slurm.multi_run(jobs, verbose=True)
+  
 
 
 def complete_h5(h5_file, sed_stats):

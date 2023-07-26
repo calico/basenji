@@ -144,19 +144,23 @@ def main():
       # prep strand
       targets_strand_df = targets_prep_strand(targets_df)
 
-      # set strand pairs
-      params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
+      # set strand pairs (using new indexing)
+      orig_new_index = dict(zip(targets_df.index, np.arange(targets_df.shape[0])))
+      targets_strand_pair = np.array([orig_new_index[ti] for ti in targets_df.strand_pair])
+      params_model['strand_pair'] = [targets_strand_pair]
 
       # construct strand sum transform
       strand_transform = dok_matrix((targets_df.shape[0], targets_strand_df.shape[0]))
+      ti = 0
       sti = 0
-      for ti, target in targets_df.iterrows():
+      for _, target in targets_df.iterrows():
         strand_transform[ti,sti] = True
         if target.strand_pair == target.name:
           sti += 1
         else:
-            if target.identifier[-1] == '-':
-              sti += 1
+          if target.identifier[-1] == '-':
+            sti += 1
+        ti += 1
       strand_transform = strand_transform.tocsr()
 
     else:
@@ -335,12 +339,18 @@ def untransform_preds(preds, targets_df, unscale=False):
   """Undo the squashing transformations performed for the tasks.
   
   Args:
-    preds (np.array): Predictions LxT.
+    preds (np.array): Predictions LxT or BxLxT.
     targets_df (pd.DataFrame): Targets information table.
     
   Returns:
     preds (np.array): Untransformed predictions LxT.
   """
+  if preds.ndim == 2:
+    preds = np.expand_dims(preds, axis=0)
+    expand_batch = True
+  else:
+    expand_batch = False
+
   # clip soft
   cs = np.expand_dims(np.array(targets_df.clip_soft), axis=0)
   preds_unclip = cs-1 + (preds-cs+1)**2
@@ -348,12 +358,15 @@ def untransform_preds(preds, targets_df, unscale=False):
 
   # ** 0.75
   sqrt_mask = np.array([ss.find('_sqrt') != -1 for ss in targets_df.sum_stat])
-  preds[:,sqrt_mask] = -1 + (preds[:,sqrt_mask]+1) ** (4/3)
+  preds[...,sqrt_mask] = -1 + (preds[...,sqrt_mask]+1) ** (4/3)
 
   # scale
   if unscale:
     scale = np.expand_dims(np.array(targets_df.scale), axis=0)
     preds = preds / scale
+
+  if expand_batch:
+    preds = preds[0]
 
   return preds
 
@@ -362,28 +375,37 @@ def untransform_preds1(preds, targets_df, unscale=False):
   """Undo the squashing transformations performed for the tasks.
   
   Args:
-    preds (np.array): Predictions LxT.
+    preds (np.array): Predictions LxT or BxLxT.
     targets_df (pd.DataFrame): Targets information table.
     
   Returns:
     preds (np.array): Untransformed predictions LxT.
   """
+  if preds.ndim == 2:
+    preds = np.expand_dims(preds, axis=0)
+    expand_batch = True
+  else:
+    expand_batch = False
+
   # scale
-  scale = np.expand_dims(np.array(targets_df.scale), axis=0)
+  scale = np.expand_dims(np.array(targets_df.scale), axis=(0,1))
   preds = preds / scale
   
   # clip soft
-  cs = np.expand_dims(np.array(targets_df.clip_soft), axis=0)
+  cs = np.expand_dims(np.array(targets_df.clip_soft), axis=(0,1))
   preds_unclip = cs + (preds-cs)**2
   preds = np.where(preds > cs, preds_unclip, preds)
 
   # ** 0.75
   sqrt_mask = np.array([ss.find('_sqrt') != -1 for ss in targets_df.sum_stat])
-  preds[:,sqrt_mask] = (preds[:,sqrt_mask]) ** (4/3)
+  preds[...,sqrt_mask] = (preds[...,sqrt_mask]) ** (4/3)
 
   # unscale
   if not unscale:
     preds = preds * scale
+
+  if expand_batch:
+    preds = preds[0]
 
   return preds
 

@@ -275,6 +275,7 @@ class SeqNN():
 
 
   def build_slice(self, target_slice=None, target_sum=False):
+    """Slice and/or sum across tasks, in graph."""
     if target_slice is not None or target_sum:
       # sequence input
       sequence = tf.keras.Input(shape=(self.seq_length, 4), name='sequence')

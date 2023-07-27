@@ -21,17 +21,12 @@ import json
 import os
 import pdb
 import pickle
-import sys
 
 import h5py
 import numpy as np
 import pandas as pd
-import pysam
 import pyBigWig
 import tensorflow as tf
-
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
 
 from basenji import bed
 from basenji import dna_io

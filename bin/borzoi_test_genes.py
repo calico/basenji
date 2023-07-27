@@ -26,15 +26,13 @@ import numpy as np
 import pandas as pd
 import pybedtools
 import pyranges as pr
+from qnorm import quantile_normalize
 from scipy.stats import pearsonr
 from sklearn.metrics import explained_variance_score
 
+import pygene
 from basenji import dataset
 from basenji import seqnn
-
-import pygene
-from qnorm import quantile_normalize
-
 from basenji_sad import untransform_preds1
 from borzoi_sed import targets_prep_strand
 
@@ -251,6 +249,7 @@ def main():
     if gene_targets_gi.shape[0] == 0:
       print(gene_id, gene_targets_gi.shape, gene_preds_gi.shape)
 
+    # untransform
     gene_preds_gi = untransform_preds1(gene_preds_gi, targets_strand_df)
     gene_targets_gi = untransform_preds1(gene_targets_gi, targets_strand_df)
 

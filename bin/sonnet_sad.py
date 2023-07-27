@@ -66,9 +66,6 @@ def main():
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
-  parser.add_option('--pseudo', dest='log_pseudo',
-      default=1, type='float',
-      help='Log2 pseudocount [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -214,8 +211,7 @@ def main():
     pi += 1
 
     # process SNP
-    write_snp_len(ref_preds, alt_preds, sad_out, si,
-                  options.sad_stats, options.log_pseudo)
+    write_snp_len(ref_preds, alt_preds, sad_out, si, options.sad_stats)
 
   # close genome
   genome_open.close()

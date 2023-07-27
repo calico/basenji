@@ -152,6 +152,11 @@ def main():
   # prep strand
   targets_strand_df = targets_prep_strand(targets_df)
 
+  # set strand pairs (using new indexing)
+  orig_new_index = dict(zip(targets_df.index, np.arange(targets_df.shape[0])))
+  targets_strand_pair = np.array([orig_new_index[ti] for ti in targets_df.strand_pair])
+  params_model['strand_pair'] = [targets_strand_pair]
+
   #################################################################
   # setup model
 

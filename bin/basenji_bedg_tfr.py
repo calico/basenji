@@ -100,9 +100,10 @@ def main():
   params_model = params['model']
   params_train = params['train']
 
-  # set strand pairs
-  if 'strand_pair' in targets_df.columns:
-    params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
+  # set strand pairs (using new indexing)
+  orig_new_index = dict(zip(targets_df.index, np.arange(targets_df.shape[0])))
+  targets_strand_pair = np.array([orig_new_index[ti] for ti in targets_df.strand_pair])
+  params_model['strand_pair'] = [targets_strand_pair]
 
   # construct eval data
   eval_data = dataset.SeqDataset(data_dir,

@@ -83,9 +83,6 @@ def main():
       help='EM iterations to distribute multi-mapping reads [Default: %default]')
   parser.add_option('-o', dest='out_dir',
       default='bam_cov', help='Output directory [Default: %default]')
-  parser.add_option('-q', dest='mapq_t',
-      default=2, type='int',
-      help='Filter alignments for MAPQ >= threshold [Default: %default]')
   parser.add_option('-s', '--smooth_multi', dest='smooth_multi_sd',
       default=16, type='float',
       help='Gaussian standard deviation to smooth coverage estimates with [Default: %default]')
@@ -95,12 +92,6 @@ def main():
   parser.add_option('--strand', dest='stranded',
       default=False, action='store_true',
       help='Stranded sequencing, output forward and reverse coverage tracks [Default: %default]')
-<<<<<<< Updated upstream
-  parser.add_option('-u', dest='unsorted',
-=======
-  parser.add_option('--paired_end', dest='paired_end',
-      default=False, action='store_true',
-      help='Whether input bam is pair-end. This is important for dealing with stranded data [Default: %default]')
   parser.add_option('-t', dest='maps_t',
       default=20, type='int',
       help='Multi-mapper threshold [Default: %default]')
@@ -108,7 +99,6 @@ def main():
       default=False, action='store_true',
       help='Treat all alignments as unique [Default: %default]')
   parser.add_option('--unsorted', dest='unsorted',
->>>>>>> Stashed changes
       default=False, action='store_true',
       help='Alignments are unsorted [Default: %default]')
   parser.add_option('-v', dest='shift_forward_end',
@@ -143,7 +133,7 @@ def main():
   genome_coverage = GenomeCoverage(
       chrom_lengths,
       stranded=options.stranded,
-      paired_end=options.paired_end,
+      paired_end=(sp=='pair'),
       smooth_multi_sd=options.smooth_multi_sd,
       clip_max=options.clip_max,
       clip_max_multi=options.clip_max_multi,
@@ -151,8 +141,9 @@ def main():
       shift_forward=options.shift_forward_end,
       shift_reverse=options.shift_reverse_end,
       all_overlap=options.all_overlap,
+      all_unique=options.all_unique,
       fasta_file=options.fasta_file,
-      mapq_t=options.mapq_t)
+      maps_t=options.maps_t)
 
   # estimate fragment shift
   if options.shift_center:
@@ -301,7 +292,7 @@ def distribute_multi_succint(multi_weight_matrix, genome_unique_coverage, multi_
   lengths_list = list(chrom_lengths.values())
 
   # initialize genome coverage
-  genome_coverage = np.zeros(len(genome_unique_coverage), dtype='float16')
+  genome_coverage = np.zeros(len(genome_unique_coverage), dtype='float32')
 
   for it in range(max_iterations):
     print(' Iteration %d' % (it + 1), end='', flush=True)
@@ -442,7 +433,8 @@ class GenomeCoverage:
                shift_forward=0,
                shift_reverse=0,
                all_overlap=False,
-               mapq_t=1,
+               all_unique=False,
+               maps_t=1,
                fasta_file=None):
 
     self.stranded = stranded
@@ -461,7 +453,7 @@ class GenomeCoverage:
     self.genome_length = sum(self.chrom_lengths.values())
     # self.unique_counts = np.zeros(self.genome_length, dtype='uint16')
     # self.uc_max = np.iinfo(self.unique_counts.dtype).max
-    self.unique_counts = np.zeros(self.genome_length, dtype='float16')
+    self.unique_counts = np.zeros(self.genome_length, dtype='float32')
     self.uc_max = np.finfo(self.unique_counts.dtype).max
     self.active_blocks = None
 
@@ -478,7 +470,8 @@ class GenomeCoverage:
     self.adaptive_cdf = 0.01
     self.adaptive_t = {}
 
-    self.mapq_t = mapq_t
+    self.all_unique = all_unique
+    self.maps_t = maps_t
 
     self.fasta = None
     if fasta_file is not None:
@@ -530,7 +523,7 @@ class GenomeCoverage:
                                     iteration_estimates + 1)[:-1]
 
     # initialize genome coverage
-    genome_coverage = np.zeros(len(self.unique_counts), dtype='float16')
+    genome_coverage = np.zeros(len(self.unique_counts), dtype='float32')
 
     for it in range(max_iterations):
       print(' Iteration %d' % (it + 1), end='', flush=True)
@@ -1195,7 +1188,16 @@ class GenomeCoverage:
       multi_read_index = {}
 
     for align in pysam.AlignmentFile(bam_file):
-      if not align.is_unmapped and align.mapq >= self.mapq_t and not align.is_duplicate:
+      if self.all_unique:
+        num_maps = 1
+      elif align.has_tag('NH'):
+        num_maps = align.get_tag('NH')
+      elif align.has_tag('XA'):
+        num_maps = len(align.get_tag('XA').split(';')[:-1]) + 1
+      else:
+        num_maps = 1
+
+      if not align.is_unmapped and num_maps <= self.maps_t and not align.is_duplicate:
         read_id = (align.query_name, align.is_read1)
 
         if self.all_overlap:          
@@ -1239,7 +1241,7 @@ class GenomeCoverage:
         assert(np.all(np.less(gis, len(self.unique_counts))))
 
         # count unique
-        if (not align.has_tag('NH') or align.get_tag('NH')==1) and not align.has_tag('XA'):
+        if num_maps == 1:
           # self.unique_counts[gis] = np.clip(self.unique_counts[gis], 0, self.uc_max) + 1
           self.unique_counts[gis] += 1/len(gis)
 
@@ -1271,7 +1273,7 @@ class GenomeCoverage:
     self.multi_weight_matrix = csr_matrix(
         (multi_weight, (multi_reads, multi_positions)),
         shape=(num_multi_reads, self.genome_length),
-        dtype='float16')
+        dtype='float32')
     print(' Done in %ds.' % (time.time() - t0), flush=True)
 
     # validate that initial weights sum to 1
@@ -1447,7 +1449,7 @@ class GenomeCoverage:
 
     # finish updating multi alignment matrix for all multi alignments
     multi_reads.extend([ri]*multi_maps)
-    multi_weight.extend([np.float16(1./multi_maps)]*multi_maps)
+    multi_weight.extend([np.float32(1./multi_maps)]*multi_maps)
 
     # update read index
     return ri + 1
@@ -1474,7 +1476,7 @@ class GenomeCoverage:
       ari = ri
 
     # store alignment matrix
-    read_weight = np.float16(1./(nh_tag*len(gis)))
+    read_weight = np.float32(1./(nh_tag*len(gis)))
     multi_reads.extend([ari]*len(gis))
     multi_positions.extend(gis)
     multi_weight.extend([read_weight]*len(gis))
@@ -1638,6 +1640,11 @@ class GenomeCoverage:
 
       # set small values to zero
       chrom_coverage_array[chrom_coverage_array < zero_eps] = 0
+
+      # clip very large values
+      chrom_coverage_array = np.clip(chrom_coverage_array,
+                                     np.finfo(np.float16).min,
+                                     np.finfo(np.float16).max)
 
       # for stranded output
       if self.stranded:

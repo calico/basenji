@@ -95,7 +95,20 @@ def main():
   parser.add_option('--strand', dest='stranded',
       default=False, action='store_true',
       help='Stranded sequencing, output forward and reverse coverage tracks [Default: %default]')
+<<<<<<< Updated upstream
   parser.add_option('-u', dest='unsorted',
+=======
+  parser.add_option('--paired_end', dest='paired_end',
+      default=False, action='store_true',
+      help='Whether input bam is pair-end. This is important for dealing with stranded data [Default: %default]')
+  parser.add_option('-t', dest='maps_t',
+      default=20, type='int',
+      help='Multi-mapper threshold [Default: %default]')
+  parser.add_option('-u', dest='all_unique',
+      default=False, action='store_true',
+      help='Treat all alignments as unique [Default: %default]')
+  parser.add_option('--unsorted', dest='unsorted',
+>>>>>>> Stashed changes
       default=False, action='store_true',
       help='Alignments are unsorted [Default: %default]')
   parser.add_option('-v', dest='shift_forward_end',
@@ -130,6 +143,7 @@ def main():
   genome_coverage = GenomeCoverage(
       chrom_lengths,
       stranded=options.stranded,
+      paired_end=options.paired_end,
       smooth_multi_sd=options.smooth_multi_sd,
       clip_max=options.clip_max,
       clip_max_multi=options.clip_max_multi,
@@ -420,6 +434,7 @@ class GenomeCoverage:
   def __init__(self,
                chrom_lengths,
                stranded=False,
+               paired_end=False,
                smooth_multi_sd=1,
                clip_max=None,
                clip_max_multi=None,
@@ -431,6 +446,7 @@ class GenomeCoverage:
                fasta_file=None):
 
     self.stranded = stranded
+    self.paired_end = paired_end
     if self.stranded:
       # model + and - strand of each chromosome
       self.chrom_lengths = OrderedDict()
@@ -1208,7 +1224,12 @@ class GenomeCoverage:
 
         # set genome index
         if self.stranded:
-          strand = '+'*(not align.is_reverse) + '-'*(align.is_reverse)
+          if self.paired_end:
+            # Read1-forward-read2-reverse (F1R2): -
+            # Read1-reverse-read2-forward (F2R1): +
+            strand = '+'*(align.is_read1!=align.is_forward) + '-'*(align.is_read1==align.is_forward)
+          else:
+            strand = '+'*(not align.is_reverse) + '-'*(align.is_reverse)
           gis = self.genome_indexes(align.reference_id, chrom_pos, strand)
         else:
           gis = self.genome_indexes(align.reference_id, chrom_pos)

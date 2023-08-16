@@ -66,6 +66,9 @@ def main():
   parser.add_option('--tfr_eval', dest='tfr_eval_pattern',
       default=None,
       help='Evaluation TFR pattern string appended to data_dir/tfrecords for subsetting [Default: %default]')
+  parser.add_option('--input_encoded', dest='raw',
+      default=False,
+      help='Check if Input data is one hot encoded or not [Default: %default]')
   (options, args) = parser.parse_args()
 
   if len(args) < 2:
@@ -106,14 +109,16 @@ def main():
     batch_size=params_train['batch_size'],
     shuffle_buffer=params_train.get('shuffle_buffer', 128),
     mode='train',
-    tfr_pattern=options.tfr_train_pattern))
+    tfr_pattern=options.tfr_train_pattern,
+    raw))
 
     # load eval data
     eval_data.append(dataset.SeqDataset(data_dir,
     split_label='valid',
     batch_size=params_train['batch_size'],
     mode='eval',
-    tfr_pattern=options.tfr_eval_pattern))
+    tfr_pattern=options.tfr_eval_pattern,
+    raw))
 
   params_model['strand_pair'] = strand_pairs
 

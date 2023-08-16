@@ -33,7 +33,7 @@ def file_to_records(filename):
 
 class SeqDataset:
   def __init__(self, data_dir, split_label, batch_size, shuffle_buffer=128,
-               seq_length_crop=None, mode='eval', tfr_pattern=None):
+               seq_length_crop=None, mode='eval', tfr_pattern=None, raw=False):
     """Initialize basic parameters; run compute_stats; run make_dataset."""
 
     self.data_dir = data_dir
@@ -43,6 +43,7 @@ class SeqDataset:
     self.seq_length_crop = seq_length_crop
     self.mode = mode
     self.tfr_pattern = tfr_pattern
+    self.raw = raw
 
     # read data parameters
     data_stats_file = '%s/statistics.json' % self.data_dir
@@ -71,7 +72,7 @@ class SeqDataset:
   def distribute(self, strategy):
     self.dataset = strategy.experimental_distribute_dataset(self.dataset)
 
-  def generate_parser(self, raw=False):
+  def generate_parser(self):
     def parse_proto(example_protos):
       """Parse TFRecord protobuf."""
 
@@ -86,7 +87,7 @@ class SeqDataset:
 
       # decode sequence
       sequence = tf.io.decode_raw(parsed_features[TFR_INPUT], tf.uint8)
-      if not raw:
+      if not self.raw:
         if self.seq_1hot:
           sequence = tf.reshape(sequence, [self.seq_length])
           sequence = tf.one_hot(sequence, 1+self.seq_depth, dtype=tf.uint8)
@@ -165,7 +166,7 @@ class SeqDataset:
       # read TF Records
       dataset = tf.data.Dataset.list_files(self.tfr_path)
       dataset = dataset.flat_map(file_to_records)
-      dataset = dataset.map(self.generate_parser(raw=True))
+      dataset = dataset.map(self.generate_parser(raw))
       dataset = dataset.batch(1)
 
     self.num_seqs = 0
@@ -212,7 +213,7 @@ class SeqDataset:
 
       # read TF Records
       dataset = dataset.flat_map(file_to_records)
-      dataset = dataset.map(self.generate_parser(raw=True))
+      dataset = dataset.map(self.generate_parser())
       dataset = dataset.batch(1)
 
     # initialize inputs and outputs

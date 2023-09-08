@@ -13,33 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-from __future__ import print_function
-
 from optparse import OptionParser
-import gc
 import json
-import pdb
 import pickle
 import os
-from queue import Queue
 import sys
-from threading import Thread
-import time
 
-import h5py
 import numpy as np
 import pandas as pd
 import pysam
-import tensorflow as tf
-if tf.__version__[0] == '1':
-  tf.compat.v1.enable_eager_execution()
+from scipy.sparse import dok_matrix
 
 from basenji import dna_io
 from basenji import seqnn
 from basenji import vcf as bvcf
-from basenji import stream
 
-from basenji_sad import SNPWorker, initialize_output_h5, write_pct, write_snp
+from basenji_sad import initialize_output_h5, targets_prep_strand, write_pct, write_snp_len
+from basenji_sad import untransform_preds, untransform_preds1
 
 '''
 basenji_sad_ref.py
@@ -64,18 +54,12 @@ def main():
   parser.add_option('--flip', dest='flip_ref',
       default=False, action='store_true',
       help='Flip reference/alternate alleles when simple [Default: %default]')
-  parser.add_option('-n', dest='norm_file',
-      default=None,
-      help='Normalize SAD scores')
   parser.add_option('-o',dest='out_dir',
       default='sad',
       help='Output directory for tables and plots [Default: %default]')
   parser.add_option('-p', dest='processes',
       default=None, type='int',
       help='Number of processes, passed by multi script')
-  parser.add_option('--pseudo', dest='log_pseudo',
-      default=1, type='float',
-      help='Log2 pseudocount [Default: %default]')
   parser.add_option('--rc', dest='rc',
       default=False, action='store_true',
       help='Average forward and reverse complement predictions [Default: %default]')
@@ -88,16 +72,12 @@ def main():
   parser.add_option('-t', dest='targets_file',
       default=None, type='str',
       help='File specifying target indexes and labels in table format')
-  parser.add_option('--ti', dest='track_indexes',
-      default=None, type='str',
-      help='Comma-separated list of target indexes to output BigWig tracks')
-  parser.add_option('--threads', dest='threads',
-      default=False, action='store_true',
-      help='Run CPU math and output in a separate thread [Default: %default]')
-  parser.add_option('-u', dest='penultimate',
-      default=False, action='store_true',
-      help='Compute SED in the penultimate layer [Default: %default]')
+  parser.add_option('-u', dest='untransform_old',
+      default=False, action='store_true')
   (options, args) = parser.parse_args()
+
+  if options.flip_ref:
+    parser.error('Do not use --flip yet', file=sys.stderr)
 
   if len(args) == 3:
     # single worker
@@ -127,16 +107,8 @@ def main():
   if not os.path.isdir(options.out_dir):
     os.mkdir(options.out_dir)
 
-  if options.track_indexes is None:
-    options.track_indexes = []
-  else:
-    options.track_indexes = [int(ti) for ti in options.track_indexes.split(',')]
-    if not os.path.isdir('%s/tracks' % options.out_dir):
-      os.mkdir('%s/tracks' % options.out_dir)
-
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.sad_stats = options.sad_stats.split(',')
-
 
   #################################################################
   # read parameters and targets
@@ -149,27 +121,61 @@ def main():
 
   if options.targets_file is None:
     target_slice = None
+    sum_strand = False
   else:
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
-    target_ids = targets_df.identifier
-    target_labels = targets_df.description
     target_slice = targets_df.index
 
-  if options.penultimate:
-    parser.error('Not implemented for TF2')
+    if 'strand_pair' in targets_df.columns:
+      sum_strand = True
+
+      # prep strand
+      targets_strand_df = targets_prep_strand(targets_df)
+
+      # set strand pairs (using new indexing)
+      orig_new_index = dict(zip(targets_df.index, np.arange(targets_df.shape[0])))
+      targets_strand_pair = np.array([orig_new_index[ti] for ti in targets_df.strand_pair])
+      params_model['strand_pair'] = [targets_strand_pair]
+
+      # construct strand sum transform
+      strand_transform = dok_matrix((targets_df.shape[0], targets_strand_df.shape[0]))
+      ti = 0
+      sti = 0
+      for _, target in targets_df.iterrows():
+        strand_transform[ti,sti] = True
+        if target.strand_pair == target.name:
+          sti += 1
+        else:
+          if target.identifier[-1] == '-':
+            sti += 1
+        ti += 1
+      strand_transform = strand_transform.tocsr()
+
+    else:
+      targets_strand_df = targets_df
+      sum_strand = False
 
   #################################################################
   # setup model
 
+  # can we sum on GPU?
+  sum_length = (options.sad_stats == 'SAD')
+
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file)
   seqnn_model.build_slice(target_slice)
+  if sum_length:
+    seqnn_model.build_sad()
   seqnn_model.build_ensemble(options.rc, options.shifts)
 
+  targets_length = seqnn_model.target_lengths[0]
   num_targets = seqnn_model.num_targets()
   if options.targets_file is None:
     target_ids = ['t%d' % ti for ti in range(num_targets)]
     target_labels = ['']*len(target_ids)
+    targets_strand_df = pd.DataFrame({
+      'identifier':target_ids,
+      'description':target_labels})
 
   #################################################################
   # load SNPs
@@ -196,6 +202,9 @@ def main():
   # delimit sequence boundaries
   [sc.delimit(params_model['seq_length']) for sc in snp_clusters]
 
+  # save flip status
+  # snp_flips = np.array([snp.flipped for snp in snps], dtype='bool')
+
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
 
@@ -208,62 +217,59 @@ def main():
 
 
   #################################################################
-  # setup output
-
-  snp_flips = np.array([snp.flipped for snp in snps], dtype='bool')
-
-  sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
-                                 snps, target_ids, target_labels)
-
-  if options.threads:
-    snp_threads = []
-    snp_queue = Queue()
-    for i in range(1):
-      sw = SNPWorker(snp_queue, sad_out, options.sad_stats, options.log_pseudo)
-      sw.start()
-      snp_threads.append(sw)
-
-
-  #################################################################
   # predict SNP scores, write output
 
-  # initialize predictions stream
-  preds_stream = stream.PredStreamGen(seqnn_model, snp_gen(), params['train']['batch_size'])
-
-  # predictions index
-  pi = 0
+  sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
+                                 snps, targets_length, targets_strand_df)
 
   # SNP index
   si = 0
 
-  for snp_cluster in snp_clusters:
-    ref_preds = preds_stream[pi]
-    pi += 1
+  for sc in snp_clusters:
+    snp_1hot_list = sc.get_1hots(genome_open)
 
-    for snp in snp_cluster.snps:
-      # print(snp, flush=True)
+    # predict reference
+    ref_1hot = np.expand_dims(snp_1hot_list[0], axis=0)
+    ref_preds = seqnn_model(ref_1hot)[0]
 
-      alt_preds = preds_stream[pi]
-      pi += 1
-
-      if snp_flips[si]:
-        ref_preds, alt_preds = alt_preds, ref_preds
-
-      if options.threads:
-        # queue SNP
-          snp_queue.put((ref_preds, alt_preds, si))
+    # untransform predictions
+    if options.targets_file is not None:
+      if options.untransform_old:
+        ref_preds = untransform_preds1(ref_preds, targets_df)
       else:
-        # process SNP
-        write_snp(ref_preds, alt_preds, sad_out, si,
-                  options.sad_stats, options.log_pseudo)
+        ref_preds = untransform_preds(ref_preds, targets_df)
+
+    # sum strand pairs
+    if sum_strand:
+      ref_preds = ref_preds * strand_transform
+
+    for alt_1hot in snp_1hot_list[1:]:
+      alt_1hot = np.expand_dims(alt_1hot, axis=0)
+
+      # predict alternate
+      alt_preds = seqnn_model(alt_1hot)[0]
+
+      # untransform predictions
+      if options.targets_file is not None:
+        if options.untransform_old:
+          alt_preds = untransform_preds1(alt_preds, targets_df)
+        else:
+          alt_preds = untransform_preds(alt_preds, targets_df)
+
+      # sum strand pairs
+      if sum_strand:
+        alt_preds = alt_preds * strand_transform
+
+      # this needs more careful consideration
+      # if snp_flips[si]:
+      #   ref_preds, alt_preds = alt_preds, ref_preds
+
+      # write SNP
+      write_snp_len(ref_preds, alt_preds, sad_out, si,
+                    options.sad_stats)      
 
       # update SNP index
       si += 1
-
-  # finish queue
-  if options.threads:
-    print('Waiting for threads to finish.', flush=True)
-    snp_queue.join()
 
   # close genome
   genome_open.close()

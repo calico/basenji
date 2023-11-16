@@ -1,0 +1,75 @@
+{
+    "train": {
+        "batch_size": 2,
+	"shuffle_buffer": 256,
+        "optimizer": "adam",
+	"learning_rate": 0.00006,
+	"loss": "poisson",
+        "warmup_steps": 20000,
+        "global_clipnorm": 0.15,
+        "adam_beta1": 0.9,
+        "adam_beta2": 0.999,
+        "patience": 30,
+	"train_epochs_min": 150,
+	"train_epochs_max": 200
+    },
+    "model": {
+        "seq_length": 196608,
+        "augment_rc": true,
+        "augment_shift": 3,
+        "activation": "gelu",
+        "norm_type": "batch-sync",
+        "bn_momentum": 0.9,
+	"kernel_initializer": "lecun_normal",
+	"l2_scale": 2.0e-8,
+        "trunk": [
+            {
+                "name": "conv_dna",
+                "filters": 512,
+                "kernel_size": 15,
+                "pool_size": 2,
+		"residual": true
+            },
+            {
+                "name": "res_tower",
+                "filters_init": 608,
+		"filters_end": 1536,
+		"divisible_by": 32,
+                "kernel_size": 5,
+		"num_convs": 2,
+                "pool_size": 2,
+                "repeat": 6
+            },
+            {
+                "name": "transformer_tower",
+                "key_size": 64,
+                "heads": 8,
+                "num_position_features": 32,
+                "dropout": 0.2,
+		"mha_l2_scale": 1.0e-8,
+		"l2_scale": 1.0e-8,
+		"kernel_initializer": "he_normal",
+		"repeat": 8
+            },
+            {
+                "name": "Cropping1D",
+                "cropping": 320
+            },
+            {
+                "name": "conv_nac",
+                "filters": 2304,
+                "dropout": 0.1
+            }
+        ],
+	"head_human": {
+            "name": "final",
+            "units": 5313,
+            "activation": "softplus"
+        },
+        "head_mouse": {
+            "name": "final",
+            "units": 1643,
+            "activation": "softplus"
+        }
+    }
+}

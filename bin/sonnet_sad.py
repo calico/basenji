@@ -128,17 +128,10 @@ def main():
   options.shifts = [int(shift) for shift in options.shifts.split(',')]
   options.sad_stats = options.sad_stats.split(',')
 
-
-  #################################################################
-  # read parameters and targets
-
   if options.targets_file is None:
-    target_slice = None
+    parser.error('Must provide targets file')
   else:
     targets_df = pd.read_csv(options.targets_file, sep='\t', index_col=0)
-    target_ids = targets_df.identifier
-    target_labels = targets_df.description
-    target_slice = targets_df.index
 
   #################################################################
   # setup model
@@ -151,10 +144,6 @@ def main():
   null_preds = seqnn_model.predict_on_batch(null_1hot)
   null_preds = null_preds[options.species].numpy()
   _, targets_length, num_targets = null_preds.shape
-
-  if options.targets_file is None:
-    target_ids = ['t%d' % ti for ti in range(num_targets)]
-    target_labels = ['']*len(target_ids)
 
   #################################################################
   # load SNPs
@@ -190,7 +179,7 @@ def main():
   # setup output
 
   sad_out = initialize_output_h5(options.out_dir, options.sad_stats,
-                                 snps, target_ids, target_labels, targets_length)
+                                 snps, targets_length, targets_df)
 
   #################################################################
   # predict SNP scores, write output

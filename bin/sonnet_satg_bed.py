@@ -211,7 +211,7 @@ def main():
 
   # find center
   if options.slice_center:
-    center_start = preds_length // 2
+    center_start = preds_length // 2 - 1
     if preds_length % 2 == 0:
       center_end = center_start + 2
     else:

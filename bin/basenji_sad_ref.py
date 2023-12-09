@@ -208,13 +208,6 @@ def main():
   # open genome FASTA
   genome_open = pysam.Fastafile(options.genome_fasta)
 
-  # make SNP sequence generator
-  def snp_gen():
-    for sc in snp_clusters:
-      snp_1hot_list = sc.get_1hots(genome_open)
-      for snp_1hot in snp_1hot_list:
-        yield snp_1hot
-
 
   #################################################################
   # predict SNP scores, write output

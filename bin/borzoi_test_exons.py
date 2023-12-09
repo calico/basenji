@@ -22,27 +22,20 @@ import pdb
 import os
 import time
 
-import h5py
-from intervaltree import IntervalTree
 import numpy as np
 import pandas as pd
 import pyranges as pr
 from scipy.stats import pearsonr
-from sklearn.metrics import explained_variance_score
-import tensorflow as tf
-from tqdm import tqdm
 
-from basenji import bed
+import pygene
 from basenji import dataset
 from basenji import seqnn
-from basenji import trainer
-import pygene
-from qnorm import quantile_normalize
+from basenji_sad import untransform_preds1
 
 '''
-borzoi_test_genes.py
+borzoi_test_exons.py
 
-Measure accuracy at gene-level.
+Measure accuracy at exon-level, focusing on tissue-specificity.
 '''
 
 ################################################################################
@@ -51,9 +44,12 @@ Measure accuracy at gene-level.
 def main():
   usage = 'usage: %prog [options] <params_file> <model_file> <data_dir> <exons_gff>'
   parser = OptionParser(usage)
-  parser.add_option('-b', dest='exon_buffer',
-      default=2, type='int',
-      help='Ignore exons this many exons at the 5p or 3p end [Default: %default]')
+  parser.add_option('-b', dest='exons_bed',
+      default=None,
+      help='Internal variable exons BED [Default: %default]')
+  parser.add_option('-e', dest='exon_end',
+       default=2, type='int',
+       help='Ignore exons this many exons at the 5p or 3p end [Default: %default]')
   parser.add_option('--head', dest='head_i',
       default=0, type='int',
       help='Parameters head [Default: %default]')
@@ -112,21 +108,16 @@ def main():
   strand_mask = (targets_df.strand != '-')
   targets_strand_df = targets_df[strand_mask]
 
-  # count targets
-  num_targets = targets_df.shape[0]
-  num_targets_strand = targets_strand_df.shape[0]
-
-  # save sqrt'd tracks
-  sqrt_mask = np.array([ss.find('sqrt') != -1 for ss in targets_strand_df.sum_stat])
-
   # read model parameters
   with open(params_file) as params_open:
     params = json.load(params_open)
   params_model = params['model']
   params_train = params['train']
 
-  # set strand pairs
-  params_model['strand_pair'] = [np.array(targets_df.strand_pair)]
+  # set strand pairs (using new indexing)
+  orig_new_index = dict(zip(targets_df.index, np.arange(targets_df.shape[0])))
+  targets_strand_pair = np.array([orig_new_index[ti] for ti in targets_df.strand_pair])
+  params_model['strand_pair'] = [targets_strand_pair]
   
   # construct eval data
   eval_data = dataset.SeqDataset(data_dir,
@@ -138,8 +129,13 @@ def main():
   # initialize model
   seqnn_model = seqnn.SeqNN(params_model)
   seqnn_model.restore(model_file, options.head_i)
-  seqnn_model.build_slice(targets_df.index)
+  seqnn_model.build_slice(targets_df.index)  
   seqnn_model.build_ensemble(options.rc, options.shifts)
+
+  # seqnn_model.strand_pair = [np.arange(seqnn_model.num_targets())]
+  # seqnn_model.strand_pair[0][targets_df.index] = np.array(targets_df.strand_pair)
+  # seqnn_model.build_ensemble(options.rc, options.shifts)
+  # seqnn_model.build_slice(targets_df.index)
   
   #######################################################
   # sequence intervals
@@ -204,6 +200,7 @@ def main():
     # predict only if gene overlaps
     yh = None
     y = y.numpy()[...,targets_df.index]
+    y = untransform_preds1(y, targets_df, unscale=True)
 
     t0 = time.time()
     print('Sequence %d...' % si, end='')
@@ -235,12 +232,19 @@ def main():
         # predict
         if yh is None:
           yh = seqnn_model(x)
+          print(yh.max(), " untransformed to ", end='')
+          yh = untransform_preds1(yh, targets_df, unscale=True)
+          print(yh.max())
 
         # slice gene region
         yhb = yh[bsi,bin_start:bin_end].astype('float16')
         yb = y[bsi,bin_start:bin_end].astype('float16')
 
-        if len(yb) > 0:  
+        if np.isinf(yhb).any() or np.isnan(yhb).any():
+          print(f"WARNING: {gene_id} {exon_id} has NaN/Inf values")
+
+        if len(yb) > 0:
+          # save
           exon_preds_dict.setdefault(exon_id,[]).append(yhb)
           exon_targets_dict.setdefault(exon_id,[]).append(yb)
           gene_preds_dict.setdefault(gene_id,[]).append(yhb)
@@ -271,18 +275,6 @@ def main():
     gene_preds_gi = gene_preds_gi[:,gene_strand_mask]
     gene_targets_gi = gene_targets_gi[:,gene_strand_mask]
 
-    # undo scale
-    gene_preds_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
-    gene_targets_gi /= np.expand_dims(targets_strand_df.scale, axis=0)
-
-    # undo sqrt
-    gene_preds_gi[:,sqrt_mask] = gene_preds_gi[:,sqrt_mask]**(4/3)
-    gene_targets_gi[:,sqrt_mask] = gene_targets_gi[:,sqrt_mask]**(4/3)
-
-    # median coverage
-    # gene_preds_gi = np.percentile(gene_preds_gi, 95, axis=0)
-    # gene_targets_gi = np.percentile(gene_targets_gi, 95, axis=0)
-
     # mean coverage
     gene_preds_gi = np.mean(gene_preds_gi, axis=0)
     gene_targets_gi = np.mean(gene_targets_gi, axis=0)
@@ -308,42 +300,44 @@ def main():
 
   #######################################################
   # filter for internal exons
-  """
-  # hash genes to their exon numbers
-  gene_exon_nums = {}
-  exon_ids = sorted(exon_targets_dict.keys())
-  for ei, exon_id in enumerate(exon_ids):
-    gene_id, exon_num = exon_id.split('/')
-    exon_num = int(exon_num)
-    gene_exon_nums.setdefault(gene_id,[]).append(exon_num)
 
   internal_exons = set()
-  for gene_id, exon_nums in gene_exon_nums.items():
-    exon_nums = sorted(exon_nums)
+  if options.exons_bed is None:
+    # hash genes to their exon numbers
+    gene_exon_nums = {}
+    exon_ids = sorted(exon_targets_dict.keys())
+    for ei, exon_id in enumerate(exon_ids):
+      gene_id, exon_num = exon_id.split('/')
+      exon_num = int(exon_num)
+      gene_exon_nums.setdefault(gene_id,[]).append(exon_num)
+    
+    for gene_id, exon_nums in gene_exon_nums.items():
+      exon_nums = sorted(exon_nums)
 
-    exon_buffer_end = len(exon_nums)-options.exon_buffer+1
-    for egi in range(options.exon_buffer, exon_buffer_end):
-      egn = exon_nums[egi]
-      exon_num = str(egn).zfill(3)
-      exon_id = '%s/%s' % (gene_id, exon_num)
-      internal_exons.add(exon_id)
-  """
-  internal_exons = set()
-  # /home/yuanh/analysis/Borzoi/ASCOT/cassettes.bed
-  for line in open('ascot_exons_std50.bed'):
-    a = line.split('\t')
-    chrm = a[0]
-    start = int(a[1]) # + 1, only for Han's
-    end = int(a[2])
-    exon_id = coords_exonid.get((chrm,start,end), None)
-    if exon_id in exon_targets_dict:
-      internal_exons.add(exon_id)
+      exon_buffer_end = len(exon_nums)-options.exon_end+1
+      for egi in range(options.exon_end, exon_buffer_end):
+        egn = exon_nums[egi]
+        exon_num = str(egn).zfill(3)
+        exon_id = '%s/%s' % (gene_id, exon_num)
+        internal_exons.add(exon_id)
+
+  else:
+    # read directly from BED
+    for line in open(options.exons_bed):
+      a = line.split('\t')
+      chrm = a[0]
+      start = int(a[1])
+      end = int(a[2])
+      exon_id = coords_exonid.get((chrm,start,end), None)
+      if exon_id in exon_targets_dict:
+        internal_exons.add(exon_id)
 
   #######################################################
-  # aggregate exon bin values into arrays
+  # aggregate exon bins and normalize by gene
 
-  exon_targets = []
-  exon_preds = []
+  exonr_targets = []
+  exonr_preds = []
+  exonr_ge = []
   exon_ids = []
 
   for exon_id in sorted(internal_exons):
@@ -362,18 +356,11 @@ def main():
     if exon_targets_ei.shape[0] == 0:
       print(exon_id, exon_targets_ei.shape, exon_preds_ei.shape)
 
-    # undo scale
-    exon_preds_ei /= np.expand_dims(targets_strand_df.scale, axis=0)
-    exon_targets_ei /= np.expand_dims(targets_strand_df.scale, axis=0)
-
-    # undo sqrt
-    exon_preds_ei[:,sqrt_mask] = exon_preds_ei[:,sqrt_mask]**(4/3)
-    exon_targets_ei[:,sqrt_mask] = exon_targets_ei[:,sqrt_mask]**(4/3)
-
     # mean coverage
     exon_preds_ei = exon_preds_ei.mean(axis=0)
     exon_targets_ei = exon_targets_ei.mean(axis=0)
 
+    """ v1
     # skip exons expressed less than pseudocount in all samples
     exon_max = exon_targets_ei.max()
     gene_min = gene_targets_dict[gene_id].min()
@@ -393,15 +380,20 @@ def main():
         exon_preds.append(exon_preds_ei)
         exon_targets.append(exon_targets_ei)
         exon_ids.append(exon_id)
+    """
+    # normalize by gene
+    exonr_preds_ei = exon_preds_ei / (gene_preds_dict[gene_id]+pseudocount)
+    exonr_targets_ei = exon_targets_ei / (gene_targets_dict[gene_id]+pseudocount)
 
-  exon_targets = np.array(exon_targets)
-  exon_preds = np.array(exon_preds)
+    # append to array lists
+    exonr_preds.append(exonr_preds_ei)
+    exonr_targets.append(exonr_targets_ei)
+    exonr_ge.append(gene_preds_dict[gene_id])
+    exon_ids.append(exon_id)
 
-  # TEMP
-  # exon_targets_df = pd.DataFrame(exon_targets, index=exon_ids)
-  # exon_targets_df.to_csv('%s/exon_targets_prenorm.tsv.gz' % options.out_dir, sep='\t')
-  # exon_preds_df = pd.DataFrame(exon_preds, index=exon_ids)
-  # exon_preds_df.to_csv('%s/exon_preds_prenorm.tsv.gz' % options.out_dir, sep='\t')
+  exonr_targets = np.array(exonr_targets)
+  exonr_preds = np.array(exonr_preds)
+  exonr_ge = np.array(exonr_ge)
 
   #######################################################
   # normalize by adjacent exons
@@ -454,11 +446,20 @@ def main():
   # accuracy stats
 
   # save values
-  exon_targets_df = pd.DataFrame(exon_targets, index=exon_ids)
-  exon_targets_df.to_csv('%s/exon_targets.tsv.gz' % options.out_dir, sep='\t')
-  exon_preds_df = pd.DataFrame(exon_preds, index=exon_ids)
-  exon_preds_df.to_csv('%s/exon_preds.tsv.gz' % options.out_dir, sep='\t')
+  exonr_targets_df = pd.DataFrame(exonr_targets,
+                                  index=exon_ids,
+                                  columns=targets_strand_df.identifier)
+  exonr_targets_df.to_csv('%s/exonr_targets.tsv.gz' % options.out_dir, sep='\t')
+  exonr_preds_df = pd.DataFrame(exonr_preds,
+                                index=exon_ids,
+                                columns=targets_strand_df.identifier)
+  exonr_preds_df.to_csv('%s/exonr_preds.tsv.gz' % options.out_dir, sep='\t')
+  exonr_ge_df = pd.DataFrame(exonr_ge,
+                             index=exon_ids,
+                             columns=targets_strand_df.identifier)
+  exonr_ge_df.to_csv('%s/exonr_ge.tsv.gz' % options.out_dir, sep='\t')
 
+  """ need help choosing thresholds
   # compute exon variances
   exon_var = exon_targets.var(axis=-1)
   exon_var = np.nan_to_num(exon_var)
@@ -486,6 +487,7 @@ def main():
     var_t = np.percentile(exon_var, 100-var_pct)
     var_mask = (exon_var >= var_t)
     print('%5d\t%6d\t%.4f' % (var_pct, var_mask.sum(), exon_pearsonr[var_mask].mean()))
+  """
 
 
 ################################################################################

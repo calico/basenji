@@ -44,6 +44,9 @@ def main():
   parser = OptionParser(usage)
   parser.add_option('-a', '--alt', dest='alternative',
       default='two-sided', help='Statistical test alternative [Default: %default]')
+  parser.add_option('-b', dest='exons_bed',
+      default=None,
+      help='Internal variable exons BED [Default: %default]')
   parser.add_option('-c', dest='crosses',
       default=1, type='int',
       help='Number of cross-fold rounds [Default:%default]')
@@ -53,7 +56,10 @@ def main():
   parser.add_option('--d_ref', dest='dataset_ref_i',
       default=None, type='int',
       help='Reference Dataset index [Default:%default]')
-  parser.add_option('-e', dest='conda_env',
+  parser.add_option('-e', dest='exon_end',
+       default=2, type='int',
+       help='Ignore exons this many exons at the 5p or 3p end [Default: %default]')
+  parser.add_option('--env', dest='conda_env',
       default='tf210',
       help='Anaconda environment [Default: %default]')
   parser.add_option('-f', dest='fold_subset',
@@ -168,6 +174,7 @@ def main():
                       name=name,
                       out_file='%s.out'%out_dir,
                       err_file='%s.err'%out_dir,
+                      sb_file='%s.sb'%out_dir,
                       queue=options.queue,
                       cpu=num_cpu, gpu=num_gpu,
                       mem=45000,

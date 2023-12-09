@@ -33,8 +33,7 @@ from sklearn.metrics import explained_variance_score
 import pygene
 from basenji import dataset
 from basenji import seqnn
-from basenji_sad import untransform_preds1
-from borzoi_sed import targets_prep_strand
+from basenji_sad import targets_prep_strand, untransform_preds1
 
 '''
 borzoi_test_genes.py
@@ -131,7 +130,6 @@ def main():
   # read data parameters
   with open('%s/statistics.json'%data_dir) as data_open:
     data_stats = json.load(data_open)
-    crop_bp = data_stats['crop_bp']
     pool_width = data_stats['pool_width']
 
   # read sequence positions
@@ -260,7 +258,6 @@ def main():
         preds_log = np.log2(gene_preds_gi[:,ti]+1)
         targets_log = np.log2(gene_targets_gi[:,ti]+1)
         gene_corr_gi[ti] = pearsonr(preds_log, targets_log)[0]
-        # gene_corr_gi[ti] = pearsonr(gene_preds_gi[:,ti], gene_targets_gi[:,ti])[0]
       else:
         gene_corr_gi[ti] = np.nan
     gene_within.append(gene_corr_gi)

@@ -216,6 +216,7 @@ def job_completed(options, pi):
   else:
     try:
       out_open = h5py.File(out_file, 'r')
+      out_open.close()
     except OSError:
       valid_file = False
   return valid_file

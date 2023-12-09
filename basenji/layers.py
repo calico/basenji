@@ -737,17 +737,17 @@ class SqueezeExcite(tf.keras.layers.Layer):
       activation=None)
 
     # normalize
-    # if self.norm_type == 'batch-sync':
-    #   self.norm = tf.keras.layers.experimental.SyncBatchNormalization(
-    #     momentum=self.bn_momentum, gamma_initializer='zeros')
-    # elif self.norm_type == 'batch':
-    #   self.norm = tf.keras.layers.BatchNormalization(
-    #     momentum=self.bn_momentum, gamma_initializer='zeros')
-    # elif self.norm_type == 'layer':
-    #   self.norm = tf.keras.layers.LayerNormalization(
-    #     gamma_initializer='zeros')
-    # else:
-    #   self.norm = None
+    if self.norm_type == 'batch-sync':
+      self.norm = tf.keras.layers.experimental.SyncBatchNormalization(
+        momentum=self.bn_momentum, gamma_initializer='zeros')
+    elif self.norm_type == 'batch':
+      self.norm = tf.keras.layers.BatchNormalization(
+        momentum=self.bn_momentum, gamma_initializer='zeros')
+    elif self.norm_type == 'layer':
+      self.norm = tf.keras.layers.LayerNormalization(
+        gamma_initializer='zeros')
+    else:
+      self.norm = None
 
   def call(self, x):
     # activate
@@ -759,8 +759,8 @@ class SqueezeExcite(tf.keras.layers.Layer):
     # excite
     excite = self.dense1(squeeze)
     excite = self.dense2(excite)
-    # if self.norm is not None:
-    #   excite = self.norm(excite)
+    if self.norm is not None:
+      excite = self.norm(excite)
 
     # scale
     if self.one_or_two == 'one':

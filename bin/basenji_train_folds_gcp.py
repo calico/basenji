@@ -227,19 +227,27 @@ def main():
       vm_name = '%s-%s' % (options.vm_base, rep_label)
 
       if options.worker == rep_label:
+        # collect rep data
+        rep_data_dirs = []
+        for di in range(num_data):
+          rep_data_dirs.append('%s/data%d' % (rep_dir, di))
+
         cmd_train = ' %s %s/basenji_train.py' % (python_path, basenji_path)
         cmd_train += ' %s' % options_train_string(options, train_options, rep_dir)
         cmd_train += ' %s %s' % (params_file, ' '.join(rep_data_dirs))
         cmd_train += ' | tee %s/train.out' % rep_dir
         cmd_train += ' 2> %s/train.err' % rep_dir
+        print(cmd_train)
         subprocess.call(cmd_train, shell=True)
         # gcp_train = 'gcloud compute ssh %s --command "%s"' % (vm_fold, cmd_train)
         # subprocess.call(gcp_train, shell=True)
 
+  exit()
+
 
   #######################################################
   # test train
-  """
+
   jobs = []
   if not options.test_train_off:
     for ci in range(options.crosses):
@@ -284,7 +292,7 @@ def main():
                             mem=23000,
                             time='8:00:00')
             jobs.append(basenji_job)
-  """
+
   #######################################################
   # test best
   
@@ -323,7 +331,7 @@ def main():
  
   #######################################################
   # test best specificity
-  """
+  
   if not options.spec_off:
     for ci in range(options.crosses):
       for fi in range(options.num_folds):
@@ -369,7 +377,6 @@ def main():
   
   slurm.multi_run(jobs, max_proc=options.processes, verbose=True,
                   launch_sleep=10, update_sleep=60)
-  """
 
   #######################################################
   # conclusion

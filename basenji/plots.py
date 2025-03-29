@@ -178,7 +178,7 @@ def regplot(vals1,
   gold = sns.color_palette('husl', 8)[1]
 
   if colors is None:
-    ax = sns.regplot(vals1, vals2, color='black',
+    ax = sns.regplot(x=vals1, y=vals2, color='black',
         order=poly_order,
         scatter_kws={'color': 'black',
                      's': point_size,

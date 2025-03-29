@@ -187,7 +187,7 @@ class SeqNN():
       self.model_strides.append(1)
       for layer in self.model.layers:
         if hasattr(layer, 'strides') or hasattr(layer, 'size'):
-          stride_factor = layer.input_shape[1] / layer.output_shape[1]
+          stride_factor = layer.input.shape[1] / layer.output.shape[1]
           self.model_strides[-1] *= stride_factor
       self.model_strides[-1] = int(self.model_strides[-1])
 

@@ -31,4 +31,4 @@ dependencies:
   - pip:
     - cooler
     - cooltools
-    - tensorflow
+    - tensorflow=2.15
